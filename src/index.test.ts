@@ -1035,4 +1035,561 @@ describe("ilha.mount()", () => {
       cleanup(el);
     });
   });
+
+  // ─────────────────────────────────────────────
+  // .derived()
+  // ─────────────────────────────────────────────
+
+  describe(".derived()", () => {
+    // ── SSR — async ──────────────────────────────────────────────────────────
+
+    it("SSR: async derived is always loading: true during SSR", () => {
+      const island = ilha
+        .derived("data", async () => "resolved")
+        .render(({ derived }) =>
+          derived.data.loading ? "<p>loading</p>" : `<p>${derived.data.value}</p>`,
+        );
+
+      expect(island()).toBe("<p>loading</p>");
+    });
+
+    it("SSR: async derived.value and derived.error are undefined during SSR", () => {
+      const island = ilha
+        .derived("data", async () => 42)
+        .render(({ derived }) => {
+          const d = derived.data;
+          return `${d.loading}:${d.value}:${d.error}`;
+        });
+
+      expect(island()).toBe("true:undefined:undefined");
+    });
+
+    it("SSR: multiple async derived keys all start as loading", () => {
+      const island = ilha
+        .derived("a", async () => 1)
+        .derived("b", async () => 2)
+        .render(({ derived }) => `${derived.a.loading}:${derived.b.loading}`);
+
+      expect(island()).toBe("true:true");
+    });
+
+    // ── SSR — sync ───────────────────────────────────────────────────────────
+
+    it("SSR: sync derived resolves immediately during SSR", () => {
+      const island = ilha
+        .state("count", 5)
+        .derived("doubled", ({ state }) => state.count() * 2)
+        .render(({ derived }) =>
+          derived.doubled.loading ? "<p>loading</p>" : `<p>${derived.doubled.value}</p>`,
+        );
+
+      expect(island()).toBe("<p>10</p>");
+    });
+
+    it("SSR: sync derived has loading: false and correct value", () => {
+      const island = ilha
+        .state("name", "ada")
+        .derived("upper", ({ state }) => state.name().toUpperCase())
+        .render(({ derived }) => {
+          const d = derived.upper;
+          return `${d.loading}:${d.value}:${d.error}`;
+        });
+
+      expect(island()).toBe("false:ADA:undefined");
+    });
+
+    it("SSR: sync derived receives input", () => {
+      const island = ilha
+        .input(z.object({ multiplier: z.number().default(3) }))
+        .derived("result", ({ input }) => input.multiplier * 10)
+        .render(({ derived }) => `<p>${derived.result.value}</p>`);
+
+      expect(island({ multiplier: 4 })).toBe("<p>40</p>");
+    });
+
+    it("SSR: mixed sync and async derived — sync resolves, async is loading", () => {
+      const island = ilha
+        .state("count", 3)
+        .derived("sync", ({ state }) => state.count() * 2)
+        .derived("async", async ({ state }) => state.count() * 3)
+        .render(
+          ({ derived }) =>
+            `${derived.sync.loading}:${derived.sync.value}:${derived.async.loading}:${derived.async.value}`,
+        );
+
+      expect(island()).toBe("false:6:true:undefined");
+    });
+
+    // ── Client — basic resolve ────────────────────────────────────────────────
+
+    it("client: async derived resolves and triggers re-render", async () => {
+      const island = ilha
+        .derived("msg", async () => {
+          await new Promise((r) => setTimeout(r, 5));
+          return "hello";
+        })
+        .render(({ derived }) =>
+          derived.msg.loading ? "<p>loading</p>" : `<p>${derived.msg.value}</p>`,
+        );
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      expect(el.querySelector("p")!.textContent).toBe("loading");
+
+      await new Promise((r) => setTimeout(r, 15));
+      expect(el.querySelector("p")!.textContent).toBe("hello");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("client: sync derived is immediately available on mount", () => {
+      const island = ilha
+        .state("count", 7)
+        .derived("doubled", ({ state }) => state.count() * 2)
+        .render(({ derived }) => `<p>${derived.doubled.value}</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      expect(el.querySelector("p")!.textContent).toBe("14");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("client: sync derived never has loading: true", () => {
+      const island = ilha
+        .state("x", 3)
+        .derived("sq", ({ state }) => state.x() ** 2)
+        .render(({ derived }) => `<p>${derived.sq.loading}:${derived.sq.value}</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      expect(el.querySelector("p")!.textContent).toBe("false:9");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("client: async derived captures error and sets error envelope", async () => {
+      const island = ilha
+        .derived("data", async () => {
+          await new Promise((r) => setTimeout(r, 5));
+          throw new Error("boom");
+        })
+        .render(({ derived }) => {
+          if (derived.data.loading) return "<p>loading</p>";
+          if (derived.data.error) return `<p>error:${derived.data.error.message}</p>`;
+          return `<p>${derived.data.value}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      await new Promise((r) => setTimeout(r, 15));
+      expect(el.querySelector("p")!.textContent).toBe("error:boom");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("client: non-Error throws are wrapped in Error", async () => {
+      const island = ilha
+        .derived("data", async () => {
+          await new Promise((r) => setTimeout(r, 5));
+          throw "string error";
+        })
+        .render(({ derived }) => {
+          if (derived.data.loading) return "<p>loading</p>";
+          if (derived.data.error) return `<p>${derived.data.error instanceof Error}</p>`;
+          return "<p>ok</p>";
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      await new Promise((r) => setTimeout(r, 15));
+      expect(el.querySelector("p")!.textContent).toBe("true");
+
+      unmount();
+      cleanup(el);
+    });
+
+    // ── Client — reactivity ───────────────────────────────────────────────────
+
+    it("client: sync derived re-runs reactively when state changes", () => {
+      let accessor!: (v?: number) => number | void;
+
+      const island = ilha
+        .state("count", 2)
+        .derived("doubled", ({ state }) => state.count() * 2)
+        .render(({ state, derived }) => {
+          accessor = state.count as typeof accessor;
+          return `<p>${derived.doubled.value}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      expect(el.querySelector("p")!.textContent).toBe("4");
+
+      accessor(10);
+      expect(el.querySelector("p")!.textContent).toBe("20");
+
+      accessor(0);
+      expect(el.querySelector("p")!.textContent).toBe("0");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("client: async derived re-runs when tracked state changes", async () => {
+      let accessor!: (v?: string) => string | void;
+      const calls: string[] = [];
+
+      const island = ilha
+        .state("query", "foo")
+        .derived("result", async ({ state }) => {
+          const q = state.query();
+          calls.push(q);
+          await new Promise((r) => setTimeout(r, 5));
+          return q.toUpperCase();
+        })
+        .render(({ state, derived }) => {
+          accessor = state.query as typeof accessor;
+          return derived.result.loading ? "<p>…</p>" : `<p>${derived.result.value}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      await new Promise((r) => setTimeout(r, 15));
+      expect(el.querySelector("p")!.textContent).toBe("FOO");
+
+      accessor("bar");
+      await new Promise((r) => setTimeout(r, 15));
+      expect(el.querySelector("p")!.textContent).toBe("BAR");
+
+      expect(calls).toEqual(["foo", "bar"]);
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("client: sync and async derived coexist independently", async () => {
+      let accessor!: (v?: number) => number | void;
+
+      const island = ilha
+        .state("n", 3)
+        .derived("sync", ({ state }) => state.n() * 2)
+        .derived("async", async ({ state }) => {
+          const n = state.n();
+          await new Promise((r) => setTimeout(r, 5));
+          return n * 10;
+        })
+        .render(({ state, derived }) => {
+          accessor = state.n as typeof accessor;
+          return `<p>${derived.sync.value}:${derived.async.loading ? "…" : derived.async.value}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      // sync is immediately 6, async still loading
+      expect(el.querySelector("p")!.textContent).toBe("6:…");
+
+      await new Promise((r) => setTimeout(r, 15));
+      expect(el.querySelector("p")!.textContent).toBe("6:30");
+
+      accessor(5);
+      // sync updates immediately
+      expect(el.querySelector("p")!.textContent).toBe("10:…");
+
+      await new Promise((r) => setTimeout(r, 15));
+      expect(el.querySelector("p")!.textContent).toBe("10:50");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("client: async derived.value is preserved while re-fetching (stale-while-revalidate)", async () => {
+      let accessor!: (v?: string) => string | void;
+
+      const island = ilha
+        .state("query", "foo")
+        .derived("result", async ({ state }) => {
+          const q = state.query();
+          await new Promise((r) => setTimeout(r, 5));
+          return q.toUpperCase();
+        })
+        .render(({ state, derived }) => {
+          accessor = state.query as typeof accessor;
+          return derived.result.loading
+            ? `<p>loading:${derived.result.value ?? "none"}</p>`
+            : `<p>done:${derived.result.value}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      expect(el.querySelector("p")!.textContent).toBe("loading:none");
+
+      await new Promise((r) => setTimeout(r, 15));
+      expect(el.querySelector("p")!.textContent).toBe("done:FOO");
+
+      accessor("bar");
+      await Promise.resolve();
+      expect(el.querySelector("p")!.textContent).toBe("loading:FOO");
+
+      await new Promise((r) => setTimeout(r, 15));
+      expect(el.querySelector("p")!.textContent).toBe("done:BAR");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("client: stale async derived result is ignored after state changes", async () => {
+      let accessor!: (v?: number) => number | void;
+
+      const island = ilha
+        .state("n", 1)
+        .derived("data", async ({ state, signal }) => {
+          const n = state.n();
+          await new Promise<void>((res) => setTimeout(res, n === 1 ? 40 : 5));
+          if (signal.aborted) return -1;
+          return n;
+        })
+        .render(({ state, derived }) => {
+          accessor = state.n as typeof accessor;
+          return derived.data.loading ? "<p>loading</p>" : `<p>${derived.data.value}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      await new Promise((r) => setTimeout(r, 5));
+      accessor(2);
+
+      await new Promise((r) => setTimeout(r, 20));
+      expect(el.querySelector("p")!.textContent).toBe("2");
+
+      await new Promise((r) => setTimeout(r, 30));
+      expect(el.querySelector("p")!.textContent).toBe("2");
+
+      unmount();
+      cleanup(el);
+    });
+
+    // ── Client — AbortSignal ──────────────────────────────────────────────────
+
+    it("client: AbortSignal is aborted when state changes before fetch resolves", async () => {
+      let accessor!: (v?: number) => number | void;
+      const aborted: boolean[] = [];
+
+      const island = ilha
+        .state("n", 0)
+        .derived("data", async ({ state, signal }) => {
+          const n = state.n();
+          await new Promise<void>((res) => setTimeout(res, 15));
+          aborted.push(signal.aborted);
+          return n;
+        })
+        .render(({ state, derived }) => {
+          accessor = state.n as typeof accessor;
+          return derived.data.loading ? "<p>loading</p>" : `<p>${derived.data.value}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      await new Promise((r) => setTimeout(r, 5));
+      accessor(1);
+
+      await new Promise((r) => setTimeout(r, 30));
+
+      expect(aborted[0]).toBe(true);
+      expect(aborted[aborted.length - 1]).toBe(false);
+
+      unmount();
+      cleanup(el);
+    });
+
+    // ── Client — unmount ──────────────────────────────────────────────────────
+
+    it("client: unmount stops derived effects and aborts pending fetch", async () => {
+      let abortedAfterUnmount = false;
+
+      const island = ilha
+        .derived("data", async ({ signal }) => {
+          await new Promise<void>((res) => setTimeout(res, 30));
+          abortedAfterUnmount = signal.aborted;
+          return "done";
+        })
+        .render(({ derived }) => (derived.data.loading ? "<p>loading</p>" : "<p>done</p>"));
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      await new Promise((r) => setTimeout(r, 5));
+      unmount();
+
+      await new Promise((r) => setTimeout(r, 40));
+      expect(abortedAfterUnmount).toBe(true);
+
+      cleanup(el);
+    });
+
+    it("client: unmount stops sync derived reactive effect", () => {
+      let accessor!: (v?: number) => number | void;
+
+      const island = ilha
+        .state("count", 1)
+        .derived("doubled", ({ state }) => state.count() * 2)
+        .render(({ state, derived }) => {
+          accessor = state.count as typeof accessor;
+          return `<p>${derived.doubled.value}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      expect(el.querySelector("p")!.textContent).toBe("2");
+      unmount();
+
+      // after unmount, state changes should not update the DOM
+      accessor(99);
+      expect(el.querySelector("p")!.textContent).toBe("2");
+
+      cleanup(el);
+    });
+
+    // ── Client — multiple instances & input access ────────────────────────────
+
+    it("client: two mounted instances have independent derived state", async () => {
+      const island = ilha
+        .input(z.object({ prefix: z.string().default("x") }))
+        .derived("data", async ({ input }) => {
+          await new Promise((r) => setTimeout(r, 5));
+          return `${input.prefix}-result`;
+        })
+        .render(({ derived }) =>
+          derived.data.loading ? "<p>loading</p>" : `<p>${derived.data.value}</p>`,
+        );
+
+      const elA = makeEl();
+      const elB = makeEl();
+      const unmountA = island.mount(elA, { prefix: "a" });
+      const unmountB = island.mount(elB, { prefix: "b" });
+
+      await new Promise((r) => setTimeout(r, 15));
+
+      expect(elA.querySelector("p")!.textContent).toBe("a-result");
+      expect(elB.querySelector("p")!.textContent).toBe("b-result");
+
+      unmountA();
+      unmountB();
+      cleanup(elA);
+      cleanup(elB);
+    });
+
+    it("client: sync derived two instances are independent", () => {
+      let accA!: (v?: number) => number | void;
+      let accB!: (v?: number) => number | void;
+
+      const island = ilha
+        .state("n", 1)
+        .derived("sq", ({ state }) => state.n() ** 2)
+        .render(({ state, derived }) => {
+          accA = accB = state.n as typeof accA;
+          return `<p>${derived.sq.value}</p>`;
+        });
+
+      const elA = makeEl();
+      const elB = makeEl();
+      const unmountA = island.mount(elA, {});
+      const unmountB = island.mount(elB, {});
+
+      // capture independent accessors per instance
+      let capA!: (v?: number) => number | void;
+      let capB!: (v?: number) => number | void;
+
+      const islandA = ilha
+        .state("n", 1)
+        .derived("sq", ({ state }) => state.n() ** 2)
+        .render(({ state, derived }) => {
+          capA = state.n as typeof capA;
+          return `<p>${derived.sq.value}</p>`;
+        });
+
+      const islandB = ilha
+        .state("n", 1)
+        .derived("sq", ({ state }) => state.n() ** 2)
+        .render(({ state, derived }) => {
+          capB = state.n as typeof capB;
+          return `<p>${derived.sq.value}</p>`;
+        });
+
+      unmountA();
+      unmountB();
+      cleanup(elA);
+      cleanup(elB);
+
+      const elC = makeEl();
+      const elD = makeEl();
+      const unmountC = islandA.mount(elC);
+      const unmountD = islandB.mount(elD);
+
+      capA(4);
+      expect(elC.querySelector("p")!.textContent).toBe("16");
+      expect(elD.querySelector("p")!.textContent).toBe("1");
+
+      capB(3);
+      expect(elD.querySelector("p")!.textContent).toBe("9");
+      expect(elC.querySelector("p")!.textContent).toBe("16");
+
+      unmountC();
+      unmountD();
+      cleanup(elC);
+      cleanup(elD);
+    });
+
+    it("client: async derived fn receives input", async () => {
+      const island = ilha
+        .input(z.object({ multiplier: z.number().default(3) }))
+        .derived("result", async ({ input }) => {
+          await new Promise((r) => setTimeout(r, 5));
+          return input.multiplier * 10;
+        })
+        .render(({ derived }) =>
+          derived.result.loading ? "<p>…</p>" : `<p>${derived.result.value}</p>`,
+        );
+
+      const el = makeEl();
+      const unmount = island.mount(el, { multiplier: 4 });
+
+      await new Promise((r) => setTimeout(r, 15));
+      expect(el.querySelector("p")!.textContent).toBe("40");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("client: sync derived fn receives input", () => {
+      const island = ilha
+        .input(z.object({ multiplier: z.number().default(3) }))
+        .derived("result", ({ input }) => input.multiplier * 10)
+        .render(({ derived }) => `<p>${derived.result.value}</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el, { multiplier: 4 });
+
+      expect(el.querySelector("p")!.textContent).toBe("40");
+
+      unmount();
+      cleanup(el);
+    });
+  });
 });
