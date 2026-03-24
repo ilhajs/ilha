@@ -54,11 +54,6 @@ jobs:
         with:
           path: node_modules
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lockb') }}
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: lib-dist
-          path: .
       - name: Build docs
         run: bun run docs:build
       - name: Upload static files as artifact
