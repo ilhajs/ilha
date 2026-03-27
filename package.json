@@ -10,6 +10,7 @@
     "cleanup": "bun run --parallel --filter '*' cleanup && rimraf node_modules bun.lock",
     "lint": "oxlint",
     "fmt": "oxfmt",
+    "prepare": "husky",
     "docs:dev": "bunx docsome dev DOCS.md",
     "docs:build": "bunx docsome build DOCS.md",
     "test": "bun run --parallel --filter './packages/*' test"
