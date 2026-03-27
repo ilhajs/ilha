@@ -67,7 +67,7 @@ jobs:
       - name: Test
         run: bun run test
       - name: Publish nightly release
-        run: bunx pkg-pr-new publish --no-compact './packages/*'
+        run: GIT_DIR=$(pwd)/.git bunx pkg-pr-new publish --no-compact './packages/*'
 
   docs:
     name: Build docs
