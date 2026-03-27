@@ -69,7 +69,7 @@ jobs:
       - name: Test
         run: bun run test
       - name: Publish nightly release
-        run: bunx pkg-pr-new publish './packages/*'
+        run: bunx pkg-pr-new publish './packages/*' --bun
 
   docs:
     name: Build docs
