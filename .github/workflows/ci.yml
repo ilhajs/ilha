@@ -39,6 +39,8 @@ jobs:
         run: bun run build
       - name: Test
         run: bun run test
+      - name: TEMP Copy .git to packages/ilha/.git
+        run: cp -r .git packages/ilha/.git
       - name: Publish nightly release
         run: bunx pkg-pr-new publish './packages/*'
       - name: Upload build artifact
