@@ -16,7 +16,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lockb') }}
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
       - name: Install dependencies
         run: bun install
 
@@ -34,14 +34,16 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lockb') }}
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
       - name: Build libs
         run: bun run build
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: lib-dist
-          path: packages/*/dist/
+          path: |
+            dist/
+            packages/*/dist/
           retention-days: 1
 
   test-and-publish:
@@ -58,7 +60,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lockb') }}
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
@@ -89,7 +91,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lockb') }}
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
