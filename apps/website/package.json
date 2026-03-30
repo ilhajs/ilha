@@ -8,9 +8,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "^5.2.8",
+    "@fontsource-variable/geist-mono": "^5.2.7",
     "alien-signals": "^3.1.2",
     "basecoat-css": "^0.3.11",
     "dedent": "^1.7.2",
+    "lucide": "^1.7.0",
     "markdown-exit": "^1.0.0-beta.9",
     "rou3": "^0.8.1",
     "shedit": "https://pkg.pr.new/yzuyr/shedit@e4fdd10",
