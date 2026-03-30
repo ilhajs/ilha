@@ -1,15 +1,17 @@
+import dedent from "dedent";
+
 import Layout from "./+layout";
 
-const content = `
+const content = dedent`
   # Hello World
 `;
 
 const code = {
-  template: `
+  template: dedent`
     <div data-ilha="nameInput"></div>
     <div data-ilha="hello"></div>
   `,
-  script: `
+  script: dedent`
     import ilha, { html, mount } from "ilha";
 
     const name = ilha.context("name", "Alice");

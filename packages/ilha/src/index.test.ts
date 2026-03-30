@@ -2128,8 +2128,18 @@ describe("ilha.mount()", () => {
         .bind("[name=plan]", "plan")
         .render(
           ({ state }) => html`
-            <input type="radio" name="plan" value="free" ${state.plan() === "free" ? "checked" : ""} />
-            <input type="radio" name="plan" value="pro" ${state.plan() === "pro" ? "checked" : ""} />
+            <input
+              type="radio"
+              name="plan"
+              value="free"
+              ${state.plan() === "free" ? "checked" : ""}
+            />
+            <input
+              type="radio"
+              name="plan"
+              value="pro"
+              ${state.plan() === "pro" ? "checked" : ""}
+            />
             <p>${state.plan()}</p>
           `,
         );
@@ -2156,8 +2166,18 @@ describe("ilha.mount()", () => {
         .render(({ state }) => {
           accessor = state.plan as typeof accessor;
           return html`
-            <input type="radio" name="plan" value="free" ${state.plan() === "free" ? "checked" : ""} />
-            <input type="radio" name="plan" value="pro" ${state.plan() === "pro" ? "checked" : ""} />
+            <input
+              type="radio"
+              name="plan"
+              value="free"
+              ${state.plan() === "free" ? "checked" : ""}
+            />
+            <input
+              type="radio"
+              name="plan"
+              value="pro"
+              ${state.plan() === "pro" ? "checked" : ""}
+            />
           `;
         });
 
@@ -2201,6 +2221,256 @@ describe("ilha.mount()", () => {
 
       unmount();
       cleanup(el);
+    });
+  });
+
+  describe(".onMount", () => {
+    it("runs the callback once on mount", () => {
+      const calls: number[] = [];
+      const island = ilha
+        .state("count", 0)
+        .onMount(() => {
+          calls.push(1);
+        })
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+      expect(calls).toEqual([1]);
+      unmount();
+      cleanup(el);
+    });
+
+    it("does NOT run the callback more than once even when state changes", () => {
+      const calls: number[] = [];
+      let accessor!: (() => number) & ((v: number) => void);
+      const island = ilha
+        .state("count", 0)
+        .onMount(({ state }) => {
+          accessor = state.count as typeof accessor;
+          calls.push(state.count());
+        })
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+      accessor(1);
+      accessor(2);
+      accessor(3);
+      expect(calls).toEqual([0]);
+      unmount();
+      cleanup(el);
+    });
+
+    it("receives correct ctx.host, ctx.state, and ctx.input", () => {
+      let capturedHost: Element | null = null;
+      let capturedCount: number | null = null;
+      let capturedInput: string | null = null;
+
+      const island = ilha
+        .input(z.object({ label: z.string().default("hi") }))
+        .state("count", (input) => input.label.length)
+        .onMount(({ host, state, input }) => {
+          capturedHost = host;
+          capturedCount = state.count();
+          capturedInput = input.label;
+        })
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el, { label: "hello" });
+      expect(capturedHost!).toBe(el);
+      expect(capturedCount!).toBe(5);
+      expect(capturedInput!).toBe("hello");
+      unmount();
+      cleanup(el);
+    });
+
+    it("runs the cleanup returned from onMount on unmount", () => {
+      const log: string[] = [];
+      const island = ilha
+        .onMount(() => {
+          log.push("mount");
+          return () => {
+            log.push("destroy");
+          };
+        })
+        .render(() => `<p>hi</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+      expect(log).toEqual(["mount"]);
+      unmount();
+      expect(log).toEqual(["mount", "destroy"]);
+      cleanup(el);
+    });
+
+    it("does NOT run the cleanup on each re-render, only on unmount", () => {
+      const log: string[] = [];
+      let accessor!: (() => number) & ((v: number) => void);
+      const island = ilha
+        .state("count", 0)
+        .onMount(({ state }) => {
+          accessor = state.count as typeof accessor;
+          return () => {
+            log.push("destroy");
+          };
+        })
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+      accessor(1);
+      accessor(2);
+      expect(log).toEqual([]);
+      unmount();
+      expect(log).toEqual(["destroy"]);
+      cleanup(el);
+    });
+
+    it("does not subscribe to state reads inside onMount (no reactive tracking)", () => {
+      const renders: number[] = [];
+      let accessor!: (() => number) & ((v: number) => void);
+      const island = ilha
+        .state("count", 0)
+        .onMount(({ state }) => {
+          // reading state.count() here must NOT create a reactive subscription
+          void state.count();
+        })
+        .render(({ state }) => {
+          accessor = state.count as typeof accessor;
+          renders.push(state.count());
+          return `<p>${state.count()}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+      const initialRenders = renders.length;
+      accessor(99); // triggers re-render only from the render effect, not from onMount
+      // exactly one additional render — not two
+      expect(renders.length).toBe(initialRenders + 1);
+      unmount();
+      cleanup(el);
+    });
+
+    it("multiple .onMount calls all run once in declaration order", () => {
+      const log: string[] = [];
+      const island = ilha
+        .onMount(() => {
+          log.push("a");
+        })
+        .onMount(() => {
+          log.push("b");
+        })
+        .onMount(() => {
+          log.push("c");
+        })
+        .render(() => `<p>ok</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+      expect(log).toEqual(["a", "b", "c"]);
+      unmount();
+      cleanup(el);
+    });
+
+    it("all cleanup functions from multiple .onMount calls run on unmount", () => {
+      const log: string[] = [];
+      const island = ilha
+        .onMount(() => {
+          log.push("mount-a");
+          return () => {
+            log.push("destroy-a");
+          };
+        })
+        .onMount(() => {
+          log.push("mount-b");
+          return () => {
+            log.push("destroy-b");
+          };
+        })
+        .render(() => `<p>ok</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+      expect(log).toEqual(["mount-a", "mount-b"]);
+      unmount();
+      expect(log).toContain("destroy-a");
+      expect(log).toContain("destroy-b");
+      cleanup(el);
+    });
+
+    it("onMount without a return value does not throw on unmount", () => {
+      const island = ilha
+        .onMount(() => {
+          /* no return */
+        })
+        .render(() => `<p>ok</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+      expect(() => unmount()).not.toThrow();
+      cleanup(el);
+    });
+
+    it("is a no-op during SSR — callback never runs", () => {
+      const calls: number[] = [];
+      const island = ilha
+        .state("count", 7)
+        .onMount(() => {
+          calls.push(1);
+        })
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      expect(island()).toBe("<p>7</p>");
+      expect(calls).toEqual([]);
+    });
+
+    it("two independently mounted instances each get their own onMount call", () => {
+      const log: string[] = [];
+      const island = ilha
+        .state("id", 0)
+        .onMount(({ host }) => {
+          log.push(host.id);
+        })
+        .render(({ state }) => `<p>${state.id()}</p>`);
+
+      const elA = makeEl();
+      elA.id = "inst-a";
+      const elB = makeEl();
+      elB.id = "inst-b";
+      const unmountA = island.mount(elA);
+      const unmountB = island.mount(elB);
+      expect(log).toEqual(["inst-a", "inst-b"]);
+      unmountA();
+      unmountB();
+      cleanup(elA);
+      cleanup(elB);
+    });
+
+    it("onMount cleanup of one instance does not affect the other", () => {
+      const log: string[] = [];
+      const island = ilha
+        .onMount(({ host }) => {
+          return () => {
+            log.push(`destroy:${host.id}`);
+          };
+        })
+        .render(() => `<p>ok</p>`);
+
+      const elA = makeEl();
+      elA.id = "x";
+      const elB = makeEl();
+      elB.id = "y";
+      const unmountA = island.mount(elA);
+      const unmountB = island.mount(elB);
+      unmountA();
+      expect(log).toEqual(["destroy:x"]);
+      expect(log).not.toContain("destroy:y");
+      unmountB();
+      expect(log).toContain("destroy:y");
+      cleanup(elA);
+      cleanup(elB);
     });
   });
 });

@@ -1,5 +1,6 @@
 import "./app.css";
 import "basecoat-css/all";
+import "shedit/editor.css";
 import { setupTheme } from "$lib/theme";
 import { mount } from "ilha";
 import { findRoute } from "rou3";

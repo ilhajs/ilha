@@ -2,7 +2,6 @@ import { signal, effect, setActiveSub } from "alien-signals";
 
 // ─────────────────────────────────────────────
 // Standard Schema V1 (inlined, type-only)
-// https://standardschema.dev
 // ─────────────────────────────────────────────
 
 interface StandardSchemaV1<Input = unknown, Output = Input> {
@@ -78,7 +77,7 @@ function dedentString(str: string): string {
 }
 
 // ─────────────────────────────────────────────
-// Symbols & internal marker interfaces
+// Symbols & constants
 // ─────────────────────────────────────────────
 
 const RAW = Symbol("ilha.raw");
@@ -105,10 +104,7 @@ export interface SlotAccessor {
 }
 
 function makeSlotAccessor(render: (props?: Record<string, unknown>) => string): SlotAccessor {
-  const fn = (props?: Record<string, unknown>): RawHtml => ({
-    [RAW]: true,
-    value: render(props),
-  });
+  const fn = (props?: Record<string, unknown>): RawHtml => ({ [RAW]: true, value: render(props) });
   fn.toString = () => render(undefined);
   (fn as unknown as Record<symbol, boolean>)[SLOT_ACCESSOR] = true;
   return fn as unknown as SlotAccessor;
@@ -119,18 +115,22 @@ function isSlotAccessor(v: unknown): v is SlotAccessor {
 }
 
 // ─────────────────────────────────────────────
-// Signal accessor marker
+// Signal accessor
+//
+// Uses (...args: [value: T]): void for the setter to prevent TS from
+// intersecting the two call signatures into (value: never): void
+// when T contains undefined.
 // ─────────────────────────────────────────────
 
 interface MarkedSignalAccessor<T> {
   (): T;
-  (value: T): void;
+  (...args: [value: T]): void;
   [SIGNAL_ACCESSOR]: true;
 }
 
 function markSignalAccessor<T>(fn: { (): T; (value: T): void }): MarkedSignalAccessor<T> {
   (fn as unknown as Record<symbol, boolean>)[SIGNAL_ACCESSOR] = true;
-  return fn as MarkedSignalAccessor<T>;
+  return fn as unknown as MarkedSignalAccessor<T>;
 }
 
 function isSignalAccessor(v: unknown): v is MarkedSignalAccessor<unknown> {
@@ -173,13 +173,10 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): string {
 // ─────────────────────────────────────────────
 
 type ContextSignal<T> = { (): T; (value: T): void };
-
 const contextRegistry = new Map<string, ContextSignal<unknown>>();
 
 function ilhaContext<T>(key: string, initial: T): ContextSignal<T> {
-  if (contextRegistry.has(key)) {
-    return contextRegistry.get(key) as ContextSignal<T>;
-  }
+  if (contextRegistry.has(key)) return contextRegistry.get(key) as ContextSignal<T>;
   const s = signal(initial);
   const accessor = (...args: unknown[]): unknown => {
     if (args.length === 0) return s();
@@ -225,11 +222,7 @@ function makePlainDerived<TDerivedMap extends Record<string, unknown>>(
 ): IslandDerived<TDerivedMap> {
   const derived: Record<string, DerivedValue<unknown>> = {};
   for (const entry of entries) {
-    const result = entry.fn({
-      state: state as never,
-      input,
-      signal: new AbortController().signal,
-    });
+    const result = entry.fn({ state: state as never, input, signal: new AbortController().signal });
     if (result instanceof Promise) {
       derived[entry.key] = { loading: true, value: undefined, error: undefined };
     } else {
@@ -247,10 +240,7 @@ function buildDerivedSignals<
   entries: DerivedEntry<TInput, TStateMap>[],
   state: IslandState<TStateMap>,
   input: TInput,
-): {
-  proxy: IslandDerived<TDerivedMap>;
-  stop: () => void;
-} {
+): { proxy: IslandDerived<TDerivedMap>; stop: () => void } {
   const envelopes = new Map<string, ReturnType<typeof signal<DerivedValue<unknown>>>>();
   const stops: Array<() => void> = [];
 
@@ -261,14 +251,12 @@ function buildDerivedSignals<
       error: undefined,
     });
     envelopes.set(entry.key, env);
-
     let ac = new AbortController();
 
     const stopEffect = effect(() => {
       ac.abort();
       ac = new AbortController();
       const currentAc = ac;
-
       const result = entry.fn({ state, input, signal: currentAc.signal });
 
       if (!(result instanceof Promise)) {
@@ -319,14 +307,10 @@ function buildDerivedSignals<
 // Bind
 // ─────────────────────────────────────────────
 
-// An external signal accessor: any zero/one-arg callable that reads/writes a value.
-// Intentionally loose so ContextSignal<T> and custom signals satisfy it without
-// needing the SIGNAL_ACCESSOR brand (which is internal to ilha state).
 type ExternalSignal<T = unknown> = { (): T; (value: T): void };
 
 interface BindEntry<TStateMap extends Record<string, unknown>> {
   selector: string;
-  // Either a key into the island's own state, or a raw external signal accessor.
   target: (keyof TStateMap & string) | ExternalSignal;
 }
 
@@ -347,7 +331,6 @@ function resolveBindConfig(el: Element): {
       write: (el, v) => ((el as HTMLInputElement).checked = Boolean(v)),
     };
   }
-
   if (tag === "input" && type === "radio") {
     return {
       prop: "checked",
@@ -357,12 +340,10 @@ function resolveBindConfig(el: Element): {
         return input.checked ? input.value : undefined;
       },
       write: (el, v) => {
-        const input = el as HTMLInputElement;
-        input.checked = String(v ?? "") === input.value;
+        (el as HTMLInputElement).checked = String(v ?? "") === (el as HTMLInputElement).value;
       },
     };
   }
-
   if (tag === "input" && type === "number") {
     return {
       prop: "valueAsNumber",
@@ -371,7 +352,6 @@ function resolveBindConfig(el: Element): {
       write: (el, v) => ((el as HTMLInputElement).value = String(v ?? "")),
     };
   }
-
   return {
     prop: "value",
     event: tag === "select" ? "change" : "input",
@@ -381,28 +361,27 @@ function resolveBindConfig(el: Element): {
 }
 
 function applyBindings<TStateMap extends Record<string, unknown>>(
-  el: Element,
+  host: Element,
   bindings: BindEntry<TStateMap>[],
   state: IslandState<TStateMap>,
 ): () => void {
   const cleanups: Array<() => void> = [];
-
   for (const binding of bindings) {
-    // Resolve to a uniform read/write accessor regardless of whether the
-    // binding target is a local state key or an external signal.
     const accessor: ExternalSignal =
       typeof binding.target === "function"
         ? binding.target
         : (state[binding.target as keyof TStateMap] as ExternalSignal);
 
     const targets =
-      binding.selector === "" ? [el] : Array.from(el.querySelectorAll<Element>(binding.selector));
+      binding.selector === ""
+        ? [host]
+        : Array.from(host.querySelectorAll<Element>(binding.selector));
 
     for (const target of targets) {
       const { event, read, write } = resolveBindConfig(target);
-      const input = target as HTMLInputElement;
       const isRadio =
-        input.tagName.toLowerCase() === "input" && input.type?.toLowerCase() === "radio";
+        (target as HTMLInputElement).tagName.toLowerCase() === "input" &&
+        (target as HTMLInputElement).type?.toLowerCase() === "radio";
 
       write(target, accessor());
 
@@ -426,18 +405,26 @@ function applyBindings<TStateMap extends Record<string, unknown>>(
       cleanups.push(() => target.removeEventListener(event, listener));
     }
   }
-
   return () => cleanups.forEach((c) => c());
 }
 
 // ─────────────────────────────────────────────
-// Types
+// Core types
 // ─────────────────────────────────────────────
 
 export type SignalAccessor<T> = MarkedSignalAccessor<T>;
 
+// MergeState: homomorphic remap that drops K and adds Record<K, V>.
+// -?: strips any optionality inherited from TStateMap so the resulting
+// IslandState properties are always required (never T | undefined at the
+// property level — undefined lives inside T when desired).
+// V is NOT widened here; the caller controls whether V includes undefined.
+type MergeState<TStateMap extends Record<string, unknown>, K extends string, V> = {
+  [P in keyof TStateMap as P extends K ? never : P]-?: TStateMap[P];
+} & Record<K, V>;
+
 export type IslandState<TStateMap extends Record<string, unknown>> = {
-  [K in keyof TStateMap]: SignalAccessor<TStateMap[K]>;
+  readonly [K in keyof TStateMap]-?: SignalAccessor<TStateMap[K]>;
 };
 
 export interface Island<
@@ -446,7 +433,7 @@ export interface Island<
 > {
   (props?: Partial<TInput>): string | Promise<string>;
   toString(props?: Partial<TInput>): string;
-  mount(el: Element, props?: Partial<TInput>): () => void;
+  mount(host: Element, props?: Partial<TInput>): () => void;
 }
 
 type AnyIsland = Island<Record<string, unknown>, Record<string, unknown>>;
@@ -471,13 +458,20 @@ type RenderContext<
 type EffectContext<TInput, TStateMap extends Record<string, unknown>> = {
   state: IslandState<TStateMap>;
   input: TInput;
-  el: Element;
+  host: Element;
+};
+
+export type OnMountContext<TInput, TStateMap extends Record<string, unknown>> = {
+  state: IslandState<TStateMap>;
+  input: TInput;
+  host: Element;
 };
 
 export type HandlerContext<TInput, TStateMap extends Record<string, unknown>> = {
   state: IslandState<TStateMap>;
   input: TInput;
-  el: Element;
+  host: Element;
+  target: Element;
   event: Event;
 };
 
@@ -486,9 +480,7 @@ export type HandlerContext<TInput, TStateMap extends Record<string, unknown>> = 
 // ─────────────────────────────────────────────
 
 type HTMLEventName = keyof HTMLElementEventMap & string;
-
 type Modifier = "once" | "capture" | "passive";
-
 type WithModifiers<E extends string> =
   | E
   | `${E}:${Modifier}`
@@ -506,9 +498,18 @@ export type HandlerContextFor<
 > = {
   state: IslandState<TStateMap>;
   input: TInput;
-  el: Element;
+  host: Element;
+  target: TEventName extends keyof HTMLElementEventMap
+    ? HTMLElementEventMap[TEventName]["target"] extends Element | null
+      ? NonNullable<HTMLElementEventMap[TEventName]["target"]>
+      : Element
+    : Element;
   event: TEventName extends keyof HTMLElementEventMap ? HTMLElementEventMap[TEventName] : Event;
 };
+
+// ─────────────────────────────────────────────
+// State init type
+// ─────────────────────────────────────────────
 
 type StateInit<TInput, V> = V | ((input: TInput) => V);
 
@@ -531,11 +532,9 @@ function parseOnArgs(selectorOrCombined: string): ParsedOn {
   const atIdx = selectorOrCombined.lastIndexOf("@");
   const selector = atIdx === -1 ? "" : selectorOrCombined.slice(0, atIdx);
   const rawEvent = atIdx === -1 ? selectorOrCombined : selectorOrCombined.slice(atIdx + 1);
-
   const parts = rawEvent.split(":");
   const eventType = parts[0]!;
   const modifiers = new Set(parts.slice(1));
-
   return {
     selector,
     eventType,
@@ -558,9 +557,13 @@ interface EffectEntry<TInput, TStateMap extends Record<string, unknown>> {
   fn: (ctx: EffectContext<TInput, TStateMap>) => (() => void) | void;
 }
 
+interface OnMountEntry<TInput, TStateMap extends Record<string, unknown>> {
+  fn: (ctx: OnMountContext<TInput, TStateMap>) => (() => void) | void;
+}
+
 interface TransitionOptions {
-  enter?: (el: Element) => Promise<void> | void;
-  leave?: (el: Element) => Promise<void> | void;
+  enter?: (host: Element) => Promise<void> | void;
+  leave?: (host: Element) => Promise<void> | void;
 }
 
 export interface MountOptions {
@@ -588,6 +591,7 @@ class IlhaBuilder<
   readonly _deriveds: DerivedEntry<TInput, TStateMap>[];
   readonly _ons: OnEntry<TInput, TStateMap>[];
   readonly _effects: EffectEntry<TInput, TStateMap>[];
+  readonly _onMounts: OnMountEntry<TInput, TStateMap>[];
   readonly _slots: Record<string, AnyIsland>;
   readonly _transition: TransitionOptions | null;
   readonly _binds: BindEntry<TStateMap>[];
@@ -598,6 +602,7 @@ class IlhaBuilder<
     deriveds: DerivedEntry<TInput, TStateMap>[],
     ons: OnEntry<TInput, TStateMap>[],
     effects: EffectEntry<TInput, TStateMap>[],
+    onMounts: OnMountEntry<TInput, TStateMap>[],
     slots: Record<string, AnyIsland>,
     transition: TransitionOptions | null,
     binds: BindEntry<TStateMap>[],
@@ -607,6 +612,7 @@ class IlhaBuilder<
     this._deriveds = deriveds;
     this._ons = ons;
     this._effects = effects;
+    this._onMounts = onMounts;
     this._slots = slots;
     this._transition = transition;
     this._binds = binds;
@@ -625,22 +631,29 @@ class IlhaBuilder<
       Record<string, never>,
       Record<string, never>,
       Record<string, never>
-    >(schema, [], [], [], [], {}, null, []);
+    >(schema, [], [], [], [], [], {}, null, []);
   }
 
-  state<K extends string, V>(
+  // V = undefined default means omitting init gives SignalAccessor<undefined>.
+  // V is stored as-is in MergeState — callers include | undefined in V when needed:
+  //   .state<any>("editor", undefined)            → SignalAccessor<any>
+  //   .state<Foo | undefined>("editor")           → SignalAccessor<Foo | undefined>
+  //   .state("count", 0)                          → SignalAccessor<number>
+  //   .state<"a"|"b">("tab", "a")                 → SignalAccessor<"a"|"b">
+  state<V = undefined, K extends string = string>(
     key: K,
-    init: StateInit<TInput, V>,
-  ): IlhaBuilder<TInput, TStateMap & Record<K, V>, TDerivedMap, TSlots> {
-    return new IlhaBuilder<TInput, TStateMap & Record<K, V>, TDerivedMap, TSlots>(
+    init?: StateInit<TInput, V> | undefined,
+  ): IlhaBuilder<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TSlots> {
+    return new IlhaBuilder<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TSlots>(
       this._schema,
       [...this._states, { key, init: init as StateInit<TInput, unknown> }],
-      this._deriveds as unknown as DerivedEntry<TInput, TStateMap & Record<K, V>>[],
-      this._ons as unknown as OnEntry<TInput, TStateMap & Record<K, V>>[],
-      this._effects as unknown as EffectEntry<TInput, TStateMap & Record<K, V>>[],
+      this._deriveds as unknown as DerivedEntry<TInput, MergeState<TStateMap, K, V>>[],
+      this._ons as unknown as OnEntry<TInput, MergeState<TStateMap, K, V>>[],
+      this._effects as unknown as EffectEntry<TInput, MergeState<TStateMap, K, V>>[],
+      this._onMounts as unknown as OnMountEntry<TInput, MergeState<TStateMap, K, V>>[],
       this._slots,
       this._transition,
-      this._binds as unknown as BindEntry<TStateMap & Record<K, V>>[],
+      this._binds as unknown as BindEntry<MergeState<TStateMap, K, V>>[],
     );
   }
 
@@ -654,23 +667,21 @@ class IlhaBuilder<
       [...this._deriveds, { key, fn: fn as DerivedFn<TInput, TStateMap, unknown> }],
       this._ons,
       this._effects,
+      this._onMounts,
       this._slots,
       this._transition,
       this._binds,
     );
   }
 
-  // Overload 1: bind to local state key (existing behaviour)
   bind(
     selector: string,
     stateKey: keyof TStateMap & string,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>;
-  // Overload 2: bind to an external signal (e.g. ilha.context)
   bind<T>(
     selector: string,
     externalSignal: ExternalSignal<T>,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>;
-  // Implementation
   bind(
     selector: string,
     target: (keyof TStateMap & string) | ExternalSignal,
@@ -681,6 +692,7 @@ class IlhaBuilder<
       this._deriveds,
       this._ons,
       this._effects,
+      this._onMounts,
       this._slots,
       this._transition,
       [...this._binds, { selector, target }],
@@ -706,7 +718,6 @@ class IlhaBuilder<
     handler: (ctx: HandlerContext<TInput, TStateMap>) => void | Promise<void>,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
     const parsed = parseOnArgs(selectorOrCombined);
-
     return new IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>(
       this._schema,
       this._states,
@@ -721,6 +732,7 @@ class IlhaBuilder<
         },
       ],
       this._effects,
+      this._onMounts,
       this._slots,
       this._transition,
       this._binds,
@@ -736,6 +748,23 @@ class IlhaBuilder<
       this._deriveds,
       this._ons,
       [...this._effects, { fn }],
+      this._onMounts,
+      this._slots,
+      this._transition,
+      this._binds,
+    );
+  }
+
+  onMount(
+    fn: (ctx: OnMountContext<TInput, TStateMap>) => (() => void) | void,
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
+    return new IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>(
+      this._schema,
+      this._states,
+      this._deriveds,
+      this._ons,
+      this._effects,
+      [...this._onMounts, { fn }],
       this._slots,
       this._transition,
       this._binds,
@@ -752,6 +781,7 @@ class IlhaBuilder<
       this._deriveds,
       this._ons,
       this._effects,
+      this._onMounts,
       { ...this._slots, [name]: island },
       this._transition,
       this._binds,
@@ -765,6 +795,7 @@ class IlhaBuilder<
       this._deriveds,
       this._ons,
       this._effects,
+      this._onMounts,
       this._slots,
       opts,
       this._binds,
@@ -779,6 +810,7 @@ class IlhaBuilder<
     const deriveds = this._deriveds;
     const ons = this._ons;
     const effects = this._effects;
+    const onMounts = this._onMounts;
     const slotDefs = this._slots;
     const transition = this._transition;
     const binds = this._binds;
@@ -795,9 +827,7 @@ class IlhaBuilder<
         {
           get(_, prop: string) {
             const name = String(prop);
-            if (!slotDefs[name]) {
-              return makeSlotAccessor(() => "");
-            }
+            if (!slotDefs[name]) return makeSlotAccessor(() => "");
             if (ssr) {
               return makeSlotAccessor((props?: Record<string, unknown>) =>
                 slotDefs[name]!.toString(props),
@@ -873,9 +903,8 @@ class IlhaBuilder<
 
       if (!hasAsync) {
         const derived: Record<string, DerivedValue<unknown>> = {};
-        for (const r of results) {
+        for (const r of results)
           derived[r.key] = { loading: false, value: r.result as unknown, error: undefined };
-        }
         return fn({ state, derived: derived as IslandDerived<TDerivedMap>, input, slots });
       }
 
@@ -920,11 +949,11 @@ class IlhaBuilder<
       return fn({ state, derived, input, slots });
     }
 
-    function mountIsland(el: Element, props?: Partial<TInput>): () => void {
+    function mountIsland(host: Element, props?: Partial<TInput>): () => void {
       const input = resolveInput(props);
 
       let snapshot: Record<string, unknown> | undefined;
-      const rawState = el.getAttribute(STATE_ATTR);
+      const rawState = host.getAttribute(STATE_ATTR);
       if (rawState) {
         try {
           snapshot = JSON.parse(rawState) as Record<string, unknown>;
@@ -937,7 +966,7 @@ class IlhaBuilder<
       const cleanups: Array<() => void> = [];
 
       if (transition?.enter) {
-        const result = transition.enter(el);
+        const result = transition.enter(host);
         if (result instanceof Promise) result.catch(console.error);
       }
 
@@ -953,14 +982,14 @@ class IlhaBuilder<
       function snapshotSlots() {
         slotEls.clear();
         for (const name of Object.keys(slotDefs)) {
-          const existing = el.querySelector(`[${SLOT_ATTR}="${name}"]`);
+          const existing = host.querySelector(`[${SLOT_ATTR}="${name}"]`);
           if (existing) slotEls.set(name, existing);
         }
       }
 
       function restoreSlots() {
         for (const [name, slotEl] of slotEls) {
-          const placeholder = el.querySelector(`[${SLOT_ATTR}="${name}"]`);
+          const placeholder = host.querySelector(`[${SLOT_ATTR}="${name}"]`);
           if (placeholder) placeholder.replaceWith(slotEl);
         }
       }
@@ -979,8 +1008,8 @@ class IlhaBuilder<
         for (const entry of ons) {
           if (entry.options.once && firedOnce.has(entry)) continue;
           const targets =
-            entry.selector === "" ? [el] : Array.from(el.querySelectorAll(entry.selector));
-          targets.forEach((target) => {
+            entry.selector === "" ? [host] : Array.from(host.querySelectorAll(entry.selector));
+          targets.forEach((listenerTarget) => {
             const listener = (event: Event) => {
               if (entry.options.once) {
                 firedOnce.add(entry);
@@ -993,12 +1022,21 @@ class IlhaBuilder<
                   ...listeners.filter((l) => l.entry !== entry),
                 );
               }
-              const result = entry.handler({ state, input, el, event });
+              const eventTarget = (
+                event.target instanceof Element ? event.target : listenerTarget
+              ) as Element;
+              const result = entry.handler({ state, input, host, target: eventTarget, event });
               if (result instanceof Promise) result.catch(console.error);
             };
             const opts = { ...entry.options, once: false };
-            target.addEventListener(entry.event, listener, opts);
-            listeners.push({ target, type: entry.event, fn: listener, options: opts, entry });
+            listenerTarget.addEventListener(entry.event, listener, opts);
+            listeners.push({
+              target: listenerTarget,
+              type: entry.event,
+              fn: listener,
+              options: opts,
+              entry,
+            });
           });
         }
       }
@@ -1010,14 +1048,14 @@ class IlhaBuilder<
 
       const slots = makeSlotsProxy(false);
 
-      el.innerHTML = fn({ state, derived, input, slots });
+      host.innerHTML = fn({ state, derived, input, slots });
       attachListeners();
 
-      let stopBindings = applyBindings(el, binds as BindEntry<TStateMap>[], state);
+      let stopBindings = applyBindings(host, binds as BindEntry<TStateMap>[], state);
       cleanups.push(() => stopBindings());
 
       for (const [name, childIsland] of Object.entries(slotDefs)) {
-        const slotEl = el.querySelector(`[${SLOT_ATTR}="${name}"]`);
+        const slotEl = host.querySelector(`[${SLOT_ATTR}="${name}"]`);
         if (!slotEl) continue;
         slotEls.set(name, slotEl);
 
@@ -1041,6 +1079,17 @@ class IlhaBuilder<
         cleanups.push(childIsland.mount(slotEl, slotProps));
       }
 
+      for (const entry of onMounts) {
+        const prevSub = setActiveSub(undefined);
+        let userCleanup: (() => void) | void;
+        try {
+          userCleanup = entry.fn({ state, input, host });
+        } finally {
+          setActiveSub(prevSub);
+        }
+        if (userCleanup) cleanups.push(userCleanup);
+      }
+
       let initialized = false;
       const stopRender = effect(() => {
         const html = fn({ state, derived, input, slots });
@@ -1051,10 +1100,10 @@ class IlhaBuilder<
         snapshotSlots();
         detachListeners();
         stopBindings();
-        el.innerHTML = html;
+        host.innerHTML = html;
         restoreSlots();
         attachListeners();
-        stopBindings = applyBindings(el, binds as BindEntry<TStateMap>[], state);
+        stopBindings = applyBindings(host, binds as BindEntry<TStateMap>[], state);
       });
       cleanups.push(stopRender);
       cleanups.push(detachListeners);
@@ -1066,7 +1115,7 @@ class IlhaBuilder<
             userCleanup();
             userCleanup = undefined;
           }
-          userCleanup = entry.fn({ state, input, el });
+          userCleanup = entry.fn({ state, input, host });
         });
         cleanups.push(() => {
           stopEffect();
@@ -1076,7 +1125,7 @@ class IlhaBuilder<
 
       return () => {
         if (transition?.leave) {
-          const result = transition.leave(el);
+          const result = transition.leave(host);
           if (result instanceof Promise) {
             result.then(() => cleanups.forEach((c) => c())).catch(console.error);
             return;
@@ -1091,14 +1140,14 @@ class IlhaBuilder<
     } as Island<TInput, TStateMap>;
 
     island.toString = (props?: Partial<TInput>) => renderToStringSyncOnly(props);
-    island.mount = (el: Element, props?: Partial<TInput>) => mountIsland(el, props);
+    island.mount = (host: Element, props?: Partial<TInput>) => mountIsland(host, props);
 
     return island;
   }
 }
 
 // ─────────────────────────────────────────────
-// ilha.from — typed mount from CSS selector
+// ilha.from
 // ─────────────────────────────────────────────
 
 function ilhaFrom<TInput, TStateMap extends Record<string, unknown>>(
@@ -1106,12 +1155,12 @@ function ilhaFrom<TInput, TStateMap extends Record<string, unknown>>(
   island: Island<TInput, TStateMap>,
   props?: Partial<TInput>,
 ): (() => void) | null {
-  const el = typeof selector === "string" ? document.querySelector(selector) : selector;
-  if (!el) {
+  const host = typeof selector === "string" ? document.querySelector(selector) : selector;
+  if (!host) {
     console.warn(`[ilha] from(): element not found: ${selector}`);
     return null;
   }
-  return island.mount(el, props);
+  return island.mount(host, props);
 }
 
 // ─────────────────────────────────────────────
@@ -1126,14 +1175,14 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
   const hydrate = options.hydrate ?? false;
   const unmounts: Array<() => void> = [];
 
-  function activateEl(el: Element) {
-    const name = el.getAttribute("data-ilha");
+  function activateEl(host: Element) {
+    const name = host.getAttribute("data-ilha");
     if (!name) return;
     const island = registry[name];
     if (!island) return;
 
     let props: Record<string, unknown> = {};
-    const rawProps = el.getAttribute("data-props");
+    const rawProps = host.getAttribute("data-props");
     if (rawProps) {
       try {
         props = JSON.parse(rawProps) as Record<string, unknown>;
@@ -1143,12 +1192,12 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
     }
 
     if (hydrate) {
-      const snapshot = el.innerHTML;
-      const unmount = island.mount(el, props);
-      if (!el.innerHTML) el.innerHTML = snapshot;
+      const snapshot = host.innerHTML;
+      const unmount = island.mount(host, props);
+      if (!host.innerHTML) host.innerHTML = snapshot;
       unmounts.push(unmount);
     } else {
-      unmounts.push(island.mount(el, props));
+      unmounts.push(island.mount(host, props));
     }
   }
 
@@ -1181,7 +1230,7 @@ const rootBuilder = new IlhaBuilder<
   Record<string, never>,
   Record<string, never>,
   Record<string, never>
->(null, [], [], [], [], {}, null, []);
+>(null, [], [], [], [], [], {}, null, []);
 
 const ilha = Object.assign(rootBuilder, {
   html: ilhaHtml,

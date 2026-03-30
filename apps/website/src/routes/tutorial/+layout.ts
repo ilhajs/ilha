@@ -1,7 +1,17 @@
 import RootLayout from "$routes/+layout";
 import { effect } from "alien-signals";
 import dedent from "dedent";
-import ilha, { html } from "ilha";
+import ilha, { html, raw } from "ilha";
+import { createMarkdownExit } from "markdown-exit";
+import { createShikiEditor, type ShikiEditorHandle } from "shedit";
+import { createHighlighter } from "shiki";
+
+const md = createMarkdownExit();
+
+const shiki = await createHighlighter({
+  langs: ["typescript", "html"],
+  themes: ["github-light", "github-dark"],
+});
 
 type Code = { template: string; script: string };
 
@@ -42,22 +52,61 @@ type TutorialLayoutProps = { content: string; code: Code };
 const TutorialLayout = ({ content, code }: TutorialLayoutProps) => {
   const template = ilha.context("tutorial.template", code.template);
   const script = ilha.context("tutorial.script", code.script);
+  const contentHtml = md.render(content);
 
   const Editor = ilha
-    .bind("[data-template]", template)
-    .bind("[data-script]", script)
+    // .bind("[data-template]", template)
+    // .bind("[data-script]", script)
+    .state<"script" | "template">("currentTab", "script")
+    .state<ShikiEditorHandle>("editor", undefined)
+    .onMount(({ state }) => {
+      state.editor?.(
+        createShikiEditor(document.getElementById("editor")!, {
+          shiki,
+          lang: "typescript",
+          themes: { light: "github-light", dark: "github-dark" },
+          lineHeight: 22,
+          tabSize: 2,
+          onChange(value) {
+            script(value);
+          },
+        }),
+      );
+      state.editor?.().setValue(script());
+    })
+    .on("[data-tab]@click", ({ target, state }) => {
+      const editor = state.editor?.();
+      if (!editor) return;
+      const tab = target.getAttribute("data-tab")!;
+      if (tab === "script") {
+        editor.setLang("typescript");
+        editor.setValue(script());
+      } else {
+        editor.setLang("html");
+        editor.setValue(template());
+      }
+    })
     .render(
       () => html`
-        <div class="flex-1">
-          <textarea class="textarea" data-template></textarea>
-          <textarea class="textarea" data-script></textarea>
+        <div class="flex flex-1 flex-col gap-2">
+          <div class="tabs w-full" id="demo-tabs-with-panels">
+            <nav role="tablist" aria-orientation="horizontal" class="w-full">
+              <button type="button" role="tab" aria-selected="true" tabindex="0" data-tab="script">
+                Script
+              </button>
+              <button type="button" role="tab" aria-selected="false" tabindex="0" data-tab="template">
+                Template
+              </button>
+            </nav>
+          </div>
+          <div id="editor" class="rounded-lg border"></div>
         </div>
       `,
     );
 
   const Preview = ilha
-    .effect(({ el }) => {
-      const iframe = el.querySelector<HTMLIFrameElement>("iframe")!;
+    .effect(({ host }) => {
+      const iframe = host.querySelector<HTMLIFrameElement>("iframe")!;
 
       const buildMessage = () => ({
         type: "ilha:preview",
@@ -65,7 +114,6 @@ const TutorialLayout = ({ content, code }: TutorialLayoutProps) => {
         script: script(),
       });
 
-      // Once iframe is ready, send initial content
       const send = () => {
         iframe.contentWindow?.postMessage(buildMessage(), "*");
       };
@@ -83,10 +131,10 @@ const TutorialLayout = ({ content, code }: TutorialLayoutProps) => {
     })
     .render(
       () => html`
-      <div class="flex-1 border-t">
-        <iframe srcdoc="${buildSrcDoc()}"></iframe>
-      </div>
-    `,
+        <div class="flex-1 border rounded-lg">
+          <iframe srcdoc="${buildSrcDoc()}"></iframe>
+        </div>
+      `,
     );
 
   return ilha
@@ -94,14 +142,14 @@ const TutorialLayout = ({ content, code }: TutorialLayoutProps) => {
     .slot("preview", Preview)
     .render(
       ({ slots }) => html`
-      <div class="flex-1 flex">
-        <div class="flex-1 border-r">${content}</div>
-        <div class="flex-1 flex flex-col">
-          ${slots.editor()}
-          ${slots.preview()}
+        <div class="flex flex-1">
+          <div class="flex-1 prose">${raw(contentHtml)}</div>
+          <div class="flex flex-1 flex-col gap-2">
+            ${slots.editor()}
+            ${slots.preview()}
+          </div>
         </div>
-      </div>
-    `,
+      `,
     );
 };
 

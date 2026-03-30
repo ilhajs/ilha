@@ -9,6 +9,7 @@ export default defineConfig({
     alias: {
       $lib: path.resolve(import.meta.dirname, "src", "lib"),
       $routes: path.resolve(import.meta.dirname, "src", "routes"),
+      ilha: path.resolve(import.meta.dirname, "..", "..", "packages", "ilha", "src", "index.ts"),
     },
   },
   server: {

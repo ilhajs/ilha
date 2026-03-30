@@ -10,12 +10,10 @@ export default (child: Island) =>
     .slot("child", child)
     .render(({ slots }) => {
       return html`
-      <div class="flex flex-col gap-2 min-h-screen">
-        ${slots.navbar()}
-        <div class="flex-1 flex flex-col container mx-auto p-2">
-          ${slots.child()}
+        <div class="flex min-h-screen flex-col gap-2">
+          ${slots.navbar()}
+          <div class="container mx-auto flex flex-1 flex-col p-2">${slots.child()}</div>
+          ${slots.footer()}
         </div>
-        ${slots.footer()}
-      </div>
-    `;
+      `;
     });
