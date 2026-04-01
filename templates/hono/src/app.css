@@ -1,0 +1,16 @@
+* {
+  --color-background: #ffffff;
+  --color-foreground: #222222;
+  --color-border: #eeeeee;
+}
+
+.btn {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  height: 2.5rem;
+  font-size: 1rem;
+  padding: 0 1rem;
+  cursor: pointer;
+}

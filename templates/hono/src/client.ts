@@ -9,7 +9,7 @@ const counter = ilha
     ({ state, derived }) => html`
       <p>Count: ${state.count()}</p>
       <p>Doubled: ${derived.doubled.value}</p>
-      <button data-action="increase">Increase</button>
+      <button data-action="increase" class="btn">Increase</button>
     `,
   );
 

@@ -25,6 +25,9 @@ export default defineConfig([
     deps: {
       alwaysBundle: ["ilha"],
     },
-    copy: [{ from: "public/*", to: "dist/static" }],
+    copy: [
+      { from: "public/*", to: "dist/static" },
+      { from: "src/app.css", to: "dist/static" },
+    ],
   },
 ]);
