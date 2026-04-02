@@ -10,792 +10,693 @@ footer:
 
 # Ilha
 
+> A tiny, framework-agnostic **island** library for building interactive UI components with SSR, hydration, signals-based reactivity.
+
 ## Overview
 
-ilha is a tiny, framework-free island architecture library. Islands are self-contained interactive components that:
+Ilha lets you define **islands** — self-contained interactive components that:
 
-- Render as plain HTML strings on the server (SSR)
-- Mount reactively on the client with fine-grained signal-based updates
-- Compose via typed props, slots, shared context, and async-derived data
+- Render to plain HTML strings on the **server** (SSR).
+- **Hydrate** and become reactive on the **client**.
+- Track fine-grained reactive state via signals (powered by `alien-signals`).
+- Use a fluent, immutable **builder API** — no decorators, no compilers, no virtual DOM.
 
-ilha is built on [alien-signals](https://github.com/stackblitz/alien-signals) for reactivity and accepts any [Standard Schema](https://standardschema.dev) validator (Zod, Valibot, ArkType, …) for prop validation.
+Each island is just a plain function that returns an HTML string plus a `mount()` method for client-side activation.
 
 ---
 
 ## Installation
 
 ```bash
-bun add ilha
-# or
 npm install ilha
+# or
+bun add ilha
 ```
+
+Ilha uses [alien-signals](https://github.com/stackblitz/alien-signals) internally and accepts any [Standard Schema v1](https://standardschema.dev/) compliant schema library for input validation (e.g. Zod, Valibot, ArkType).
 
 ---
 
-## Core concepts
+## Core Concepts
 
-An island is built with a **chainable builder**. Each method returns a new builder — nothing is mutated. The chain is finalised with `.render()`, which returns a callable `Island`.
-
-```ts
-import ilha, { html, mount } from "ilha";
-import { z } from "zod";
-
-const counter = ilha
-  .input(z.object({ count: z.number().default(0) }))
-  .state("count", ({ count }) => count)
-  .derived("doubled", ({ state }) => state.count() * 2)
-  .on("[data-inc]@click", ({ state }) => state.count(state.count() + 1))
-  .render(
-    ({ state, derived }) => html`
-      <p>Count: ${state.count}</p>
-      <p>Doubled: ${derived.doubled.value}</p>
-      <button data-inc>+</button>
-    `,
-  );
-
-// SSR
-counter({ count: 5 }); // → "<p>Count: 5</p><p>Doubled: 10</p><button data-inc>+</button>"
-// sync here because this island has no async derived values
-
-// Client
-mount({ counter });
-```
-
-```html
-<div data-ilha="counter" data-props='{"count": 5}'></div>
-```
+| Concept        | Description                                                                                              |
+| -------------- | -------------------------------------------------------------------------------------------------------- |
+| **Island**     | A component definition produced by `.render()`. Callable as a function (SSR) or via `.mount()` (client). |
+| **Input**      | Validated external props passed when calling or mounting an island. Defined with `.input(schema)`.       |
+| **State**      | Reactive signal values local to each mounted instance. Defined with `.state(key, init)`.                 |
+| **Derived**    | Computed values (sync or async) that update automatically when state changes.                            |
+| **Effect**     | Side-effect that runs on the client when reactive state it reads changes.                                |
+| **OnMount**    | Callback that runs once when the island is mounted on the client.                                        |
+| **Bind**       | Two-way data binding between a form element and a state signal or external signal.                       |
+| **Slot**       | A composable child island injected at render time.                                                       |
+| **Transition** | Optional `enter`/`leave` hooks for animated mount/unmount.                                               |
+| **Context**    | Global shared reactive signals across islands, identified by a string key.                               |
 
 ---
 
-## Builder API
+## API Reference
 
-### ilha (root builder)
+### ilha (default export)
 
-The default export is the root builder. It can be used directly without `.input()` if no typed props are needed:
+The root builder object. All builder methods are available directly on it. It also exposes utility functions as properties:
 
 ```ts
-import ilha from "ilha";
-
-const greeting = ilha.state("name", "world").render(({ state }) => `<p>Hello, ${state.name()}</p>`);
+import ilha, { html, raw, mount, from, context, type } from "ilha";
 ```
 
-All builder methods are chainable and immutable — each call returns a new builder instance.
+| Property       | Type            | Description                                                    |
+| -------------- | --------------- | -------------------------------------------------------------- |
+| `ilha.html`    | tagged template | XSS-safe HTML template tag (same as the `html` named export)   |
+| `ilha.raw`     | function        | Bypass escaping for trusted HTML (same as `raw`)               |
+| `ilha.mount`   | function        | Auto-discover and mount all `[data-ilha]` elements             |
+| `ilha.from`    | function        | Mount an island onto a single element by selector or reference |
+| `ilha.context` | function        | Create or retrieve a global shared signal                      |
 
 ---
 
 ### .input()
 
+Attach a [Standard Schema v1](https://standardschema.dev/) schema to validate and type external props.
+
 ```ts
-.input(schema: StandardSchemaV1): Builder
+ilha.input(schema);
 ```
 
-Declares typed, validated props for the island using any [Standard Schema](https://standardschema.dev) compatible validator. Validation runs on every SSR call and every client mount.
+| Parameter | Type               | Description                                                   |
+| --------- | ------------------ | ------------------------------------------------------------- |
+| `schema`  | `StandardSchemaV1` | Any Standard Schema v1 compatible schema (Zod, Valibot, etc.) |
+
+**Returns** a new builder with `TInput` typed to the schema's output.  
+Calling `.input()` resets all previously accumulated state, derived, and event definitions — use it as the **first** call in the chain.
 
 ```ts
 import { z } from "zod";
 
-const island = ilha
-  .input(
-    z.object({
-      title: z.string().default("Untitled"),
-      count: z.number().default(0),
-    }),
-  )
-  .render(({ input }) => `<h1>${input.title}</h1><p>${input.count}</p>`);
-
-island({ title: "Hello", count: 3 }); // → "<h1>Hello</h1><p>3</p>"
-island(); // → "<h1>Untitled</h1><p>0</p>"
+const counter = ilha
+  .input(z.object({ count: z.number().default(0) }))
+  .render(({ input }) => `<p>${input.count}</p>`);
 ```
 
-**Throws** `[ilha] Validation failed` if props fail schema validation.
+If invalid props are provided at call-time or mount-time, ilha throws:
 
-**Async schemas** are not supported — validation must be synchronous.
-
-`input` is available in `.state()` init functions, `.derived()`, `.effect()`, `.on()` handlers, and `.render()`.
+```
+[ilha] Validation failed:
+  - Expected number, received string
+```
 
 ---
 
 ### .state()
 
+Define a reactive signal for local island state.
+
 ```ts
-.state(key: string, init: Value | (input) => Value): Builder
+.state(key, init?)
 ```
 
-Adds a reactive signal to the island. `init` can be a plain value or a function that receives the validated `input` and returns the initial value.
+| Parameter | Type                          | Description                                                |
+| --------- | ----------------------------- | ---------------------------------------------------------- |
+| `key`     | `string`                      | Name of the state slot                                     |
+| `init`    | `V \| ((input: TInput) => V)` | Initial value or factory function receiving resolved input |
+
+**Returns** a new builder with the state key added to `TStateMap`.
+
+- `init` can be a plain value (e.g. `0`, `"hello"`, `[]`) or a function that receives the resolved input.
+- State signals are available in `render`, `effect`, `onMount`, `on` handlers, and `derived` functions as `state.key` — a **signal accessor** that reads (`state.key()`) and writes (`state.key(newValue)`) the signal.
 
 ```ts
-ilha
+const counter = ilha
   .input(z.object({ count: z.number().default(0) }))
-  .state("count", ({ count }) => count) // derived from input
+  .state("count", ({ count }) => count) // initialized from input
   .state("step", 1) // plain value
-  .render(({ state }) => `<p>${state.count()} (step: ${state.step()})</p>`);
-```
-
-State is accessed in `.render()` and handlers as a **signal accessor** — call it with no arguments to read, call it with a value to write:
-
-```ts
-state.count(); // → current value
-state.count(5); // → sets to 5, triggers re-render
-```
-
-During SSR, state accessors are read-only plain functions — writes are silently ignored and no effects run.
-
-Multiple `.state()` calls can be chained:
-
-```ts
-ilha.state("a", 0).state("b", "hello").state("active", false);
+  .render(({ state }) => `<p>${state.count()}</p>`);
 ```
 
 ---
 
 ### .derived()
 
-```ts
-.derived(key: string, fn: (ctx) => Value | Promise<Value>): Builder
-```
-
-Derives a value from state or input. The function can be **sync** or **async**.
-
-#### Context
+Compute a value from state and/or input. Re-computed whenever its reactive dependencies change.
 
 ```ts
-fn({ state, input, signal });
+.derived(key, fn)
 ```
 
-| Property | Type          | Description                                     |
-| -------- | ------------- | ----------------------------------------------- |
-| `state`  | `IslandState` | Reactive state accessors                        |
-| `input`  | `TInput`      | Validated input props                           |
-| `signal` | `AbortSignal` | Cancelled when dependencies change (async only) |
+| Parameter | Type                                         | Description                    |
+| --------- | -------------------------------------------- | ------------------------------ |
+| `key`     | `string`                                     | Name of the derived value      |
+| `fn`      | `(ctx: DerivedFnContext) => V \| Promise<V>` | Sync or async factory function |
 
-#### Sync derived
+**`DerivedFnContext`:**
 
-Value is computed immediately, `loading` is always `false`. Re-runs synchronously when any accessed state changes.
+| Property | Type                     | Description                                               |
+| -------- | ------------------------ | --------------------------------------------------------- |
+| `state`  | `IslandState<TStateMap>` | All state signal accessors                                |
+| `input`  | `TInput`                 | Resolved input props                                      |
+| `signal` | `AbortSignal`            | Aborted when state changes or island unmounts (for async) |
+
+**Returns** a new builder with the derived key added to `TDerivedMap`.
+
+In `render`, derived values are accessed via `derived.key` which is a `DerivedValue<V>`:
+
+```ts
+interface DerivedValue<T> {
+  loading: boolean; // true while async fn is pending
+  value: T | undefined;
+  error: Error | undefined;
+}
+```
+
+**Sync derived:**
+
+```ts
+const island = ilha
+  .state("n", 4)
+  .derived("doubled", ({ state }) => state.n() * 2)
+  .render(({ derived }) => `<p>${derived.doubled.value}</p>`);
+```
+
+**Async derived with stale-while-revalidate:**
+
+```ts
+const island = ilha
+  .state("query", "hello")
+  .derived("results", async ({ state, signal }) => {
+    const res = await fetch(`/search?q=${state.query()}`, { signal });
+    return res.json();
+  })
+  .render(({ derived }) =>
+    derived.results.loading
+      ? `<p>Loading... (prev: ${derived.results.value ?? "none"})</p>`
+      : `<p>${JSON.stringify(derived.results.value)}</p>`,
+  );
+```
+
+> **Note:** When state changes, the previous async result is preserved in `value` while `loading` is `true` (stale-while-revalidate pattern). The `AbortSignal` is aborted for superseded requests.
+
+---
+
+### .on()
+
+Attach a DOM event handler to elements within the island. **No-op during SSR.**
+
+```ts
+.on(selectorOrCombined, handler)
+```
+
+**Combined `@`-syntax (recommended):**
+
+```
+"[selector]@eventName[:modifier[:modifier]]"
+```
+
+| Part         | Description                                                                     |
+| ------------ | ------------------------------------------------------------------------------- |
+| `[selector]` | CSS selector for target elements inside the island root. Omit for root element. |
+| `@eventName` | Any `HTMLElementEventMap` event name (e.g. `click`, `keydown`, `input`)         |
+| `:modifier`  | Optional: `once`, `capture`, `passive`                                          |
 
 ```ts
 ilha
   .state("count", 0)
-  .derived("doubled", ({ state }) => state.count() * 2)
-  .render(({ state, derived }) => `<p>${state.count()} × 2 = ${derived.doubled.value}</p>`);
+  .on("[data-inc]@click", ({ state }) => state.count(state.count() + 1))
+  .on("[data-inc]@click:once", ({ state }) => console.log("first click"))
+  .on("@click", ({ state }) => console.log("root clicked")) // no selector = root
+  .render(({ state }) => `<p>${state.count()}</p><button data-inc>+</button>`);
 ```
 
-During SSR, sync derived resolves immediately with the correct value.
+**Handler context:**
 
-#### Async derived
+| Property | Type                                        | Description                         |
+| -------- | ------------------------------------------- | ----------------------------------- |
+| `state`  | `IslandState<TStateMap>`                    | State signal accessors              |
+| `input`  | `TInput`                                    | Resolved input props                |
+| `host`   | `Element`                                   | The island root element             |
+| `target` | `Element`                                   | The element that received the event |
+| `event`  | Typed event (e.g. `MouseEvent` for `click`) | The DOM event                       |
 
-Result is wrapped in a `{ loading, value, error }` envelope. Stale requests are aborted automatically via the `AbortSignal` when dependencies change. The previous `value` is preserved while re-fetching.
+**Modifiers:**
+
+| Modifier  | Equivalent `addEventListener` option |
+| --------- | ------------------------------------ |
+| `once`    | `{ once: true }`                     |
+| `capture` | `{ capture: true }`                  |
+| `passive` | `{ passive: true }`                  |
+
+Multiple modifiers can be chained: `@click:once:passive`.
+
+---
+
+### .effect()
+
+Register a reactive side-effect that runs on the client whenever its reactive dependencies change.
+
+```ts
+.effect(fn)
+```
+
+| Parameter | Type                                           | Description                                    |
+| --------- | ---------------------------------------------- | ---------------------------------------------- |
+| `fn`      | `(ctx: EffectContext) => (() => void) \| void` | Effect function; may return a cleanup function |
+
+**`EffectContext`:**
+
+| Property | Type                     | Description             |
+| -------- | ------------------------ | ----------------------- |
+| `state`  | `IslandState<TStateMap>` | State signal accessors  |
+| `input`  | `TInput`                 | Resolved input props    |
+| `host`   | `Element`                | The island root element |
+
+- Effects are **no-ops during SSR**.
+- The returned cleanup function is called before the effect re-runs or on unmount.
 
 ```ts
 ilha
-  .state("query", "")
-  .derived("results", async ({ state, signal }) => {
-    const res = await fetch(`/api/search?q=${state.query()}`, { signal });
-    return res.json();
+  .state("count", 0)
+  .effect(({ state, host }) => {
+    document.title = `Count: ${state.count()}`;
+    return () => {
+      document.title = "";
+    }; // cleanup
   })
-  .render(({ derived }) => {
-    const { loading, value, error } = derived.results;
-    if (loading) return `<p>Loading${value ? " (updating…)" : ""}…</p>`;
-    if (error) return `<p>Error: ${error.message}</p>`;
-    return `<ul>${value.map((r: string) => `<li>${r}</li>`).join("")}</ul>`;
-  });
+  .render(({ state }) => `<p>${state.count()}</p>`);
 ```
 
-During SSR, async derived supports two modes:
+---
 
-- `await island()` resolves async derived before producing the final HTML
-- `island.toString()` and implicit string interpolation stay synchronous, so async derived remains in its loading state
+### .onMount()
 
-This lets you choose between async SSR and a synchronous loading fallback depending on how you render the island.
-
-#### Derived envelope
-
-Every `.derived()` key is accessible as:
+Register a callback that runs once when the island is mounted on the client.
 
 ```ts
-derived.key.loading; // boolean — always false for sync
-derived.key.value; // T | undefined
-derived.key.error; // Error | undefined — always undefined for sync
+.onMount(fn)
 ```
 
-#### Multiple derived keys
+| Parameter | Type                                            | Description                                                     |
+| --------- | ----------------------------------------------- | --------------------------------------------------------------- |
+| `fn`      | `(ctx: OnMountContext) => (() => void) \| void` | Mount callback; may return a cleanup function called on unmount |
+
+**`OnMountContext`:**
+
+| Property   | Type                         | Description                                                     |
+| ---------- | ---------------------------- | --------------------------------------------------------------- |
+| `state`    | `IslandState<TStateMap>`     | State signal accessors                                          |
+| `derived`  | `IslandDerived<TDerivedMap>` | Derived value proxies                                           |
+| `input`    | `TInput`                     | Resolved input props                                            |
+| `host`     | `Element`                    | The island root element                                         |
+| `hydrated` | `boolean`                    | `true` when the island was restored from a server-side snapshot |
 
 ```ts
 ilha
-  .state("n", 4)
-  .derived("square", ({ state }) => state.n() ** 2)
-  .derived("label", async ({ state }) => fetchLabel(state.n()))
-  .render(
-    ({ derived }) =>
-      `<p>${derived.square.value} — ${derived.label.loading ? "…" : derived.label.value}</p>`,
-  );
+  .state("open", false)
+  .onMount(({ state, host, hydrated }) => {
+    if (!hydrated) state.open(true);
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") state.open(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  })
+  .render(({ state }) => `<div>${state.open() ? "Visible" : "Hidden"}</div>`);
 ```
 
 ---
 
 ### .bind()
 
+Two-way binding between a form input element and a state signal (or external signal).
+
 ```ts
-.bind(selector: string, stateKey: string): Builder
+.bind(selector, stateKey)
+.bind(selector, externalSignal)
 ```
 
-Creates a **two-way binding** between a form element and a state key. No event handler boilerplate needed.
+| Parameter        | Type                       | Description                                                                   |
+| ---------------- | -------------------------- | ----------------------------------------------------------------------------- |
+| `selector`       | `string`                   | CSS selector for target input inside the island. Empty string = root element. |
+| `stateKey`       | `keyof TStateMap & string` | Name of an existing state key to bind                                         |
+| `externalSignal` | `ExternalSignal<T>`        | An external `context()` signal or any `{ (): T; (v: T): void }`               |
+
+Automatically detects the correct DOM event and property:
+
+| Element type           | Event    | Property            |
+| ---------------------- | -------- | ------------------- |
+| `input[type=checkbox]` | `change` | `checked`           |
+| `input[type=radio]`    | `change` | `checked` / `value` |
+| `input[type=number]`   | `input`  | `valueAsNumber`     |
+| `select`               | `change` | `value`             |
+| All others             | `input`  | `value`             |
 
 ```ts
 ilha
-  .state("email", "")
-  .state("age", 0)
-  .state("subscribed", false)
-  .bind("[data-email]", "email")
-  .bind("[data-age]", "age")
-  .bind("[data-sub]", "subscribed")
+  .state("name", "")
+  .bind("[data-name]", "name")
   .render(
-    ({ state }) => html`
-      <input data-email value="${state.email()}" />
-      <input type="number" data-age value="${state.age()}" />
-      <input type="checkbox" data-sub ${state.subscribed() ? "checked" : ""} />
-    `,
+    ({ state }) => `
+    <input data-name value="${state.name()}" />
+    <p>Hello, ${state.name()}!</p>
+  `,
   );
 ```
-
-#### Directions
-
-- **DOM → state** — user interaction updates the signal immediately
-- **state → DOM** — programmatic signal writes sync back to the element's property
-
-#### Type coercion
-
-The DOM value is automatically coerced to match the type of the current state value. If the state is a `number` and the input is cleared, the value falls back to `0` rather than `NaN`.
-
-```ts
-.state("count", 0)
-.bind("[data-count]", "count") // "42" from DOM → 42 in state automatically
-```
-
-#### Supported elements
-
-| Element                  | Listens on | Reads / writes    |
-| ------------------------ | ---------- | ----------------- |
-| `input` (text, email, …) | `input`    | `.value`          |
-| `input[type=number]`     | `input`    | `.valueAsNumber`  |
-| `input[type=checkbox]`   | `change`   | `.checked`        |
-| `input[type=radio]`      | `change`   | selected `.value` |
-| `select`                 | `change`   | `.value`          |
-| `textarea`               | `input`    | `.value`          |
-
-For radio groups, bind all radios in the group to the same state key, typically via a shared selector like `[name=plan]`. The state stores the selected radio's `value`.
-
-#### SSR behaviour
-
-`.bind()` is a complete no-op during SSR. It only activates on mount.
-
-#### Stale element references
-
-Every state change triggers a re-render which replaces `el.innerHTML`. Any element reference captured before a state change is a detached element. Always re-query from the root `el` after interactions:
-
-```ts
-// ✗ stale — captured before re-render
-const input = el.querySelector("[data-q]")!;
-input.dispatchEvent(new Event("input"));
-input.value; // detached element
-
-// ✓ always re-query
-el.querySelector<HTMLInputElement>("[data-q]")!.dispatchEvent(new Event("input"));
-el.querySelector<HTMLInputElement>("[data-q]")!.value; // live element
-```
-
----
-
-### .on()
-
-```ts
-.on(selectorAtEvent: string, handler: (ctx) => void | Promise<void>): Builder
-```
-
-Attaches a delegated DOM event listener. The selector and event are combined in a single string using `@` as separator.
-
-#### Syntax
-
-```txt
-[css-selector]@[event-type][:modifier]*
-```
-
-```ts
-.on("[data-btn]@click", handler)                    // delegated to matching child
-.on("@click", handler)                              // bound to the island root element
-.on("[data-btn]@click:once", handler)               // fires once then detaches
-.on("[data-btn]@submit:passive", handler)
-.on("[data-btn]@scroll:passive:capture", handler)
-```
-
-#### Autocomplete
-
-When using the `@`-syntax in an editor with TypeScript language server support, the event name portion (after `@`) will autocomplete from all `HTMLElementEventMap` keys. The handler's `ctx.event` is automatically narrowed — e.g. `@click` gives `MouseEvent`, `@keydown` gives `KeyboardEvent`.
-
-Custom event names (not in `HTMLElementEventMap`) are still accepted — they fall back to the base `Event` type in the handler.
-
-#### Modifiers
-
-| Modifier   | Description                                       |
-| ---------- | ------------------------------------------------- |
-| `:once`    | Handler fires once, then is automatically removed |
-| `:capture` | Uses capture phase                                |
-| `:passive` | Marks listener as passive                         |
-
-Modifiers can be combined in any order after the event type.
-
-#### Handler context
-
-```ts
-.on("[data-btn]@click", ({ state, input, el, event }) => {
-  state.count(state.count() + 1);
-  event.preventDefault();
-});
-```
-
-| Property | Type                                                 | Description                   |
-| -------- | ---------------------------------------------------- | ----------------------------- |
-| `state`  | `IslandState`                                        | Reactive state accessors      |
-| `input`  | `TInput`                                             | Validated input props         |
-| `el`     | `Element`                                            | The island's root DOM element |
-| `event`  | `Event` (narrowed to e.g. `MouseEvent` for `@click`) | The native DOM event          |
-
-Async handlers are supported — errors are caught and logged.
-
-#### SSR behaviour
-
-`.on()` is a no-op during SSR.
-
----
-
-### .effect()
-
-```ts
-.effect(fn: (ctx) => (() => void) | void): Builder
-```
-
-Runs a reactive side effect on mount. The function is re-run whenever any state it reads changes. Optionally returns a cleanup function.
-
-```ts
-ilha
-  .state("count", 0)
-  .effect(({ state, el }) => {
-    document.title = `Count: ${state.count()}`;
-    return () => {
-      document.title = ""; // cleanup on unmount or before re-run
-    };
-  })
-  .render(({ state }) => `<p>${state.count()}</p>`);
-```
-
-#### Effect context
-
-| Property | Type          | Description                   |
-| -------- | ------------- | ----------------------------- |
-| `state`  | `IslandState` | Reactive state accessors      |
-| `input`  | `TInput`      | Validated input props         |
-| `el`     | `Element`     | The island's root DOM element |
-
-#### Cleanup
-
-The returned cleanup function is called:
-
-- Before the effect re-runs (when tracked state changes)
-- On island unmount
-
-#### SSR behaviour
-
-`.effect()` is a no-op during SSR.
 
 ---
 
 ### .slot()
 
-```ts
-.slot(name: string, island: Island): Builder
-```
-
-Registers a child island as a named slot. Slots allow composition — a parent island can embed child islands that have their own independent reactive state.
+Register a child island as a named slot, accessible in the render function.
 
 ```ts
-const badge = ilha.state("label", "hello").render(({ state }) => `<span>${state.label()}</span>`);
-
-const card = ilha.slot("badge", badge).render(({ slots }) => `<div>${slots.badge}</div>`);
+.slot(name, island)
 ```
 
-#### Rendering slots
+| Parameter | Type     | Description         |
+| --------- | -------- | ------------------- |
+| `name`    | `string` | Slot name           |
+| `island`  | `Island` | Any island instance |
 
-Inside `.render()`, `slots` is a proxy where each key is a `SlotAccessor`. A slot can be rendered with or without props:
+In `render`, `slots.name` is a **`SlotAccessor`** — a function that renders the child island to an HTML string and can receive props:
 
 ```ts
-slots.badge; // renders with child's defaults
-slots.badge({ label: "hi" }); // renders with props
+const badge = ilha
+  .input(z.object({ label: z.string().default("") }))
+  .render(({ input }) => `<span class="badge">${input.label}</span>`);
+
+const card = ilha.slot("badge", badge).render(
+  ({ slots }) => `
+    <div class="card">
+      ${slots.badge({ label: "New" })}
+    </div>
+  `,
+);
 ```
 
-In a template literal or `html` tag, `slots.badge` calls `.toString()` automatically:
-
-```ts
-html`<div>${slots.badge}</div>`;
-// or
-`<div>${slots.badge}</div>`;
-```
-
-#### Client behaviour
-
-On the client, the parent renders a placeholder `<div data-ilha-slot="name">` in place of each slot. The child island is then mounted onto that placeholder. The placeholder element is preserved across parent re-renders — the child's state and lifecycle are never interrupted by parent updates.
-
-Unmounting a parent cascades to all child slots.
-
-#### Slot props via HTML
-
-Slots can also receive props declaratively in markup:
-
-```html
-<div data-ilha-slot="badge" data-props='{"label": "world"}'></div>
-```
-
-#### SSR behaviour
-
-During SSR, slots render inline using the child island's synchronous rendering path (`toString()`). This means async derived values inside child slots stay in their loading state unless the child is rendered directly with `await childIsland(...)`.
+`SlotAccessor` can be passed to `html\`\`` template directly and renders unescaped.
 
 ---
 
 ### .transition()
 
+Define enter/leave animation hooks for mount and unmount.
+
 ```ts
-.transition({ enter?, leave? }): Builder
+.transition(options)
 ```
 
-Registers mount and unmount lifecycle hooks. Both can be async — `leave` is awaited before teardown begins.
+| Option  | Type                                       | Description                          |
+| ------- | ------------------------------------------ | ------------------------------------ |
+| `enter` | `(host: Element) => void \| Promise<void>` | Called right after mounting          |
+| `leave` | `(host: Element) => void \| Promise<void>` | Called before teardown; may be async |
+
+If `leave` returns a `Promise`, teardown (event listener removal, effect cleanup) is deferred until the promise resolves.
 
 ```ts
 ilha
   .transition({
-    enter: (el) => {
-      el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200 });
-    },
-    leave: (el) =>
-      new Promise<void>((resolve) => {
-        const anim = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200 });
-        anim.onfinish = () => resolve();
-      }),
+    enter: (host) => host.animate([{ opacity: 0 }, { opacity: 1 }], 200).finished,
+    leave: (host) => host.animate([{ opacity: 1 }, { opacity: 0 }], 200).finished,
   })
-  .render(() => `<p>Hello</p>`);
+  .render(() => `<div>Animated</div>`);
 ```
-
-#### Hooks
-
-| Hook    | Signature                          | Description                                              |
-| ------- | ---------------------------------- | -------------------------------------------------------- |
-| `enter` | `(el: Element) => void \| Promise` | Called immediately after initial render on mount         |
-| `leave` | `(el: Element) => void \| Promise` | Called on unmount; teardown waits for promise to resolve |
-
-#### SSR behaviour
-
-`.transition()` is a no-op during SSR.
 
 ---
 
 ### .render()
 
-```ts
-.render(fn: (ctx) => string): Island
-```
-
-The render function itself must return a plain HTML string.
-
-The resulting island can be rendered in two SSR modes:
-
-- Sync: `island.toString()` or implicit string interpolation
-- Async: `await island(props)` when async derived values are present
+Finalise the builder and produce an `Island`. **Must be called last.**
 
 ```ts
-const island = ilha
-  .state("x", 0)
-  .render(({ state, derived, input, slots }) => `<p>${state.x()}</p>`);
+.render(fn): Island<TInput, TStateMap>
 ```
 
-#### Render context
+| Parameter | Type                             | Description                       |
+| --------- | -------------------------------- | --------------------------------- |
+| `fn`      | `(ctx: RenderContext) => string` | Function returning an HTML string |
 
-| Property  | Type            | Description               |
-| --------- | --------------- | ------------------------- |
-| `state`   | `IslandState`   | Reactive signal accessors |
-| `derived` | `IslandDerived` | Derived value envelopes   |
-| `input`   | `TInput`        | Validated input props     |
-| `slots`   | `SlotsProxy`    | Named slot accessors      |
+**`RenderContext`:**
 
-The render function must return a plain HTML string. It is called:
-
-- On SSR — once for sync rendering, or after async derived values resolve when using `await island(...)`
-- On client — once on initial mount, then again whenever any accessed signal changes
+| Property  | Type                         | Description            |
+| --------- | ---------------------------- | ---------------------- |
+| `state`   | `IslandState<TStateMap>`     | State signal accessors |
+| `derived` | `IslandDerived<TDerivedMap>` | Derived value proxies  |
+| `input`   | `TInput`                     | Resolved input props   |
+| `slots`   | `SlotsProxy<TSlots>`         | Named slot accessors   |
 
 ---
 
-## Island interface
+### Island — calling / SSR
 
-`.render()` returns an `Island`, which is a callable function with two additional methods:
-
-```ts
-interface Island<TInput, TStateMap> {
-  (props?: Partial<TInput>): string | Promise<string>;
-  toString(props?: Partial<TInput>): string;
-  mount(el: Element, props?: Partial<TInput>): () => void;
-}
-```
-
-- If all derived values are synchronous, `island(props)` returns a string
-- If any derived value is async, `island(props)` returns a Promise that resolves to the final HTML
-- `toString()` is always synchronous
-
-### Calling the island (SSR)
+The object returned by `.render()` is callable as a function for server-side rendering:
 
 ```ts
-island(); // string if all derived values are sync, otherwise Promise<string>
-await island({ count: 5 }); // safe for both
-`<div>${island}</div>`; // implicit toString() with defaults
-island.toString({ count: 3 }); // always sync
+const html = island(props?)           // returns string (SSR)
+const html = island.toString(props?)  // same, explicit
+`<section>${island}</section>`        // implicit toString, uses schema defaults
 ```
 
-### Mounting
+| Parameter | Description                                                       |
+| --------- | ----------------------------------------------------------------- |
+| `props`   | Optional `Partial<TInput>`. If omitted, schema defaults are used. |
 
-```ts
-const unmount = island.mount(el, { count: 5 });
-
-// later
-unmount(); // stops effects, detaches listeners, runs leave transition
-```
+- `.on()` handlers and `.effect()` callbacks are **ignored** during SSR.
+- `derived()` functions that return a `Promise` will show `loading: true` in SSR unless `.hydratable()` is used with `snapshot: { derived: true }`.
+- Throws `[ilha] Validation failed` if props fail schema validation.
 
 ---
 
-## Mounting
+### island.mount()
+
+Activate an island on a DOM element for client-side reactivity.
+
+```ts
+const unmount = island.mount(host, props?)
+```
+
+| Parameter | Type              | Description                                                                                    |
+| --------- | ----------------- | ---------------------------------------------------------------------------------------------- |
+| `host`    | `Element`         | The root DOM element for this island instance                                                  |
+| `props`   | `Partial<TInput>` | Optional props. Falls back to `data-ilha-props`, then `data-ilha-state`, then schema defaults. |
+
+**Returns** an `unmount` function. Calling it:
+
+- Removes all event listeners registered via `.on()`.
+- Cancels and cleans up all `.effect()` subscriptions.
+- Aborts any pending async derived fetches.
+- Awaits the `.transition({ leave })` hook before teardown.
+
+**Prop resolution priority (highest → lowest):**
+
+1. Explicit `props` argument to `mount()`
+2. `data-ilha-state` attribute (server-side state snapshot)
+3. `data-ilha-props` attribute (set by `hydratable()`)
+4. Schema defaults
+
+---
+
+### island.hydratable()
+
+Render the island as an HTML string **wrapped in a hydration container** for seamless SSR → client handoff.
+
+```ts
+const html = await island.hydratable(props, options);
+```
+
+| Parameter | Type                | Description               |
+| --------- | ------------------- | ------------------------- |
+| `props`   | `Partial<TInput>`   | Props to render with      |
+| `options` | `HydratableOptions` | Configuration (see below) |
+
+**`HydratableOptions`:**
+
+| Option        | Type                                                | Default                     | Description                                                              |
+| ------------- | --------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------ |
+| `name`        | `string`                                            | _(required)_                | Identifier matching the key in the `mount()` registry                    |
+| `as`          | `string`                                            | `"div"`                     | Wrapper HTML tag                                                         |
+| `snapshot`    | `boolean \| { state?: boolean; derived?: boolean }` | `false`                     | Embed state/derived snapshot so client can skip redundant initialisation |
+| `skipOnMount` | `boolean`                                           | `true` when snapshot active | Suppress `.onMount()` handlers on the client when snapshot is present    |
+
+**Output** is a `Promise<string>` of the form:
+
+```html
+<div data-ilha="counter" data-ilha-props='{"count":7}'>
+  <p>7</p>
+</div>
+```
+
+With `snapshot: true`:
+
+```html
+<div
+  data-ilha="counter"
+  data-ilha-props="..."
+  data-ilha-state='{"count":7,"_derived":{...},"_skipOnMount":true}'
+>
+  <p>7</p>
+</div>
+```
+
+The client calls `mount({ counter })` to automatically discover and hydrate all `[data-ilha="counter"]` elements.
+
+---
 
 ### mount()
 
+Auto-discover all `[data-ilha]` elements in the DOM and mount registered islands.
+
+```ts
+const { unmount } = mount(registry, options?)
+```
+
+| Parameter      | Type                     | Description                                                                   |
+| -------------- | ------------------------ | ----------------------------------------------------------------------------- |
+| `registry`     | `Record<string, Island>` | Map of island name → island instance                                          |
+| `options.root` | `Element`                | Scope discovery to this element's subtree (default: `document.body`)          |
+| `options.lazy` | `boolean`                | Use `IntersectionObserver` to mount islands only when they enter the viewport |
+
+**Returns** `{ unmount: () => void }` that tears down all discovered instances.
+
 ```ts
 import { mount } from "ilha";
+import { counter } from "./islands/counter";
+import { dropdown } from "./islands/dropdown";
 
-mount(registry, options?): MountResult
+const { unmount } = mount({ counter, dropdown });
+
+// Tear everything down:
+unmount();
 ```
 
-Auto-discovers all `[data-ilha]` elements in the DOM and mounts the matching island from the registry.
-
-```ts
-mount({ counter, form, app });
-```
-
-#### Options
-
-| Option    | Type      | Default         | Description                                                 |
-| --------- | --------- | --------------- | ----------------------------------------------------------- |
-| `root`    | `Element` | `document.body` | Scope discovery to a subtree                                |
-| `hydrate` | `boolean` | `false`         | Preserve existing SSR HTML until first render               |
-| `lazy`    | `boolean` | `false`         | Mount when element enters viewport (`IntersectionObserver`) |
-
-```ts
-mount({ counter }, { root: document.querySelector("#app") });
-mount({ counter }, { hydrate: true });
-mount({ counter }, { lazy: true });
-```
-
-#### HTML attributes
-
-```html
-<div data-ilha="counter" data-props='{"count": 5}' data-ilha-state='{"count": 42}'></div>
-```
-
-| Attribute         | Description                                                                |
-| ----------------- | -------------------------------------------------------------------------- |
-| `data-ilha`       | Island name — must match a key in the registry                             |
-| `data-props`      | JSON props passed to the island                                            |
-| `data-ilha-state` | Serialised state snapshot — takes priority over `data-props` on the client |
-
-#### Return value
-
-```ts
-const { unmount } = mount({ counter });
-unmount(); // tears down all discovered islands
-```
+Malformed `data-ilha-props` JSON is handled gracefully (logs a warning, skips the element).
 
 ---
 
 ### from()
 
+Mount a single island onto a CSS selector or Element reference.
+
+```ts
+const unmount = from(selector, island, props?)
+```
+
+| Parameter  | Type                | Description                        |
+| ---------- | ------------------- | ---------------------------------- |
+| `selector` | `string \| Element` | CSS selector string or DOM element |
+| `island`   | `Island`            | Island to mount                    |
+| `props`    | `Partial<TInput>`   | Optional props                     |
+
+**Returns** an `unmount` function, or `null` if the selector does not match any element (and logs a warning).
+
 ```ts
 import { from } from "ilha";
 
-from(selector: string | Element, island: Island, props?): (() => void) | null
-```
-
-Mounts a single island onto a specific element. Returns the unmount function, or `null` if the selector matched nothing.
-
-```ts
-const unmountA = from("#my-counter", counter, { count: 5 });
-const appEl = document.querySelector("#app");
-const unmountB = appEl ? from(appEl, app) : null;
+const unmount = from("#my-counter", counter, { count: 10 });
 ```
 
 ---
 
-## Shared state
-
 ### context()
+
+Create or retrieve a **globally shared reactive signal** identified by a string key.
+
+```ts
+const signal = context(key, initial);
+```
+
+| Parameter | Type     | Description                                          |
+| --------- | -------- | ---------------------------------------------------- |
+| `key`     | `string` | Unique string key for the context                    |
+| `initial` | `T`      | Initial value (used only on first call for this key) |
+
+**Returns** a signal accessor `{ (): T; (value: T): void }`.
+
+- Calling `context()` with the same key always returns the **same signal**, regardless of `initial` value on subsequent calls.
+- All islands that read the signal will re-render when it is written.
 
 ```ts
 import { context } from "ilha";
 
-context(key: string, initial: T): ContextSignal<T>
-```
-
-Creates or retrieves a module-level shared signal. The same key always returns the same signal — the initial value from the **first** registration wins.
-
-```ts
 const theme = context("theme", "light");
 
-theme(); // → "light"
-theme("dark"); // updates all islands subscribed to this signal
-```
+// Read
+theme(); // "light"
 
-Context signals work identically to state signals — calling with no args reads, calling with a value writes. Any island that reads a context signal inside `.render()` or `.effect()` will re-render or re-run when the signal changes.
-
-```ts
-const score = context("score", 0);
-
-const display = ilha.render(() => `<p>${score()}</p>`);
-
-const control = ilha.on("@click", () => score(score() + 1)).render(() => `<button>+1</button>`);
-```
-
-> **Note:** Context signals are global for the lifetime of the page. There is no per-instance scoping or cleanup mechanism.
-
----
-
-## SSR & hydration
-
-### SSR rendering
-
-Islands support both synchronous and asynchronous SSR.
-
-```ts
-island(); // string for fully sync islands
-await island({ count: 3 }); // resolves async derived when needed
-island.toString({ count: 3 }); // always sync
-```
-
-During SSR:
-
-- Signal accessors return plain values; writes are ignored
-- `.on()`, `.effect()`, `.bind()`, and `.transition()` are no-ops
-- Sync `.derived()` resolves immediately
-- Async `.derived()` can be awaited via `await island(...)`
-- `toString()` and implicit string interpolation remain synchronous, so async derived values stay in loading state there
-- Slots render inline through their synchronous slot accessor path
-
-#### Async SSR example
-
-```ts
-const profile = ilha
-  .derived("user", async () => ({ name: "Ada" }))
-  .render(({ derived }) => {
-    if (derived.user.loading) return "<p>Loading…</p>";
-    if (derived.user.error) return `<p>Error: ${derived.user.error.message}</p>`;
-    return `<p>${derived.user.value!.name}</p>`;
-  });
-
-await profile(); // "<p>Ada</p>"
-profile.toString(); // "<p>Loading…</p>"
-`${profile}`; // "<p>Loading…</p>"
-```
-
-### Hydration
-
-To restore serialised state on the client without re-running prop validation, embed the state snapshot in the HTML:
-
-```html
-<div data-ilha="counter" data-ilha-state='{"count": 42}'>
-  <p>42</p>
-  <button data-inc>+</button>
-</div>
-```
-
-`data-ilha-state` takes priority over `data-props` when both are present. Pass `{ hydrate: true }` to `mount()` to preserve the SSR HTML until the first client render completes:
-
-```ts
-mount({ counter }, { hydrate: true });
+// Write (triggers re-renders in all subscribed islands)
+theme("dark");
 ```
 
 ---
 
-## html template tag
+### html\`\` tagged template
+
+XSS-safe HTML template literal tag that auto-escapes interpolated values.
 
 ```ts
 import { html } from "ilha";
+
+html`<p>${userContent}</p>`;
 ```
 
-A tagged template literal that **escapes all interpolations by default**. Use it to safely build HTML strings from user-provided or dynamic values.
+**Interpolation behaviour:**
+
+| Value type                  | Behaviour                                      |
+| --------------------------- | ---------------------------------------------- |
+| `string`, `number`          | HTML-escaped                                   |
+| `null`, `undefined`         | Omitted (empty string)                         |
+| `raw(...)` object           | Inserted **unescaped**                         |
+| `SlotAccessor`              | Rendered via `.toString()`, inserted unescaped |
+| Signal accessor (`state.x`) | Reads the signal, HTML-escapes the result      |
+| Function `() => string`     | Called and result is HTML-escaped              |
+
+Also strips common leading indentation from multiline templates (dedent).
 
 ```ts
-html`<p>${userInput}</p>`;
-// → "<p>&lt;script&gt;…</p>"
-```
-
-### Interpolation types
-
-| Value               | Behaviour                                 |
-| ------------------- | ----------------------------------------- |
-| `string`, `number`  | HTML-escaped                              |
-| `null`, `undefined` | Omitted (renders nothing)                 |
-| `raw(str)`          | Inserted as-is, no escaping               |
-| Signal accessor     | Called, result is HTML-escaped            |
-| Slot accessor       | Calls `.toString()`, inserted as raw HTML |
-| Other function      | Called, result is HTML-escaped            |
-
-Leading and trailing blank lines are stripped (dedented) from the result.
-
-### Signals in `html`
-
-Signal accessors can be passed directly without calling them — `html` detects them and calls them automatically:
-
-```ts
-html`<p>${state.count}</p>`; // same as html`<p>${state.count()}</p>`
+const template = html`
+  <div class="card">
+    <h2>${title}</h2>
+    ${raw("<em>trusted</em>")}
+  </div>
+`;
 ```
 
 ---
 
-## raw()
+### raw()
+
+Mark a string as trusted HTML to bypass `html\`\`` escaping.
 
 ```ts
-import { raw } from "ilha";
-
 raw(value: string): RawHtml
 ```
 
-Wraps a string to mark it as safe HTML, bypassing `html`'s escaping. Use only with trusted content.
+Only use `raw()` with HTML you control — it disables XSS protection.
 
 ```ts
-html`<div>${raw("<b>bold</b>")}</div>`;
-// → "<div><b>bold</b></div>"
+html`<div>${raw("<strong>trusted bold</strong>")}</div>`;
+// → "<div><strong>trusted bold</strong></div>"
 ```
 
 ---
 
-## TypeScript
+### type()
 
-ilha is written in TypeScript and ships full type declarations. The builder tracks the full state and derived map through the chain, so `.render()` and all handlers are fully typed with no manual annotations needed.
-
-### Inferred types
+Create a minimal, passthrough Standard Schema v1 schema with optional coercion. Useful when you want to type island input without a full validation library.
 
 ```ts
-const island = ilha
-  .input(z.object({ count: z.number().default(0) }))
-  .state("count", ({ count }) => count) // state.count: SignalAccessor<number>
-  .derived("doubled", ({ state }) => state.count() * 2) // derived.doubled: DerivedValue<number>
-  .render(({ state, derived }) => {
-    state.count(); // → number
-    derived.doubled.value; // → number | undefined
-    return `<p>${state.count()}</p>`;
-  });
+type<TInput, TOutput = TInput>(coerce?: (input: TInput) => TOutput): StandardSchemaV1
 ```
 
-### Exported types
+```ts
+import { type } from "ilha";
+
+const myIsland = ilha
+  .input(type<{ count?: number }>((v) => ({ count: v.count ?? 0 })))
+  .render(({ input }) => `<p>${input.count}</p>`);
+```
+
+---
+
+## TypeScript Types
+
+### Key exported types
 
 ```ts
 import type {
@@ -803,88 +704,167 @@ import type {
   IslandState,
   IslandDerived,
   DerivedValue,
-  SignalAccessor,
   SlotAccessor,
-  HandlerContext,
-  HandlerContextFor,
+  SignalAccessor,
+  HydratableOptions,
   MountOptions,
   MountResult,
+  HandlerContext,
+  HandlerContextFor,
+  OnMountContext,
 } from "ilha";
 ```
 
-#### `Island<TInput, TStateMap>`
+| Type                                               | Description                                                              |
+| -------------------------------------------------- | ------------------------------------------------------------------------ |
+| `Island<TInput, TStateMap>`                        | An island instance (callable + `.mount()` + `.hydratable()`)             |
+| `IslandState<TStateMap>`                           | Map of signal accessors: `{ [K]: SignalAccessor<TStateMap[K]> }`         |
+| `IslandDerived<TDerivedMap>`                       | Map of derived value proxies: `{ [K]: DerivedValue<TDerivedMap[K]> }`    |
+| `DerivedValue<T>`                                  | `{ loading: boolean; value: T \| undefined; error: Error \| undefined }` |
+| `SignalAccessor<T>`                                | `{ (): T; (value: T): void }` — reads or writes a signal                 |
+| `SlotAccessor`                                     | A `(props?) => RawHtml` function representing a composable slot          |
+| `HydratableOptions`                                | Options for `.hydratable()`                                              |
+| `MountOptions`                                     | `{ root?: Element; lazy?: boolean }`                                     |
+| `MountResult`                                      | `{ unmount: () => void }`                                                |
+| `OnMountContext<TInput, TStateMap, TDerivedMap>`   | Context provided to `.onMount()`                                         |
+| `HandlerContext<TInput, TStateMap>`                | Context provided to `.on()` handlers                                     |
+| `HandlerContextFor<TInput, TStateMap, TEventName>` | `.on()` context with typed `event` based on event name                   |
 
-The callable island returned by `.render()`.
+---
 
-#### `SignalAccessor<T>`
+## Hydration & SSR Workflow
+
+### 1. Server — render with `hydratable()`
 
 ```ts
-type SignalAccessor<T> = {
-  (): T;
-  (value: T): void;
-};
+// server.ts
+import { counter } from "./islands/counter";
+
+const html = await counter.hydratable({ count: 0 }, { name: "counter" });
+// Produces: <div data-ilha="counter" data-ilha-props='{"count":0}'><p>0</p></div>
 ```
 
-#### `DerivedValue<T>`
+### 2. Client — mount with auto-discovery
 
 ```ts
-interface DerivedValue<T> {
-  loading: boolean;
-  value: T | undefined;
-  error: Error | undefined;
-}
+// client.ts
+import { mount } from "ilha";
+import { counter } from "./islands/counter";
+
+document.addEventListener("DOMContentLoaded", () => {
+  const { unmount } = mount({ counter });
+});
 ```
 
-#### `HandlerContext<TInput, TStateMap>`
+### 3. With state snapshot (skip re-fetch on hydration)
 
 ```ts
-type HandlerContext<TInput, TStateMap> = {
-  state: IslandState<TStateMap>;
-  input: TInput;
-  el: Element;
-  event: Event;
-};
-```
-
-#### `HandlerContextFor<TInput, TStateMap, TEventName>`
-
-Like `HandlerContext`, but with `event` narrowed to the specific DOM event type for the given event name:
-
-```ts
-type HandlerContextFor<TInput, TStateMap, TEventName extends string> = {
-  state: IslandState<TStateMap>;
-  input: TInput;
-  el: Element;
-  event: TEventName extends keyof HTMLElementEventMap ? HTMLElementEventMap[TEventName] : Event;
-};
-```
-
-This is inferred automatically when using `.on()` with the `@`-syntax — you don't need to reference it directly unless you're extracting a handler function outside the builder:
-
-```ts
-import type { HandlerContextFor } from "ilha";
-
-function handleClick({ state, event }: HandlerContextFor<never, { count: number }, "click">) {
-  event.preventDefault(); // event: MouseEvent
-  state.count(state.count() + 1);
-}
-
-ilha.state("count", 0).on("[data-btn]@click", handleClick).render(...);
-```
-
-#### `MountOptions`
-
-```ts
-interface MountOptions {
-  root?: Element;
-  hydrate?: boolean;
-  lazy?: boolean;
-}
+// server.ts
+const html = await counter.hydratable({ count: 42 }, { name: "counter", snapshot: true });
+// Embeds data-ilha-state with current signal values so the client
+// skips initialisation and .onMount() runs with hydrated: true
 ```
 
 ---
 
-## Known limitations
+## Data Attributes Reference
 
-- **`context()` signals** are global for the page lifetime with no scoping or cleanup mechanism.
-- **Element references go stale after re-render** — always re-query from the island root element after any interaction that changes state.
+These attributes are used internally by Ilha for hydration. You can also set them manually on server-rendered HTML.
+
+| Attribute                  | Set by                     | Purpose                                                              |
+| -------------------------- | -------------------------- | -------------------------------------------------------------------- |
+| `data-ilha="<name>"`       | `hydratable()`             | Island name for auto-discovery by `mount()`                          |
+| `data-ilha-props='<json>'` | `hydratable()`             | Serialised input props for the island                                |
+| `data-ilha-state='<json>'` | `hydratable({ snapshot })` | State/derived snapshot for hydration; skips redundant initialisation |
+| `data-ilha-slot="<name>"`  | internal (slots)           | Marks a slot element on re-render for morphing stability             |
+
+---
+
+## Examples
+
+### Counter
+
+```ts
+import { z } from "zod";
+import ilha, { html } from "ilha";
+
+export const counter = ilha
+  .input(z.object({ count: z.number().default(0) }))
+  .state("count", ({ count }) => count)
+  .on("[data-inc]@click", ({ state }) => state.count(state.count() + 1))
+  .on("[data-dec]@click", ({ state }) => state.count(state.count() - 1))
+  .render(
+    ({ state }) => html`
+      <div>
+        <button data-dec>−</button>
+        <span>${state.count}</span>
+        <button data-inc>+</button>
+      </div>
+    `,
+  );
+```
+
+### Async search with loading state
+
+```ts
+export const search = ilha
+  .state("query", "")
+  .derived("results", async ({ state, signal }) => {
+    const q = state.query();
+    if (!q) return [];
+    const res = await fetch(`/api/search?q=${q}`, { signal });
+    return res.json() as Promise<string[]>;
+  })
+  .bind("[data-q]", "query")
+  .render(
+    ({ state, derived }) => html`
+      <input data-q value="${state.query}" placeholder="Search…" />
+      ${derived.results.loading
+        ? raw(`<p>Loading…</p>`)
+        : raw(`<ul>${(derived.results.value ?? []).map((r) => `<li>${r}</li>`).join("")}</ul>`)}
+    `,
+  );
+```
+
+### Global theme toggle
+
+```ts
+import ilha, { context, html } from "ilha";
+
+const theme = context("theme", "light");
+
+export const themeToggle = ilha
+  .on("@click", () => theme(theme() === "light" ? "dark" : "light"))
+  .render(() => html`<button>Toggle theme (current: ${theme})</button>`);
+
+export const themeDisplay = ilha.render(() => html`<p>Theme: ${theme}</p>`);
+```
+
+### SSR + Hydration with snapshot
+
+```ts
+// island.ts
+export const modal = ilha
+  .input(z.object({ open: z.boolean().default(false) }))
+  .state("open", ({ open }) => open)
+  .on("[data-close]@click", ({ state }) => state.open(false))
+  .onMount(({ state, hydrated }) => {
+    if (!hydrated) console.log("fresh mount");
+  })
+  .render(({ state }) =>
+    state.open() ? `<div role="dialog"><button data-close>×</button></div>` : `<div hidden></div>`,
+  );
+
+// server.ts
+const html = await modal.hydratable(
+  { open: true },
+  {
+    name: "modal",
+    snapshot: { state: true },
+    skipOnMount: true,
+  },
+);
+
+// client.ts
+mount({ modal });
+```

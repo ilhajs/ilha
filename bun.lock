@@ -63,7 +63,7 @@
       "dependencies": {
         "@hono/node-server": "^1.19.12",
         "hono": "^4.12.9",
-        "ilha": "https://pkg.pr.new/guarana-studio/ilha@c9bcbd1",
+        "ilha": "https://pkg.pr.new/guarana-studio/ilha@02b4165",
       },
       "devDependencies": {
         "@types/node": "^20.11.17",
@@ -75,7 +75,7 @@
       "name": "nitro",
       "version": "0.0.0",
       "dependencies": {
-        "ilha": "https://pkg.pr.new/guarana-studio/ilha@a39fdc8",
+        "ilha": "https://pkg.pr.new/guarana-studio/ilha@02b4165",
         "nitro": "^3.0.260311-beta",
       },
       "devDependencies": {
@@ -87,7 +87,7 @@
       "name": "vite",
       "version": "0.0.0",
       "dependencies": {
-        "ilha": "https://pkg.pr.new/guarana-studio/ilha@c9bcbd1",
+        "ilha": "https://pkg.pr.new/guarana-studio/ilha@02b4165",
       },
       "devDependencies": {
         "typescript": "~5.9.3",
@@ -638,8 +638,6 @@
 
     "minisearch": ["minisearch@7.2.0", "", {}, "sha512-dqT2XBYUOZOiC5t2HRnwADjhNS2cecp9u+TJRiJ1Qp/f5qjkeT5APcGPjHw+bz89Ms8Jp+cG4AlE+QZ/QnDglg=="],
 
-    "morphlex": ["morphlex@1.4.0", "", {}, "sha512-20/rnlsvvzExLmdq8o9yRz4btq7ZV8bmFaRbkgvlmWYUyFQ31nvORHyKgvCdBIx83HWzxulPAoKNq2Hq1VjYmg=="],
-
     "nanoid": ["nanoid@5.1.7", "", { "bin": { "nanoid": "bin/nanoid.js" } }, "sha512-ua3NDgISf6jdwezAheMOk4mbE1LXjm1DfMUDMuJf4AqxLFK3ccGpgWizwa5YV7Yz9EpXwEaWoRXSb/BnV0t5dQ=="],
 
     "nf3": ["nf3@0.3.14", "", {}, "sha512-MjG9u/IlvSq5txxY0oug1sjrGZ2l37IuhExI1iPuwV4S3RcyRNGoy6xLwznH3ATK6PUAM4fbQVb4Rzy1L1nlzw=="],
@@ -822,7 +820,7 @@
 
     "hono/hono": ["hono@4.12.9", "", {}, "sha512-wy3T8Zm2bsEvxKZM5w21VdHDDcwVS1yUFFY6i8UobSsKfFceT7TOwhbhfKsDyx7tYQlmRM5FLpIuYvNFyjctiA=="],
 
-    "hono/ilha": ["ilha@https://pkg.pr.new/guarana-studio/ilha@c9bcbd1", { "dependencies": { "alien-signals": "^3.1.2" } }, "sha512-I/jgR6Y8OsBW0ZgZ0I+m12JfUXeCaWINrz4/V1xAnRcl8pJqwvsHuyV9Ue7b2Jd3c3vTF1ftY1JBhrlCGbnaXw=="],
+    "hono/ilha": ["ilha@https://pkg.pr.new/guarana-studio/ilha@02b4165", { "dependencies": { "alien-signals": "^3.1.2" } }, "sha512-E/qYXId/9ncQ4eGqAj23/Xd9vrH1pjHIP65GaXzf6xNDLSSjisgsfD/NP04FORu5FrwTL2kTQipAB8Kavpw/nQ=="],
 
     "hono/tsdown": ["tsdown@0.21.7", "", { "dependencies": { "ansis": "^4.2.0", "cac": "^7.0.0", "defu": "^6.1.4", "empathic": "^2.0.0", "hookable": "^6.1.0", "import-without-cache": "^0.2.5", "obug": "^2.1.1", "picomatch": "^4.0.4", "rolldown": "1.0.0-rc.12", "rolldown-plugin-dts": "^0.23.2", "semver": "^7.7.4", "tinyexec": "^1.0.4", "tinyglobby": "^0.2.15", "tree-kill": "^1.2.2", "unconfig-core": "^7.5.0", "unrun": "^0.2.34" }, "peerDependencies": { "@arethetypeswrong/core": "^0.18.1", "@tsdown/css": "0.21.7", "@tsdown/exe": "0.21.7", "@vitejs/devtools": "*", "publint": "^0.3.0", "typescript": "^5.0.0 || ^6.0.0", "unplugin-unused": "^0.5.0" }, "optionalPeers": ["@arethetypeswrong/core", "@tsdown/css", "@tsdown/exe", "@vitejs/devtools", "publint", "typescript", "unplugin-unused"], "bin": { "tsdown": "dist/run.mjs" } }, "sha512-ukKIxKQzngkWvOYJAyptudclkm4VQqbjq+9HF5K5qDO8GJsYtMh8gIRwicbnZEnvFPr6mquFwYAVZ8JKt3rY2g=="],
 
@@ -830,7 +828,7 @@
 
     "markdown-it/entities": ["entities@4.5.0", "", {}, "sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw=="],
 
-    "nitro/ilha": ["ilha@https://pkg.pr.new/guarana-studio/ilha@a39fdc8", { "dependencies": { "alien-signals": "^3.1.2", "morphlex": "^1.4.0" } }, "sha512-iIEU3VBg5UfNJHZsWh2Exw798QH1VNB64UtKI83SDmRR0Ydp4iPL7q8DYc4ng93UIntXY4LhP0f5yGfw3dqxjA=="],
+    "nitro/ilha": ["ilha@https://pkg.pr.new/guarana-studio/ilha@02b4165", { "dependencies": { "alien-signals": "^3.1.2" } }, "sha512-E/qYXId/9ncQ4eGqAj23/Xd9vrH1pjHIP65GaXzf6xNDLSSjisgsfD/NP04FORu5FrwTL2kTQipAB8Kavpw/nQ=="],
 
     "nitro/nitro": ["nitro@3.0.260311-beta", "", { "dependencies": { "consola": "^3.4.2", "crossws": "^0.4.4", "db0": "^0.3.4", "env-runner": "^0.1.6", "h3": "^2.0.1-rc.16", "hookable": "^6.0.1", "nf3": "^0.3.11", "ocache": "^0.1.2", "ofetch": "^2.0.0-alpha.3", "ohash": "^2.0.11", "rolldown": "^1.0.0-rc.8", "srvx": "^0.11.9", "unenv": "^2.0.0-rc.24", "unstorage": "^2.0.0-alpha.6" }, "peerDependencies": { "dotenv": "*", "giget": "*", "jiti": "^2.6.1", "rollup": "^4.59.0", "vite": "^7 || ^8 || >=8.0.0-0", "xml2js": "^0.6.2", "zephyr-agent": "^0.1.15" }, "optionalPeers": ["dotenv", "giget", "jiti", "rollup", "vite", "xml2js", "zephyr-agent"], "bin": { "nitro": "dist/cli/index.mjs" } }, "sha512-0o0fJ9LUh4WKUqJNX012jyieUOtMCnadkNDWr0mHzdraoHpJP/1CGNefjRyZyMXSpoJfwoWdNEZu2iGf35TUvQ=="],
 
@@ -840,7 +838,7 @@
 
     "postcss/nanoid": ["nanoid@3.3.11", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w=="],
 
-    "vite/ilha": ["ilha@https://pkg.pr.new/guarana-studio/ilha@c9bcbd1", { "dependencies": { "alien-signals": "^3.1.2" } }, "sha512-I/jgR6Y8OsBW0ZgZ0I+m12JfUXeCaWINrz4/V1xAnRcl8pJqwvsHuyV9Ue7b2Jd3c3vTF1ftY1JBhrlCGbnaXw=="],
+    "vite/ilha": ["ilha@https://pkg.pr.new/guarana-studio/ilha@02b4165", { "dependencies": { "alien-signals": "^3.1.2" } }, "sha512-E/qYXId/9ncQ4eGqAj23/Xd9vrH1pjHIP65GaXzf6xNDLSSjisgsfD/NP04FORu5FrwTL2kTQipAB8Kavpw/nQ=="],
 
     "vite/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

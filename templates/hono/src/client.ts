@@ -1,22 +1,17 @@
-import ilha, { html, mount, type } from "ilha";
+import ilha, { html, mount, raw } from "ilha";
 
-const counter = ilha
-  .input(type<{ count: number }>())
-  .state("count", ({ count }) => count)
-  .derived("doubled", ({ state }) => state.count() * 2)
-  .on("[data-action=increase]@click", ({ state }) => state.count(state.count() + 1))
+const app = ilha
+  .state("name", "Alice")
+  .derived("greeting", async ({ state, signal }) => {
+    const req = await fetch(`/islands/hello?name=${state.name()}`, { signal });
+    return req.text();
+  })
+  .bind("#name", "name")
   .render(
-    ({ state, derived }) => html`
-      <p>Count: ${state.count()}</p>
-      <p>Doubled: ${derived.doubled.value}</p>
-      <button data-action="increase" class="btn">Increase</button>
+    ({ derived }) => html`
+      <input id="name" type="text" />
+      ${raw(derived.greeting.value ?? "")}
     `,
   );
-
-const app = ilha.slot("counter", counter).render(
-  ({ slots }) => html`
-    <div>${slots.counter({ count: 0 })}</div>
-  `,
-);
 
 mount({ app });

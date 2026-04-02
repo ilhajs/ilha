@@ -5,7 +5,7 @@ import "./style.css";
 const app = ilha
   .state("name", "Alice")
   .derived("greeting", async ({ state, signal }) => {
-    const req = await fetch(`/hello?name=${state.name()}`, { signal });
+    const req = await fetch(`/islands/hello?name=${state.name()}`, { signal });
     return req.text();
   })
   .bind("#name", "name")
