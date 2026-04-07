@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 
 import { z } from "zod";
 
@@ -85,6 +85,68 @@ describe("html``", () => {
       .render(({ state }) => html`<p>${state.label}</p>`);
 
     expect(island()).toBe("<p>&lt;b&gt;hi&lt;/b&gt;</p>");
+  });
+});
+
+// ─────────────────────────────────────────────
+// html`` — Array interpolation
+// ─────────────────────────────────────────────
+
+describe("html`` array interpolation", () => {
+  it("renders an array of strings as concatenated escaped HTML", () => {
+    const items = ["foo", "bar", "baz"];
+    expect(html`<ul>${items}</ul>`).toBe("<ul>foobarbaz</ul>");
+  });
+
+  it("escapes each string element in an array", () => {
+    const items = ["<b>bold</b>", "<script>xss</script>"];
+    expect(html`<ul>${items}</ul>`).toBe(
+      "<ul>&lt;b&gt;bold&lt;/b&gt;&lt;script&gt;xss&lt;/script&gt;</ul>",
+    );
+  });
+
+  it("renders an array of raw() items unescaped", () => {
+    const items = [raw("<li>one</li>"), raw("<li>two</li>")];
+    expect(html`<ul>${items}</ul>`).toBe("<ul><li>one</li><li>two</li></ul>");
+  });
+
+  it("renders a mixed array of strings and raw() items correctly", () => {
+    const items = ["<safe>", raw("<li>raw</li>")];
+    expect(html`<ul>${items}</ul>`).toBe("<ul>&lt;safe&gt;<li>raw</li></ul>");
+  });
+
+  it("renders an empty array as empty string", () => {
+    expect(html`<ul>${[]}</ul>`).toBe("<ul></ul>");
+  });
+
+  it("renders an array of numbers", () => {
+    const items = [1, 2, 3];
+    expect(html`<p>${items}</p>`).toBe("<p>123</p>");
+  });
+
+  it("renders an array with null/undefined entries, skipping them", () => {
+    const items = ["a", null, undefined, "b"];
+    expect(html`<p>${items}</p>`).toBe("<p>ab</p>");
+  });
+
+  it("renders an array produced by .map() — the canonical list rendering pattern", () => {
+    const fruits = ["apple", "banana", "cherry"];
+    const result = html`<ul>${fruits.map((f) => raw(`<li>${f}</li>`))}</ul>`;
+    expect(result).toBe("<ul><li>apple</li><li>banana</li><li>cherry</li></ul>");
+  });
+
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  it("renders a mapped array with XSS-safe escaping per item", () => {
+    const items = ["<script>", "safe"];
+    const result = html`<ul>${items.map((i) => raw(`<li>${esc(i)}</li>`))}</ul>`;
+    expect(result).toBe("<ul><li>&lt;script&gt;</li><li>safe</li></ul>");
+  });
+
+  it("renders nested arrays by flattening one level", () => {
+    const rows = [[raw("<td>a</td>"), raw("<td>b</td>")]];
+    expect(html`<tr>${rows}</tr>`).toBe("<tr><td>a</td><td>b</td></tr>");
   });
 });
 
@@ -828,7 +890,6 @@ describe("island mount", () => {
 
         const result = await counter.hydratable({ count: 7 }, { name: "counter" });
         expect(result).toContain("data-ilha-props=");
-        // props are HTML-entity encoded — decode to verify the JSON content
         const doc = new DOMParser().parseFromString(result, "text/html");
         const wrapper = doc.querySelector("[data-ilha='counter']")!;
         const props = JSON.parse(wrapper.getAttribute("data-ilha-props")!);
@@ -851,7 +912,6 @@ describe("island mount", () => {
           .state("count", ({ count }) => count)
           .render(({ state }) => `<p>${state.count()}</p>`);
 
-        // explicitly pass 42 so the rendered HTML reflects it
         const result = await counter.hydratable({ count: 42 }, { name: "counter" });
         expect(result).toContain("<p>42</p>");
         const doc = new DOMParser().parseFromString(result, "text/html");
@@ -905,7 +965,6 @@ describe("island mount", () => {
 
         const el = document.createElement("div");
         el.setAttribute("data-ilha", "counter");
-        // data-ilha-props is HTML-entity encoded by hydratable; simulate that
         el.setAttribute("data-ilha-props", JSON.stringify({ count: 11 }));
         el.innerHTML = "<p>ssr</p>";
         document.body.appendChild(el);
@@ -1062,6 +1121,149 @@ describe("island mount", () => {
         expect(() => mount({ counter } as never)).not.toThrow();
       });
     });
+  });
+});
+
+// ─────────────────────────────────────────────
+// island.mount() → returns unmount()
+// ─────────────────────────────────────────────
+
+describe("island.mount() returns unmount()", () => {
+  it("mount() returns a callable function", () => {
+    const island = ilha.render(() => `<p>hi</p>`);
+    const el = makeEl();
+    const unmount = island.mount(el);
+    expect(typeof unmount).toBe("function");
+    unmount();
+    cleanup(el);
+  });
+
+  it("unmount() stops reactivity — DOM no longer updates after call", () => {
+    let accessor!: (v?: number) => number | void;
+
+    const island = ilha.state("count", 0).render(({ state }) => {
+      accessor = state.count as typeof accessor;
+      return `<p>${state.count()}</p>`;
+    });
+
+    const el = makeEl();
+    const unmount = island.mount(el);
+    expect(el.querySelector("p")!.textContent).toBe("0");
+
+    unmount();
+
+    accessor(99);
+    expect(el.querySelector("p")!.textContent).toBe("0");
+    cleanup(el);
+  });
+
+  it("unmount() removes event listeners so clicks are silenced", () => {
+    const calls: number[] = [];
+
+    const island = ilha
+      .state("count", 0)
+      .on("[data-btn]@click", ({ state }) => {
+        calls.push(state.count());
+        state.count(state.count() + 1);
+      })
+      .render(({ state }) => `<p>${state.count()}</p><button data-btn>+</button>`);
+
+    const el = makeEl();
+    const unmount = island.mount(el);
+
+    (el.querySelector("[data-btn]") as HTMLButtonElement).click();
+    expect(calls.length).toBe(1);
+
+    unmount();
+
+    (el.querySelector("[data-btn]") as HTMLButtonElement).click();
+    expect(calls.length).toBe(1);
+    cleanup(el);
+  });
+
+  it("unmount() runs effect cleanup callbacks", () => {
+    const log: string[] = [];
+
+    const island = ilha
+      .state("x", 0)
+      .effect(({ state }) => {
+        log.push(`run:${state.x()}`);
+        return () => log.push(`cleanup:${state.x()}`);
+      })
+      .render(({ state }) => `<p>${state.x()}</p>`);
+
+    const el = makeEl();
+    const unmount = island.mount(el);
+    expect(log.some((l) => l.startsWith("run:"))).toBe(true);
+
+    unmount();
+    expect(log.some((l) => l.startsWith("cleanup:"))).toBe(true);
+    cleanup(el);
+  });
+
+  it("unmount() runs onMount cleanup callbacks", () => {
+    const log: string[] = [];
+
+    const island = ilha
+      .onMount(() => {
+        log.push("mount");
+        return () => log.push("destroy");
+      })
+      .render(() => `<p>hi</p>`);
+
+    const el = makeEl();
+    const unmount = island.mount(el);
+    expect(log).toContain("mount");
+
+    unmount();
+    expect(log).toContain("destroy");
+    cleanup(el);
+  });
+
+  it("calling unmount() multiple times does not throw", () => {
+    const island = ilha.render(() => `<p>hi</p>`);
+    const el = makeEl();
+    const unmount = island.mount(el);
+    expect(() => {
+      unmount();
+      unmount();
+    }).not.toThrow();
+    cleanup(el);
+  });
+
+  it("each mount() call returns an independent unmount() — unmounting A does not affect B", () => {
+    let capA!: (v?: number) => number | void;
+    let capB!: (v?: number) => number | void;
+
+    const islandA = ilha.state("count", 0).render(({ state }) => {
+      capA = state.count as typeof capA;
+      return `<p>${state.count()}</p>`;
+    });
+
+    const islandB = ilha.state("count", 0).render(({ state }) => {
+      capB = state.count as typeof capB;
+      return `<p>${state.count()}</p>`;
+    });
+
+    const elA = makeEl();
+    const elB = makeEl();
+    const unmountA = islandA.mount(elA);
+    const unmountB = islandB.mount(elB);
+
+    capA(10);
+    capB(20);
+
+    unmountA();
+
+    capA(99);
+    expect(elA.querySelector("p")!.textContent).toBe("10");
+
+    capB(55);
+    expect(elB.querySelector("p")!.textContent).toBe("55");
+
+    unmountB();
+    cleanup(elA);
+    cleanup(elB);
   });
 });
 
@@ -2353,8 +2555,6 @@ describe(".onMount", () => {
 
     const island = ilha
       .input(z.object({ label: z.string().default("hi") }))
-      // derive count from input via .derived rather than .state to avoid the
-      // untyped-input issue in state initialiser functions
       .derived("labelLen", ({ input }) => input.label.length)
       .onMount(({ host, derived, input }) => {
         capturedHost = host;
@@ -2419,7 +2619,7 @@ describe(".onMount", () => {
     const island = ilha
       .state("count", 0)
       .onMount(({ state }) => {
-        void state.count(); // reading here must NOT create a reactive subscription
+        void state.count();
       })
       .render(({ state }) => {
         accessor = state.count as typeof accessor;
@@ -2503,7 +2703,6 @@ describe(".onMount", () => {
     const log: string[] = [];
 
     const island = ilha
-      // void the push return value so TS sees void, not number
       .onMount(() => {
         log.push("a");
       })
@@ -2698,6 +2897,106 @@ describe("type utility", () => {
 
       const result = island({ label: "test" });
       expect(result).toContain("test");
+    });
+  });
+});
+
+// ─────────────────────────────────────────────
+// Dev-mode warnings
+// ─────────────────────────────────────────────
+
+describe("dev-mode warnings", () => {
+  let warnSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  describe("from() selector not found", () => {
+    it("warns when selector matches no element", () => {
+      const island = ilha.render(() => `<p>hi</p>`);
+      from("#definitely-does-not-exist", island);
+      expect(warnSpy).toHaveBeenCalled();
+      const msg: string = warnSpy.mock.calls[0]?.[0] ?? "";
+      expect(msg).toMatch(/ilha/i);
+    });
+
+    it("warn message includes the missing selector", () => {
+      const island = ilha.render(() => `<p>hi</p>`);
+      from("#my-missing-el", island);
+      const msg: string = warnSpy.mock.calls[0]?.[0] ?? "";
+      expect(msg).toContain("#my-missing-el");
+    });
+  });
+
+  describe("malformed data-ilha-props", () => {
+    beforeEach(() => {
+      document.body.innerHTML = "";
+    });
+
+    it("warns when data-ilha-props contains invalid JSON", () => {
+      const counter = ilha
+        .input(z.object({ count: z.number().default(0) }))
+        .state("count", ({ count }) => count)
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = document.createElement("div");
+      el.setAttribute("data-ilha", "counter");
+      el.setAttribute("data-ilha-props", "{not valid json}");
+      document.body.appendChild(el);
+
+      mount({ counter } as never);
+      expect(warnSpy).toHaveBeenCalled();
+      const msg: string = warnSpy.mock.calls[0]?.[0] ?? "";
+      expect(msg).toMatch(/ilha/i);
+    });
+  });
+
+  describe(".on() selector matches nothing on mount", () => {
+    it("warns when an .on() selector does not match any element", () => {
+      const island = ilha
+        .state("count", 0)
+        .on("[data-nonexistent-btn]@click", ({ state }) => {
+          state.count(state.count() + 1);
+        })
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+      expect(warnSpy).toHaveBeenCalled();
+      const msg: string = warnSpy.mock.calls[0]?.[0] ?? "";
+      expect(msg).toMatch(/ilha/i);
+      unmount();
+      cleanup(el);
+    });
+
+    it("does NOT warn when an .on() selector matches at least one element", () => {
+      const island = ilha
+        .state("count", 0)
+        .on("[data-inc]@click", ({ state }) => {
+          state.count(state.count() + 1);
+        })
+        .render(({ state }) => `<p>${state.count()}</p><button data-inc>+</button>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+      expect(warnSpy).not.toHaveBeenCalled();
+      unmount();
+      cleanup(el);
+    });
+  });
+
+  describe("validation failure error message", () => {
+    it("throws with [ilha] prefix on invalid input props", () => {
+      const island = ilha
+        .input(z.object({ count: z.number() }))
+        .render(({ input }) => `${input.count}`);
+
+      expect(() => island({ count: "bad" as never })).toThrow("[ilha]");
     });
   });
 });

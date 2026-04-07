@@ -3,14 +3,14 @@ title: Ilha
 description: Tiny, framework-free island architecture library
 base: /docs/
 logo:
-  src: PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIGZpbGw9Im5vbmUiPjxkZWZzPjxjbGlwUGF0aCBpZD0iYSIgY2xhc3M9ImZyYW1lLWNsaXAgZnJhbWUtY2xpcC1kZWYiPjxyZWN0IHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHJ4PSIwIiByeT0iMCIvPjwvY2xpcFBhdGg+PC9kZWZzPjxnIGNsYXNzPSJmcmFtZS1jb250YWluZXItd3JhcHBlciI+PGcgY2xhc3M9ImZyYW1lLWNvbnRhaW5lci1ibHVyIj48ZyBjbGFzcz0iZnJhbWUtY29udGFpbmVyLXNoYWRvd3MiIGNsaXAtcGF0aD0idXJsKCNhKSI+PGcgY2xhc3M9ImZpbGxzIj48cmVjdCB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiBjbGFzcz0iZnJhbWUtYmFja2dyb3VuZCIgcng9IjAiIHJ5PSIwIi8+PC9nPjxnIGNsYXNzPSJmcmFtZS1jaGlsZHJlbiI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJiIiB4MT0iMCIgeDI9IjEiIHkxPSIuNSIgeTI9Ii41Ij48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMyZDYxZmYiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMyOGJmZmYiLz48L2xpbmVhckdyYWRpZW50PjxwYXR0ZXJuIGlkPSJjIiB3aWR0aD0iNTY0LjkiIGhlaWdodD0iNTY0LjkiIHg9Ijg4LjQiIHk9IjIyOS42IiBwYXR0ZXJuVW5pdHM9InVzZXJTcGFjZU9uVXNlIj48cGF0aCBkPSJNMCAwaDU2NXY1NjVIMHoiIHN0eWxlPSJmaWxsOnVybCgjYikiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSI1NjQuOSIgaGVpZ2h0PSI1NjQuOSIgeD0iODguNCIgeT0iMjI5LjYiIGZpbGw9InVybCgjYykiIGNsYXNzPSJmaWxscyIgcng9IjgwIiByeT0iODAiIHRyYW5zZm9ybT0icm90YXRlKDQ1IDM3MSA1MTIpIi8+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJkIiB4MT0iMCIgeDI9IjEiIHkxPSIuNSIgeTI9Ii41Ij48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMyOGJmZmYiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMyZDYxZmYiLz48L2xpbmVhckdyYWRpZW50PjxwYXR0ZXJuIGlkPSJlIiB3aWR0aD0iNTY0LjkiIGhlaWdodD0iNTY0LjkiIHg9IjM3MC44IiB5PSIyMjkuNiIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTTAgMGg1NjV2NTY1SDB6IiBzdHlsZT0iZmlsbDp1cmwoI2QpIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iNTY0LjkiIGhlaWdodD0iNTY0LjkiIHg9IjM3MC44IiB5PSIyMjkuNiIgZmlsbD0idXJsKCNlKSIgY2xhc3M9ImZpbGxzIiByeD0iODAiIHJ5PSI4MCIgdHJhbnNmb3JtPSJyb3RhdGUoNDUgNjUzIDUxMikiLz48L2c+PC9nPjwvZz48L2c+PC9zdmc+
+src: PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIGZpbGw9Im5vbmUiPjxkZWZzPjxjbGlwUGF0aCBpZD0iYSIgY2xhc3M9ImZyYW1lLWNsaXAgZnJhbWUtY2xpcC1kZWYiPjxyZWN0IHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHJ4PSIwIiByeT0iMCIvPjwvY2xpcFBhdGg+PC9kZWZzPjxnIGNsYXNzPSJmcmFtZS1jb250YWluZXItd3JhcHBlciI+PGcgY2xhc3M9ImZyYW1lLWNvbnRhaW5lci1ibHVyIj48ZyBjbGFzcz0iZnJhbWUtY29udGFpbmVyLXNoYWRvd3MiIGNsaXAtcGF0aD0idXJsKCNhKSI+PGcgY2xhc3M9ImZpbGxzIj48cmVjdCB3aWR0aD0iMTAyNCIgaGVpZ2h0PSIxMDI0IiBjbGFzcz0iZnJhbWUtYmFja2dyb3VuZCIgcng9IjAiIHJ5PSIwIi8+PC9nPjxnIGNsYXNzPSJmcmFtZS1jaGlsZHJlbiI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJiIiB4MT0iMCIgeDI9IjEiIHkxPSIuNSIgeTI9Ii41Ij48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMyZDYxZmYiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMyOGJmZmYiLz48L2xpbmVhckdyYWRpZW50PjxwYXR0ZXJuIGlkPSJjIiB3aWR0aD0iNTY0LjkiIGhlaWdodD0iNTY0LjkiIHg9Ijg4LjQiIHk9IjIyOS42IiBwYXR0ZXJuVW5pdHM9InVzZXJTcGFjZU9uVXNlIj48cGF0aCBkPSJNMCAwaDU2NXY1NjVIMHoiIHN0eWxlPSJmaWxsOnVybCgjYikiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSI1NjQuOSIgaGVpZ2h0PSI1NjQuOSIgeD0iODguNCIgeT0iMjI5LjYiIGZpbGw9InVybCgjYykiIGNsYXNzPSJmaWxscyIgcng9IjgwIiByeT0iODAiIHRyYW5zZm9ybT0icm90YXRlKDQ1IDM3MSA1MTIpIi8+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJkIiB4MT0iMCIgeDI9IjEiIHkxPSIuNSIgeTI9Ii41Ij48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMyOGJmZmYiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMyZDYxZmYiLz48L2xpbmVhckdyYWRpZW50PjxwYXR0ZXJuIGlkPSJlIiB3aWR0aD0iNTY0LjkiIGhlaWdodD0iNTY0LjkiIHg9IjM3MC44IiB5PSIyMjkuNiIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTTAgMGg1NjV2NTY1SDB6IiBzdHlsZT0iZmlsbDp1cmwoI2QpIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iNTY0LjkiIGhlaWdodD0iNTY0LjkiIHg9IjM3MC44IiB5PSIyMjkuNiIgZmlsbD0idXJsKCNlKSIgY2xhc3M9ImZpbGxzIiByeD0iODAiIHJ5PSI4MCIgdHJhbnNmb3JtPSJyb3RhdGUoNDUgNjUzIDUxMikiLz48L2c+PC9nPjwvZz48L2c+PC9zdmc+
 footer:
-  text: Copyright © %YEAR% ilha
+text: Copyright © %YEAR% ilha
 ---
 
 # Ilha
 
-> A tiny, framework-agnostic **island** library for building interactive UI components with SSR, hydration, signals-based reactivity.
+> A tiny (**<1.5 kLOC**), framework-agnostic **island** library for building interactive UI components with SSR, hydration, and signals-based reactivity.
 
 ## Overview
 
@@ -18,10 +18,18 @@ Ilha lets you define **islands** — self-contained interactive components that:
 
 - Render to plain HTML strings on the **server** (SSR).
 - **Hydrate** and become reactive on the **client**.
-- Track fine-grained reactive state via signals (powered by `alien-signals`).
+- Track fine-grained reactive state via signals (powered by [`alien-signals`](https://github.com/stackblitz/alien-signals)).
 - Use a fluent, immutable **builder API** — no decorators, no compilers, no virtual DOM.
+- Morph DOM updates efficiently via a lean built-in morph engine.
 
-Each island is just a plain function that returns an HTML string plus a `mount()` method for client-side activation.
+Each island is a plain function that returns an HTML string, plus a `mount()` method for client-side activation.
+
+### Why Ilha?
+
+- **Fits in an AI prompt.** At under 1.5 kLOC, the entire library source fits inside a single LLM context window. AI assistants can reason about the full framework when helping you build, giving you more accurate code generation than any full-size framework can offer.
+- **No build step required.** React needs a JSX transform, Svelte needs its compiler. Ilha runs from a single `import`.
+- **Island _and_ app framework.** A single interactive widget or an entire SSR application — the same API scales to both.
+- **Familiar if you know Svelte.** Signals, reactive state, derived values, and event handling follow Svelte's mental model, minus the compiler.
 
 ---
 
@@ -33,7 +41,7 @@ npm install ilha
 bun add ilha
 ```
 
-Ilha uses [alien-signals](https://github.com/stackblitz/alien-signals) internally and accepts any [Standard Schema v1](https://standardschema.dev/) compliant schema library for input validation (e.g. Zod, Valibot, ArkType).
+Ilha accepts any [Standard Schema v1](https://standardschema.dev/) compliant schema library for input validation (e.g. Zod, Valibot, ArkType). Zod is recommended for anything beyond simple islands — see [`type()`](#type) for the built-in lightweight alternative.
 
 ---
 
@@ -97,12 +105,14 @@ const counter = ilha
   .render(({ input }) => `<p>${input.count}</p>`);
 ```
 
-If invalid props are provided at call-time or mount-time, ilha throws:
+If invalid props are provided at call-time or mount-time, Ilha throws with a `[ilha]`-prefixed message:
 
 ```
 [ilha] Validation failed:
   - Expected number, received string
 ```
+
+> **Tip:** For the simplest islands, the built-in [`type()`](#type) helper avoids a full schema library dependency. For any island with non-trivial validation, use Zod or Valibot.
 
 ---
 
@@ -157,7 +167,7 @@ Compute a value from state and/or input. Re-computed whenever its reactive depen
 
 **Returns** a new builder with the derived key added to `TDerivedMap`.
 
-In `render`, derived values are accessed via `derived.key` which is a `DerivedValue<V>`:
+In `render`, derived values are accessed via `derived.key` as a `DerivedValue<V>`:
 
 ```ts
 interface DerivedValue<T> {
@@ -165,6 +175,16 @@ interface DerivedValue<T> {
   value: T | undefined;
   error: Error | undefined;
 }
+```
+
+**Handling errors:** Check `derived.key.error` in your render function to surface failures gracefully:
+
+```ts
+.render(({ derived }) => {
+  if (derived.results.loading) return `<p>Loading…</p>`;
+  if (derived.results.error)   return `<p>Error: ${derived.results.error.message}</p>`;
+  return `<ul>${derived.results.value!.map(r => `<li>${r}</li>`).join("")}</ul>`;
+})
 ```
 
 **Sync derived:**
@@ -187,12 +207,14 @@ const island = ilha
   })
   .render(({ derived }) =>
     derived.results.loading
-      ? `<p>Loading... (prev: ${derived.results.value ?? "none"})</p>`
+      ? `<p>Loading… (prev: ${derived.results.value ?? "none"})</p>`
       : `<p>${JSON.stringify(derived.results.value)}</p>`,
   );
 ```
 
 > **Note:** When state changes, the previous async result is preserved in `value` while `loading` is `true` (stale-while-revalidate pattern). The `AbortSignal` is aborted for superseded requests.
+
+> **SSR behaviour:** Sync derived values resolve immediately during SSR. Async derived values always render with `loading: true` during SSR unless `.hydratable()` is used with `snapshot: { derived: true }`.
 
 ---
 
@@ -221,9 +243,11 @@ ilha
   .state("count", 0)
   .on("[data-inc]@click", ({ state }) => state.count(state.count() + 1))
   .on("[data-inc]@click:once", ({ state }) => console.log("first click"))
-  .on("@click", ({ state }) => console.log("root clicked")) // no selector = root
+  .on("@click", ({ state }) => console.log("root clicked"))
   .render(({ state }) => `<p>${state.count()}</p><button data-inc>+</button>`);
 ```
+
+> **Dev warning:** If the CSS selector provided to `.on()` matches no elements at mount time, Ilha emits a `[ilha]`-prefixed `console.warn` in development. This prevents silent event listener failures that are otherwise hard to debug.
 
 **Handler context:**
 
@@ -244,6 +268,8 @@ ilha
 | `passive` | `{ passive: true }`                  |
 
 Multiple modifiers can be chained: `@click:once:passive`.
+
+The `once` modifier is tracked across re-renders — a handler marked `:once` fires exactly once per island instance regardless of how many DOM morphs occur between mount and the first event.
 
 ---
 
@@ -273,11 +299,11 @@ Register a reactive side-effect that runs on the client whenever its reactive de
 ```ts
 ilha
   .state("count", 0)
-  .effect(({ state, host }) => {
+  .effect(({ state }) => {
     document.title = `Count: ${state.count()}`;
     return () => {
       document.title = "";
-    }; // cleanup
+    };
   })
   .render(({ state }) => `<p>${state.count()}</p>`);
 ```
@@ -309,7 +335,7 @@ Register a callback that runs once when the island is mounted on the client.
 ```ts
 ilha
   .state("open", false)
-  .onMount(({ state, host, hydrated }) => {
+  .onMount(({ state, hydrated }) => {
     if (!hydrated) state.open(true);
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") state.open(false);
@@ -347,15 +373,17 @@ Automatically detects the correct DOM event and property:
 | `select`               | `change` | `value`             |
 | All others             | `input`  | `value`             |
 
+> **Dev warning:** If the CSS selector provided to `.bind()` matches no elements at mount time, Ilha emits a `[ilha]`-prefixed `console.warn` in development.
+
 ```ts
 ilha
   .state("name", "")
   .bind("[data-name]", "name")
   .render(
     ({ state }) => `
-    <input data-name value="${state.name()}" />
-    <p>Hello, ${state.name()}!</p>
-  `,
+      <input data-name value="${state.name()}" />
+      <p>Hello, ${state.name()}!</p>
+    `,
   );
 ```
 
@@ -390,7 +418,7 @@ const card = ilha.slot("badge", badge).render(
 );
 ```
 
-`SlotAccessor` can be passed to `html\`\`` template directly and renders unescaped.
+`SlotAccessor` can be passed to `` html`...` `` directly and renders unescaped.
 
 ---
 
@@ -408,6 +436,8 @@ Define enter/leave animation hooks for mount and unmount.
 | `leave` | `(host: Element) => void \| Promise<void>` | Called before teardown; may be async |
 
 If `leave` returns a `Promise`, teardown (event listener removal, effect cleanup) is deferred until the promise resolves.
+
+> **Note:** `enter` fires immediately on mount. `leave` only fires when `unmount()` is explicitly called — it does not fire automatically during navigation or SSR hydration flows. Call `unmount()` manually whenever you need leave transitions to run.
 
 ```ts
 ilha
@@ -448,8 +478,8 @@ Finalise the builder and produce an `Island`. **Must be called last.**
 The object returned by `.render()` is callable as a function for server-side rendering:
 
 ```ts
-const html = island(props?)           // returns string (SSR)
-const html = island.toString(props?)  // same, explicit
+const html = island(props?)           // returns string or Promise<string>
+const html = island.toString(props?)  // always returns string (async derived → loading: true)
 `<section>${island}</section>`        // implicit toString, uses schema defaults
 ```
 
@@ -458,7 +488,7 @@ const html = island.toString(props?)  // same, explicit
 | `props`   | Optional `Partial<TInput>`. If omitted, schema defaults are used. |
 
 - `.on()` handlers and `.effect()` callbacks are **ignored** during SSR.
-- `derived()` functions that return a `Promise` will show `loading: true` in SSR unless `.hydratable()` is used with `snapshot: { derived: true }`.
+- If the island has async `derived()` functions, calling it as a function returns a `Promise<string>`; calling `.toString()` returns a plain `string` with async derived values showing `loading: true`.
 - Throws `[ilha] Validation failed` if props fail schema validation.
 
 ---
@@ -476,12 +506,20 @@ const unmount = island.mount(host, props?)
 | `host`    | `Element`         | The root DOM element for this island instance                                                  |
 | `props`   | `Partial<TInput>` | Optional props. Falls back to `data-ilha-props`, then `data-ilha-state`, then schema defaults. |
 
-**Returns** an `unmount` function. Calling it:
+**Returns** an `unmount` function directly. Calling it:
 
 - Removes all event listeners registered via `.on()`.
 - Cancels and cleans up all `.effect()` subscriptions.
 - Aborts any pending async derived fetches.
-- Awaits the `.transition({ leave })` hook before teardown.
+- Calls all cleanup functions returned from `.onMount()`.
+- Awaits the `.transition({ leave })` hook before full teardown (the function is idempotent — calling it more than once is safe).
+
+```ts
+const unmount = counter.mount(document.querySelector("#counter")!, { count: 5 });
+
+// Later — tear down this specific instance:
+unmount();
+```
 
 **Prop resolution priority (highest → lowest):**
 
@@ -489,6 +527,8 @@ const unmount = island.mount(host, props?)
 2. `data-ilha-state` attribute (server-side state snapshot)
 3. `data-ilha-props` attribute (set by `hydratable()`)
 4. Schema defaults
+
+> **Dev warning:** Calling `mount()` on an element that is already mounted emits a `[ilha]`-prefixed `console.warn` and returns a no-op unmount function. Call the previous `unmount()` first to avoid memory leaks and duplicate event listeners.
 
 ---
 
@@ -552,7 +592,7 @@ const { unmount } = mount(registry, options?)
 | `options.root` | `Element`                | Scope discovery to this element's subtree (default: `document.body`)          |
 | `options.lazy` | `boolean`                | Use `IntersectionObserver` to mount islands only when they enter the viewport |
 
-**Returns** `{ unmount: () => void }` that tears down all discovered instances.
+**Returns** `{ unmount: () => void }` that tears down all discovered instances. When `lazy: true`, calling `unmount()` before an island enters the viewport safely cancels the pending observer without leaking listeners.
 
 ```ts
 import { mount } from "ilha";
@@ -565,7 +605,7 @@ const { unmount } = mount({ counter, dropdown });
 unmount();
 ```
 
-Malformed `data-ilha-props` JSON is handled gracefully (logs a warning, skips the element).
+Malformed `data-ilha-props` JSON is handled gracefully — a `[ilha]`-prefixed warning is logged and the element is skipped.
 
 ---
 
@@ -583,7 +623,7 @@ const unmount = from(selector, island, props?)
 | `island`   | `Island`            | Island to mount                    |
 | `props`    | `Partial<TInput>`   | Optional props                     |
 
-**Returns** an `unmount` function, or `null` if the selector does not match any element (and logs a warning).
+**Returns** an `unmount` function, or `null` if the selector does not match any element (logs a `[ilha]`-prefixed warning).
 
 ```ts
 import { from } from "ilha";
@@ -596,6 +636,8 @@ const unmount = from("#my-counter", counter, { count: 10 });
 ### context()
 
 Create or retrieve a **globally shared reactive signal** identified by a string key.
+
+> **Client-only.** Context signals are not serialized during SSR. If your island reads a context signal on the server, it will receive the initial value. For SSR/hydration to share context state, pass the value as an explicit island prop instead.
 
 ```ts
 const signal = context(key, initial);
@@ -616,11 +658,8 @@ import { context } from "ilha";
 
 const theme = context("theme", "light");
 
-// Read
 theme(); // "light"
-
-// Write (triggers re-renders in all subscribed islands)
-theme("dark");
+theme("dark"); // triggers re-renders in all subscribed islands
 ```
 
 ---
@@ -637,16 +676,35 @@ html`<p>${userContent}</p>`;
 
 **Interpolation behaviour:**
 
-| Value type                  | Behaviour                                      |
-| --------------------------- | ---------------------------------------------- |
-| `string`, `number`          | HTML-escaped                                   |
-| `null`, `undefined`         | Omitted (empty string)                         |
-| `raw(...)` object           | Inserted **unescaped**                         |
-| `SlotAccessor`              | Rendered via `.toString()`, inserted unescaped |
-| Signal accessor (`state.x`) | Reads the signal, HTML-escapes the result      |
-| Function `() => string`     | Called and result is HTML-escaped              |
+| Value type                  | Behaviour                                                    |
+| --------------------------- | ------------------------------------------------------------ |
+| `string`, `number`          | HTML-escaped                                                 |
+| `null`, `undefined`         | Omitted (empty string)                                       |
+| `raw(...)` object           | Inserted **unescaped**                                       |
+| `Array`                     | Each item processed by the same rules above and concatenated |
+| `SlotAccessor`              | Rendered via `.toString()`, inserted unescaped               |
+| Signal accessor (`state.x`) | Reads the signal, HTML-escapes the result                    |
+| Function `() => string`     | Called and result is HTML-escaped                            |
 
 Also strips common leading indentation from multiline templates (dedent).
+
+**Array interpolation:** Arrays are supported natively — each element is processed individually and results are concatenated. Use `raw()` items inside the array to output trusted markup, and plain strings for user content that should be escaped:
+
+```ts
+const items = ["<script>", "safe"];
+
+// Each item is escaped individually — plain strings are always safe
+html`<ul>
+  ${items.map((i) => `<li>${i}</li>`)}
+</ul>`;
+// → <ul>&lt;li&gt;&lt;script&gt;&lt;/li&gt;...  (structure also escaped)
+
+// Correct pattern: escape content, wrap structure in raw()
+html`<ul>
+  ${items.map((i) => raw(`<li>${escapeHtml(i)}</li>`))}
+</ul>`;
+// → <ul><li>&lt;script&gt;</li><li>safe</li></ul>
+```
 
 ```ts
 const template = html`
@@ -661,7 +719,7 @@ const template = html`
 
 ### raw()
 
-Mark a string as trusted HTML to bypass `html\`\`` escaping.
+Mark a string as trusted HTML to bypass `` html`...` `` escaping.
 
 ```ts
 raw(value: string): RawHtml
@@ -678,11 +736,14 @@ html`<div>${raw("<strong>trusted bold</strong>")}</div>`;
 
 ### type()
 
-Create a minimal, passthrough Standard Schema v1 schema with optional coercion. Useful when you want to type island input without a full validation library.
+Create a minimal, passthrough Standard Schema v1 schema with optional coercion. Useful for simple islands that don't need a full validation library.
 
 ```ts
 type<TInput, TOutput = TInput>(coerce?: (input: TInput) => TOutput): StandardSchemaV1
 ```
+
+> **When to use `type()` vs Zod/Valibot:**
+> `type()` is intentionally minimal — it provides TypeScript types and optional coercion, but no field-level validation, `.optional()`, `.array()`, or `.union()`. It's the right choice for islands with 1–3 simple props and no complex validation rules. Once your island's input grows beyond that, switch to Zod or Valibot for full composition and better error messages.
 
 ```ts
 import { type } from "ilha";
@@ -691,6 +752,21 @@ const myIsland = ilha
   .input(type<{ count?: number }>((v) => ({ count: v.count ?? 0 })))
   .render(({ input }) => `<p>${input.count}</p>`);
 ```
+
+---
+
+## Dev-Mode Warnings
+
+In development, Ilha emits `[ilha]`-prefixed `console.warn` messages to catch common mistakes early. All warnings are stripped in production builds.
+
+| Situation                                               | Warning message                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `from()` selector matches no element                    | `[ilha] from(): element not found: #my-selector`                                      |
+| `mount()` encounters unknown island name in `data-ilha` | `[ilha] mount(): no island registered under the name "x"`                             |
+| `mount()` encounters malformed `data-ilha-props` JSON   | `[ilha] Failed to parse data-ilha-props — invalid JSON, falling back to empty props.` |
+| `.on()` selector matches no elements at mount time      | `[ilha] on(): selector "[data-x]" matched no elements at mount time`                  |
+| `.bind()` selector matches no elements at mount time    | `[ilha] bind(): selector "[data-x]" matched no elements inside the island host`       |
+| `mount()` called on an already-mounted element          | `[ilha] mount(): this element is already mounted. Call the previous unmount() first`  |
 
 ---
 
@@ -741,7 +817,7 @@ import type {
 import { counter } from "./islands/counter";
 
 const html = await counter.hydratable({ count: 0 }, { name: "counter" });
-// Produces: <div data-ilha="counter" data-ilha-props='{"count":0}'><p>0</p></div>
+// → <div data-ilha="counter" data-ilha-props='{"count":0}'><p>0</p></div>
 ```
 
 ### 2. Client — mount with auto-discovery
@@ -756,7 +832,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 ```
 
-### 3. With state snapshot (skip re-fetch on hydration)
+### 3. With state snapshot (skip re-initialisation on hydration)
 
 ```ts
 // server.ts
@@ -804,7 +880,7 @@ export const counter = ilha
   );
 ```
 
-### Async search with loading state
+### Async search with loading state and error handling
 
 ```ts
 export const search = ilha
@@ -816,14 +892,20 @@ export const search = ilha
     return res.json() as Promise<string[]>;
   })
   .bind("[data-q]", "query")
-  .render(
-    ({ state, derived }) => html`
+  .render(({ state, derived }) => {
+    if (derived.results.loading)
+      return html`<input data-q value="${state.query}" />
+        <p>Loading…</p>`;
+    if (derived.results.error)
+      return html`<input data-q value="${state.query}" />
+        <p>Error: ${derived.results.error.message}</p>`;
+    return html`
       <input data-q value="${state.query}" placeholder="Search…" />
-      ${derived.results.loading
-        ? raw(`<p>Loading…</p>`)
-        : raw(`<ul>${(derived.results.value ?? []).map((r) => `<li>${r}</li>`).join("")}</ul>`)}
-    `,
-  );
+      <ul>
+        ${derived.results.value!.map((r) => raw(`<li>${r}</li>`))}
+      </ul>
+    `;
+  });
 ```
 
 ### Global theme toggle
@@ -848,7 +930,7 @@ export const modal = ilha
   .input(z.object({ open: z.boolean().default(false) }))
   .state("open", ({ open }) => open)
   .on("[data-close]@click", ({ state }) => state.open(false))
-  .onMount(({ state, hydrated }) => {
+  .onMount(({ hydrated }) => {
     if (!hydrated) console.log("fresh mount");
   })
   .render(({ state }) =>
@@ -858,13 +940,21 @@ export const modal = ilha
 // server.ts
 const html = await modal.hydratable(
   { open: true },
-  {
-    name: "modal",
-    snapshot: { state: true },
-    skipOnMount: true,
-  },
+  { name: "modal", snapshot: { state: true }, skipOnMount: true },
 );
 
 // client.ts
 mount({ modal });
+```
+
+### Programmatic mount and unmount
+
+```ts
+import { counter } from "./islands/counter";
+
+const el = document.querySelector("#counter")!;
+const unmount = counter.mount(el, { count: 10 });
+
+// Later — e.g. on route change or component removal:
+unmount();
 ```

@@ -40,440 +40,99 @@ declare namespace StandardSchemaV1 {
 }
 
 // ─────────────────────────────────────────────
-// Inlined morphlex (browser-only, subset used by ilha)
+// Dev-mode warning helper
 // ─────────────────────────────────────────────
 
-const SUPPORTS_MOVE_BEFORE = typeof Element !== "undefined" && "moveBefore" in Element.prototype;
-const ELEMENT_NODE_TYPE = 1;
-const TEXT_NODE_TYPE = 3;
-const TREE_WALKER_SHOW_ELEMENT = 1;
+const __DEV__ = typeof process !== "undefined" ? process.env?.["NODE_ENV"] !== "production" : true;
 
-const Operation = { EqualNode: 0, SameElement: 1, SameNode: 2 } as const;
-type MorphOperation = (typeof Operation)[keyof typeof Operation];
+function warn(msg: string): void {
+  if (__DEV__) console.warn(`[ilha] ${msg}`);
+}
 
-type IdSetMap = WeakMap<Node, Set<string>>;
-type IdArrayMap = WeakMap<Node, Array<string>>;
-type CandidateIdBucket = number | Array<number>;
+// ─────────────────────────────────────────────
+// Simplified morph engine
+// ─────────────────────────────────────────────
+// Islands produce full HTML each render — we only need a simple
+// pairwise child-walk that patches text, attributes, and structure.
+// No id-mapping, LIS, or soft-matching needed.
 
-function morphMoveBefore(
-  parent: ParentNode,
-  node: ChildNode,
-  insertionPoint: ChildNode | null,
-): void {
-  if (node === insertionPoint) return;
-  if (node.parentNode === parent) {
-    if (node.nextSibling === insertionPoint) return;
-    if (SUPPORTS_MOVE_BEFORE) {
-      (parent as ParentNode & { moveBefore(n: ChildNode, b: ChildNode | null): void }).moveBefore(
-        node,
-        insertionPoint,
-      );
-      return;
+function syncAttributes(from: Element, to: Element): void {
+  for (const { name, value } of to.attributes) {
+    if (from.getAttribute(name) !== value) from.setAttribute(name, value);
+  }
+  for (const { name } of Array.from(from.attributes)) {
+    if (!to.hasAttribute(name)) from.removeAttribute(name);
+  }
+}
+
+function morphChildren(fromParent: Element, toParent: Element): void {
+  const fromNodes = Array.from(fromParent.childNodes);
+  const toNodes = Array.from(toParent.childNodes);
+
+  // Remove excess children from the end
+  for (let i = fromNodes.length - 1; i >= toNodes.length; i--) {
+    fromNodes[i]!.remove();
+  }
+
+  for (let i = 0; i < toNodes.length; i++) {
+    const toNode = toNodes[i]!;
+    const fromNode = fromNodes[i];
+
+    if (!fromNode) {
+      // New node — append
+      fromParent.appendChild(toNode.cloneNode(true));
+      continue;
     }
-  }
-  parent.insertBefore(node, insertionPoint);
-}
 
-function morphIsWhitespaceTextNode(node: Node): boolean {
-  if (node.nodeType !== TEXT_NODE_TYPE) return false;
-  const value = node.nodeValue;
-  if (!value) return true;
-  for (let i = 0; i < value.length; i++) {
-    const code = value.charCodeAt(i);
-    if (code === 32 || code === 9 || code === 10 || code === 13 || code === 12) continue;
-    if (code <= 127) return false;
-    return value.trim() === "";
-  }
-  return true;
-}
-
-function morphCanMorphInPlace(from: Element, to: Element): boolean {
-  if (from.localName !== to.localName || from.namespaceURI !== to.namespaceURI) return false;
-  if (
-    from.localName === "input" &&
-    (from as HTMLInputElement).type !== (to as HTMLInputElement).type
-  )
-    return false;
-  return true;
-}
-
-function morphCanSoftMatchByTagName(el: Element, hasDescIdMarker: boolean): boolean {
-  if (el.id !== "") return false;
-  const ln = el.localName;
-  if (ln === "input" || ln === "textarea" || ln === "select") return false;
-  if (el.hasAttribute("name") || el.hasAttribute("href") || el.hasAttribute("src")) return false;
-  if (hasDescIdMarker) return false;
-  return true;
-}
-
-function morphForEachDescendantWithId(node: ParentNode, cb: (el: Element) => void): void {
-  const walker = (node as Node).ownerDocument!.createTreeWalker(
-    node as Node,
-    TREE_WALKER_SHOW_ELEMENT,
-  );
-  let cur = walker.nextNode();
-  while (cur) {
-    const el = cur as Element;
-    if (el.id !== "") cb(el);
-    cur = walker.nextNode();
-  }
-}
-
-function morphLIS(seq: Array<number | undefined>): Array<number> {
-  const n = seq.length;
-  if (n === 0) return [];
-  const smallestEnding = new Array<number>(n);
-  const indices = new Array<number>(n);
-  const prev = new Int32Array(n);
-  prev.fill(-1);
-  let lisLength = 0;
-  for (let i = 0; i < n; i++) {
-    const val = seq[i];
-    if (val === undefined) continue;
-    let left = 0,
-      right = lisLength;
-    while (left < right) {
-      const mid = (left + right) >> 1;
-      if (smallestEnding[mid]! < val) left = mid + 1;
-      else right = mid;
+    if (fromNode.nodeType !== toNode.nodeType) {
+      fromParent.replaceChild(toNode.cloneNode(true), fromNode);
+      continue;
     }
-    prev[i] = left > 0 ? indices[left - 1]! : -1;
-    smallestEnding[left] = val;
-    indices[left] = i;
-    if (left === lisLength) lisLength++;
-  }
-  const result = new Array<number>(lisLength);
-  let curr = indices[lisLength - 1]!;
-  for (let i = lisLength - 1; i >= 0; i--) {
-    result[i] = curr;
-    curr = prev[curr]!;
-  }
-  return result;
-}
 
-class MorphEngine {
-  readonly #idArrayMap: IdArrayMap = new WeakMap();
-  readonly #idSetMap: IdSetMap = new WeakMap();
+    // Text / comment nodes
+    if (fromNode.nodeType === 3 || fromNode.nodeType === 8) {
+      if (fromNode.nodeValue !== toNode.nodeValue) {
+        fromNode.nodeValue = toNode.nodeValue;
+      }
+      continue;
+    }
 
-  visitChildNodes(from: Element, to: Element): void {
-    const parent = from;
-    const fromChildren = Array.from(from.childNodes) as ChildNode[];
-    const toChildren = Array.from(to.childNodes) as ChildNode[];
+    // Element nodes
+    if (fromNode.nodeType === 1) {
+      const fromEl = fromNode as Element;
+      const toEl = toNode as Element;
 
-    const candidateNodeIndices: number[] = [];
-    const candidateElIndices: number[] = [];
-    const candidateElWithIdIndices: number[] = [];
-    const candidateElIndicesById = new Map<string, CandidateIdBucket>();
-    const unmatchedNodeIndices: number[] = [];
-    const unmatchedElIndices: number[] = [];
-    const whitespaceIndices: number[] = [];
+      if (fromEl.localName !== toEl.localName || fromEl.namespaceURI !== toEl.namespaceURI) {
+        fromParent.replaceChild(toEl.cloneNode(true), fromEl);
+        continue;
+      }
 
-    const candidateNodeActive = new Uint8Array(fromChildren.length);
-    const candidateElActive = new Uint8Array(fromChildren.length);
-    const candidateElWithIdActive = new Uint8Array(fromChildren.length);
-    const unmatchedNodeActive = new Uint8Array(toChildren.length);
-    const unmatchedElActive = new Uint8Array(toChildren.length);
+      // Special case: input type change
+      if (
+        fromEl.localName === "input" &&
+        (fromEl as HTMLInputElement).type !== (toEl as HTMLInputElement).type
+      ) {
+        fromParent.replaceChild(toEl.cloneNode(true), fromEl);
+        continue;
+      }
 
-    const matches: number[] = [];
-    const op: MorphOperation[] = [];
-    const toNodeType: number[] = [];
-    const fromNodeType: number[] = [];
-    const toLocalName: string[] = [];
-    const fromLocalName: string[] = [];
-    const toNS: (string | null)[] = [];
-    const fromNS: (string | null)[] = [];
+      syncAttributes(fromEl, toEl);
 
-    for (let i = 0; i < fromChildren.length; i++) {
-      const c = fromChildren[i]!;
-      const t = c.nodeType;
-      fromNodeType[i] = t;
-      if (t === ELEMENT_NODE_TYPE) {
-        const el = c as Element;
-        fromLocalName[i] = el.localName;
-        fromNS[i] = el.namespaceURI;
-        if (el.id !== "") {
-          candidateElWithIdActive[i] = 1;
-          candidateElWithIdIndices.push(i);
-          const b = candidateElIndicesById.get(el.id);
-          if (b === undefined) candidateElIndicesById.set(el.id, i);
-          else if (Array.isArray(b)) b.push(i);
-          else candidateElIndicesById.set(el.id, [b, i]);
-        } else {
-          candidateElActive[i] = 1;
-          candidateElIndices.push(i);
-        }
-      } else if (morphIsWhitespaceTextNode(c)) {
-        whitespaceIndices.push(i);
+      if (fromEl.localName === "textarea") {
+        const newText = toEl.textContent ?? "";
+        if (fromEl.textContent !== newText) fromEl.textContent = newText;
+        (fromEl as HTMLTextAreaElement).value = (fromEl as HTMLTextAreaElement).defaultValue;
       } else {
-        candidateNodeActive[i] = 1;
-        candidateNodeIndices.push(i);
+        morphChildren(fromEl, toEl);
       }
     }
-
-    for (let i = 0; i < toChildren.length; i++) {
-      const n = toChildren[i]!;
-      const t = n.nodeType;
-      toNodeType[i] = t;
-      if (t === ELEMENT_NODE_TYPE) {
-        const el = n as Element;
-        toLocalName[i] = el.localName;
-        toNS[i] = el.namespaceURI;
-        unmatchedElActive[i] = 1;
-        unmatchedElIndices.push(i);
-      } else if (!morphIsWhitespaceTextNode(n)) {
-        unmatchedNodeActive[i] = 1;
-        unmatchedNodeIndices.push(i);
-      }
-    }
-
-    // Match by isEqualNode
-    for (const ui of unmatchedElIndices) {
-      const ln = toLocalName[ui],
-        el = toChildren[ui] as Element;
-      for (const ci of candidateElIndices) {
-        if (!candidateElActive[ci]) continue;
-        if (ln !== fromLocalName[ci] || toNS[ui] !== fromNS[ci]) continue;
-        if ((fromChildren[ci] as Element).isEqualNode(el)) {
-          matches[ui] = ci;
-          op[ui] = Operation.EqualNode;
-          candidateElActive[ci] = 0;
-          unmatchedElActive[ui] = 0;
-          break;
-        }
-      }
-    }
-
-    // Match by exact id
-    for (const ui of unmatchedElIndices) {
-      if (!unmatchedElActive[ui]) continue;
-      const el = toChildren[ui] as Element;
-      if (el.id === "") continue;
-      const bucket = candidateElIndicesById.get(el.id);
-      if (bucket === undefined) continue;
-      const indices = Array.isArray(bucket) ? bucket : [bucket];
-      for (const ci of indices) {
-        if (!candidateElWithIdActive[ci]) continue;
-        if (toLocalName[ui] === fromLocalName[ci] && toNS[ui] === fromNS[ci]) {
-          matches[ui] = ci;
-          op[ui] = Operation.SameElement;
-          candidateElWithIdActive[ci] = 0;
-          unmatchedElActive[ui] = 0;
-          break;
-        }
-      }
-    }
-
-    // Match by idArray vs idSet
-    for (const ui of unmatchedElIndices) {
-      if (!unmatchedElActive[ui]) continue;
-      const el = toChildren[ui] as Element;
-      const idArray = this.#idArrayMap.get(el);
-      if (!idArray) continue;
-      outer: for (const ci of candidateElIndices) {
-        if (!candidateElActive[ci]) continue;
-        const cand = fromChildren[ci] as Element;
-        if (toLocalName[ui] !== fromLocalName[ci] || toNS[ui] !== fromNS[ci]) continue;
-        const idSet = this.#idSetMap.get(cand);
-        if (idSet) {
-          for (const id of idArray) {
-            if (idSet.has(id)) {
-              matches[ui] = ci;
-              op[ui] = Operation.SameElement;
-              candidateElActive[ci] = 0;
-              unmatchedElActive[ui] = 0;
-              break outer;
-            }
-          }
-        }
-      }
-    }
-
-    // Match by heuristics (name/href/src)
-    for (const ui of unmatchedElIndices) {
-      if (!unmatchedElActive[ui]) continue;
-      const el = toChildren[ui] as Element;
-      const name = el.getAttribute("name"),
-        href = el.getAttribute("href"),
-        src = el.getAttribute("src");
-      for (const ci of candidateElIndices) {
-        if (!candidateElActive[ci]) continue;
-        const cand = fromChildren[ci] as Element;
-        if (
-          toLocalName[ui] === fromLocalName[ci] &&
-          toNS[ui] === fromNS[ci] &&
-          ((name && name === cand.getAttribute("name")) ||
-            (href && href === cand.getAttribute("href")) ||
-            (src && src === cand.getAttribute("src")))
-        ) {
-          matches[ui] = ci;
-          op[ui] = Operation.SameElement;
-          candidateElActive[ci] = 0;
-          unmatchedElActive[ui] = 0;
-          break;
-        }
-      }
-    }
-
-    // Match by tagName (soft)
-    for (const ui of unmatchedElIndices) {
-      if (!unmatchedElActive[ui]) continue;
-      const el = toChildren[ui] as Element;
-      if (!morphCanSoftMatchByTagName(el, this.#idArrayMap.has(el))) continue;
-      for (const ci of candidateElIndices) {
-        if (!candidateElActive[ci]) continue;
-        const cand = fromChildren[ci] as Element;
-        if (!morphCanSoftMatchByTagName(cand, this.#idSetMap.has(cand))) continue;
-        if (toLocalName[ui] === fromLocalName[ci] && toNS[ui] === fromNS[ci]) {
-          matches[ui] = ci;
-          op[ui] = Operation.SameElement;
-          candidateElActive[ci] = 0;
-          unmatchedElActive[ui] = 0;
-          break;
-        }
-      }
-    }
-
-    // Match nodes by isEqualNode
-    for (const ui of unmatchedNodeIndices) {
-      const node = toChildren[ui]!;
-      for (const ci of candidateNodeIndices) {
-        if (!candidateNodeActive[ci]) continue;
-        if (fromChildren[ci]!.isEqualNode(node)) {
-          matches[ui] = ci;
-          op[ui] = Operation.EqualNode;
-          candidateNodeActive[ci] = 0;
-          unmatchedNodeActive[ui] = 0;
-          break;
-        }
-      }
-    }
-
-    // Match nodes by nodeType
-    for (const ui of unmatchedNodeIndices) {
-      if (!unmatchedNodeActive[ui]) continue;
-      for (const ci of candidateNodeIndices) {
-        if (!candidateNodeActive[ci]) continue;
-        if (toNodeType[ui] === fromNodeType[ci]) {
-          matches[ui] = ci;
-          op[ui] = Operation.SameNode;
-          candidateNodeActive[ci] = 0;
-          unmatchedNodeActive[ui] = 0;
-          break;
-        }
-      }
-    }
-
-    // Remove unmatched candidates
-    for (const ci of candidateNodeIndices) if (candidateNodeActive[ci]) fromChildren[ci]!.remove();
-    for (const ci of whitespaceIndices) fromChildren[ci]!.remove();
-    for (const ci of candidateElIndices) if (candidateElActive[ci]) fromChildren[ci]!.remove();
-    for (const ci of candidateElWithIdIndices)
-      if (candidateElWithIdActive[ci]) fromChildren[ci]!.remove();
-
-    // LIS — nodes that don't need to move
-    const lisIndices = morphLIS(matches);
-    const shouldNotMove: boolean[] = new Array(fromChildren.length);
-    for (const li of lisIndices) shouldNotMove[matches[li]!] = true;
-
-    let insertionPoint: ChildNode | null = parent.firstChild;
-    for (let i = 0; i < toChildren.length; i++) {
-      const node = toChildren[i]!;
-      const mi = matches[i];
-      if (mi !== undefined) {
-        const match = fromChildren[mi]!;
-        if (!shouldNotMove[mi]) morphMoveBefore(parent, match, insertionPoint);
-        const operation = op[i]!;
-        if (operation === Operation.SameElement || operation === Operation.SameNode) {
-          this.#morphOneToOne(match, node);
-        }
-        // EqualNode: nodes are identical, no further work needed
-        insertionPoint = match.nextSibling;
-      } else {
-        parent.insertBefore(node, insertionPoint);
-        insertionPoint = node.nextSibling;
-      }
-    }
-  }
-
-  #morphOneToOne(from: ChildNode, to: ChildNode): void {
-    if (from === to || from.isEqualNode(to)) return;
-    if (from.nodeType === ELEMENT_NODE_TYPE && to.nodeType === ELEMENT_NODE_TYPE) {
-      if (morphCanMorphInPlace(from as Element, to as Element)) {
-        this.#morphMatchingElements(from as Element, to as Element);
-      } else {
-        from.replaceWith(to);
-      }
-    } else {
-      const fv = from.nodeValue,
-        tv = to.nodeValue;
-      if (from.nodeType === to.nodeType && fv !== null && tv !== null) from.nodeValue = tv;
-      else from.replaceWith(to);
-    }
-  }
-
-  prepare(from: ParentNode, to: ParentNode): void {
-    this.#mapIdSets(from);
-    this.#mapIdArrays(to);
-  }
-
-  #morphMatchingElements(from: Element, to: Element): void {
-    this.#visitAttributes(from, to);
-    if (from.localName === "textarea") {
-      const newText = to.textContent ?? "";
-      if (from.textContent !== newText) from.textContent = newText;
-      (from as HTMLTextAreaElement).value = (from as HTMLTextAreaElement).defaultValue;
-    } else if (from.hasChildNodes() || to.hasChildNodes()) {
-      this.visitChildNodes(from, to);
-    }
-  }
-
-  #visitAttributes(from: Element, to: Element): void {
-    from.removeAttribute("morphlex-dirty");
-    for (const { name, value } of to.attributes) {
-      if (from.getAttribute(name) !== value) from.setAttribute(name, value);
-    }
-    for (const { name } of Array.from(from.attributes)) {
-      if (!to.hasAttribute(name)) from.removeAttribute(name);
-    }
-  }
-
-  #mapIdArrays(node: ParentNode): void {
-    morphForEachDescendantWithId(node, (el) => {
-      let cur: Element | null = el;
-      while (cur) {
-        const arr = this.#idArrayMap.get(cur);
-        if (arr) arr.push(el.id);
-        else this.#idArrayMap.set(cur, [el.id]);
-        if (cur === node) break;
-        cur = cur.parentElement;
-      }
-    });
-  }
-
-  #mapIdSets(node: ParentNode): void {
-    morphForEachDescendantWithId(node, (el) => {
-      let cur: Element | null = el;
-      while (cur) {
-        const s = this.#idSetMap.get(cur);
-        if (s) s.add(el.id);
-        else this.#idSetMap.set(cur, new Set([el.id]));
-        if (cur === node) break;
-        cur = cur.parentElement;
-      }
-    });
   }
 }
 
 function morphInner(from: Element, to: Element): void {
   if (from.localName !== to.localName || from.namespaceURI !== to.namespaceURI)
     throw new Error("[ilha] morph: elements must match");
-  for (const input of from.querySelectorAll("input")) {
-    if (input.value !== input.defaultValue || input.checked !== input.defaultChecked)
-      input.setAttribute("morphlex-dirty", "");
-  }
-  const engine = new MorphEngine();
-  engine.prepare(from, to);
-  engine.visitChildNodes(from, to);
+  morphChildren(from, to);
 }
 
 // ─────────────────────────────────────────────
@@ -493,16 +152,20 @@ function validateSchema<S extends StandardSchemaV1>(
   return result.value as StandardSchemaV1.InferOutput<S>;
 }
 
+const ESC: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
 function escapeHtml(value: unknown): string {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  return String(value).replace(/[&<>"']/g, (c) => ESC[c]!);
 }
 
 function dedentString(str: string): string {
+  // Fast path: no leading newline means no indent to strip
+  if (str.length === 0 || str[0] !== "\n") return str;
   const lines = str.split("\n");
   while (lines.length && lines[0]!.trim() === "") lines.shift();
   while (lines.length && lines[lines.length - 1]!.trim() === "") lines.pop();
@@ -553,10 +216,6 @@ function isSlotAccessor(v: unknown): v is SlotAccessor {
 
 // ─────────────────────────────────────────────
 // Signal accessor
-//
-// Uses (...args: [value: T]): void for the setter to prevent TS from
-// intersecting the two call signatures into (value: never): void
-// when T contains undefined.
 // ─────────────────────────────────────────────
 
 interface MarkedSignalAccessor<T> {
@@ -582,25 +241,21 @@ function ilhaRaw(value: string): RawHtml {
   return { [RAW]: true, value };
 }
 
+function interpolateValue(v: unknown): string {
+  if (v == null) return "";
+  if (Array.isArray(v)) return v.map(interpolateValue).join("");
+  if (typeof v === "object" && RAW in (v as object)) return (v as RawHtml).value;
+  if (isSlotAccessor(v)) return v.toString();
+  if (isSignalAccessor(v)) return escapeHtml(v());
+  if (typeof v === "function") return escapeHtml((v as () => unknown)());
+  return escapeHtml(v);
+}
+
 function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): string {
   let result = "";
   for (let i = 0; i < strings.length; i++) {
     result += strings[i];
-    if (i < values.length) {
-      const v = values[i];
-      if (v == null) continue;
-      if (typeof v === "object" && RAW in (v as object)) {
-        result += (v as RawHtml).value;
-      } else if (isSlotAccessor(v)) {
-        result += v.toString();
-      } else if (isSignalAccessor(v)) {
-        result += escapeHtml(v());
-      } else if (typeof v === "function") {
-        result += escapeHtml((v as () => unknown)());
-      } else {
-        result += escapeHtml(v);
-      }
-    }
+    if (i < values.length) result += interpolateValue(values[i]);
   }
   return dedentString(result);
 }
@@ -652,23 +307,6 @@ export type IslandDerived<TDerivedMap extends Record<string, unknown>> = {
   readonly [K in keyof TDerivedMap]: DerivedValue<TDerivedMap[K]>;
 };
 
-function makePlainDerived<TDerivedMap extends Record<string, unknown>>(
-  entries: DerivedEntry<unknown, Record<string, unknown>>[],
-  state: Record<string, unknown>,
-  input: unknown,
-): IslandDerived<TDerivedMap> {
-  const derived: Record<string, DerivedValue<unknown>> = {};
-  for (const entry of entries) {
-    const result = entry.fn({ state: state as never, input, signal: new AbortController().signal });
-    if (result instanceof Promise) {
-      derived[entry.key] = { loading: true, value: undefined, error: undefined };
-    } else {
-      derived[entry.key] = { loading: false, value: result, error: undefined };
-    }
-  }
-  return derived as IslandDerived<TDerivedMap>;
-}
-
 function buildDerivedSignals<
   TInput,
   TStateMap extends Record<string, unknown>,
@@ -692,9 +330,7 @@ function buildDerivedSignals<
     envelopes.set(entry.key, env);
     let ac = new AbortController();
 
-    // If we restored from a snapshot, skip the very first run of the effect
-    // (the server already computed this value). The effect will still fire on
-    // subsequent reactive state changes.
+    // If we have a snapshot for this key, skip the first computation
     let skipFirst = derivedSnapshot != null && entry.key in derivedSnapshot;
 
     const stopEffect = effect(() => {
@@ -826,6 +462,13 @@ function applyBindings<TStateMap extends Record<string, unknown>>(
         ? [host]
         : Array.from(host.querySelectorAll<Element>(binding.selector));
 
+    if (__DEV__ && binding.selector !== "" && targets.length === 0) {
+      warn(
+        `bind(): selector "${binding.selector}" matched no elements inside the island host. ` +
+          `Check that the element exists in your render output.`,
+      );
+    }
+
     for (const target of targets) {
       const { event, read, write } = resolveBindConfig(target);
       const isRadio =
@@ -875,26 +518,15 @@ export type IslandState<TStateMap extends Record<string, unknown>> = {
 // ─────────────────────────────────────────────
 
 export interface HydratableOptions {
-  /** Value for data-ilha — used by ilha.mount() registry on the client. */
   name: string;
-  /** Wrapper element tag. Default: "div". */
   as?: string;
-  /**
-   * Serialize resolved state and/or derived values into data-ilha-state so the
-   * client can skip redundant initialisation work.
-   *
-   * - true              → snapshot both state signals and derived envelopes
-   * - { state }         → snapshot only signal values
-   * - { derived }       → snapshot only derived envelopes (skip first fetch)
-   * - false / omitted   → no snapshot (default)
-   */
   snapshot?: boolean | { state?: boolean; derived?: boolean };
-  /**
-   * When a snapshot is present, suppress the onMount handlers on the client.
-   * Default: true when any snapshot is active.
-   */
   skipOnMount?: boolean;
 }
+
+// ─────────────────────────────────────────────
+// Island interface
+// ─────────────────────────────────────────────
 
 export interface Island<
   TInput = Record<string, unknown>,
@@ -940,7 +572,6 @@ export type OnMountContext<
   derived: IslandDerived<TDerivedMap>;
   input: TInput;
   host: Element;
-  /** True when the island was restored from a server-side snapshot. */
   hydrated: boolean;
 };
 
@@ -1057,6 +688,33 @@ export interface MountResult {
 }
 
 // ─────────────────────────────────────────────
+// Builder config (single object instead of 9 positional params)
+// ─────────────────────────────────────────────
+
+interface BuilderConfig<
+  TInput,
+  TStateMap extends Record<string, unknown>,
+  TDerivedMap extends Record<string, unknown>,
+  _TSlots extends SlotMap,
+> {
+  schema: StandardSchemaV1 | null;
+  states: StateEntry<TInput>[];
+  deriveds: DerivedEntry<TInput, TStateMap>[];
+  ons: OnEntry<TInput, TStateMap>[];
+  effects: EffectEntry<TInput, TStateMap>[];
+  onMounts: OnMountEntry<TInput, TStateMap, TDerivedMap>[];
+  slots: Record<string, AnyIsland>;
+  transition: TransitionOptions | null;
+  binds: BindEntry<TStateMap>[];
+}
+
+// ─────────────────────────────────────────────
+// Dev-mode: track mounted hosts to warn on double-mount
+// ─────────────────────────────────────────────
+
+const _mountedHosts = __DEV__ ? new WeakSet<Element>() : null;
+
+// ─────────────────────────────────────────────
 // Builder
 // ─────────────────────────────────────────────
 
@@ -1066,36 +724,10 @@ class IlhaBuilder<
   TDerivedMap extends Record<string, unknown> = Record<string, never>,
   TSlots extends SlotMap = Record<string, never>,
 > {
-  readonly _schema: StandardSchemaV1 | null;
-  readonly _states: StateEntry<TInput>[];
-  readonly _deriveds: DerivedEntry<TInput, TStateMap>[];
-  readonly _ons: OnEntry<TInput, TStateMap>[];
-  readonly _effects: EffectEntry<TInput, TStateMap>[];
-  readonly _onMounts: OnMountEntry<TInput, TStateMap, TDerivedMap>[];
-  readonly _slots: Record<string, AnyIsland>;
-  readonly _transition: TransitionOptions | null;
-  readonly _binds: BindEntry<TStateMap>[];
+  readonly _cfg: BuilderConfig<TInput, TStateMap, TDerivedMap, TSlots>;
 
-  constructor(
-    schema: StandardSchemaV1 | null,
-    states: StateEntry<TInput>[],
-    deriveds: DerivedEntry<TInput, TStateMap>[],
-    ons: OnEntry<TInput, TStateMap>[],
-    effects: EffectEntry<TInput, TStateMap>[],
-    onMounts: OnMountEntry<TInput, TStateMap, TDerivedMap>[],
-    slots: Record<string, AnyIsland>,
-    transition: TransitionOptions | null,
-    binds: BindEntry<TStateMap>[],
-  ) {
-    this._schema = schema;
-    this._states = states;
-    this._deriveds = deriveds;
-    this._ons = ons;
-    this._effects = effects;
-    this._onMounts = onMounts;
-    this._slots = slots;
-    this._transition = transition;
-    this._binds = binds;
+  constructor(cfg: BuilderConfig<TInput, TStateMap, TDerivedMap, TSlots>) {
+    this._cfg = cfg;
   }
 
   input<S extends StandardSchemaV1>(
@@ -1106,46 +738,39 @@ class IlhaBuilder<
     Record<string, never>,
     Record<string, never>
   > {
-    return new IlhaBuilder<
-      StandardSchemaV1.InferOutput<S> & Record<string, unknown>,
-      Record<string, never>,
-      Record<string, never>,
-      Record<string, never>
-    >(schema, [], [], [], [], [], {}, null, []);
+    return new IlhaBuilder({
+      schema,
+      states: [],
+      deriveds: [],
+      ons: [],
+      effects: [],
+      onMounts: [],
+      slots: {},
+      transition: null,
+      binds: [],
+    });
   }
 
   state<V = undefined, K extends string = string>(
     key: K,
     init?: StateInit<TInput, V> | undefined,
   ): IlhaBuilder<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TSlots> {
-    return new IlhaBuilder<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TSlots>(
-      this._schema,
-      [...this._states, { key, init: init as StateInit<TInput, unknown> }],
-      this._deriveds as unknown as DerivedEntry<TInput, MergeState<TStateMap, K, V>>[],
-      this._ons as unknown as OnEntry<TInput, MergeState<TStateMap, K, V>>[],
-      this._effects as unknown as EffectEntry<TInput, MergeState<TStateMap, K, V>>[],
-      this._onMounts as unknown as OnMountEntry<TInput, MergeState<TStateMap, K, V>, TDerivedMap>[],
-      this._slots,
-      this._transition,
-      this._binds as unknown as BindEntry<MergeState<TStateMap, K, V>>[],
-    );
+    const cfg = this._cfg;
+    return new IlhaBuilder({
+      ...cfg,
+      states: [...cfg.states, { key, init: init as StateInit<TInput, unknown> }],
+    } as unknown as BuilderConfig<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TSlots>);
   }
 
   derived<K extends string, V>(
     key: K,
     fn: DerivedFn<TInput, TStateMap, V>,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap & Record<K, V>, TSlots> {
-    return new IlhaBuilder<TInput, TStateMap, TDerivedMap & Record<K, V>, TSlots>(
-      this._schema,
-      this._states,
-      [...this._deriveds, { key, fn: fn as DerivedFn<TInput, TStateMap, unknown> }],
-      this._ons,
-      this._effects,
-      this._onMounts as unknown as OnMountEntry<TInput, TStateMap, TDerivedMap & Record<K, V>>[],
-      this._slots,
-      this._transition,
-      this._binds,
-    );
+    const cfg = this._cfg;
+    return new IlhaBuilder({
+      ...cfg,
+      deriveds: [...cfg.deriveds, { key, fn: fn as DerivedFn<TInput, TStateMap, unknown> }],
+    } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap & Record<K, V>, TSlots>);
   }
 
   bind(
@@ -1160,17 +785,10 @@ class IlhaBuilder<
     selector: string,
     target: (keyof TStateMap & string) | ExternalSignal,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
-    return new IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>(
-      this._schema,
-      this._states,
-      this._deriveds,
-      this._ons,
-      this._effects,
-      this._onMounts,
-      this._slots,
-      this._transition,
-      [...this._binds, { selector, target }],
-    );
+    return new IlhaBuilder({
+      ...this._cfg,
+      binds: [...this._cfg.binds, { selector, target }],
+    });
   }
 
   on<S extends OnSelectorString>(
@@ -1192,12 +810,10 @@ class IlhaBuilder<
     handler: (ctx: HandlerContext<TInput, TStateMap>) => void | Promise<void>,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
     const parsed = parseOnArgs(selectorOrCombined);
-    return new IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>(
-      this._schema,
-      this._states,
-      this._deriveds,
-      [
-        ...this._ons,
+    return new IlhaBuilder({
+      ...this._cfg,
+      ons: [
+        ...this._cfg.ons,
         {
           selector: parsed.selector,
           event: parsed.eventType,
@@ -1205,89 +821,49 @@ class IlhaBuilder<
           handler: handler as (ctx: HandlerContext<TInput, TStateMap>) => void | Promise<void>,
         },
       ],
-      this._effects,
-      this._onMounts,
-      this._slots,
-      this._transition,
-      this._binds,
-    );
+    });
   }
 
   effect(
     fn: (ctx: EffectContext<TInput, TStateMap>) => (() => void) | void,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
-    return new IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>(
-      this._schema,
-      this._states,
-      this._deriveds,
-      this._ons,
-      [...this._effects, { fn }],
-      this._onMounts,
-      this._slots,
-      this._transition,
-      this._binds,
-    );
+    return new IlhaBuilder({ ...this._cfg, effects: [...this._cfg.effects, { fn }] });
   }
 
   onMount(
     fn: (ctx: OnMountContext<TInput, TStateMap, TDerivedMap>) => (() => void) | void,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
-    return new IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>(
-      this._schema,
-      this._states,
-      this._deriveds,
-      this._ons,
-      this._effects,
-      [...this._onMounts, { fn }],
-      this._slots,
-      this._transition,
-      this._binds,
-    );
+    return new IlhaBuilder({ ...this._cfg, onMounts: [...this._cfg.onMounts, { fn }] });
   }
 
   slot<K extends string>(
     name: K,
     island: AnyIsland,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots & Record<K, AnyIsland>> {
-    return new IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots & Record<K, AnyIsland>>(
-      this._schema,
-      this._states,
-      this._deriveds,
-      this._ons,
-      this._effects,
-      this._onMounts,
-      { ...this._slots, [name]: island },
-      this._transition,
-      this._binds,
-    );
+    return new IlhaBuilder({
+      ...this._cfg,
+      slots: { ...this._cfg.slots, [name]: island },
+    } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap, TSlots & Record<K, AnyIsland>>);
   }
 
   transition(opts: TransitionOptions): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
-    return new IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>(
-      this._schema,
-      this._states,
-      this._deriveds,
-      this._ons,
-      this._effects,
-      this._onMounts,
-      this._slots,
-      opts,
-      this._binds,
-    );
+    return new IlhaBuilder({ ...this._cfg, transition: opts });
   }
 
   render(
     fn: (ctx: RenderContext<TInput, TStateMap, TDerivedMap, TSlots>) => string,
   ): Island<TInput, TStateMap> {
-    const schema = this._schema;
-    const states = this._states;
-    const deriveds = this._deriveds;
-    const ons = this._ons;
-    const effects = this._effects;
-    const onMounts = this._onMounts;
-    const slotDefs = this._slots;
-    const transition = this._transition;
-    const binds = this._binds;
+    const {
+      schema,
+      states,
+      deriveds,
+      ons,
+      effects,
+      onMounts,
+      slots: slotDefs,
+      transition,
+      binds,
+    } = this._cfg;
 
     function resolveInput(props?: Partial<TInput>): TInput {
       const value = props ?? {};
@@ -1308,12 +884,8 @@ class IlhaBuilder<
               );
             }
             return makeSlotAccessor((props?: Record<string, unknown>) => {
-              // On re-renders, mirror the live slot element's current outerHTML
-              // back into the string so morphlex sees no diff and leaves it alone.
               const liveSlot = host?.querySelector(`[${SLOT_ATTR}="${escapeHtml(name)}"]`);
               if (liveSlot) return liveSlot.outerHTML;
-
-              // First render — emit the empty placeholder as before
               const json = props ? ` ${PROPS_ATTR}='${escapeHtml(JSON.stringify(props))}'` : "";
               return `<div ${SLOT_ATTR}="${escapeHtml(name)}"${json}></div>`;
             });
@@ -1359,7 +931,8 @@ class IlhaBuilder<
       return state as IslandState<TStateMap>;
     }
 
-    function renderToString(props?: Partial<TInput>): string | Promise<string> {
+    // Unified render-to-string: sync=true forces sync-only (async derived → loading:true)
+    function renderToString(props?: Partial<TInput>, sync = false): string | Promise<string> {
       const input = resolveInput(props);
       const state = buildPlainState(input);
       const slots = makeSlotsProxy(true);
@@ -1381,10 +954,15 @@ class IlhaBuilder<
 
       const hasAsync = results.some((r) => r.result instanceof Promise);
 
-      if (!hasAsync) {
+      if (!hasAsync || sync) {
         const derived: Record<string, DerivedValue<unknown>> = {};
-        for (const r of results)
-          derived[r.key] = { loading: false, value: r.result as unknown, error: undefined };
+        for (const r of results) {
+          if (r.result instanceof Promise) {
+            derived[r.key] = { loading: true, value: undefined, error: undefined };
+          } else {
+            derived[r.key] = { loading: false, value: r.result as unknown, error: undefined };
+          }
+        }
         return fn({ state, derived: derived as IslandDerived<TDerivedMap>, input, slots });
       }
 
@@ -1417,26 +995,27 @@ class IlhaBuilder<
       });
     }
 
-    function renderToStringSyncOnly(props?: Partial<TInput>): string {
-      const input = resolveInput(props);
-      const state = buildPlainState(input);
-      const slots = makeSlotsProxy(true);
-      const derived = makePlainDerived<TDerivedMap>(
-        deriveds as DerivedEntry<unknown, Record<string, unknown>>[],
-        state as unknown as Record<string, unknown>,
-        input,
-      );
-      return fn({ state, derived, input, slots });
-    }
-
     function mountIsland(host: Element, props?: Partial<TInput>): () => void {
+      // Dev-mode: refuse double-mount
+      if (__DEV__ && _mountedHosts) {
+        if (_mountedHosts.has(host)) {
+          warn(
+            `mount(): this element is already mounted. Call the previous unmount() first to avoid ` +
+              `memory leaks and duplicate event listeners.\n` +
+              `Element: ${host.outerHTML.slice(0, 120)}`,
+          );
+          return () => {};
+        }
+        _mountedHosts.add(host);
+      }
+
       if (props === undefined) {
         const rawProps = host.getAttribute(PROPS_ATTR);
         if (rawProps) {
           try {
             props = JSON.parse(rawProps) as Partial<TInput>;
           } catch {
-            console.warn("[ilha] Failed to parse data-ilha-props");
+            warn("Failed to parse data-ilha-props — invalid JSON, falling back to empty props.");
           }
         }
       }
@@ -1449,7 +1028,7 @@ class IlhaBuilder<
         try {
           snapshotRaw = JSON.parse(rawState) as Record<string, unknown>;
         } catch {
-          console.warn("[ilha] Failed to parse data-ilha-state");
+          warn("Failed to parse data-ilha-state — invalid JSON, snapshot ignored.");
         }
       }
 
@@ -1459,11 +1038,25 @@ class IlhaBuilder<
           ) as Record<string, unknown>)
         : undefined;
 
-      const derivedSnapshot = snapshotRaw?._derived as
+      const derivedSnapshotRaw = snapshotRaw?._derived as
         | Record<string, DerivedValue<unknown>>
         | undefined;
 
+      // Rehydrate: server serialises error.message as a string, restore to Error
+      let derivedSnapshot: Record<string, DerivedValue<unknown>> | undefined;
+      if (derivedSnapshotRaw) {
+        derivedSnapshot = {};
+        for (const [k, v] of Object.entries(derivedSnapshotRaw)) {
+          if (v.error && !(v.error instanceof Error)) {
+            derivedSnapshot[k] = { ...v, error: new Error(String(v.error)) };
+          } else {
+            derivedSnapshot[k] = v;
+          }
+        }
+      }
+
       const hydrated = snapshotRaw != null;
+      const shouldSkipOnMount = hydrated && snapshotRaw?.["_skipOnMount"] === true;
       const state = buildSignalState(input, stateSnapshot);
       const cleanups: Array<() => void> = [];
 
@@ -1479,21 +1072,14 @@ class IlhaBuilder<
       >(deriveds as DerivedEntry<TInput, TStateMap>[], state, input, derivedSnapshot);
       cleanups.push(stopDerived);
 
-      // ─── slot bookkeeping ───────────────────────────────────────────────
-      // Idiomorph morphs slot placeholder divs in-place, so we no longer need
-      // to snapshot/restore them manually — morph preserves existing DOM nodes
-      // that match by identity. We still track mounted child islands so we can
-      // unmount them on cleanup.
       const slotCleanups = new Map<string, () => void>();
-      const slotEls = new Map<string, Element>(); // ← track live element refs
+      const slotEls = new Map<string, Element>();
 
       function mountSlots() {
         for (const [name, childIsland] of Object.entries(slotDefs)) {
           const slotEl = host.querySelector(`[${SLOT_ATTR}="${name}"]`);
           if (!slotEl) continue;
 
-          // If morphlex kept the same node alive, the child island is still
-          // running — don't remount it.
           if (slotEls.get(name) === slotEl) continue;
 
           slotEls.set(name, slotEl);
@@ -1505,7 +1091,7 @@ class IlhaBuilder<
             try {
               slotProps = JSON.parse(rawProps) as Record<string, unknown>;
             } catch {
-              console.warn(`[ilha] Failed to parse props on [${SLOT_ATTR}="${name}"]`);
+              warn(`Failed to parse props on [${SLOT_ATTR}="${name}"] — invalid JSON ignored.`);
             }
           }
 
@@ -1528,6 +1114,14 @@ class IlhaBuilder<
           if (entry.options.once && firedOnce.has(entry)) continue;
           const targets =
             entry.selector === "" ? [host] : Array.from(host.querySelectorAll(entry.selector));
+
+          if (__DEV__ && entry.selector !== "" && targets.length === 0) {
+            warn(
+              `on(): selector "${entry.selector}" matched no elements at mount time. ` +
+                `If the element is rendered later, this is expected — otherwise check your selector.`,
+            );
+          }
+
           targets.forEach((listenerTarget) => {
             const listener = (event: Event) => {
               if (entry.options.once) {
@@ -1567,8 +1161,6 @@ class IlhaBuilder<
 
       const slots = makeSlotsProxy(false, host);
 
-      // ─── initial render ─────────────────────────────────────────────────
-      // First paint can still use innerHTML — nothing to preserve yet.
       host.innerHTML = fn({ state, derived, input, slots });
       attachListeners();
 
@@ -1578,24 +1170,20 @@ class IlhaBuilder<
       mountSlots();
       cleanups.push(() => slotCleanups.forEach((unmount) => unmount()));
 
-      // Run onMount callbacks
-      for (const entry of onMounts) {
-        const prevSub = setActiveSub(undefined);
-        let userCleanup: (() => void) | void;
-        try {
-          userCleanup = entry.fn({ state, derived, input, host, hydrated });
-        } finally {
-          setActiveSub(prevSub);
+      // Run onMount callbacks unless snapshot says to skip
+      if (!shouldSkipOnMount) {
+        for (const entry of onMounts) {
+          const prevSub = setActiveSub(undefined);
+          let userCleanup: (() => void) | void;
+          try {
+            userCleanup = entry.fn({ state, derived, input, host, hydrated });
+          } finally {
+            setActiveSub(prevSub);
+          }
+          if (userCleanup) cleanups.push(userCleanup);
         }
-        if (userCleanup) cleanups.push(userCleanup);
       }
 
-      // ─── reactive re-render via morph ────────────────────────────────────
-      // Idiomorph diffs the new HTML string against the live DOM, patching only
-      // what changed. Focused inputs, scroll positions, and child island nodes
-      // survive intact. After each morph we re-attach listeners and bindings
-      // (same as before) and re-mount any slot children whose placeholder node
-      // may have been recreated by the morph.
       let initialized = false;
       const stopRender = effect(() => {
         const html = fn({ state, derived, input, slots });
@@ -1613,8 +1201,6 @@ class IlhaBuilder<
 
         attachListeners();
         stopBindings = applyBindings(host, binds as BindEntry<TStateMap>[], state);
-
-        // Re-mount slots whose placeholder may have been morphed away
         mountSlots();
       });
       cleanups.push(stopRender);
@@ -1635,7 +1221,12 @@ class IlhaBuilder<
         });
       }
 
+      // Idempotent unmount
+      let tornDown = false;
       return () => {
+        if (tornDown) return;
+        tornDown = true;
+        if (__DEV__ && _mountedHosts) _mountedHosts.delete(host);
         if (transition?.leave) {
           const result = transition.leave(host);
           if (result instanceof Promise) {
@@ -1651,8 +1242,10 @@ class IlhaBuilder<
       return renderToString(props);
     } as Island<TInput, TStateMap>;
 
-    island.toString = (props?: Partial<TInput>) => renderToStringSyncOnly(props);
-    island.mount = (host: Element, props?: Partial<TInput>) => mountIsland(host, props);
+    island.toString = (props?: Partial<TInput>) => renderToString(props, true) as string;
+
+    island.mount = (host: Element, props?: Partial<TInput>): (() => void) =>
+      mountIsland(host, props);
 
     island.hydratable = async (
       props: Partial<TInput>,
@@ -1751,7 +1344,15 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
     const name = host.getAttribute("data-ilha");
     if (!name) return;
     const island = registry[name];
-    if (!island) return;
+
+    if (!island) {
+      warn(
+        `mount(): no island registered under the name "${name}". ` +
+          `Available names: [${Object.keys(registry).join(", ")}]. ` +
+          `Check the data-ilha attribute on the element.`,
+      );
+      return;
+    }
 
     let props: Record<string, unknown> = {};
     const rawProps = host.getAttribute(PROPS_ATTR);
@@ -1759,7 +1360,7 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
       try {
         props = JSON.parse(rawProps) as Record<string, unknown>;
       } catch {
-        console.warn(`[ilha] Failed to parse ${PROPS_ATTR} on [data-ilha="${name}"]`);
+        warn(`Failed to parse ${PROPS_ATTR} on [data-ilha="${name}"] — invalid JSON ignored.`);
       }
     }
 
@@ -1769,7 +1370,9 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
   const els = Array.from(root.querySelectorAll("[data-ilha]"));
 
   if (lazy && typeof IntersectionObserver !== "undefined") {
+    let disposed = false;
     const io = new IntersectionObserver((entries) => {
+      if (disposed) return;
       for (const entry of entries) {
         if (entry.isIntersecting) {
           activateEl(entry.target);
@@ -1778,7 +1381,10 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
       }
     });
     els.forEach((el) => io.observe(el));
-    unmounts.push(() => io.disconnect());
+    unmounts.push(() => {
+      disposed = true;
+      io.disconnect();
+    });
   } else {
     els.forEach(activateEl);
   }
@@ -1790,12 +1396,24 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
 // Default export
 // ─────────────────────────────────────────────
 
-const rootBuilder = new IlhaBuilder<
+const EMPTY_CFG: BuilderConfig<
   Record<string, unknown>,
   Record<string, never>,
   Record<string, never>,
   Record<string, never>
->(null, [], [], [], [], [], {}, null, []);
+> = {
+  schema: null,
+  states: [],
+  deriveds: [],
+  ons: [],
+  effects: [],
+  onMounts: [],
+  slots: {},
+  transition: null,
+  binds: [],
+};
+
+const rootBuilder = new IlhaBuilder(EMPTY_CFG);
 
 const ilha = Object.assign(rootBuilder, {
   html: ilhaHtml,
