@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { z } from "zod";
 
 import type { SlotAccessor } from "./index";
-import ilha, { html, raw, mount, from, context, type } from "./index";
+import ilha, { html, raw, mount, from, context } from "./index";
 
 // ---------------------------------------------
 // Helpers
