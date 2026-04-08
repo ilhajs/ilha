@@ -127,17 +127,15 @@ const footerSections = [
     title: "Open Source",
     ariaLabel: "Open source",
     links: [
-      { href: "https://github.com/guarana-studio/ilha", label: "Ilha" },
+      { href: "https://github.com/ilhajs/ilha", label: "Ilha" },
       { href: "https://github.com/guarana-studio/deskdown", label: "Deskdown" },
       { href: "https://github.com/guarana-studio/docsome", label: "Docsome" },
-      { href: "https://github.com/guarana-studio/hydride", label: "Hydride" },
     ],
   },
   {
     title: "Company",
     ariaLabel: "Company",
     links: [
-      { href: "https://guarana.studio/", label: "Guarana Studio" },
       { href: "#", label: "Terms of Service" },
       { href: "#", label: "Privacy Policy" },
       { href: "#", label: "Acceptable Use Policy" },
@@ -149,7 +147,7 @@ const footerSections = [
     ariaLabel: "Socials",
     className: "md:justify-self-end",
     links: [
-      { href: "https://github.com/guarana-studio", label: "GitHub" },
+      { href: "https://github.com/ilhajs", label: "GitHub" },
       { href: "#", label: "Discord" },
       { href: "#", label: "X.com" },
     ],
@@ -460,7 +458,7 @@ const Home = ilha
             </div>
 
             <div class="mt-10 border-t border-white/10 pt-6 text-xs text-slate-500">
-              © 2026 Ilha by Guarana Studio. All rights reserved.
+              © 2026 Ilha. All rights reserved.
             </div>
           </footer>
         </div>

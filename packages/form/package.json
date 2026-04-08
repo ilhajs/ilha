@@ -6,7 +6,7 @@
   "author": "Ryuz <ryuzer@proton.me>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/guarana-studio/ilha.git"
+    "url": "git+https://github.com/ilhajs/ilha.git"
   },
   "files": [
     "dist"
