@@ -725,7 +725,7 @@ describe("island mount", () => {
       const island = ilha.state("x", 99).render(({ state }) => `<span>${state.x()}</span>`);
 
       const el = makeEl();
-      const unmount = from(el, island as never);
+      const unmount = from(el, island);
       expect(el.querySelector("span")!.textContent).toBe("99");
 
       unmount?.();
@@ -1094,7 +1094,7 @@ describe("island mount", () => {
         document.body.appendChild(elA);
         document.body.appendChild(elB);
 
-        const { unmount } = mount({ counter } as never);
+        const { unmount } = mount({ counter });
         expect(elA.querySelector("p")!.textContent).toBe("1");
         expect(elB.querySelector("p")!.textContent).toBe("2");
         unmount();
@@ -1114,7 +1114,7 @@ describe("island mount", () => {
         el.setAttribute("data-ilha-props", JSON.stringify({ count: 0 }));
         document.body.appendChild(el);
 
-        const { unmount } = mount({ counter } as never);
+        const { unmount } = mount({ counter });
         unmount();
 
         (el.querySelector("[data-inc]") as HTMLButtonElement).click();
@@ -1141,7 +1141,7 @@ describe("island mount", () => {
         document.body.appendChild(root);
         document.body.appendChild(outside);
 
-        const { unmount } = mount({ counter } as never, { root });
+        const { unmount } = mount({ counter }, { root });
         expect(inside.querySelector("p")!.textContent).toBe("1");
         expect(outside.querySelector("p")!.textContent).toBe("original");
         unmount();
@@ -1158,7 +1158,7 @@ describe("island mount", () => {
         el.setAttribute("data-ilha-props", "{invalid json}");
         document.body.appendChild(el);
 
-        expect(() => mount({ counter } as never)).not.toThrow();
+        expect(() => mount({ counter })).not.toThrow();
       });
     });
   });
@@ -1327,7 +1327,7 @@ describe("ilha.mount()", () => {
     el.setAttribute("data-ilha-props", JSON.stringify({ count: 7 }));
     document.body.appendChild(el);
 
-    const { unmount } = mount({ counter } as never);
+    const { unmount } = mount({ counter });
     expect(el.innerHTML).toBe("<p>7</p>");
     unmount();
   });
@@ -1338,7 +1338,7 @@ describe("ilha.mount()", () => {
     el.innerHTML = "<p>original</p>";
     document.body.appendChild(el);
 
-    const { unmount } = mount({} as never);
+    const { unmount } = mount({});
     expect(el.innerHTML).toBe("<p>original</p>");
     unmount();
   });
@@ -1354,7 +1354,7 @@ describe("ilha.mount()", () => {
     el.setAttribute("data-ilha-props", "{invalid json}");
     document.body.appendChild(el);
 
-    expect(() => mount({ counter } as never)).not.toThrow();
+    expect(() => mount({ counter })).not.toThrow();
   });
 
   it("unmount tears down all discovered islands", () => {
@@ -1371,7 +1371,7 @@ describe("ilha.mount()", () => {
     el.setAttribute("data-ilha-props", JSON.stringify({ count: 0 }));
     document.body.appendChild(el);
 
-    const { unmount } = mount({ counter } as never);
+    const { unmount } = mount({ counter });
     unmount();
 
     (el.querySelector("[data-inc]") as HTMLButtonElement).click();
@@ -1398,7 +1398,7 @@ describe("ilha.mount()", () => {
     document.body.appendChild(root);
     document.body.appendChild(outside);
 
-    const { unmount } = mount({ counter } as never, { root });
+    const { unmount } = mount({ counter }, { root });
     expect(inside.innerHTML).toBe("<p>1</p>");
     expect(outside.innerHTML).toBe("<p>original</p>");
     unmount();
@@ -1425,7 +1425,7 @@ describe("ilha.mount()", () => {
     document.body.appendChild(elA);
     document.body.appendChild(elB);
 
-    const { unmount } = mount({ counter, greeting } as never);
+    const { unmount } = mount({ counter, greeting });
     expect(elA.innerHTML).toBe("<span>3</span>");
     expect(elB.innerHTML).toBe("<b>hello Ada</b>");
     unmount();
@@ -1446,9 +1446,7 @@ describe("slots", () => {
       .state("label", "hello")
       .render(({ state }) => `<span>${state.label()}</span>`);
 
-    const card = ilha
-      .slot("badge", badge as never)
-      .render(({ slots }) => `<div>${slots.badge}</div>`);
+    const card = ilha.slot("badge", badge).render(({ slots }) => `<div>${slots.badge}</div>`);
 
     expect(card()).toBe("<div><span>hello</span></div>");
   });
@@ -1460,7 +1458,7 @@ describe("slots", () => {
       .render(({ state }) => `<p>${state.count()}</p>`);
 
     const parent = ilha
-      .slot("counter", counter as never)
+      .slot("counter", counter)
       .render(({ slots }) => `<section>${slots.counter}</section>`);
 
     expect(parent()).toBe("<section><p>99</p></section>");
@@ -1473,7 +1471,7 @@ describe("slots", () => {
       .render(({ state }) => `<p>${state.count()}</p>`);
 
     const parent = ilha
-      .slot("counter", counter as never)
+      .slot("counter", counter)
       .render(({ slots }) => html`<div>${slots.counter({ count: 5 })}</div>`);
 
     expect(parent()).toBe("<div><p>5</p></div>");
@@ -1482,9 +1480,7 @@ describe("slots", () => {
   it("client slot element is present in DOM after mount", () => {
     const child = ilha.render(() => `<span>child</span>`);
 
-    const parent = ilha
-      .slot("child", child as never)
-      .render(({ slots }) => `<div>${slots.child}</div>`);
+    const parent = ilha.slot("child", child).render(({ slots }) => `<div>${slots.child}</div>`);
 
     const el = makeEl();
     const unmount = parent.mount(el);
@@ -1503,7 +1499,7 @@ describe("slots", () => {
       .render(({ state }) => `<p>${state.count()}</p><button data-inc>+</button>`);
 
     const parent = ilha
-      .slot("child", child as never)
+      .slot("child", child)
       .render(({ slots }) => `<div class="parent">${slots.child}</div>`);
 
     const el = makeEl();
@@ -1531,7 +1527,7 @@ describe("slots", () => {
 
     const parent = ilha
       .state("tick", 0)
-      .slot("child", child as never)
+      .slot("child", child)
       .render(({ state, slots }) => {
         parentAccessor = state.tick as typeof parentAccessor;
         return `<div><span>${state.tick()}</span>${slots.child}</div>`;
@@ -1562,8 +1558,8 @@ describe("slots", () => {
 
     const parent = ilha
       .state("tick", 0)
-      .slot("a", childA as never)
-      .slot("b", childB as never)
+      .slot("a", childA)
+      .slot("b", childB)
       .render(({ state, slots }) => {
         parentAccessor = state.tick as typeof parentAccessor;
         return `<div>${state.tick()}${slots.a}${slots.b}</div>`;
@@ -1594,9 +1590,7 @@ describe("slots", () => {
       })
       .render(({ state }) => `<span>${state.x()}</span>`);
 
-    const parent = ilha
-      .slot("child", child as never)
-      .render(({ slots }) => `<div>${slots.child}</div>`);
+    const parent = ilha.slot("child", child).render(({ slots }) => `<div>${slots.child}</div>`);
 
     const el = makeEl();
     const unmount = parent.mount(el);
@@ -1625,7 +1619,7 @@ describe("slots", () => {
       .render(({ state }) => `<p>${state.count()}</p>`);
 
     const parent = ilha
-      .slot("counter", counter as never)
+      .slot("counter", counter)
       .render(({ slots }) => html`<div>${slots.counter({ count: 7 })}</div>`);
 
     const el = makeEl();
@@ -1642,7 +1636,7 @@ describe("slots", () => {
       .render(({ state }) => `<p>${state.count()}</p>`);
 
     const parent = ilha
-      .slot("counter", counter as never)
+      .slot("counter", counter)
       .render(() => `<div><div data-ilha-slot="counter" data-props='{"count":3}'></div></div>`);
 
     const el = makeEl();
@@ -2725,7 +2719,7 @@ describe("dev-mode warnings", () => {
       el.setAttribute("data-ilha-props", "{not valid json}");
       document.body.appendChild(el);
 
-      mount({ counter } as never);
+      mount({ counter });
       expect(warnSpy).toHaveBeenCalled();
       const msg: string = warnSpy.mock.calls[0]?.[0] ?? "";
       expect(msg).toMatch(/ilha/i);

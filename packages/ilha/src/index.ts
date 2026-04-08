@@ -188,20 +188,20 @@ interface RawHtml {
 // Slot accessor
 // ---------------------------------------------
 
-export interface SlotAccessor {
-  (props?: Record<string, unknown>): RawHtml;
+export interface SlotAccessor<TProps = Record<string, unknown>> {
+  (props?: TProps): RawHtml;
   toString(): string;
   [SLOT_ACCESSOR]: true;
 }
 
-function makeSlotAccessor(render: (props?: Record<string, unknown>) => string): SlotAccessor {
+function makeSlotAccessor(render: (props?: Record<string, unknown>) => string): SlotAccessor<any> {
   const fn = (props?: Record<string, unknown>): RawHtml => ({ [RAW]: true, value: render(props) });
   fn.toString = () => render(undefined);
   (fn as unknown as Record<symbol, boolean>)[SLOT_ACCESSOR] = true;
   return fn as unknown as SlotAccessor;
 }
 
-function isSlotAccessor(v: unknown): v is SlotAccessor {
+function isSlotAccessor(v: unknown): v is SlotAccessor<any> {
   return typeof v === "function" && SLOT_ACCESSOR in (v as object);
 }
 
@@ -540,11 +540,12 @@ export interface Island<
   hydratable(props: Partial<TInput>, options: HydratableOptions): Promise<string>;
 }
 
-type AnyIsland = Island<Record<string, unknown>, Record<string, unknown>>;
+type InferIslandInput<T> = T extends Island<infer TInput, any> ? TInput : Record<string, unknown>;
+type AnyIsland = Island<any, any>;
 type SlotMap = Record<string, AnyIsland>;
 
 type SlotsProxy<TSlots extends SlotMap> = {
-  readonly [K in keyof TSlots]: SlotAccessor;
+  readonly [K in keyof TSlots]: SlotAccessor<Partial<InferIslandInput<TSlots[K]>>>;
 };
 
 type RenderContext<
@@ -838,14 +839,14 @@ class IlhaBuilder<
     return new IlhaBuilder({ ...this._cfg, onMounts: [...this._cfg.onMounts, { fn }] });
   }
 
-  slot<K extends string>(
+  slot<K extends string, I extends AnyIsland>(
     name: K,
-    island: AnyIsland,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots & Record<K, AnyIsland>> {
+    island: I,
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots & Record<K, I>> {
     return new IlhaBuilder({
       ...this._cfg,
       slots: { ...this._cfg.slots, [name]: island },
-    } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap, TSlots & Record<K, AnyIsland>>);
+    } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap, TSlots & Record<K, I>>);
   }
 
   transition(opts: TransitionOptions): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
