@@ -7,7 +7,7 @@
       "dependencies": {
         "@hono/node-server": "^1.19.12",
         "hono": "^4.12.9",
-        "ilha": "https://pkg.pr.new/guarana-studio/ilha@b328c9d",
+        "ilha": "https://pkg.pr.new/ilhajs/ilha@d7112e9",
       },
       "devDependencies": {
         "@types/node": "^20.11.17",
@@ -115,7 +115,7 @@
 
     "hookable": ["hookable@6.1.0", "", {}, "sha512-ZoKZSJgu8voGK2geJS+6YtYjvIzu9AOM/KZXsBxr83uhLL++e9pEv/dlgwgy3dvHg06kTz6JOh1hk3C8Ceiymw=="],
 
-    "ilha": ["ilha@https://pkg.pr.new/guarana-studio/ilha@b328c9d", { "dependencies": { "alien-signals": "3.1.2" } }, "sha512-x6QWLp/l/TpEpWkHba01pr3ljXSYQbuZrOpO3oUOqGf1P0gEfn3sLuPMd6tQ3/+KlnJK4WKINagDPhjRD0PXuQ=="],
+    "ilha": ["ilha@https://pkg.pr.new/ilhajs/ilha@d7112e9", { "dependencies": { "alien-signals": "3.1.2" } }, "sha512-wTGRHc/2zZA5xOSGfUpKVHo9fE3be2NKtV/hO6ntgnQCwDxsjq6hzkwH3+KG/J3j1piSrVrI0enqvV6uaouBNQ=="],
 
     "import-without-cache": ["import-without-cache@0.2.5", "", {}, "sha512-B6Lc2s6yApwnD2/pMzFh/d5AVjdsDXjgkeJ766FmFuJELIGHNycKRj+l3A39yZPM4CchqNCB4RITEAYB1KUM6A=="],
 

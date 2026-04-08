@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "ilha": "https://pkg.pr.new/guarana-studio/ilha@b328c9d"
+    "ilha": "https://pkg.pr.new/ilhajs/ilha@d7112e9"
   },
   "devDependencies": {
     "typescript": "~5.9.3",

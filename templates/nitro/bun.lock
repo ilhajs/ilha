@@ -5,7 +5,7 @@
     "": {
       "name": "nitro",
       "dependencies": {
-        "ilha": "https://pkg.pr.new/guarana-studio/ilha@b328c9d",
+        "ilha": "https://pkg.pr.new/ilhajs/ilha@d7112e9",
         "nitro": "^3.0.260311-beta",
       },
       "devDependencies": {
@@ -83,7 +83,7 @@
 
     "httpxy": ["httpxy@0.5.0", "", {}, "sha512-qwX7QX/rK2visT10/b7bSeZWQOMlSm3svTD0pZpU+vJjNUP0YHtNv4c3z+MO+MSnGuRFWJFdCZiV+7F7dXIOzg=="],
 
-    "ilha": ["ilha@https://pkg.pr.new/guarana-studio/ilha@b328c9d", { "dependencies": { "alien-signals": "3.1.2" } }, "sha512-x6QWLp/l/TpEpWkHba01pr3ljXSYQbuZrOpO3oUOqGf1P0gEfn3sLuPMd6tQ3/+KlnJK4WKINagDPhjRD0PXuQ=="],
+    "ilha": ["ilha@https://pkg.pr.new/ilhajs/ilha@d7112e9", { "dependencies": { "alien-signals": "3.1.2" } }, "sha512-wTGRHc/2zZA5xOSGfUpKVHo9fE3be2NKtV/hO6ntgnQCwDxsjq6hzkwH3+KG/J3j1piSrVrI0enqvV6uaouBNQ=="],
 
     "lightningcss": ["lightningcss@1.32.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.32.0", "lightningcss-darwin-arm64": "1.32.0", "lightningcss-darwin-x64": "1.32.0", "lightningcss-freebsd-x64": "1.32.0", "lightningcss-linux-arm-gnueabihf": "1.32.0", "lightningcss-linux-arm64-gnu": "1.32.0", "lightningcss-linux-arm64-musl": "1.32.0", "lightningcss-linux-x64-gnu": "1.32.0", "lightningcss-linux-x64-musl": "1.32.0", "lightningcss-win32-arm64-msvc": "1.32.0", "lightningcss-win32-x64-msvc": "1.32.0" } }, "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ=="],
 

@@ -31,11 +31,11 @@ bun add ilha
 
 ## Templates
 
-| Stack | Command                                           | Sandbox                                                                              | Directory                                                                    |
-| ----- | ------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| Vite  | `npx giget@latest gh:ilhajs/ilha/templates/vite`  | [Start Sandbox](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  | [/templates/vite](https://github.com/ilhajs/ilha/tree/main/templates/vite)   |
-| Hono  | `npx giget@latest gh:ilhajs/ilha/templates/hono`  | [Start Sandbox](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/hono)  | [/templates/hono](https://github.com/ilhajs/ilha/tree/main/templates/hono)   |
-| Nitro | `npx giget@latest gh:ilhajs/ilha/templates/nitro` | [Start Sandbox](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro) | [/templates/nitro](https://github.com/ilhajs/ilha/tree/main/templates/nitro) |
+| Template                                                                   | Command                                           | Sandbox                                                                              |
+| -------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| [Vite](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite) | `npx giget@latest gh:ilhajs/ilha/templates/vite`  | [Start Sandbox](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  |
+| [Hono](https://github.com/ilhajs/ilha/tree/main/templates/hono)            | `npx giget@latest gh:ilhajs/ilha/templates/hono`  | [Start Sandbox](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/hono)  |
+| [Nitro](https://github.com/ilhajs/ilha/tree/main/templates/nitro)          | `npx giget@latest gh:ilhajs/ilha/templates/nitro` | [Start Sandbox](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro) |
 
 ## Your First Island
 
