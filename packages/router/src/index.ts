@@ -1,4 +1,4 @@
-import { context } from "ilha";
+import { context, mount } from "ilha";
 import type { Island, HydratableOptions } from "ilha";
 import ilha, { html } from "ilha";
 import { createRouter, addRoute, findRoute } from "rou3";
@@ -18,11 +18,73 @@ export interface RouteRecord {
   island: Island<any, any>;
 }
 
+export interface RouteSnapshot {
+  path: string;
+  params: Record<string, string>;
+  search: string;
+  hash: string;
+}
+
+export interface AppError {
+  message: string;
+  status?: number;
+  stack?: string;
+}
+
+export type LayoutHandler = (children: Island<any, any>) => Island<any, any>;
+export type ErrorHandler = (error: AppError, route: RouteSnapshot) => Island<any, any>;
+
+// ─────────────────────────────────────────────
+// Runtime helpers — wrapLayout / wrapError
+// ─────────────────────────────────────────────
+
+export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Island<any, any> {
+  return layout(page);
+}
+
+export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island<any, any> {
+  // Create a wrapper island that handles errors during SSR but preserves
+  // the original page island's interactivity on the client
+  const wrapper = ilha.render(() => {
+    try {
+      return page.toString();
+    } catch (e: any) {
+      const route: RouteSnapshot = {
+        path: routePath(),
+        params: routeParams(),
+        search: routeSearch(),
+        hash: routeHash(),
+      };
+      return handler({ message: e.message, status: e.status, stack: e.stack }, route).toString();
+    }
+  });
+
+  // Preserve the original page's mount behavior for client-side interactivity
+  const originalMount = wrapper.mount;
+  wrapper.mount = (host: Element, props?: Record<string, unknown>) => {
+    // On the client, mount the original page island for interactivity
+    // The wrapper's render is only used for SSR/error handling
+    try {
+      return page.mount(host, props);
+    } catch (e: any) {
+      // If mounting fails, fall back to the wrapper's behavior
+      return originalMount(host, props);
+    }
+  };
+
+  return wrapper;
+}
+
 export interface NavigateOptions {
   replace?: boolean;
 }
 
 export interface HydratableRenderOptions extends Partial<Omit<HydratableOptions, "name">> {}
+
+export interface HydrateOptions {
+  root?: Element;
+  target?: string | Element;
+}
 
 export interface RouterBuilder {
   route(pattern: string, island: Island<any, any>): RouterBuilder;
@@ -34,6 +96,13 @@ export interface RouterBuilder {
     registry: Record<string, Island<any, any>>,
     options?: HydratableRenderOptions,
   ): Promise<string>;
+  /**
+   * Hydrate the application - combines prime(), mount(), and router.mount() into one call.
+   * @param registry - The island registry from ilha:registry
+   * @param options - Optional root element (defaults to document.body) and router target (defaults to root)
+   * @returns Cleanup function
+   */
+  hydrate(registry: Record<string, Island<any, any>>, options?: HydrateOptions): () => void;
 }
 
 // ─────────────────────────────────────────────
@@ -337,6 +406,30 @@ export function router(): RouterBuilder {
       );
 
       return `<div data-router-view>${rendered}</div>`;
+    },
+
+    hydrate(registry: Record<string, Island<any, any>>, options: HydrateOptions = {}): () => void {
+      if (!isBrowser) {
+        console.warn("[ilha-router] hydrate() called in a non-browser environment");
+        return () => {};
+      }
+
+      const root = options.root ?? document.body;
+      const target = options.target ?? root;
+
+      // 1. Prime route signals first so islands see correct values on first render
+      prime();
+
+      // 2. Mount islands for interactivity
+      const { unmount } = mount(registry, { root });
+
+      // 3. Setup router for client-side navigation
+      const unmountRouter = this.mount(target, { hydrate: true });
+
+      return () => {
+        unmount();
+        unmountRouter();
+      };
     },
   };
 

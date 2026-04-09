@@ -882,9 +882,10 @@ class IlhaBuilder<
             const name = String(prop);
             if (!slotDefs[name]) return makeSlotAccessor(() => "");
             if (ssr) {
-              return makeSlotAccessor((props?: Record<string, unknown>) =>
-                slotDefs[name]!.toString(props),
-              );
+              return makeSlotAccessor((props?: Record<string, unknown>) => {
+                const json = props ? ` ${PROPS_ATTR}='${escapeHtml(JSON.stringify(props))}'` : "";
+                return `<div ${SLOT_ATTR}="${escapeHtml(name)}"${json}>${slotDefs[name]!.toString(props)}</div>`;
+              });
             }
             return makeSlotAccessor((props?: Record<string, unknown>) => {
               const liveSlot = host?.querySelector(`[${SLOT_ATTR}="${escapeHtml(name)}"]`);

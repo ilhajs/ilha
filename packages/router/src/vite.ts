@@ -1,55 +1,17 @@
 import { readdir, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve, relative, dirname, basename, extname } from "node:path";
 
-import ilha from "ilha";
-import type { Island } from "ilha";
 import type { Plugin } from "vite";
 
-import { routePath, routeParams, routeSearch, routeHash } from "./index";
-
-// ─────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────
-
-export interface RouteSnapshot {
-  path: string;
-  params: Record<string, string>;
-  search: string;
-  hash: string;
-}
-
-export interface AppError {
-  message: string;
-  status?: number;
-  stack?: string;
-}
-
-export type LayoutHandler = (children: Island<any, any>) => Island<any, any>;
-export type ErrorHandler = (error: AppError, route: RouteSnapshot) => Island<any, any>;
-
-// ─────────────────────────────────────────────
-// Runtime helpers — wrapLayout / wrapError
-// ─────────────────────────────────────────────
-
-export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Island<any, any> {
-  return layout(page);
-}
-
-export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island<any, any> {
-  return ilha.render(() => {
-    try {
-      return page.toString();
-    } catch (e: any) {
-      const route: RouteSnapshot = {
-        path: routePath(),
-        params: routeParams(),
-        search: routeSearch(),
-        hash: routeHash(),
-      };
-      return handler({ message: e.message, status: e.status, stack: e.stack }, route).toString();
-    }
-  });
-}
+// Re-export runtime helpers from main index (for client-side compatibility)
+export {
+  wrapLayout,
+  wrapError,
+  type LayoutHandler,
+  type ErrorHandler,
+  type RouteSnapshot,
+  type AppError,
+} from "./index";
 
 // ─────────────────────────────────────────────
 // Codegen — types
@@ -212,9 +174,8 @@ async function generate(pagesDir: string, outFile: string): Promise<void> {
   };
 
   const imports: string[] = [
-    `import { router }                from "@ilha/router";`,
-    `import { wrapLayout, wrapError } from "@ilha/router/vite";`,
-    `import type { Island }           from "ilha";`,
+    `import { router, wrapLayout, wrapError } from "@ilha/router";`,
+    `import type { Island }                    from "ilha";`,
   ];
 
   const wrappedIslandLines: string[] = [];

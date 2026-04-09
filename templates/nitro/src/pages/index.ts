@@ -10,11 +10,12 @@ export default ilha
   })
   .bind("#name", "name")
   .render(
-    ({ derived }) => html`
+    ({ state, derived }) => html`
       <section>
         <h1>Home</h1>
         <p>Welcome to Ilha.</p>
         <input id="name" type="text" />
+        <p>${state.name()}</p>
         ${raw(derived.greeting.value ?? "")}
       </section>
     `,

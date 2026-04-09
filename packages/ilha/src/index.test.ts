@@ -1448,7 +1448,7 @@ describe("slots", () => {
 
     const card = ilha.slot("badge", badge).render(({ slots }) => `<div>${slots.badge}</div>`);
 
-    expect(card()).toBe("<div><span>hello</span></div>");
+    expect(card()).toBe(`<div><div data-ilha-slot="badge"><span>hello</span></div></div>`);
   });
 
   it("SSR child renders with its own schema defaults", () => {
@@ -1461,7 +1461,7 @@ describe("slots", () => {
       .slot("counter", counter)
       .render(({ slots }) => `<section>${slots.counter}</section>`);
 
-    expect(parent()).toBe("<section><p>99</p></section>");
+    expect(parent()).toBe(`<section><div data-ilha-slot="counter"><p>99</p></div></section>`);
   });
 
   it("SSR slot renders with passed props", () => {
@@ -1474,7 +1474,9 @@ describe("slots", () => {
       .slot("counter", counter)
       .render(({ slots }) => html`<div>${slots.counter({ count: 5 })}</div>`);
 
-    expect(parent()).toBe("<div><p>5</p></div>");
+    expect(parent()).toBe(
+      `<div><div data-ilha-slot="counter" data-ilha-props='{&quot;count&quot;:5}'><p>5</p></div></div>`,
+    );
   });
 
   it("client slot element is present in DOM after mount", () => {
