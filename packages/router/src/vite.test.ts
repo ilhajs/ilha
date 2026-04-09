@@ -261,11 +261,14 @@ describe("codegen — generated file", () => {
     await writePage(pagesDir, "+layout.ts", `export default null;`);
     await writePage(pagesDir, "user/+layout.ts", `export default null;`);
     const code = await runCodegen();
-    const routeLines = code.split("\n").filter((l) => l.includes(".route("));
-    const userLine = routeLines.find((l) => l.includes(`"/user"`));
-    const rootLine = routeLines.find((l) => l.includes(`route("/"`));
-    expect([...userLine!.matchAll(/wrapLayout/g)]).toHaveLength(2);
-    expect([...rootLine!.matchAll(/wrapLayout/g)]).toHaveLength(1);
+    // Wrapped islands are stored in variables, check the variable definitions
+    const wrappedLines = code
+      .split("\n")
+      .filter((l) => l.includes("const _wrapped") && l.includes("wrapLayout"));
+    const userWrapped = wrappedLines.find((l) => l.includes("_layout1")); // user page has 2 layouts
+    const rootWrapped = wrappedLines.find((l) => l.includes("_layout0") && !l.includes("_layout1"));
+    expect([...userWrapped!.matchAll(/wrapLayout/g)]).toHaveLength(2);
+    expect([...rootWrapped!.matchAll(/wrapLayout/g)]).toHaveLength(1);
   });
 
   it("root layout wraps all pages, nested layout wraps only its subtree", async () => {
@@ -274,10 +277,13 @@ describe("codegen — generated file", () => {
     await writePage(pagesDir, "+layout.ts", `export default null;`);
     await writePage(pagesDir, "user/+layout.ts", `export default null;`);
     const code = await runCodegen();
-    const aboutLine = code.split("\n").find((l) => l.includes(`"/about"`));
-    const userLine = code.split("\n").find((l) => l.includes(`"/user/:id"`));
-    expect([...aboutLine!.matchAll(/wrapLayout/g)]).toHaveLength(1);
-    expect([...userLine!.matchAll(/wrapLayout/g)]).toHaveLength(2);
+    const wrappedLines = code
+      .split("\n")
+      .filter((l) => l.includes("const _wrapped") && l.includes("wrapLayout"));
+    const aboutWrapped = wrappedLines.find((l) => l.includes("_page0") || l.includes("about"));
+    const userWrapped = wrappedLines.find((l) => l.includes("_page1") || l.includes("user"));
+    expect([...aboutWrapped!.matchAll(/wrapLayout/g)]).toHaveLength(1);
+    expect([...userWrapped!.matchAll(/wrapLayout/g)]).toHaveLength(2);
   });
 
   // ↓ REMOVED: "generates export default pageRouter" — no longer emitted
@@ -373,7 +379,7 @@ describe("codegen — registry", () => {
     expect(code).toContain(`"wildcard":`);
   });
 
-  it("registry maps to wrapped expressions (same as route) for hydration to work", async () => {
+  it("registry maps to wrapped island variables (same as route) for hydration to work", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await writePage(pagesDir, "+layout.ts", `export default null;`);
     const code = await runCodegen();
@@ -381,9 +387,9 @@ describe("codegen — registry", () => {
       code.indexOf("export const registry"),
       code.indexOf("};", code.indexOf("export const registry")) + 2,
     );
-    // Registry must contain wrapped islands so renderHydratable can find them
-    expect(regBlock).toContain("wrapLayout");
-    expect(regBlock).toMatch(/"index":\s*wrapLayout/);
+    // Registry must reference the wrapped island variable so renderHydratable can find by identity
+    expect(regBlock).toContain("_wrapped");
+    expect(regBlock).toMatch(/"index":\s*_wrapped\d/);
   });
 
   it("registry appears before pageRouter in the file", async () => {
