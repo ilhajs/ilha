@@ -86,10 +86,15 @@ export interface HydrateOptions {
   target?: string | Element;
 }
 
+export interface MountOptions {
+  hydrate?: boolean;
+  registry?: Record<string, Island<any, any>>;
+}
+
 export interface RouterBuilder {
   route(pattern: string, island: Island<any, any>): RouterBuilder;
   prime(): void;
-  mount(target: string | Element, options?: { hydrate?: boolean }): () => void;
+  mount(target: string | Element, options?: MountOptions): () => void;
   render(url: string | URL): string;
   renderHydratable(
     url: string | URL,
@@ -103,6 +108,57 @@ export interface RouterBuilder {
    * @returns Cleanup function
    */
   hydrate(registry: Record<string, Island<any, any>>, options?: HydrateOptions): () => void;
+}
+
+// ─────────────────────────────────────────────
+// Client-side navigation hydration helper
+// ─────────────────────────────────────────────
+
+/**
+ * Mounts a route island with proper hydration for client-side navigation.
+ * Looks up the island in the registry, renders it with hydration markers,
+ * and mounts it for interactivity.
+ */
+async function mountRouteWithHydration(
+  island: Island<any, any> | null,
+  host: Element,
+  registry?: Record<string, Island<any, any>>,
+): Promise<() => void> {
+  if (!island) {
+    host.innerHTML = `<div data-router-empty></div>`;
+    return () => {};
+  }
+
+  // If no registry provided, fall back to static rendering (no interactivity)
+  if (!registry) {
+    console.warn(
+      "[ilha-router] No registry provided for client-side navigation. Island will not be interactive.",
+    );
+    host.innerHTML = `<div data-router-view>${island.toString()}</div>`;
+    return () => {};
+  }
+
+  // Find the island name in the registry
+  const entry = Object.entries(registry).find(([, v]) => v === island);
+  if (!entry) {
+    console.warn("[ilha-router] Island not found in registry for client-side navigation.");
+    host.innerHTML = `<div data-router-view>${island.toString()}</div>`;
+    return () => {};
+  }
+
+  const [name] = entry;
+
+  // Render with hydration markers and mount for interactivity
+  const html = await island.hydratable({}, { name, as: "div", snapshot: true });
+  host.innerHTML = `<div data-router-view>${html}</div>`;
+
+  // Mount the island for interactivity
+  const islandHost = host.querySelector(`[data-ilha="${name}"]`);
+  if (islandHost) {
+    return island.mount(islandHost);
+  }
+
+  return () => {};
 }
 
 // ─────────────────────────────────────────────
@@ -285,7 +341,7 @@ export function router(): RouterBuilder {
     prime,
 
     // ── Client-side ──────────────────────────────────────────────────────────
-    mount(target: string | Element, { hydrate = false } = {}): () => void {
+    mount(target: string | Element, { hydrate = false, registry }: MountOptions = {}): () => void {
       if (!isBrowser) {
         console.warn("[ilha-router] mount() called in a non-browser environment");
         return () => {};
@@ -329,10 +385,11 @@ export function router(): RouterBuilder {
           if (current !== initialIsland) {
             // activeIsland changed — a navigation happened.
             // Schedule RouterView takeover after this render completes.
-            queueMicrotask(() => {
+            queueMicrotask(async () => {
               unmountSentinel();
               sentinelHost.remove();
-              unmountView = RouterView.mount(viewHost);
+              // Mount the new route with hydration if registry is available
+              unmountView = await mountRouteWithHydration(current, viewHost, registry);
             });
           }
           // Sentinel itself produces no visible markup — the SSR content is
@@ -423,8 +480,8 @@ export function router(): RouterBuilder {
       // 2. Mount islands for interactivity
       const { unmount } = mount(registry, { root });
 
-      // 3. Setup router for client-side navigation
-      const unmountRouter = this.mount(target, { hydrate: true });
+      // 3. Setup router for client-side navigation (pass registry for hydration on navigation)
+      const unmountRouter = this.mount(target, { hydrate: true, registry });
 
       return () => {
         unmount();
