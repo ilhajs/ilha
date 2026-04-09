@@ -59,16 +59,23 @@ export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island
     }
   });
 
-  // Preserve the original page's mount behavior for client-side interactivity
+  // Preserve the original page's mount behavior for client-side interactivity.
+  // We read .mount once and close over it — no repeated mutation.
   const originalMount = wrapper.mount;
   wrapper.mount = (host: Element, props?: Record<string, unknown>) => {
-    // On the client, mount the original page island for interactivity
-    // The wrapper's render is only used for SSR/error handling
     try {
       return page.mount(host, props);
     } catch (e: any) {
-      // If mounting fails, fall back to the wrapper's behavior
-      return originalMount(host, props);
+      // Mount failed — render the error handler into the host and mount *that*
+      const route: RouteSnapshot = {
+        path: routePath(),
+        params: routeParams(),
+        search: routeSearch(),
+        hash: routeHash(),
+      };
+      const errorIsland = handler({ message: e.message, status: e.status, stack: e.stack }, route);
+      host.innerHTML = errorIsland.toString();
+      return errorIsland.mount(host, props);
     }
   };
 
@@ -111,18 +118,33 @@ export interface RouterBuilder {
 }
 
 // ─────────────────────────────────────────────
+// Reverse registry lookup — O(1) island → name
+// ─────────────────────────────────────────────
+
+function buildReverseRegistry(
+  registry: Record<string, Island<any, any>>,
+): Map<Island<any, any>, string> {
+  const map = new Map<Island<any, any>, string>();
+  for (const [name, island] of Object.entries(registry)) {
+    if (!map.has(island)) map.set(island, name);
+  }
+  return map;
+}
+
+// ─────────────────────────────────────────────
 // Client-side navigation hydration helper
 // ─────────────────────────────────────────────
 
 /**
  * Mounts a route island with proper hydration for client-side navigation.
- * Looks up the island in the registry, renders it with hydration markers,
- * and mounts it for interactivity.
+ * Looks up the island in the reverse registry, renders it with hydration
+ * markers, and mounts it for interactivity.
  */
 async function mountRouteWithHydration(
   island: Island<any, any> | null,
   host: Element,
   registry?: Record<string, Island<any, any>>,
+  reverseRegistry?: Map<Island<any, any>, string>,
 ): Promise<() => void> {
   if (!island) {
     host.innerHTML = `<div data-router-empty></div>`;
@@ -138,15 +160,15 @@ async function mountRouteWithHydration(
     return () => {};
   }
 
-  // Find the island name in the registry
-  const entry = Object.entries(registry).find(([, v]) => v === island);
-  if (!entry) {
+  // Find the island name via reverse map (O(1)) or linear scan as fallback
+  const name =
+    reverseRegistry?.get(island) ?? Object.entries(registry).find(([, v]) => v === island)?.[0];
+
+  if (!name) {
     console.warn("[ilha-router] Island not found in registry for client-side navigation.");
     host.innerHTML = `<div data-router-view>${island.toString()}</div>`;
     return () => {};
   }
-
-  const [name] = entry;
 
   // Render with hydration markers and mount for interactivity
   const html = await island.hydratable({}, { name, as: "div", snapshot: true });
@@ -188,32 +210,50 @@ let _records: RouteRecord[] = [];
 let _rou3 = createRouter<Island<any, any>>();
 
 // ─────────────────────────────────────────────
-// Sync signals from an explicit URL
+// Island → pattern reverse map (O(1) isActive)
+// ─────────────────────────────────────────────
+
+let _islandToPattern = new Map<Island<any, any>, string>();
+
+// ─────────────────────────────────────────────
+// Shared match → params extraction
+// ─────────────────────────────────────────────
+
+function extractParams(matchParams: Record<string, string> | undefined): Record<string, string> {
+  const params: Record<string, string> = {};
+  if (matchParams) {
+    for (const [k, v] of Object.entries(matchParams)) {
+      params[k] = decodeURIComponent(v as string);
+    }
+  }
+  return params;
+}
+
+// ─────────────────────────────────────────────
+// Sync signals from an explicit URL (SSR path)
 // ─────────────────────────────────────────────
 
 function syncRouteFromURL(url: string | URL): void {
   const parsed = typeof url === "string" ? new URL(url, "http://localhost") : url;
-  const path = parsed.pathname;
-  const search = parsed.search;
-  const hash = parsed.hash;
 
-  const match = findRoute(_rou3, "GET", path);
-  const island = match?.data ?? null;
+  const match = findRoute(_rou3, "GET", parsed.pathname);
 
-  const params: Record<string, string> = {};
-  for (const [k, v] of Object.entries(match?.params ?? {})) {
-    params[k] = decodeURIComponent(v as string);
-  }
-
-  routePath(path);
-  routeParams(params);
-  routeSearch(search);
-  routeHash(hash);
-  activeIsland(island);
+  routePath(parsed.pathname);
+  routeParams(extractParams(match?.params as Record<string, string> | undefined));
+  routeSearch(parsed.search);
+  routeHash(parsed.hash);
+  activeIsland(match?.data ?? null);
 }
 
-function syncRoute(): void {
-  syncRouteFromURL(location.href);
+/** Client-only fast path — reads directly from `location` instead of parsing a URL. */
+function syncRouteFromLocation(): void {
+  const match = findRoute(_rou3, "GET", location.pathname);
+
+  routePath(location.pathname);
+  routeParams(extractParams(match?.params as Record<string, string> | undefined));
+  routeSearch(location.search);
+  routeHash(location.hash);
+  activeIsland(match?.data ?? null);
 }
 
 // ─────────────────────────────────────────────
@@ -239,7 +279,7 @@ function syncRoute(): void {
  * ```
  */
 export function prime(): void {
-  if (isBrowser) syncRoute();
+  if (isBrowser) syncRouteFromLocation();
 }
 
 // ─────────────────────────────────────────────
@@ -248,9 +288,14 @@ export function prime(): void {
 
 export function navigate(to: string, opts: NavigateOptions = {}): void {
   if (!isBrowser) return;
+
+  // Skip duplicate navigations — same URL means no history push, no re-render
+  const current = location.pathname + location.search + location.hash;
+  if (to === current) return;
+
   if (opts.replace) history.replaceState(null, "", to);
   else history.pushState(null, "", to);
-  syncRoute();
+  syncRouteFromLocation();
 }
 
 // ─────────────────────────────────────────────
@@ -261,6 +306,9 @@ export function enableLinkInterception(root: Element | Document = document): () 
   if (!isBrowser) return () => {};
 
   const handler = (e: Event) => {
+    // Respect other handlers that already handled this event
+    if (e.defaultPrevented) return;
+
     const target = (e.target as Element).closest("a");
     if (!target) return;
 
@@ -315,8 +363,8 @@ export const RouterLink = ilha
 export function isActive(pattern: string): boolean {
   const match = findRoute(_rou3, "GET", routePath());
   if (!match) return false;
-  const record = _records.find((r) => r.island === match.data);
-  return record?.pattern === pattern;
+  // O(1) lookup via reverse map instead of linear scan through _records
+  return _islandToPattern.get(match.data) === pattern;
 }
 
 // ─────────────────────────────────────────────
@@ -326,6 +374,7 @@ export function isActive(pattern: string): boolean {
 export function router(): RouterBuilder {
   _records = [];
   _rou3 = createRouter<Island<any, any>>();
+  _islandToPattern = new Map();
 
   let _popstateCleanup: (() => void) | null = null;
   let _linkCleanup: (() => void) | null = null;
@@ -334,6 +383,10 @@ export function router(): RouterBuilder {
     route(pattern: string, island: Island<any, any>): RouterBuilder {
       _records.push({ pattern, island });
       addRoute(_rou3, "GET", pattern, island);
+      // First pattern registered for an island wins (most specific due to sort order)
+      if (!_islandToPattern.has(island)) {
+        _islandToPattern.set(island, pattern);
+      }
       return builder;
     },
 
@@ -357,9 +410,9 @@ export function router(): RouterBuilder {
       // is a no-op (same values); if not, this syncs now — which is fine for
       // non-hydrate mounts but may be too late for hydrate mounts if
       // ilha.mount() already ran (see prime() docs above).
-      syncRoute();
+      syncRouteFromLocation();
 
-      const popHandler = () => syncRoute();
+      const popHandler = () => syncRouteFromLocation();
       window.addEventListener("popstate", popHandler);
       _popstateCleanup = () => window.removeEventListener("popstate", popHandler);
       _linkCleanup = enableLinkInterception(document);
@@ -377,16 +430,31 @@ export function router(): RouterBuilder {
         const viewHost = host.querySelector<Element>("[data-router-view]") ?? host;
         let currentMountedIsland: Island<any, any> | null = activeIsland();
 
+        // Build reverse registry once for O(1) lookups during navigation
+        const reverseRegistry = registry ? buildReverseRegistry(registry) : undefined;
+
+        // Navigation version counter — prevents stale microtasks from applying
+        let navVersion = 0;
+
         const navHandler = ilha.render((): string => {
           const current = activeIsland();
           if (current !== currentMountedIsland) {
             // activeIsland changed — a navigation happened.
+            // Capture version so stale microtasks are discarded.
+            const thisNav = ++navVersion;
             // Schedule re-hydration after this render completes.
             queueMicrotask(async () => {
+              // Discard if a newer navigation has superseded this one
+              if (thisNav !== navVersion) return;
               // Clean up previous view
               unmountView?.();
               // Mount the new route with hydration if registry is available
-              unmountView = await mountRouteWithHydration(current, viewHost, registry);
+              unmountView = await mountRouteWithHydration(
+                current,
+                viewHost,
+                registry,
+                reverseRegistry,
+              );
               currentMountedIsland = current;
             });
           }
@@ -402,6 +470,7 @@ export function router(): RouterBuilder {
         const unmountNavHandler = navHandler.mount(navHost);
 
         return () => {
+          ++navVersion; // cancel any pending microtask
           unmountNavHandler();
           navHost.remove();
           unmountView?.();
@@ -440,7 +509,9 @@ export function router(): RouterBuilder {
       const island = activeIsland();
       if (!island) return `<div data-router-empty></div>`;
 
-      const name = Object.entries(registry).find(([, v]) => v === island)?.[0];
+      // O(1) reverse lookup instead of Object.entries().find()
+      const reverseRegistry = buildReverseRegistry(registry);
+      const name = reverseRegistry.get(island);
       if (!name) {
         console.warn(
           `[ilha-router] renderHydratable: active island for "${routePath()}" is not in the registry. ` +

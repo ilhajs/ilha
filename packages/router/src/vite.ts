@@ -1,4 +1,4 @@
-import { readdir, writeFile, mkdir } from "node:fs/promises";
+import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve, relative, dirname, basename, extname } from "node:path";
 
 import type { Plugin } from "vite";
@@ -24,6 +24,13 @@ interface PageEntry {
   layouts: string[];
   errors: string[];
 }
+
+// ─────────────────────────────────────────────
+// Codegen — excluded filename patterns
+// ─────────────────────────────────────────────
+
+/** Files that should never be treated as pages even if they match the ts/tsx extension. */
+const EXCLUDED_RE = /\.(test|spec|d)\.(ts|tsx)$/;
 
 // ─────────────────────────────────────────────
 // Codegen — filename → rou3 pattern
@@ -71,32 +78,52 @@ function specificityScore(pattern: string): number {
   return 2;
 }
 
+/** Deterministic sort: by specificity desc, then by segment count desc, then alphabetical. */
 function sortEntries(entries: PageEntry[]): PageEntry[] {
-  return [...entries].sort((a, b) => specificityScore(b.pattern) - specificityScore(a.pattern));
+  return [...entries].sort((a, b) => {
+    const specDiff = specificityScore(b.pattern) - specificityScore(a.pattern);
+    if (specDiff !== 0) return specDiff;
+    // Within the same specificity tier, more segments = more specific
+    const segDiff = b.pattern.split("/").length - a.pattern.split("/").length;
+    if (segDiff !== 0) return segDiff;
+    // Final tiebreaker: alphabetical for determinism across filesystems
+    return a.pattern.localeCompare(b.pattern);
+  });
 }
 
 // ─────────────────────────────────────────────
 // Codegen — layout / error chain resolution
 // ─────────────────────────────────────────────
 
-function chainForFile(pagesDir: string, file: string, all: string[], sentinel: string): string[] {
+function chainForFile(
+  pagesDir: string,
+  file: string,
+  all: Set<string>,
+  sentinel: string,
+): string[] {
   const relDir = relative(pagesDir, dirname(file));
   const parts = relDir === "" ? [] : relDir.split("/");
   const dirs = [pagesDir, ...parts.map((_, i) => join(pagesDir, ...parts.slice(0, i + 1)))];
-  return dirs.map((dir) => join(dir, sentinel)).filter((candidate) => all.includes(candidate));
+  return dirs.map((dir) => join(dir, sentinel)).filter((candidate) => all.has(candidate));
 }
 
 // ─────────────────────────────────────────────
 // Codegen — file system scan
 // ─────────────────────────────────────────────
 
-async function collectFiles(dir: string): Promise<string[]> {
+const MAX_SCAN_DEPTH = 20;
+
+async function collectFiles(dir: string, depth = 0): Promise<string[]> {
+  if (depth > MAX_SCAN_DEPTH) {
+    console.warn(`[ilha:pages] Max scan depth (${MAX_SCAN_DEPTH}) reached at ${dir} — skipping`);
+    return [];
+  }
   const results: string[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      results.push(...(await collectFiles(full)));
-    } else if (entry.isFile() && /\.(ts|tsx)$/.test(entry.name)) {
+      results.push(...(await collectFiles(full, depth + 1)));
+    } else if (entry.isFile() && /\.(ts|tsx)$/.test(entry.name) && !EXCLUDED_RE.test(entry.name)) {
       results.push(full);
     }
   }
@@ -105,6 +132,7 @@ async function collectFiles(dir: string): Promise<string[]> {
 
 async function scanPages(pagesDir: string): Promise<PageEntry[]> {
   const all = await collectFiles(pagesDir);
+  const allSet = new Set(all);
   const pages = all.filter((f) => !basename(f).startsWith("+"));
   return pages.map((file) => {
     const pattern = fileToPattern(pagesDir, file);
@@ -112,8 +140,8 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
       file,
       pattern,
       name: patternToName(pattern),
-      layouts: chainForFile(pagesDir, file, all, "+layout.ts"),
-      errors: chainForFile(pagesDir, file, all, "+error.ts"),
+      layouts: chainForFile(pagesDir, file, allSet, "+layout.ts"),
+      errors: chainForFile(pagesDir, file, allSet, "+error.ts"),
     };
   });
 }
@@ -223,9 +251,27 @@ async function generate(pagesDir: string, outFile: string): Promise<void> {
     `  ;`,
   ].join("\n");
 
+  // Only write if content actually changed — avoids unnecessary HMR invalidation
   await mkdir(dirname(outFile), { recursive: true });
-  await writeFile(outFile, code, "utf8");
-  await generateTypes(outFile);
+  const changed = await writeIfChanged(outFile, code);
+  if (changed) {
+    await generateTypes(outFile);
+  }
+}
+
+// ─────────────────────────────────────────────
+// Write-if-changed helper
+// ─────────────────────────────────────────────
+
+async function writeIfChanged(file: string, content: string): Promise<boolean> {
+  try {
+    const existing = await readFile(file, "utf8");
+    if (existing === content) return false;
+  } catch {
+    // File doesn't exist yet — that's fine, proceed to write
+  }
+  await writeFile(file, content, "utf8");
+  return true;
 }
 
 // ─────────────────────────────────────────────
@@ -250,7 +296,7 @@ async function generateTypes(outFile: string): Promise<void> {
     ``,
   ].join("\n");
 
-  await writeFile(dtsFile, types, "utf8");
+  await writeIfChanged(dtsFile, types);
 }
 
 // ─────────────────────────────────────────────
@@ -296,7 +342,9 @@ export function pages(options: IlhaPagesOptions = {}): Plugin {
     configureServer(server) {
       server.watcher.add(pagesDir);
 
-      const invalidate = async (file: string) => {
+      // Only regen on structural changes (add/remove), not content edits.
+      // Content edits to page files are handled by Vite's normal HMR.
+      const structuralInvalidate = async (file: string) => {
         if (!file.startsWith(pagesDir)) return;
         await regen();
         for (const id of [RESOLVED_PAGES, RESOLVED_REGISTRY]) {
@@ -306,10 +354,21 @@ export function pages(options: IlhaPagesOptions = {}): Plugin {
         server.hot.send({ type: "full-reload" });
       };
 
-      server.watcher.on("add", invalidate);
-      server.watcher.on("addDir", invalidate);
-      server.watcher.on("unlink", invalidate);
-      server.watcher.on("change", invalidate);
+      // Structural events: file/dir added or removed
+      server.watcher.on("add", structuralInvalidate);
+      server.watcher.on("addDir", structuralInvalidate);
+      server.watcher.on("unlink", structuralInvalidate);
+
+      // Content changes to sentinel files (+layout.ts, +error.ts) affect wrapping,
+      // so we treat those as structural. Regular page content changes are HMR'd by Vite.
+      server.watcher.on("change", async (file: string) => {
+        if (!file.startsWith(pagesDir)) return;
+        const base = basename(file);
+        if (base.startsWith("+")) {
+          await structuralInvalidate(file);
+        }
+        // else: normal page content change — Vite HMR handles it
+      });
     },
 
     resolveId(id) {
