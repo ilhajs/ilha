@@ -1,5 +1,5 @@
-import pageRouter from "ilha:pages";
-import registry from "ilha:registry";
+import { pageRouter } from "ilha:pages";
+import { registry } from "ilha:registry";
 
 import clientAssets from "./entry-client.ts?assets=client";
 

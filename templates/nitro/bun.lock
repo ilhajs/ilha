@@ -5,8 +5,8 @@
     "": {
       "name": "nitro",
       "dependencies": {
-        "@ilha/router": "https://pkg.pr.new/ilhajs/ilha/@ilha/router@a9f8ff8",
-        "ilha": "https://pkg.pr.new/ilhajs/ilha@a9f8ff8",
+        "@ilha/router": "https://pkg.pr.new/ilhajs/ilha/@ilha/router@004c37b",
+        "ilha": "https://pkg.pr.new/ilhajs/ilha@004c37b",
         "nitro": "^3.0.260311-beta",
       },
       "devDependencies": {
@@ -22,7 +22,7 @@
 
     "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-N10dEJNSsUx41Z6pZsXU8FjPjpBEplgH24sfkmITrBED1/U2Esum9F3lfLrMjKHHjmi557zQn7kR9R+XWXu5Rg=="],
 
-    "@ilha/router": ["@ilha/router@https://pkg.pr.new/ilhajs/ilha/@ilha/router@a9f8ff8", { "dependencies": { "ilha": "https://pkg.pr.new/ilhajs/ilha/ilha@a9f8ff85b3f712c4a8c009c1646cc829b00b5aed", "rou3": "^0.8.1" } }, "sha512-bnStf2ZLH3f93Zx929olcSdXBOGsmLS9JNCMBbsWOj9k+pjNRdfp4/azMXY9lXh6LIU59fu27x2h9eiLJ3xLDw=="],
+    "@ilha/router": ["@ilha/router@https://pkg.pr.new/ilhajs/ilha/@ilha/router@004c37b", { "dependencies": { "ilha": "https://pkg.pr.new/ilhajs/ilha/ilha@004c37bf99e93410bf3313a9b386770c9a03595f", "rou3": "^0.8.1" } }, "sha512-5aZNKIYVf/cbIoYDS0S2PGcdGMGxzWMCisBSZLV9ewbYSZiG1AEp4F8UOubC8G7JUy/AnP4bmkvK+QTFw18qTw=="],
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.1.2", "", { "dependencies": { "@tybys/wasm-util": "^0.10.1" }, "peerDependencies": { "@emnapi/core": "^1.7.1", "@emnapi/runtime": "^1.7.1" } }, "sha512-sNXv5oLJ7ob93xkZ1XnxisYhGYXfaG9f65/ZgYuAu3qt7b3NadcOEhLvx28hv31PgX8SZJRYrAIPQilQmFpLVw=="],
 
@@ -86,7 +86,7 @@
 
     "httpxy": ["httpxy@0.5.0", "", {}, "sha512-qwX7QX/rK2visT10/b7bSeZWQOMlSm3svTD0pZpU+vJjNUP0YHtNv4c3z+MO+MSnGuRFWJFdCZiV+7F7dXIOzg=="],
 
-    "ilha": ["ilha@https://pkg.pr.new/ilhajs/ilha@a9f8ff8", { "dependencies": { "alien-signals": "3.1.2" } }, "sha512-4dZpWvnl3xLfEeg9LjRp4DfekVj/7b585OwBEW63ONhK7+2oXG/gcPFvMMV4NSDbJc3YwnunCnYN/ADGRXOaFw=="],
+    "ilha": ["ilha@https://pkg.pr.new/ilhajs/ilha@004c37b", { "dependencies": { "alien-signals": "3.1.2" } }, "sha512-4dZpWvnl3xLfEeg9LjRp4DfekVj/7b585OwBEW63ONhK7+2oXG/gcPFvMMV4NSDbJc3YwnunCnYN/ADGRXOaFw=="],
 
     "lightningcss": ["lightningcss@1.32.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.32.0", "lightningcss-darwin-arm64": "1.32.0", "lightningcss-darwin-x64": "1.32.0", "lightningcss-freebsd-x64": "1.32.0", "lightningcss-linux-arm-gnueabihf": "1.32.0", "lightningcss-linux-arm64-gnu": "1.32.0", "lightningcss-linux-arm64-musl": "1.32.0", "lightningcss-linux-x64-gnu": "1.32.0", "lightningcss-linux-x64-musl": "1.32.0", "lightningcss-win32-arm64-msvc": "1.32.0", "lightningcss-win32-x64-msvc": "1.32.0" } }, "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ=="],
 
@@ -152,6 +152,6 @@
 
     "vite": ["vite@8.0.6", "", { "dependencies": { "lightningcss": "^1.32.0", "picomatch": "^4.0.4", "postcss": "^8.5.8", "rolldown": "1.0.0-rc.13", "tinyglobby": "^0.2.15" }, "optionalDependencies": { "fsevents": "~2.3.3" }, "peerDependencies": { "@types/node": "^20.19.0 || >=22.12.0", "@vitejs/devtools": "^0.1.0", "esbuild": "^0.27.0 || ^0.28.0", "jiti": ">=1.21.0", "less": "^4.0.0", "sass": "^1.70.0", "sass-embedded": "^1.70.0", "stylus": ">=0.54.8", "sugarss": "^5.0.0", "terser": "^5.16.0", "tsx": "^4.8.1", "yaml": "^2.4.2" }, "optionalPeers": ["@types/node", "@vitejs/devtools", "esbuild", "jiti", "less", "sass", "sass-embedded", "stylus", "sugarss", "terser", "tsx", "yaml"], "bin": { "vite": "bin/vite.js" } }, "sha512-jeOXoY6N8rOfit/mZADMd0misLqjRdWBB3/S23ZQNuPcbVsfMBJutWD8b4ftdczMOsNyMBnKro0Z1Kt0HIqq5Q=="],
 
-    "@ilha/router/ilha": ["ilha@https://pkg.pr.new/ilhajs/ilha/ilha@a9f8ff85b3f712c4a8c009c1646cc829b00b5aed", { "dependencies": { "alien-signals": "3.1.2" } }, "sha512-4dZpWvnl3xLfEeg9LjRp4DfekVj/7b585OwBEW63ONhK7+2oXG/gcPFvMMV4NSDbJc3YwnunCnYN/ADGRXOaFw=="],
+    "@ilha/router/ilha": ["ilha@https://pkg.pr.new/ilhajs/ilha/ilha@004c37bf99e93410bf3313a9b386770c9a03595f", { "dependencies": { "alien-signals": "3.1.2" } }, "sha512-4dZpWvnl3xLfEeg9LjRp4DfekVj/7b585OwBEW63ONhK7+2oXG/gcPFvMMV4NSDbJc3YwnunCnYN/ADGRXOaFw=="],
   }
 }
