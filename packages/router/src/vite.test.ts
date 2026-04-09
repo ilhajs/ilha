@@ -335,6 +335,265 @@ describe("codegen — generated file", () => {
 });
 
 // ─────────────────────────────────────────────
+// codegen — route sorting
+// ─────────────────────────────────────────────
+
+describe("codegen — route sorting", () => {
+  let pagesDir: string;
+  let outFile: string;
+  let root: string;
+
+  beforeEach(async () => {
+    root = await makeDir("sort");
+    pagesDir = join(root, "src/pages");
+    outFile = join(root, "src/generated/page-routes.ts");
+    await mkdir(pagesDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await removeDir(root);
+  });
+
+  async function runCodegen() {
+    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
+    plugin.configResolved({ root });
+    await plugin.buildStart();
+    return readFile(outFile, "utf8");
+  }
+
+  it("static routes appear before :param routes", async () => {
+    await writePage(pagesDir, "[id].ts", `export default null;`);
+    await writePage(pagesDir, "about.ts", `export default null;`);
+    const code = await runCodegen();
+    const lines = code.split("\n").filter((l) => l.includes(".route("));
+    const aboutIdx = lines.findIndex((l) => l.includes(`"/about"`));
+    const paramIdx = lines.findIndex((l) => l.includes(`"/:id"`));
+    expect(aboutIdx).toBeLessThan(paramIdx);
+  });
+
+  it(":param routes appear before wildcard routes", async () => {
+    await writePage(pagesDir, "[...slug].ts", `export default null;`);
+    await writePage(pagesDir, "[id].ts", `export default null;`);
+    const code = await runCodegen();
+    const lines = code.split("\n").filter((l) => l.includes(".route("));
+    const paramIdx = lines.findIndex((l) => l.includes(`"/:id"`));
+    const wildcardIdx = lines.findIndex((l) => l.includes(`"/**`));
+    expect(paramIdx).toBeLessThan(wildcardIdx);
+  });
+
+  it("/ root route appears before all others", async () => {
+    await writePage(pagesDir, "[...slug].ts", `export default null;`);
+    await writePage(pagesDir, "[id].ts", `export default null;`);
+    await writePage(pagesDir, "about.ts", `export default null;`);
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    const code = await runCodegen();
+    const lines = code.split("\n").filter((l) => l.includes(".route("));
+    expect(lines[0]).toContain(`"/"`);
+  });
+
+  it("full order: / > static > :param > wildcard", async () => {
+    await writePage(pagesDir, "[...slug].ts", `export default null;`);
+    await writePage(pagesDir, "[id].ts", `export default null;`);
+    await writePage(pagesDir, "about.ts", `export default null;`);
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    const code = await runCodegen();
+    const lines = code.split("\n").filter((l) => l.includes(".route("));
+    const order = lines.map((l) => {
+      if (l.includes(`"/",`)) return "root";
+      if (l.includes(`"/about"`)) return "static";
+      if (l.includes(`"/:id"`)) return "param";
+      if (l.includes(`"/**`)) return "wildcard";
+      return "other";
+    });
+    expect(order).toEqual(["root", "static", "param", "wildcard"]);
+  });
+});
+
+// ─────────────────────────────────────────────
+// codegen — duplicate pattern detection
+// ─────────────────────────────────────────────
+
+describe("codegen — duplicate pattern detection", () => {
+  let pagesDir: string;
+  let outFile: string;
+  let root: string;
+  let warnings: string[];
+
+  beforeEach(async () => {
+    root = await makeDir("dup");
+    pagesDir = join(root, "src/pages");
+    outFile = join(root, "src/generated/page-routes.ts");
+    await mkdir(pagesDir, { recursive: true });
+    warnings = [];
+    console.warn = (...args: any[]) => {
+      warnings.push(args.join(" "));
+    };
+  });
+
+  afterEach(async () => {
+    console.warn = console.warn; // restore — bun:test sandboxes this per test
+    await removeDir(root);
+  });
+
+  async function runCodegen() {
+    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
+    plugin.configResolved({ root });
+    await plugin.buildStart();
+    return readFile(outFile, "utf8");
+  }
+
+  it("warns when two files produce the same pattern", async () => {
+    // user.ts and user/index.ts both → /user
+    await writePage(pagesDir, "user.ts", `export default null;`);
+    await writePage(pagesDir, "user/index.ts", `export default null;`);
+    await runCodegen();
+    expect(warnings.some((w) => w.includes(`"/user"`) && w.includes("Duplicate"))).toBe(true);
+  });
+
+  it("includes both file paths in the duplicate warning", async () => {
+    await writePage(pagesDir, "user.ts", `export default null;`);
+    await writePage(pagesDir, "user/index.ts", `export default null;`);
+    await runCodegen();
+    const warn = warnings.find((w) => w.includes("Duplicate"));
+    expect(warn).toContain("user.ts");
+    expect(warn).toContain("user/index.ts");
+  });
+
+  it("does not warn when all patterns are unique", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "about.ts", `export default null;`);
+    await runCodegen();
+    expect(warnings.some((w) => w.includes("Duplicate"))).toBe(false);
+  });
+
+  it("still generates the file when duplicates exist", async () => {
+    await writePage(pagesDir, "user.ts", `export default null;`);
+    await writePage(pagesDir, "user/index.ts", `export default null;`);
+    const code = await runCodegen();
+    expect(code).toContain("export const pageRouter");
+  });
+});
+
+// ─────────────────────────────────────────────
+// codegen — empty pages dir warning
+// ─────────────────────────────────────────────
+
+describe("codegen — empty pages dir warning", () => {
+  let pagesDir: string;
+  let outFile: string;
+  let root: string;
+  let warnings: string[];
+
+  beforeEach(async () => {
+    root = await makeDir("empty");
+    pagesDir = join(root, "src/pages");
+    outFile = join(root, "src/generated/page-routes.ts");
+    await mkdir(pagesDir, { recursive: true });
+    warnings = [];
+    console.warn = (...args: any[]) => {
+      warnings.push(args.join(" "));
+    };
+  });
+
+  afterEach(async () => {
+    await removeDir(root);
+  });
+
+  async function runCodegen() {
+    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
+    plugin.configResolved({ root });
+    await plugin.buildStart();
+    return readFile(outFile, "utf8");
+  }
+
+  it("warns when pages dir is empty", async () => {
+    await runCodegen();
+    expect(warnings.some((w) => w.includes("No pages found"))).toBe(true);
+  });
+
+  it("includes the pages dir path in the warning", async () => {
+    await runCodegen();
+    const warn = warnings.find((w) => w.includes("No pages found"));
+    expect(warn).toContain(pagesDir);
+  });
+
+  it("does not warn when pages dir has at least one page", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await runCodegen();
+    expect(warnings.some((w) => w.includes("No pages found"))).toBe(false);
+  });
+
+  it("does not warn when pages dir only has +layout.ts / +error.ts", async () => {
+    // these are not pages — dir is effectively empty of routable pages
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    await writePage(pagesDir, "+error.ts", `export default null;`);
+    await runCodegen();
+    expect(warnings.some((w) => w.includes("No pages found"))).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────
+// codegen — relative imports
+// ─────────────────────────────────────────────
+
+describe("codegen — relative imports", () => {
+  let pagesDir: string;
+  let outFile: string;
+  let root: string;
+
+  beforeEach(async () => {
+    root = await makeDir("rel");
+    pagesDir = join(root, "src/pages");
+    outFile = join(root, ".ilha/routes.ts");
+    await mkdir(pagesDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await removeDir(root);
+  });
+
+  async function runCodegen() {
+    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
+    plugin.configResolved({ root });
+    await plugin.buildStart();
+    return readFile(outFile, "utf8");
+  }
+
+  it("page imports start with ./ or ../", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    const code = await runCodegen();
+    const importLines = code.split("\n").filter((l) => l.startsWith("import _page"));
+    expect(importLines.length).toBeGreaterThan(0);
+    for (const line of importLines) {
+      expect(line).toMatch(/from ["'](\.\.?\/)/);
+    }
+  });
+
+  it("layout imports start with ./ or ../", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    const code = await runCodegen();
+    const importLines = code.split("\n").filter((l) => l.startsWith("import _layout"));
+    expect(importLines.length).toBeGreaterThan(0);
+    for (const line of importLines) {
+      expect(line).toMatch(/from ["'](\.\.?\/)/);
+    }
+  });
+
+  it("no import contains an absolute path", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    await writePage(pagesDir, "+error.ts", `export default null;`);
+    const code = await runCodegen();
+    const privateImports = code
+      .split("\n")
+      .filter((l) => l.startsWith("import _"))
+      .filter((l) => !l.includes(`"./`) && !l.includes(`"../`));
+    expect(privateImports).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────
 // Vite plugin — virtual module
 // ─────────────────────────────────────────────
 

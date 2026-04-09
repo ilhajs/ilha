@@ -76,9 +76,24 @@ function fileToPattern(pagesDir: string, file: string): string {
   const rel = relative(pagesDir, file);
   const noExt = rel.slice(0, -extname(rel).length);
   const segments = noExt.split("/").map(fileToSegment);
-  if (segments[segments.length - 1] === "index") segments.pop();
-  const pattern = "/" + segments.filter(Boolean).join("/");
-  return pattern || "/";
+  if (segments.at(-1) === "index") segments.pop();
+  return "/" + segments.filter(Boolean).join("/") || "/";
+}
+
+// ─────────────────────────────────────────────
+// Codegen — specificity score for route sorting
+// static > :param > wildcard
+// ─────────────────────────────────────────────
+
+function specificityScore(pattern: string): number {
+  if (pattern === "/") return 3;
+  if (pattern.includes("**")) return 0;
+  if (pattern.includes(":")) return 1;
+  return 2;
+}
+
+function sortEntries(entries: PageEntry[]): PageEntry[] {
+  return [...entries].sort((a, b) => specificityScore(b.pattern) - specificityScore(a.pattern));
 }
 
 // ─────────────────────────────────────────────
@@ -86,19 +101,10 @@ function fileToPattern(pagesDir: string, file: string): string {
 // ─────────────────────────────────────────────
 
 function chainForFile(pagesDir: string, file: string, all: string[], sentinel: string): string[] {
-  const chain: string[] = [];
   const relDir = relative(pagesDir, dirname(file));
   const parts = relDir === "" ? [] : relDir.split("/");
-
-  // walk root → file's own directory, inclusive
   const dirs = [pagesDir, ...parts.map((_, i) => join(pagesDir, ...parts.slice(0, i + 1)))];
-
-  for (const dir of dirs) {
-    const candidate = join(dir, sentinel);
-    if (all.includes(candidate)) chain.push(candidate);
-  }
-
-  return chain;
+  return dirs.map((dir) => join(dir, sentinel)).filter((candidate) => all.includes(candidate));
 }
 
 // ─────────────────────────────────────────────
@@ -107,8 +113,7 @@ function chainForFile(pagesDir: string, file: string, all: string[], sentinel: s
 
 async function collectFiles(dir: string): Promise<string[]> {
   const results: string[] = [];
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...(await collectFiles(full)));
@@ -122,7 +127,6 @@ async function collectFiles(dir: string): Promise<string[]> {
 async function scanPages(pagesDir: string): Promise<PageEntry[]> {
   const all = await collectFiles(pagesDir);
   const pages = all.filter((f) => !basename(f).startsWith("+"));
-
   return pages.map((file) => ({
     file,
     pattern: fileToPattern(pagesDir, file),
@@ -132,35 +136,66 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
 }
 
 // ─────────────────────────────────────────────
+// Codegen — validation
+// ─────────────────────────────────────────────
+
+function validateEntries(entries: PageEntry[], pagesDir: string): void {
+  if (entries.length === 0) {
+    console.warn(`[ilha:pages] No pages found in ${pagesDir}`);
+    return;
+  }
+
+  const seen = new Map<string, string>();
+  for (const entry of entries) {
+    const existing = seen.get(entry.pattern);
+    if (existing) {
+      console.warn(
+        `[ilha:pages] Duplicate route pattern "${entry.pattern}"\n` +
+          `  first:  ${existing}\n` +
+          `  second: ${entry.file}\n` +
+          `  The first match wins — the second page will never be reached.`,
+      );
+    } else {
+      seen.set(entry.pattern, entry.file);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
 // Codegen — emit generated file
 // ─────────────────────────────────────────────
 
 async function generate(pagesDir: string, outFile: string): Promise<void> {
-  const entries = await scanPages(pagesDir);
+  const raw = await scanPages(pagesDir);
+  const entries = sortEntries(raw);
+
+  validateEntries(entries, pagesDir);
+
+  // resolve absolute path → relative import from outFile's directory
+  const rel = (abs: string) => {
+    const r = relative(dirname(outFile), abs);
+    return r.startsWith(".") ? r : `./${r}`;
+  };
 
   const imports: string[] = [
-    `import { router }                    from "@ilha/router";`,
-    `import { wrapLayout, wrapError }     from "@ilha/router/vite";`,
+    `import { router }                from "@ilha/router";`,
+    `import { wrapLayout, wrapError } from "@ilha/router/vite";`,
   ];
 
   const routeLines: string[] = [];
 
   for (const [i, entry] of entries.entries()) {
     const pageId = `_page${i}`;
-    imports.push(`import ${pageId} from ${JSON.stringify(entry.file)};`);
+    imports.push(`import ${pageId} from ${JSON.stringify(rel(entry.file))};`);
 
     for (const [j, l] of entry.layouts.entries())
-      imports.push(`import _layout${i}_${j} from ${JSON.stringify(l)};`);
+      imports.push(`import _layout${i}_${j} from ${JSON.stringify(rel(l))};`);
 
     for (const [j, e] of entry.errors.entries())
-      imports.push(`import _error${i}_${j} from ${JSON.stringify(e)};`);
+      imports.push(`import _error${i}_${j} from ${JSON.stringify(rel(e))};`);
 
     let expr = pageId;
-
-    // wrap errors inside-out — nearest error boundary is innermost
     for (let j = entry.errors.length - 1; j >= 0; j--) expr = `wrapError(_error${i}_${j}, ${expr})`;
-
-    // wrap layouts inside-out — nearest layout is innermost
     for (let j = entry.layouts.length - 1; j >= 0; j--)
       expr = `wrapLayout(_layout${i}_${j}, ${expr})`;
 
@@ -193,7 +228,7 @@ const RESOLVED = "\0ilha:pages";
 export interface IlhaPagesOptions {
   /** Directory containing page files. Default: `src/pages` */
   dir?: string;
-  /** Output path for the generated route file. Default: `src/generated/page-routes.ts` */
+  /** Output path for the generated route file. Default: `.ilha/routes.ts` */
   generated?: string;
 }
 
@@ -214,7 +249,7 @@ export function pages(options: IlhaPagesOptions = {}): Plugin {
 
     configResolved(config) {
       pagesDir = resolve(config.root, options.dir ?? "src/pages");
-      outFile = resolve(config.root, options.generated ?? "src/generated/page-routes.ts");
+      outFile = resolve(config.root, options.generated ?? ".ilha/routes.ts");
     },
 
     async buildStart() {
@@ -233,6 +268,7 @@ export function pages(options: IlhaPagesOptions = {}): Plugin {
       };
 
       server.watcher.on("add", invalidate);
+      server.watcher.on("addDir", invalidate);
       server.watcher.on("unlink", invalidate);
       server.watcher.on("change", invalidate);
     },
