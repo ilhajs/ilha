@@ -208,12 +208,13 @@ export function router(): RouterBuilder {
       let unmountView: () => void;
 
       if (hydrate) {
-        // SSR HTML is already in the DOM — mount RouterView onto the existing
-        // [data-router-view] node so the first effect() run sees no change and
-        // does not clobber the [data-ilha] children that ilha.mount() just hydrated.
+        // SSR HTML is already in the DOM — ilha.mount() has already hydrated
+        // [data-ilha] nodes with reactivity. Mount RouterView onto the existing
+        // [data-router-view] wrapper with _skipOnMount so the first effect()
+        // does NOT re-render and clobber the hydrated children.
         const existing = host.querySelector<Element>("[data-router-view]");
         if (existing) {
-          unmountView = RouterView.mount(existing);
+          unmountView = RouterView.mount(existing, { _skipOnMount: true });
         } else {
           // no SSR content found — fall back to normal mount
           unmountView = RouterView.mount(host);
