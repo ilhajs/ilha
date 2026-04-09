@@ -372,41 +372,38 @@ export function router(): RouterBuilder {
         // any morph (even with identical HTML) would replace the live DOM nodes,
         // destroying the event listeners and signal bindings ilha.mount() wired up.
         //
-        // Instead we mount a tiny "sentinel" island that subscribes to activeIsland.
-        // On its first render (now) it sees the current value and returns empty markup.
-        // When activeIsland changes (= real navigation), the sentinel unmounts itself,
-        // and mounts RouterView onto [data-router-view] (or host as fallback) so the
-        // router takes over rendering from that point on.
+        // Instead we mount a "navigation handler" island that subscribes to activeIsland.
+        // It tracks the current island and re-renders with hydration whenever the route changes.
         const viewHost = host.querySelector<Element>("[data-router-view]") ?? host;
-        const initialIsland = activeIsland();
+        let currentMountedIsland: Island<any, any> | null = activeIsland();
 
-        const sentinel = ilha.render((): string => {
+        const navHandler = ilha.render((): string => {
           const current = activeIsland();
-          if (current !== initialIsland) {
+          if (current !== currentMountedIsland) {
             // activeIsland changed — a navigation happened.
-            // Schedule RouterView takeover after this render completes.
+            // Schedule re-hydration after this render completes.
             queueMicrotask(async () => {
-              unmountSentinel();
-              sentinelHost.remove();
+              // Clean up previous view
+              unmountView?.();
               // Mount the new route with hydration if registry is available
               unmountView = await mountRouteWithHydration(current, viewHost, registry);
+              currentMountedIsland = current;
             });
           }
-          // Sentinel itself produces no visible markup — the SSR content is
-          // already in the DOM and we must not touch it.
+          // Navigation handler produces no visible markup — it just tracks route changes.
           return "";
         });
 
-        // Mount sentinel on a hidden helper node so it doesn't interfere with
+        // Mount nav handler on a hidden helper node so it doesn't interfere with
         // the existing [data-router-view] children.
-        const sentinelHost = document.createElement("div");
-        sentinelHost.style.display = "none";
-        host.appendChild(sentinelHost);
-        const unmountSentinel = sentinel.mount(sentinelHost);
+        const navHost = document.createElement("div");
+        navHost.style.display = "none";
+        host.appendChild(navHost);
+        const unmountNavHandler = navHandler.mount(navHost);
 
         return () => {
-          unmountSentinel();
-          sentinelHost.remove();
+          unmountNavHandler();
+          navHost.remove();
           unmountView?.();
           _popstateCleanup?.();
           _linkCleanup?.();
