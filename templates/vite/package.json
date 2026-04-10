@@ -1,5 +1,5 @@
 {
-  "name": "vite",
+  "name": "ilha-vite",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,8 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ilha/router": "https://pkg.pr.new/ilhajs/ilha/@ilha/router@f32f5af",
-    "ilha": "https://pkg.pr.new/ilhajs/ilha@f32f5af"
+    "@ilha/router": "https://pkg.pr.new/ilhajs/ilha/@ilha/router@8b64305",
+    "ilha": "https://pkg.pr.new/ilhajs/ilha@8b64305"
   },
   "devDependencies": {
     "typescript": "~5.9.3",
