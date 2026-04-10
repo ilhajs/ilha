@@ -480,9 +480,54 @@ export function router(): RouterBuilder {
         };
       }
 
+      // SPA mode — RouterView renders HTML but islands need .mount() for interactivity.
+      // We use the same navHandler pattern as hydrate mode: a hidden sentinel island
+      // subscribes to activeIsland and mounts/unmounts page islands on navigation.
+      let unmountIsland: (() => void) | null = null;
+      let currentMountedIsland: Island<any, any> | null = null;
+      let navVersion = 0;
+
       unmountView = RouterView.mount(host);
 
+      /** Mount the active island onto the [data-router-view] container for interactivity. */
+      function mountActiveIsland(island: Island<any, any> | null): void {
+        unmountIsland?.();
+        unmountIsland = null;
+        currentMountedIsland = island;
+        if (!island) return;
+        const viewHost = host?.querySelector<Element>("[data-router-view]");
+        if (viewHost) {
+          unmountIsland = island.mount(viewHost);
+        }
+      }
+
+      // Mount the initial page island (RouterView has already rendered the HTML)
+      mountActiveIsland(activeIsland());
+
+      // Watch for navigation — re-mount the new island after RouterView morphs the DOM
+      const navHandler = ilha.render((): string => {
+        const current = activeIsland();
+        if (current !== currentMountedIsland) {
+          const thisNav = ++navVersion;
+          // Schedule after RouterView's morph completes in this same reactive tick
+          queueMicrotask(() => {
+            if (thisNav !== navVersion) return;
+            mountActiveIsland(current);
+          });
+        }
+        return "";
+      });
+
+      const navHost = document.createElement("div");
+      navHost.style.display = "none";
+      host.appendChild(navHost);
+      const unmountNavHandler = navHandler.mount(navHost);
+
       return () => {
+        ++navVersion;
+        unmountIsland?.();
+        unmountNavHandler();
+        navHost.remove();
         unmountView?.();
         _popstateCleanup?.();
         _linkCleanup?.();

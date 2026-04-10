@@ -9,7 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "ilha": "https://pkg.pr.new/ilhajs/ilha@d7112e9"
+    "@ilha/router": "https://pkg.pr.new/ilhajs/ilha/@ilha/router@f32f5af",
+    "ilha": "https://pkg.pr.new/ilhajs/ilha@f32f5af"
   },
   "devDependencies": {
     "typescript": "~5.9.3",

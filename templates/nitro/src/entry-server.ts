@@ -21,7 +21,7 @@ function htmlTemplate(body: string, clientEntry: string): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ilha App</title>
+  <title>Ilha + Nitro</title>
 </head>
 <body>
   <div id="app">${body}</div>
