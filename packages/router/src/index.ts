@@ -321,8 +321,9 @@ export function enableLinkInterception(root: Element | Document = document): () 
     const isExternal =
       !!target.hostname &&
       (target.hostname !== location.hostname || target.protocol !== location.protocol);
+    const hasNoIntercept = target.hasAttribute("data-no-intercept");
 
-    if (isExternal || isAnchorOnly || isBlank || hasModifier) return;
+    if (isExternal || isAnchorOnly || isBlank || hasModifier || hasNoIntercept) return;
 
     e.preventDefault();
     navigate(target.pathname + target.search + target.hash);
