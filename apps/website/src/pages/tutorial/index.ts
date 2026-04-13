@@ -2,34 +2,37 @@ import { Tutorial } from "$lib/components/tutorial";
 import dedent from "dedent";
 
 const content = dedent`
-  # Hello World
+  ## Counter: State
+
+  Ilha uses Signals to make your components reactive. Use the \`.state()\` builder method
+  to define state - any property declared here will automatically trigger UI updates when it changes.
+  Pass the property name and its initial value. All state properties are then available
+  inside \`.render()\` via the \`state\` property.
+
+  ### Similar concepts
+
+  - React: useState
+  - Vue: reactive()
+  - Svelte: $state()
 `;
 
 const code = {
   template: dedent`
-    <div data-ilha="nameInput"></div>
-    <div data-ilha="hello"></div>
+    <div data-ilha="counter"></div>
   `,
   script: dedent`
-    import ilha, { html, mount, context } from "ilha";
+    import ilha, { html, mount } from "ilha";
 
-    const name = context("name", "Alice");
-
-    const nameInput = ilha
-      .bind("[data-name]", name)
+    const counter = ilha
+      .state("count", 0)
       .render(
-        () => html\`
-          <input type="text" data-name />
-        \`);
+        ({ state }) => html\`
+          <p>Count: \${state.count()}</p>
+        \`
+      );
 
-    const hello = ilha
-      .render(
-        () => html\`
-          <div>Hello, \${name()}</div>
-        \`);
-
-    mount({ nameInput, hello });
+    mount({ counter });
   `,
 };
 
-export default Tutorial({ content, code });
+export default Tutorial({ key: "index", content, code });

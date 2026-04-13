@@ -9,7 +9,7 @@
   "dependencies": {
     "@hono/node-server": "^1.19.12",
     "hono": "^4.12.9",
-    "ilha": "https://pkg.pr.new/ilhajs/ilha@d7112e9"
+    "ilha": "https://pkg.pr.new/ilhajs/ilha@442b13f"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",

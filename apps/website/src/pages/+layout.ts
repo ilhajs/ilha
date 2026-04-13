@@ -13,7 +13,7 @@ export default ((children) =>
         <div id="toaster" class="toaster"></div>
         <div class="flex min-h-screen flex-col gap-2">
           ${slots.navbar()}
-          <div class="container mx-auto flex flex-1 flex-col p-4">${slots.children()}</div>
+          <div class="container mx-auto flex flex-1 flex-col p-4 min-h-0 h-0">${slots.children()}</div>
           ${slots.footer()}
         </div>
       `;

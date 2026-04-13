@@ -10,7 +10,7 @@
   "dependencies": {
     "@orpc/client": "^1.13.13",
     "@orpc/server": "^1.13.13",
-    "ilha": "https://pkg.pr.new/ilhajs/ilha@d7112e9"
+    "ilha": "https://pkg.pr.new/ilhajs/ilha@442b13f"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -1097,7 +1097,6 @@ class IlhaBuilder<
         for (const [name, childIsland] of Object.entries(slotDefs)) {
           const slotEl = host.querySelector(`[${SLOT_ATTR}="${name}"]`);
           if (!slotEl) continue;
-
           if (slotEls.get(name) === slotEl) continue;
 
           slotEls.set(name, slotEl);
@@ -1113,7 +1112,18 @@ class IlhaBuilder<
             }
           }
 
-          slotCleanups.set(name, childIsland.mount(slotEl, slotProps));
+          // Isolate child island mount from any outer subscriber (e.g. the
+          // parent's render effect, when mountSlots is called mid-re-render).
+          // Without this, the child's pre-effect render call reads its own
+          // signals with the parent as active subscriber, subscribing the
+          // parent to child-internal state and preventing the child's own
+          // render effect from receiving updates.
+          const prevSub = setActiveSub(undefined);
+          try {
+            slotCleanups.set(name, childIsland.mount(slotEl, slotProps));
+          } finally {
+            setActiveSub(prevSub);
+          }
         }
       }
 

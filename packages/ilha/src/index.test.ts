@@ -2858,3 +2858,246 @@ describe("dev-mode warnings", () => {
     });
   });
 });
+
+describe("diagnostic: child-in-slot reactivity", () => {
+  it("D1: bare child (no slot) reacts to its own signal write", () => {
+    const child = ilha.state("count", 0).render(({ state }) => `<p>${state.count()}</p>`);
+
+    const el = makeEl();
+    const unmount = child.mount(el);
+
+    expect(el.querySelector("p")!.textContent).toBe("0");
+
+    // Poke the internal state via a handler-less approach:
+    // re-mount isn't an option, so we rely on the next test for signal writes.
+    unmount();
+    cleanup(el);
+  });
+
+  it("D2: bare child reacts to click-driven signal write", () => {
+    const child = ilha
+      .state("count", 0)
+      .on("[data-inc]@click", ({ state }) => {
+        state.count(state.count() + 1);
+      })
+      .render(({ state }) => `<p>${state.count()}</p><button data-inc>+</button>`);
+
+    const el = makeEl();
+    const unmount = child.mount(el);
+
+    expect(el.querySelector("p")!.textContent).toBe("0");
+    el.querySelector<HTMLButtonElement>("[data-inc]")!.click();
+    expect(el.querySelector("p")!.textContent).toBe("1");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("D3: slot placeholder is emitted as empty div in client render", () => {
+    const child = ilha.render(() => `<span>child-content</span>`);
+    const parent = ilha
+      .slot("child", child)
+      .render(({ slots }) => `<div class="parent">${slots.child}</div>`);
+
+    const el = makeEl();
+    const unmount = parent.mount(el);
+
+    const slotEl = el.querySelector("[data-ilha-slot='child']");
+    expect(slotEl).not.toBeNull();
+    // After mount, the child island has populated the slot.
+    expect(slotEl!.querySelector("span")?.textContent).toBe("child-content");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("D4: slot element identity is stable across mountSlots cache", () => {
+    const child = ilha.render(() => `<span>x</span>`);
+    const parent = ilha.slot("child", child).render(({ slots }) => `<div>${slots.child}</div>`);
+
+    const el = makeEl();
+    const unmount = parent.mount(el);
+
+    const slotElBefore = el.querySelector("[data-ilha-slot='child']");
+    expect(slotElBefore).not.toBeNull();
+    // The slot element should be a single node, inserted once.
+    expect(el.querySelectorAll("[data-ilha-slot='child']").length).toBe(1);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("D5: child's click handler fires after mount-in-slot", () => {
+    let clickCount = 0;
+    const child = ilha
+      .state("count", 0)
+      .on("[data-inc]@click", ({ state }) => {
+        clickCount++;
+        state.count(state.count() + 1);
+      })
+      .render(({ state }) => `<p>${state.count()}</p><button data-inc>+</button>`);
+
+    const parent = ilha.slot("child", child).render(({ slots }) => `<div>${slots.child}</div>`);
+
+    const el = makeEl();
+    const unmount = parent.mount(el);
+
+    const btn = el.querySelector<HTMLButtonElement>("[data-inc]");
+    expect(btn).not.toBeNull();
+    btn!.click();
+
+    // If clickCount is 0: the click handler was never attached (listener
+    //   attachment path is broken for slot-mounted children).
+    // If clickCount is 1: handler ran; the next assertion tells us whether
+    //   the render effect reflected the state change.
+    expect(clickCount).toBe(1);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("D6: child's signal write (via click) updates its DOM when mounted in slot", () => {
+    let renderCount = 0;
+    let lastRenderedCount = -1;
+    const child = ilha
+      .state("count", 0)
+      .on("[data-inc]@click", ({ state }) => {
+        state.count(state.count() + 1);
+      })
+      .render(({ state }) => {
+        renderCount++;
+        lastRenderedCount = state.count();
+        return `<p>${state.count()}</p><button data-inc>+</button>`;
+      });
+
+    const parent = ilha.slot("child", child).render(({ slots }) => `<div>${slots.child}</div>`);
+
+    const el = makeEl();
+    const unmount = parent.mount(el);
+
+    const rendersAfterMount = renderCount;
+    const countAfterMount = lastRenderedCount;
+
+    el.querySelector<HTMLButtonElement>("[data-inc]")!.click();
+
+    const rendersAfterClick = renderCount;
+    const countAfterClick = lastRenderedCount;
+
+    // Diagnostics, read the failure message carefully:
+    // - rendersAfterClick === rendersAfterMount: child's render effect did
+    //   NOT re-fire after the click. Either the click handler never ran, or
+    //   the signal write isn't notifying subscribers, or the render effect
+    //   was torn down / never subscribed.
+    // - rendersAfterClick > rendersAfterMount && countAfterClick === 1: the
+    //   effect re-fired and read the new value, but the DOM isn't updated →
+    //   morph is skipping the slot contents (check the SLOT_ATTR guard in
+    //   morphChildren — it must NOT trip when the slot div is the top-level
+    //   argument to morphInner, only when it's a paired child).
+    // - rendersAfterClick > rendersAfterMount && countAfterClick === 0: the
+    //   effect re-fired but read stale state. Signal write/read ordering bug.
+    expect({
+      countAfterMount,
+      countAfterClick,
+      domCount: el.querySelector("p")!.textContent,
+      renderedAtLeastOnce: rendersAfterMount >= 1,
+      renderedMoreAfterClick: rendersAfterClick > rendersAfterMount,
+    }).toEqual({
+      countAfterMount: 0,
+      countAfterClick: 1,
+      domCount: "1",
+      renderedAtLeastOnce: true,
+      renderedMoreAfterClick: true,
+    });
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("diagnostic: derived + slot + whitespace", () => {
+  it("D7: parent with async derived and slotted child preserves child state across derived resolution", async () => {
+    // Deferred promise so we control when the derived resolves.
+    let resolveData: (v: { name: string; items: string[] }) => void;
+    const dataPromise = new Promise<{ name: string; items: string[] }>((r) => {
+      resolveData = r;
+    });
+
+    let childRenderCount = 0;
+    let childLastList: string[] = [];
+    let childMountCount = 0;
+
+    const picker = ilha
+      .state<string[]>("list", [])
+      .onMount(({ state }) => {
+        childMountCount++;
+        // Simulate the pokedex onMount fetch pattern:
+        queueMicrotask(() => {
+          state.list(["a", "b", "c"]);
+        });
+      })
+      .render(({ state }) => {
+        childRenderCount++;
+        childLastList = state.list();
+        const opts = state.list().map((s) => html`<option>${s}</option>`);
+        return html`<select>${opts}</select>`;
+      });
+
+    const parent = ilha
+      .slot("picker", picker)
+      .derived("data", async () => dataPromise)
+      .render(({ slots, derived }) => {
+        if (derived.data.loading)
+          return html`
+            <p>loading</p>
+          `;
+        const value = derived.data.value!;
+        // Deliberately use multi-line interpolation with other elements
+        // around the slot to mirror the pokedex layout and expose any
+        // whitespace-alignment bugs in morph.
+        return html`
+          ${slots.picker()}
+          <img src="x.png" />
+          <h2>${value.name}</h2>
+          ${value.items.map((i) => html`<span>${i}</span>`)}
+        `;
+      });
+
+    const el = makeEl();
+    const unmount = parent.mount(el);
+
+    // At this point: parent renders "loading". Picker is not mounted yet.
+    expect(el.querySelector("p")?.textContent).toBe("loading");
+    expect(childMountCount).toBe(0);
+
+    // Resolve the derived. Parent re-renders with the real layout.
+    resolveData!({ name: "charizard", items: ["fire", "flying"] });
+    // Wait a microtask for the derived's .then to fire and the render
+    // effect to pick it up.
+    await new Promise((r) => setTimeout(r, 0));
+    // And another for the picker's onMount microtask to run.
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Diagnostics:
+    // - childMountCount > 1: picker was remounted (slot element was replaced
+    //   during parent re-render, losing the in-flight onMount state).
+    // - childLastList is []: picker's render effect never saw the updated
+    //   list, either because the onMount write went to an orphaned signal
+    //   (remount) or because tracking was dropped.
+    // - DOM <option> count is 0: render effect saw the list but morph didn't
+    //   reflect it.
+    expect({
+      childMountCount,
+      childLastList,
+      optionCount: el.querySelectorAll("option").length,
+      selectPresent: !!el.querySelector("select"),
+    }).toEqual({
+      childMountCount: 1,
+      childLastList: ["a", "b", "c"],
+      optionCount: 3,
+      selectPresent: true,
+    });
+
+    unmount();
+    cleanup(el);
+  });
+});
