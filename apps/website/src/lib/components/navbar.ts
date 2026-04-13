@@ -8,8 +8,8 @@ export const navbar = ilha.render(
           <img src="/logo.svg" class="h-8" />
           <span>Ilha</span>
         </a>
-        <div class="flex items-center gap-2 rounded-full border p-1">
-          <a href="/docs" class="btn-link">Docs</a>
+        <div class="flex items-center gap-2 rounded-full border">
+          <a href="https://ilha.build/docs" class="btn-link">Docs</a>
           <a href="/tutorial" class="btn-link">Tutorial</a>
         </div>
       </div>
