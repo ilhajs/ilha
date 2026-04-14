@@ -50,4 +50,4 @@ const code = {
   `,
 };
 
-export default Tutorial({ key: "counter-on", content, code });
+export default Tutorial({ name: "Counter: On", content, code });

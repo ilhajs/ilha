@@ -59,4 +59,4 @@ const code = {
   `,
 };
 
-export default Tutorial({ key: "counter-bind", content, code });
+export default Tutorial({ name: "Counter: Bind", content, code });

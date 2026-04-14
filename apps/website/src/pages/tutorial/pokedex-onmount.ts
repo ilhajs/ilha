@@ -88,4 +88,4 @@ const code = {
   `,
 };
 
-export default Tutorial({ key: "pokedex-onmount", content, code });
+export default Tutorial({ name: "Pokédex: onMount", content, code });

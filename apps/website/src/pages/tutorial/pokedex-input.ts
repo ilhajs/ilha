@@ -103,4 +103,4 @@ const code = {
   `,
 };
 
-export default Tutorial({ key: "pokedex-input", content, code });
+export default Tutorial({ name: "Pokédex: Input", content, code });

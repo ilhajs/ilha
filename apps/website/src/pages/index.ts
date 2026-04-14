@@ -11,6 +11,7 @@ import {
 import { toast } from "$lib/ui";
 import ilha, { html, raw } from "ilha";
 import { createHighlighter } from "shiki";
+import { useHead } from "unhead";
 
 const NITRO_SANDBOX = URLS.SANDBOX.replace("{template}", "nitro") + "?file=src%2Fpages%2Findex.ts";
 
@@ -284,6 +285,11 @@ export default ilha
   .slot("aiPrompt", AiPrompt)
   .slot("libraries", Libraries)
   .slot("creator", Creator)
+  .onMount(() => {
+    useHead(window.__UNHEAD__, {
+      title: "Ilha - Build modern UI, your way.",
+    });
+  })
   .render(
     ({ slots }) =>
       html`

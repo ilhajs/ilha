@@ -5,6 +5,7 @@ import ilha, { html, raw } from "ilha";
 import { createMarkdownExit } from "markdown-exit";
 import { createShikiEditor, type ShikiEditorHandle } from "shedit";
 import { createHighlighter } from "shiki";
+import { useHead } from "unhead";
 
 const md = createMarkdownExit();
 
@@ -63,7 +64,7 @@ function buildSrcDoc() {
   `;
 }
 
-type TutorialProps = { content: string; code: Code; key: string };
+type TutorialProps = { content: string; code: Code; name: string };
 
 const TUTORIAL_LIST = [
   { href: "/tutorial", label: "1. Counter - .state()" },
@@ -77,9 +78,9 @@ const TUTORIAL_LIST = [
   { href: "/tutorial/pokedex-context", label: "9. PokéDex - context()" },
 ];
 
-export const Tutorial = ({ content, code, key }: TutorialProps) => {
-  const template = ilha.context(`tutorial.${key}.template`, code.template);
-  const script = ilha.context(`tutorial.${key}.script`, code.script);
+export const Tutorial = ({ content, code, name }: TutorialProps) => {
+  const template = ilha.context(`tutorial.${name}.template`, code.template);
+  const script = ilha.context(`tutorial.${name}.script`, code.script);
   const contentHtml = md.render(content);
 
   const Editor = ilha
@@ -171,23 +172,28 @@ export const Tutorial = ({ content, code, key }: TutorialProps) => {
   return ilha
     .slot("editor", Editor)
     .slot("preview", Preview)
+    .onMount(() => {
+      useHead(window.__UNHEAD__, {
+        title: `Ilha - ${name}`,
+      });
+    })
     .render(
       ({ slots }) => html`
-        <div class="flex-1 flex flex-col lg:grid grid-cols-6 grid-rows-2 border rounded-2xl overflow-hidden *:max-h-[40rem] h-full">
-          <div class="col-span-2 bg-neutral-50 border-r p-4 border-b">
+        <div class="flex-1 flex flex-col lg:grid lg:grid-cols-6 lg:grid-rows-[minmax(0,auto)_minmax(0,1fr)] border rounded-2xl overflow-hidden h-full">
+          <div class="col-span-2 bg-neutral-50 border-r p-4 border-b flex flex-col min-h-0">
             <h2 class="text-xl font-semibold shrink-0">Tutorials</h2>
-            <div class="flex flex-col mt-4 overflow-auto">
+            <div class="flex flex-col mt-4 overflow-auto min-h-0 flex-1">
               ${TUTORIAL_LIST.map((t) => html`<a href="${t.href}" class="${isActive(t.href) ? "btn-outline" : "btn-ghost"} justify-start">${t.label}</a>`)}
             </div>
           </div>
-          <div class="col-span-4 col-start-3 relative overflow-auto border-b">
+          <div class="col-span-4 col-start-3 relative overflow-auto border-b min-h-0">
             <div class="prose mx-auto p-4 pb-16">${raw(contentHtml)}</div>
             <div class="pointer-events-none sticky bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white via-white/80 to-transparent dark:from-gray-900 dark:via-gray-900/80 mt-[-4rem]"></div>
           </div>
-          <div class="flex col-span-3 row-start-2 overflow-hidden">
+          <div class="flex col-span-3 row-start-2 overflow-hidden lg:border-r min-h-0">
             ${slots.editor()}
           </div>
-          <div class="flex col-span-3 col-start-4 row-start-2 overflow-hidden p-4 min-h-[36rem]">
+          <div class="flex col-span-3 col-start-4 row-start-2 overflow-hidden p-4 min-h-0">
             ${slots.preview()}
           </div>
         </div>

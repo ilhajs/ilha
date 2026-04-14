@@ -66,4 +66,4 @@ const code = {
   `,
 };
 
-export default Tutorial({ key: "counter-effect", content, code });
+export default Tutorial({ name: "Counter: Effect", content, code });

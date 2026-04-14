@@ -147,4 +147,4 @@ const code = {
   `,
 };
 
-export default Tutorial({ key: "pokedex-context", content, code });
+export default Tutorial({ name: "Pokédex: Context", content, code });

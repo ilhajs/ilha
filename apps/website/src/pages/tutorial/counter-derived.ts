@@ -53,4 +53,4 @@ const code = {
   `,
 };
 
-export default Tutorial({ key: "counter-derived", content, code });
+export default Tutorial({ name: "Counter: Derived", content, code });

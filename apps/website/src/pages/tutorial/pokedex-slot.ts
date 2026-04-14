@@ -103,4 +103,4 @@ const code = {
   `,
 };
 
-export default Tutorial({ key: "pokedex-slot", content, code });
+export default Tutorial({ name: "Pokédex: Slot", content, code });

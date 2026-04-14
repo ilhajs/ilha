@@ -37,4 +37,4 @@ const code = {
   `,
 };
 
-export default Tutorial({ key: "index", content, code });
+export default Tutorial({ name: "Counter: State", content, code });
