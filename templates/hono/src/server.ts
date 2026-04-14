@@ -18,19 +18,19 @@ const app = new Hono();
 
 app.use("/static/*", serveAssets);
 
-app.get("/islands/hello", async (c) => {
-  const greet = ilha.input(type<{ name: string }>()).render(
+app.get("/task-counter", async (c) => {
+  const counter = ilha.input(type<{ count: string }>()).render(
     ({ input }) =>
       html`
-        <p>Hello, ${input.name}</p>
-      `,
+      <p>There are ${input.count} tasks</p>
+    `,
   );
 
   const url = new URL(c.req.url);
-  return c.html(await greet({ name: url.searchParams.get("name") ?? "" }));
+  return c.html(await counter({ count: url.searchParams.get("count") ?? "" }));
 });
 
-app.get("/", async (c) => {
+app.get("/*", async (c) => {
   return c.html(spaTemplate);
 });
 

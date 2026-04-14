@@ -1,17 +1,12 @@
-import ilha, { html, mount, raw } from "ilha";
+import { router } from "@ilha/router";
 
-const app = ilha
-  .state("name", "Alice")
-  .derived("greeting", async ({ state, signal }) => {
-    const req = await fetch(`/islands/hello?name=${state.name()}`, { signal });
-    return req.text();
-  })
-  .bind("#name", "name")
-  .render(
-    ({ derived }) => html`
-      <input id="name" type="text" />
-      ${raw(derived.greeting.value ?? "")}
-    `,
-  );
+import Layout from "./pages/+layout.js";
+import HomePage from "./pages/index.js";
+import LearnPage from "./pages/learn.js";
+import notFoundPage from "./pages/not-found.js";
 
-mount({ app });
+router()
+  .route("/", Layout(HomePage))
+  .route("/learn", Layout(LearnPage))
+  .route("/**", Layout(notFoundPage))
+  .mount("#app");

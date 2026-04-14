@@ -23,7 +23,7 @@ export default defineConfig([
     platform: "browser",
     outDir: "dist/static",
     deps: {
-      alwaysBundle: ["ilha"],
+      alwaysBundle: ["ilha", "@ilha/router"],
     },
     copy: [
       { from: "public/*", to: "dist/static" },

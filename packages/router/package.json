@@ -1,6 +1,6 @@
 {
   "name": "@ilha/router",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "A tiny SPA router for Ilha",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "ilha": "workspace:*",
-    "rou3": "^0.8.1"
+    "rou3": "0.8.1"
   },
   "devDependencies": {
     "vite": "^8.0.7"
