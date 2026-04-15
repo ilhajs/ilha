@@ -177,7 +177,7 @@ function runSchemaSync<S extends StandardSchemaV1<any, any>>(
   };
 }
 
-function issuesToErrors(issues: ReadonlyArray<StandardSchemaV1.Issue>): FormErrors {
+export function issuesToErrors(issues: ReadonlyArray<StandardSchemaV1.Issue>): FormErrors {
   const errors: FormErrors = {};
   for (const issue of issues) {
     const path =
