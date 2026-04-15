@@ -376,6 +376,29 @@ describe("codegen — generated file", () => {
     await writePage(pagesDir, "(a)/(b)/page.ts", `export default null;`);
     expect(await runCodegen()).toContain(`route("/page"`);
   });
+
+  it("route group: (auth)/sign-in.ts → /sign-in", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
+    expect(await runCodegen()).toContain(`route("/sign-in"`);
+  });
+
+  it("leaf filename (landing).ts is NOT treated as a group — maps to /(landing)", async () => {
+    await writePage(pagesDir, "(landing).ts", `export default null;`);
+    expect(await runCodegen()).toContain(`route("/(landing)"`);
+  });
+
+  it("leaf filename (landing).ts does not collide with index.ts", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "(landing).ts", `export default null;`);
+    const code = await runCodegen();
+    expect(code).toContain(`route("/"`);
+    expect(code).toContain(`route("/(landing)"`);
+  });
+
+  it("group folder (auth) is transparent but leaf (login).ts in it is not", async () => {
+    await writePage(pagesDir, "(auth)/(login).ts", `export default null;`);
+    expect(await runCodegen()).toContain(`route("/(login)"`);
+  });
 });
 
 // ─────────────────────────────────────────────

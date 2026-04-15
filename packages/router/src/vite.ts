@@ -37,17 +37,24 @@ const EXCLUDED_RE = /\.(test|spec|d)\.(ts|tsx)$/;
 // ─────────────────────────────────────────────
 
 function fileToSegment(name: string): string {
-  // Route groups: (name) folders are transparent — they don't contribute a URL segment
-  if (name.startsWith("(") && name.endsWith(")")) return "";
   if (name.startsWith("[...") && name.endsWith("]")) return `**:${name.slice(4, -1)}`;
   if (name.startsWith("[") && name.endsWith("]")) return `:${name.slice(1, -1)}`;
   return name;
 }
 
+/** Route-group directories like "(auth)" are transparent to the URL. */
+function dirToSegment(name: string): string {
+  if (name.startsWith("(") && name.endsWith(")")) return "";
+  return fileToSegment(name);
+}
+
 function fileToPattern(pagesDir: string, file: string): string {
   const rel = relative(pagesDir, file);
   const noExt = rel.slice(0, -extname(rel).length);
-  const segments = noExt.split("/").map(fileToSegment);
+  const parts = noExt.split("/");
+
+  const segments = [...parts.slice(0, -1).map(dirToSegment), fileToSegment(parts.at(-1)!)];
+
   if (segments.at(-1) === "index") segments.pop();
   return "/" + segments.filter(Boolean).join("/") || "/";
 }
