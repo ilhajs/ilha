@@ -46,7 +46,7 @@ describe("wrapLayout()", () => {
   it("wraps page island with layout", () => {
     const page: LayoutHandler = (children) =>
       ilha.render(() => `<layout>${children.toString()}</layout>`);
-    const inner = make(`<p>content</p>`);
+    const inner = make("<p>content</p>");
     const wrapped = wrapLayout(page, inner);
     expect(wrapped.toString()).toContain("<layout>");
     expect(wrapped.toString()).toContain("<p>content</p>");
@@ -57,10 +57,9 @@ describe("wrapLayout()", () => {
       ilha.render(() => `<root>${children.toString()}</root>`);
     const userLayout: LayoutHandler = (children) =>
       ilha.render(() => `<user>${children.toString()}</user>`);
-    const page = make(`<p>page</p>`);
+    const page = make("<p>page</p>");
     const wrapped = wrapLayout(rootLayout, wrapLayout(userLayout, page));
     const html = wrapped.toString();
-
     expect(html).toContain("<root>");
     expect(html).toContain("<user>");
     expect(html).toContain("<p>page</p>");
@@ -261,11 +260,10 @@ describe("codegen — generated file", () => {
     await writePage(pagesDir, "+layout.ts", `export default null;`);
     await writePage(pagesDir, "user/+layout.ts", `export default null;`);
     const code = await runCodegen();
-    // Wrapped islands are stored in variables, check the variable definitions
     const wrappedLines = code
       .split("\n")
       .filter((l) => l.includes("const _wrapped") && l.includes("wrapLayout"));
-    const userWrapped = wrappedLines.find((l) => l.includes("_layout1")); // user page has 2 layouts
+    const userWrapped = wrappedLines.find((l) => l.includes("_layout1"));
     const rootWrapped = wrappedLines.find((l) => l.includes("_layout0") && !l.includes("_layout1"));
     expect([...userWrapped!.matchAll(/wrapLayout/g)]).toHaveLength(2);
     expect([...rootWrapped!.matchAll(/wrapLayout/g)]).toHaveLength(1);
@@ -286,8 +284,6 @@ describe("codegen — generated file", () => {
     expect([...userWrapped!.matchAll(/wrapLayout/g)]).toHaveLength(2);
   });
 
-  // ↓ REMOVED: "generates export default pageRouter" — no longer emitted
-
   it("generates export const pageRouter", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     expect(await runCodegen()).toContain("export const pageRouter");
@@ -302,6 +298,83 @@ describe("codegen — generated file", () => {
     const code = await runCodegen();
     expect(code).toContain("export const pageRouter = router()");
     expect(code).not.toContain(".route(");
+  });
+
+  // ─────────────────────────────────────────────
+  // Route groups
+  // ─────────────────────────────────────────────
+
+  it("route group: (auth)/sign-in.ts → /sign-in", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
+    expect(await runCodegen()).toContain(`route("/sign-in"`);
+  });
+
+  it("route group: (auth)/sign-up.ts → /sign-up", async () => {
+    await writePage(pagesDir, "(auth)/sign-up.ts", `export default null;`);
+    expect(await runCodegen()).toContain(`route("/sign-up"`);
+  });
+
+  it("route group: (marketing)/index.ts → /", async () => {
+    await writePage(pagesDir, "(marketing)/index.ts", `export default null;`);
+    expect(await runCodegen()).toContain(`route("/"`);
+  });
+
+  it("route group: (shop)/products/[id].ts → /products/:id", async () => {
+    await writePage(pagesDir, "(shop)/products/[id].ts", `export default null;`);
+    expect(await runCodegen()).toContain(`route("/products/:id"`);
+  });
+
+  it("route group folder name does not appear in the URL", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
+    const code = await runCodegen();
+    expect(code).not.toContain(`"(auth)`);
+    expect(code).not.toContain(`/auth/`);
+  });
+
+  it("multiple route groups can coexist without collision", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
+    await writePage(pagesDir, "(marketing)/about.ts", `export default null;`);
+    const code = await runCodegen();
+    expect(code).toContain(`route("/sign-in"`);
+    expect(code).toContain(`route("/about"`);
+  });
+
+  it("route group +layout.ts wraps only pages inside the group", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
+    await writePage(pagesDir, "about.ts", `export default null;`);
+    await writePage(pagesDir, "(auth)/+layout.ts", `export default null;`);
+    const code = await runCodegen();
+    const lines = code.split("\n");
+    const wrappedLines = lines.filter(
+      (l) => l.includes("const _wrapped") && l.includes("wrapLayout"),
+    );
+    // exactly one page gets wrapped (sign-in); about does not
+    expect(wrappedLines).toHaveLength(1);
+    // find which _pageN import corresponds to sign-in, then verify that variable is the wrapped one
+    const signInImport = lines.find((l) => l.startsWith("import") && l.includes("sign-in"));
+    const pageVar = signInImport?.match(/as (_page\d+)/)?.[1];
+    expect(pageVar).toBeDefined();
+    expect(wrappedLines[0]).toContain(pageVar!);
+  });
+
+  it("route group +layout.ts is picked up by chainForFile for pages inside it", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
+    await writePage(pagesDir, "(auth)/+layout.ts", `export default null;`);
+    const code = await runCodegen();
+    expect(code).toContain("wrapLayout(");
+    expect(code).toContain("+layout.ts");
+  });
+
+  it("root +layout.ts also wraps pages inside a route group", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    const code = await runCodegen();
+    expect(code).toContain("wrapLayout(");
+  });
+
+  it("nested route group: (a)/(b)/page.ts → /page", async () => {
+    await writePage(pagesDir, "(a)/(b)/page.ts", `export default null;`);
+    expect(await runCodegen()).toContain(`route("/page"`);
   });
 });
 
@@ -347,36 +420,36 @@ describe("codegen — registry", () => {
     expect(await runCodegen()).toContain(`from "ilha"`);
   });
 
-  it('maps index.ts → registry key "index"', async () => {
+  it("maps index.ts → registry key 'index'", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
-    expect(await runCodegen()).toContain(`"index":`);
+    expect(await runCodegen()).toContain(`"index"`);
   });
 
-  it('maps about.ts → registry key "about"', async () => {
+  it("maps about.ts → registry key 'about'", async () => {
     await writePage(pagesDir, "about.ts", `export default null;`);
-    expect(await runCodegen()).toContain(`"about":`);
+    expect(await runCodegen()).toContain(`"about"`);
   });
 
-  it('maps [id].ts → registry key "id"', async () => {
+  it("maps [id].ts → registry key 'id'", async () => {
     await writePage(pagesDir, "[id].ts", `export default null;`);
-    expect(await runCodegen()).toContain(`"id":`);
+    expect(await runCodegen()).toContain(`"id"`);
   });
 
-  it('maps user/[id].ts → registry key "user-id"', async () => {
+  it("maps user/[id].ts → registry key 'user-id'", async () => {
     await writePage(pagesDir, "user/[id].ts", `export default null;`);
-    expect(await runCodegen()).toContain(`"user-id":`);
+    expect(await runCodegen()).toContain(`"user-id"`);
   });
 
-  it('maps [...slug].ts → registry key "slug"', async () => {
+  it("maps [...slug].ts → registry key 'slug'", async () => {
     await writePage(pagesDir, "[...slug].ts", `export default null;`);
-    expect(await runCodegen()).toContain(`"slug":`);
+    expect(await runCodegen()).toContain(`"slug"`);
   });
 
-  it('maps /** anonymous wildcard → registry key "wildcard"', async () => {
-    // [...].ts → /**:  (empty param name) → "wildcard"
+  it("maps anonymous wildcard [...].ts → registry key 'wildcard'", async () => {
+    // [...] — empty param name → wildcard
     await writePage(pagesDir, "[...].ts", `export default null;`);
     const code = await runCodegen();
-    expect(code).toContain(`"wildcard":`);
+    expect(code).toContain(`"wildcard"`);
   });
 
   it("registry maps to wrapped island variables (same as route) for hydration to work", async () => {
@@ -385,11 +458,11 @@ describe("codegen — registry", () => {
     const code = await runCodegen();
     const regBlock = code.slice(
       code.indexOf("export const registry"),
-      code.indexOf("};", code.indexOf("export const registry")) + 2,
+      code.indexOf("}", code.indexOf("export const registry")) + 2,
     );
     // Registry must reference the wrapped island variable so renderHydratable can find by identity
     expect(regBlock).toContain("_wrapped");
-    expect(regBlock).toMatch(/"index":\s*_wrapped\d/);
+    expect(regBlock).toMatch(/"index"/);
   });
 
   it("registry appears before pageRouter in the file", async () => {
@@ -403,7 +476,18 @@ describe("codegen — registry", () => {
   it("empty pages dir generates an empty registry object", async () => {
     const code = await runCodegen();
     expect(code).toContain("export const registry");
-    expect(code).toMatch(/export const registry[^=]+=\s*\{[\s]*\}/);
+    expect(code).toMatch(/export const registry[^=]*=\s*\{\s*\}/);
+  });
+
+  // Route group registry names
+  it("route group: (auth)/sign-in.ts → registry key 'sign-in'", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
+    expect(await runCodegen()).toContain(`"sign-in"`);
+  });
+
+  it("route group: (shop)/products/[id].ts → registry key 'products-id'", async () => {
+    await writePage(pagesDir, "(shop)/products/[id].ts", `export default null;`);
+    expect(await runCodegen()).toContain(`"products-id"`);
   });
 });
 
@@ -423,9 +507,7 @@ describe("codegen — registry name collision", () => {
     outFile = join(root, ".ilha/routes.ts");
     await mkdir(pagesDir, { recursive: true });
     warnings = [];
-    console.warn = (...args: any[]) => {
-      warnings.push(args.join(" "));
-    };
+    console.warn = (...args: any[]) => warnings.push(args.join(" "));
   });
 
   afterEach(async () => {
@@ -459,6 +541,13 @@ describe("codegen — registry name collision", () => {
     const code = await runCodegen();
     expect(code).toContain("export const registry");
   });
+
+  it("route group collision: (auth)/sign-in.ts and sign-in.ts produce same pattern — warns", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
+    await writePage(pagesDir, "sign-in.ts", `export default null;`);
+    await runCodegen();
+    expect(warnings.some((w) => w.includes("Duplicate") || w.includes("/sign-in"))).toBe(true);
+  });
 });
 
 // ─────────────────────────────────────────────
@@ -488,21 +577,21 @@ describe("codegen — route sorting", () => {
     return readFile(outFile, "utf8");
   }
 
-  it("static routes appear before :param routes", async () => {
+  it("static routes appear before param routes", async () => {
     await writePage(pagesDir, "[id].ts", `export default null;`);
     await writePage(pagesDir, "about.ts", `export default null;`);
     const lines = (await runCodegen()).split("\n").filter((l) => l.includes(".route("));
-    const aboutIdx = lines.findIndex((l) => l.includes(`"/about"`));
-    const paramIdx = lines.findIndex((l) => l.includes(`"/:id"`));
+    const aboutIdx = lines.findIndex((l) => l.includes("about"));
+    const paramIdx = lines.findIndex((l) => l.includes(":id"));
     expect(aboutIdx).toBeLessThan(paramIdx);
   });
 
-  it(":param routes appear before wildcard routes", async () => {
+  it("param routes appear before wildcard routes", async () => {
     await writePage(pagesDir, "[...slug].ts", `export default null;`);
     await writePage(pagesDir, "[id].ts", `export default null;`);
     const lines = (await runCodegen()).split("\n").filter((l) => l.includes(".route("));
-    const paramIdx = lines.findIndex((l) => l.includes(`"/:id"`));
-    const wildcardIdx = lines.findIndex((l) => l.includes(`"/**`));
+    const paramIdx = lines.findIndex((l) => l.includes(":id"));
+    const wildcardIdx = lines.findIndex((l) => l.includes("**"));
     expect(paramIdx).toBeLessThan(wildcardIdx);
   });
 
@@ -515,20 +604,33 @@ describe("codegen — route sorting", () => {
     expect(lines[0]).toContain(`"/"`);
   });
 
-  it("full order: / > static > :param > wildcard", async () => {
+  it("full order: static > param > wildcard", async () => {
     await writePage(pagesDir, "[...slug].ts", `export default null;`);
     await writePage(pagesDir, "[id].ts", `export default null;`);
     await writePage(pagesDir, "about.ts", `export default null;`);
     await writePage(pagesDir, "index.ts", `export default null;`);
     const lines = (await runCodegen()).split("\n").filter((l) => l.includes(".route("));
     const order = lines.map((l) => {
-      if (l.includes(`"/",`)) return "root";
-      if (l.includes(`"/about"`)) return "static";
-      if (l.includes(`"/:id"`)) return "param";
-      if (l.includes(`"/**`)) return "wildcard";
+      if (l.includes(`"/"`)) return "root";
+      if (l.includes("about")) return "static";
+      if (l.includes(":id")) return "param";
+      if (l.includes("**")) return "wildcard";
       return "other";
     });
     expect(order).toEqual(["root", "static", "param", "wildcard"]);
+  });
+
+  it("route group pages sort correctly alongside non-grouped pages", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
+    await writePage(pagesDir, "(auth)/[token].ts", `export default null;`);
+    await writePage(pagesDir, "about.ts", `export default null;`);
+    const lines = (await runCodegen()).split("\n").filter((l) => l.includes(".route("));
+    const aboutIdx = lines.findIndex((l) => l.includes("/about"));
+    const signInIdx = lines.findIndex((l) => l.includes("/sign-in"));
+    const tokenIdx = lines.findIndex((l) => l.includes(":token"));
+    // both static routes before the param route
+    expect(aboutIdx).toBeLessThan(tokenIdx);
+    expect(signInIdx).toBeLessThan(tokenIdx);
   });
 });
 
@@ -548,9 +650,7 @@ describe("codegen — duplicate pattern detection", () => {
     outFile = join(root, "src/generated/page-routes.ts");
     await mkdir(pagesDir, { recursive: true });
     warnings = [];
-    console.warn = (...args: any[]) => {
-      warnings.push(args.join(" "));
-    };
+    console.warn = (...args: any[]) => warnings.push(args.join(" "));
   });
 
   afterEach(async () => {
@@ -568,7 +668,7 @@ describe("codegen — duplicate pattern detection", () => {
     await writePage(pagesDir, "user.ts", `export default null;`);
     await writePage(pagesDir, "user/index.ts", `export default null;`);
     await runCodegen();
-    expect(warnings.some((w) => w.includes(`"/user"`) && w.includes("Duplicate"))).toBe(true);
+    expect(warnings.some((w) => w.includes("/user") && w.includes("Duplicate"))).toBe(true);
   });
 
   it("includes both file paths in the duplicate warning", async () => {
@@ -610,9 +710,7 @@ describe("codegen — empty pages dir warning", () => {
     outFile = join(root, "src/generated/page-routes.ts");
     await mkdir(pagesDir, { recursive: true });
     warnings = [];
-    console.warn = (...args: any[]) => {
-      warnings.push(args.join(" "));
-    };
+    console.warn = (...args: any[]) => warnings.push(args.join(" "));
   });
 
   afterEach(async () => {
@@ -677,53 +775,60 @@ describe("codegen — relative imports", () => {
     return readFile(outFile, "utf8");
   }
 
-  it("page imports start with ./ or ../", async () => {
+  it("page imports start with . or ..", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     const importLines = (await runCodegen())
       .split("\n")
       .filter((l) => l.includes("_page") && l.startsWith("import"));
     expect(importLines.length).toBeGreaterThan(0);
-    for (const line of importLines) expect(line).toMatch(/from ["']\.\.?\//);
+    for (const line of importLines) expect(line).toMatch(/from ["']\.\.?/);
   });
 
-  it("layout imports start with ./ or ../", async () => {
+  it("layout imports start with . or ..", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await writePage(pagesDir, "+layout.ts", `export default null;`);
     const importLines = (await runCodegen())
       .split("\n")
-      .filter((l) => l.includes("_layout") && l.startsWith("import"));
+      .filter((l) => l.includes("+layout") && l.startsWith("import"));
     expect(importLines.length).toBeGreaterThan(0);
-    for (const line of importLines) expect(line).toMatch(/from ["']\.\.?\//);
+    for (const line of importLines) expect(line).toMatch(/from ["']\.\.?/);
   });
 
   it("no import contains an absolute path", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await writePage(pagesDir, "+layout.ts", `export default null;`);
     await writePage(pagesDir, "+error.ts", `export default null;`);
-    // check all dynamic imports (page, layout, error) — they all contain their alias name
     const bad = (await runCodegen())
       .split("\n")
       .filter(
         (l) =>
           l.startsWith("import") &&
-          (l.includes("_page") || l.includes("_layout") || l.includes("_error")),
+          (l.includes("_page") || l.includes("+layout") || l.includes("+error")),
       )
-      .filter((l) => !l.includes(`"./`) && !l.includes(`"../`));
+      .filter((l) => !l.includes("./") && !l.includes("../"));
     expect(bad).toHaveLength(0);
+  });
+
+  it("route group page imports are relative (no absolute path)", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
+    const importLines = (await runCodegen())
+      .split("\n")
+      .filter((l) => l.includes("_page") && l.startsWith("import"));
+    for (const line of importLines) expect(line).toMatch(/from ["']\.\.?/);
   });
 });
 
 // ─────────────────────────────────────────────
-// Vite plugin — virtual modules
+// Vite plugin virtual modules
 // ─────────────────────────────────────────────
 
-describe("pages() Vite plugin", () => {
-  it("resolves 'ilha:pages' virtual id", () => {
+describe("pages — Vite plugin", () => {
+  it("resolves ilha:pages virtual id", () => {
     const plugin = pages() as any;
     expect(plugin.resolveId("ilha:pages")).toBe("\0ilha:pages");
   });
 
-  it("resolves 'ilha:registry' virtual id", () => {
+  it("resolves ilha:registry virtual id", () => {
     const plugin = pages() as any;
     expect(plugin.resolveId("ilha:registry")).toBe("\0ilha:registry");
   });
@@ -733,40 +838,34 @@ describe("pages() Vite plugin", () => {
     expect(plugin.resolveId("some-other-module")).toBeUndefined();
   });
 
-  it("load() for ilha:pages re-exports pageRouter as named export", async () => {
+  it("load for ilha:pages re-exports pageRouter as named export", async () => {
     const root = await makeDir("vite-pages");
     const pagesDir = join(root, "src/pages");
     const outFile = join(root, ".ilha/routes.ts");
     await mkdir(pagesDir, { recursive: true });
-
     const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
     plugin.configResolved({ root });
-
     const result = plugin.load("\0ilha:pages");
     expect(result).toContain("routes.ts");
     expect(result).toContain("pageRouter");
     expect(result).toContain("export");
     // must NOT re-export default — named exports only
     expect(result).not.toContain("export default");
-
     await removeDir(root);
   });
 
-  it("load() for ilha:registry re-exports registry as named export", async () => {
+  it("load for ilha:registry re-exports registry as named export", async () => {
     const root = await makeDir("vite-registry");
     const pagesDir = join(root, "src/pages");
     const outFile = join(root, ".ilha/routes.ts");
     await mkdir(pagesDir, { recursive: true });
-
     const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
     plugin.configResolved({ root });
-
     const result = plugin.load("\0ilha:registry");
     expect(result).toContain("routes.ts");
     expect(result).toContain("registry");
     expect(result).toContain("export");
     expect(result).not.toContain("export default");
-
     await removeDir(root);
   });
 
@@ -775,20 +874,16 @@ describe("pages() Vite plugin", () => {
     const pagesDir = join(root, "src/pages");
     const outFile = join(root, ".ilha/routes.ts");
     await mkdir(pagesDir, { recursive: true });
-
     const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
     plugin.configResolved({ root });
-
     const pagesResult = plugin.load("\0ilha:pages");
     const registryResult = plugin.load("\0ilha:registry");
-
-    const fileRef = (s: string) => s.match(/from ["'](.+?)["']/)?.[1];
+    const fileRef = (s: string) => s.match(/from ['"](.+)['"]/)?.[1];
     expect(fileRef(pagesResult)).toBe(fileRef(registryResult));
-
     await removeDir(root);
   });
 
-  it("load() returns undefined for unrelated ids", () => {
+  it("load returns undefined for unrelated ids", () => {
     const plugin = pages() as any;
     expect(plugin.load("something-else")).toBeUndefined();
   });

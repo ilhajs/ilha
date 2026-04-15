@@ -37,6 +37,8 @@ const EXCLUDED_RE = /\.(test|spec|d)\.(ts|tsx)$/;
 // ─────────────────────────────────────────────
 
 function fileToSegment(name: string): string {
+  // Route groups: (name) folders are transparent — they don't contribute a URL segment
+  if (name.startsWith("(") && name.endsWith(")")) return "";
   if (name.startsWith("[...") && name.endsWith("]")) return `**:${name.slice(4, -1)}`;
   if (name.startsWith("[") && name.endsWith("]")) return `:${name.slice(1, -1)}`;
   return name;
@@ -118,6 +120,7 @@ async function collectFiles(dir: string, depth = 0): Promise<string[]> {
     console.warn(`[ilha:pages] Max scan depth (${MAX_SCAN_DEPTH}) reached at ${dir} — skipping`);
     return [];
   }
+
   const results: string[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -203,7 +206,7 @@ async function generate(pagesDir: string, outFile: string): Promise<void> {
 
   const imports: string[] = [
     `import { router, wrapLayout, wrapError } from "@ilha/router";`,
-    `import type { Island }                    from "ilha";`,
+    `import type { Island } from "ilha";`,
   ];
 
   const wrappedIslandLines: string[] = [];

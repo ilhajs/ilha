@@ -392,31 +392,64 @@ Add `.ilha/` (or your custom `generated` path) to `.gitignore`.
 
 ```
 src/pages/
-  +layout.ts           ← root layout (wraps all pages)
-  +error.ts            ← root error boundary
-  index.ts             → /
-  about.ts             → /about
+  +layout.ts              ← root layout (wraps all pages)
+  +error.ts               ← root error boundary
+  index.ts                → /
+  about.ts                → /about
+  (auth)/                 ← route group — transparent to the URL
+    +layout.ts            ← layout scoped to (auth) pages only
+    sign-in.ts            → /sign-in
+    sign-up.ts            → /sign-up
+  (marketing)/            ← another route group
+    index.ts              → /
   user/
-    +layout.ts         ← nested layout (wraps user/* only)
-    +error.ts          ← nested error boundary
-    [id].ts            → /user/:id
+    +layout.ts            ← nested layout (wraps user/* only)
+    +error.ts             ← nested error boundary
+    [id].ts               → /user/:id
     [id]/
-      settings.ts      → /user/:id/settings
-  [...slug].ts         → /**:slug
+      settings.ts         → /user/:id/settings
+  [...slug].ts            → /**:slug
 ```
 
 ### Filename → pattern mapping
 
-| File              | Pattern       |
-| ----------------- | ------------- |
-| `index.ts`        | `/`           |
-| `about.ts`        | `/about`      |
-| `[id].ts`         | `/:id`        |
-| `user/[id].ts`    | `/user/:id`   |
-| `[org]/[repo].ts` | `/:org/:repo` |
-| `[...slug].ts`    | `/**:slug`    |
+| File                      | Pattern         |
+| ------------------------- | --------------- |
+| `index.ts`                | `/`             |
+| `about.ts`                | `/about`        |
+| `[id].ts`                 | `/:id`          |
+| `user/[id].ts`            | `/user/:id`     |
+| `[org]/[repo].ts`         | `/:org/:repo`   |
+| `[...slug].ts`            | `/**:slug`      |
+| `(auth)/sign-in.ts`       | `/sign-in`      |
+| `(auth)/[token].ts`       | `/:token`       |
+| `(shop)/products/[id].ts` | `/products/:id` |
 
 `.test.ts`, `.spec.ts`, and `.d.ts` files are automatically excluded.
+
+### Route groups
+
+Folders wrapped in parentheses — `(name)` — are **route groups**. They organise files without contributing a segment to the URL. The group name is completely invisible to the router.
+
+```
+src/pages/
+  (auth)/
+    sign-in.ts    → /sign-in   ✓  (not /auth/sign-in)
+    sign-up.ts    → /sign-up   ✓
+  (marketing)/
+    index.ts      → /          ✓
+    pricing.ts    → /pricing   ✓
+```
+
+Route groups are useful for:
+
+- **Shared layouts without a shared URL prefix** — place a `+layout.ts` inside `(auth)/` and it wraps only those pages, with no `/auth` prefix in the URL.
+- **Organising large page trees** — split pages into logical sections (`(admin)`, `(public)`, `(shop)`) while keeping flat URLs.
+- **Co-locating related pages** — keep sign-in, sign-up, and password reset together in `(auth)/` for clarity.
+
+> Groups can be nested: `(a)/(b)/page.ts` → `/page`. Both group folders are transparent.
+
+> If two files in different groups resolve to the **same pattern** (e.g. `(auth)/sign-in.ts` and `sign-in.ts` both produce `/sign-in`), the plugin warns about a duplicate pattern and the first match wins.
 
 ### Route sorting
 
@@ -426,7 +459,7 @@ Routes are sorted automatically by specificity — no need to order files manual
 2. **Parameterised** paths (`/user/:id`)
 3. **Wildcard** paths (`/**:slug`) — lowest priority
 
-Within the same tier, longer segment counts and alphabetical order act as tiebreakers for determinism.
+Within the same tier, longer segment counts and alphabetical order act as tiebreakers for determinism. Route group pages sort alongside regular pages by their resolved pattern — the group folder is not considered.
 
 ### Layouts
 
@@ -447,6 +480,18 @@ export default ((children) =>
       <main>${children}</main>
     `,
   )) satisfies LayoutHandler;
+```
+
+A `+layout.ts` inside a route group folder works exactly like a regular nested layout — it wraps only the pages inside that group, without affecting pages elsewhere.
+
+```
+src/pages/
+  +layout.ts          ← wraps ALL pages (including those in groups)
+  (auth)/
+    +layout.ts        ← wraps (auth) pages only: /sign-in, /sign-up
+    sign-in.ts
+    sign-up.ts
+  about.ts            ← wrapped by root layout only
 ```
 
 ### Error boundaries
