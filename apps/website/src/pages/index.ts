@@ -253,7 +253,7 @@ const Hero = html`
                     Build modern UI, your way.
                 </h1>
                 <div class="flex gap-2">
-                    <a href="/docs" class="btn-lg bg-sky-900 lg:h-12 lg:text-lg rounded-full">Get Started</a>
+                    <a href="/docs" class="btn-lg bg-sky-900 lg:h-12 lg:text-lg rounded-full" data-no-intercept>Get Started</a>
                     <a href="${NITRO_SANDBOX}" target="_blank" rel="noopener noreferrer" class="btn-lg-outline lg:h-12 lg:text-lg rounded-full">
                         <img src="/stackblitz.svg" alt="StackBlitz" class="size-4" />
                         <span>Open Sandbox</span>
