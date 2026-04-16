@@ -33,6 +33,10 @@ function submit(form: HTMLFormElement) {
   form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
 }
 
+function rerender(form: HTMLFormElement, html: string) {
+  form.innerHTML = html;
+}
+
 const basicSchema = z.object({
   email: z.string().email("Invalid email"),
   name: z.string().min(1, "Name is required"),
@@ -81,7 +85,7 @@ describe("createForm — mount/unmount", () => {
     unmount();
 
     submit(el);
-    expect(calls).toHaveLength(0); // listeners removed
+    expect(calls).toHaveLength(0);
     cleanup(el);
   });
 });
@@ -179,12 +183,10 @@ describe("createForm — submission", () => {
     });
     const unmount = form.mount();
 
-    // first submit → fail
     setField(el, "email", "bad");
     submit(el);
     expect(Object.keys(form.errors()).length).toBeGreaterThan(0);
 
-    // second submit → pass
     setField(el, "email", "ada@example.com");
     setField(el, "name", "Ada");
     submit(el);
@@ -348,11 +350,27 @@ describe("createForm — errors()", () => {
     setField(el, "user.email", "not-an-email");
     submit(el);
 
-    // path should be "user.email" or "" depending on validator — just check issues exist
     const errors = form.errors();
     const hasErrors = Object.values(errors).flat().length > 0;
     expect(hasErrors).toBe(true);
     unmount();
+    cleanup(el);
+  });
+
+  it("errors() is empty after remount even if errors existed before unmount", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
+    const unmount = form.mount();
+
+    setField(el, "email", "bad");
+    submit(el);
+    expect(Object.keys(form.errors()).length).toBeGreaterThan(0);
+
+    unmount();
+    form.mount();
+    expect(form.errors()).toEqual({});
+
+    form.unmount();
     cleanup(el);
   });
 });
@@ -394,6 +412,23 @@ describe("createForm — isDirty()", () => {
     unmount();
 
     expect(form.isDirty()).toBe(true);
+    cleanup(el);
+  });
+
+  it("resets to false on remount", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
+    const unmount = form.mount();
+
+    const input = setField(el, "email", "x");
+    dispatch(input, "change");
+    expect(form.isDirty()).toBe(true);
+
+    unmount();
+    form.mount();
+    expect(form.isDirty()).toBe(false);
+
+    form.unmount();
     cleanup(el);
   });
 });
@@ -489,9 +524,8 @@ describe("createForm — validateOn", () => {
     });
     const unmount = form.mount();
 
-    // Only fire change, not input — errors should not appear
     const input = setField(el, "email", "bad");
-    dispatch(input, "change"); // dirty tracking fires but not validation
+    dispatch(input, "change");
 
     expect(form.errors()).toEqual({});
     unmount();
@@ -820,7 +854,6 @@ describe("createForm — defaultValues", () => {
     setField(el, "email", "changed@example.com");
     unmount1();
 
-    // Second mount re-applies defaults
     form.mount();
     expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("ada@example.com");
 
@@ -1088,7 +1121,6 @@ describe("createForm — setValue()", () => {
     });
     form.mount();
 
-    // file inputs must not throw when setValue is called
     expect(() => form.setValue("avatar" as any, "ignored")).not.toThrow();
 
     form.unmount();
@@ -1097,15 +1129,7 @@ describe("createForm — setValue()", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Helpers — simulate re-render by replacing form innerHTML
-// ---------------------------------------------------------------------------
-
-function rerender(form: HTMLFormElement, html: string) {
-  form.innerHTML = html;
-}
-
-// ---------------------------------------------------------------------------
-// createForm — MutationObserver / re-render resilience
+// createForm — re-render resilience
 // ---------------------------------------------------------------------------
 
 describe("createForm — re-render resilience", () => {
@@ -1119,10 +1143,8 @@ describe("createForm — re-render resilience", () => {
     });
     form.mount();
 
-    // simulate re-render — replaces DOM nodes, wiping values
     rerender(el, basicHtml);
-
-    await Promise.resolve(); // let MutationObserver fire
+    await Promise.resolve();
 
     expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("ada@example.com");
     expect((el.querySelector('[name="name"]') as HTMLInputElement).value).toBe("Ada");
@@ -1141,15 +1163,12 @@ describe("createForm — re-render resilience", () => {
     });
     form.mount();
 
-    // user changes the value
     const input = setField(el, "email", "user@example.com");
     dispatch(input, "change");
 
-    // re-render wipes DOM
     rerender(el, basicHtml);
     await Promise.resolve();
 
-    // should restore user value, not the default
     expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("user@example.com");
 
     form.unmount();
@@ -1166,7 +1185,6 @@ describe("createForm — re-render resilience", () => {
     });
     form.mount();
 
-    // only change email, leave name untouched
     const input = setField(el, "email", "user@example.com");
     dispatch(input, "change");
 
@@ -1194,18 +1212,18 @@ describe("createForm — re-render resilience", () => {
     rerender(el, basicHtml);
     await Promise.resolve();
 
-    // observer disconnected — values stay empty after re-render
     expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("");
 
     cleanup(el);
   });
 
   it("restores checkbox group state after re-render", async () => {
-    const el = makeForm(`
+    const checkboxHtml = `
       <input type="checkbox" name="tags" value="a" />
       <input type="checkbox" name="tags" value="b" />
       <input type="checkbox" name="tags" value="c" />
-    `);
+    `;
+    const el = makeForm(checkboxHtml);
     const form = createForm({
       el,
       schema: z.object({ tags: z.array(z.string()) }),
@@ -1214,14 +1232,7 @@ describe("createForm — re-render resilience", () => {
     });
     form.mount();
 
-    rerender(
-      el,
-      `
-      <input type="checkbox" name="tags" value="a" />
-      <input type="checkbox" name="tags" value="b" />
-      <input type="checkbox" name="tags" value="c" />
-    `,
-    );
+    rerender(el, checkboxHtml);
     await Promise.resolve();
 
     const checkboxes = el.querySelectorAll<HTMLInputElement>('[name="tags"]');
@@ -1234,10 +1245,11 @@ describe("createForm — re-render resilience", () => {
   });
 
   it("restores user-checked checkboxes after re-render", async () => {
-    const el = makeForm(`
+    const checkboxHtml = `
       <input type="checkbox" name="tags" value="a" />
       <input type="checkbox" name="tags" value="b" />
-    `);
+    `;
+    const el = makeForm(checkboxHtml);
     const form = createForm({
       el,
       schema: z.object({ tags: z.array(z.string()) }),
@@ -1246,23 +1258,70 @@ describe("createForm — re-render resilience", () => {
     });
     form.mount();
 
-    // user also checks "b"
     const b = el.querySelector<HTMLInputElement>('[value="b"]')!;
     b.checked = true;
     dispatch(b, "change");
 
-    rerender(
-      el,
-      `
-      <input type="checkbox" name="tags" value="a" />
-      <input type="checkbox" name="tags" value="b" />
-    `,
-    );
+    rerender(el, checkboxHtml);
     await Promise.resolve();
 
     const checkboxes = el.querySelectorAll<HTMLInputElement>('[name="tags"]');
     expect(checkboxes[0]!.checked).toBe(true); // "a" — default
     expect(checkboxes[1]!.checked).toBe(true); // "b" — user checked
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("restores <select multiple> selected options after re-render", async () => {
+    const selectHtml = `
+      <select name="langs" multiple>
+        <option value="en">English</option>
+        <option value="pl">Polish</option>
+        <option value="de">German</option>
+      </select>
+    `;
+    const el = makeForm(selectHtml);
+    const form = createForm({
+      el,
+      schema: z.object({ langs: z.array(z.string()) }),
+      onSubmit: () => {},
+      defaultValues: { langs: ["en", "pl"] },
+    });
+    form.mount();
+
+    rerender(el, selectHtml);
+    await Promise.resolve();
+
+    const options = el.querySelectorAll<HTMLOptionElement>('[name="langs"] option');
+    expect(options[0]!.selected).toBe(true); // "en"
+    expect(options[1]!.selected).toBe(true); // "pl"
+    expect(options[2]!.selected).toBe(false); // "de"
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("restores value edited via input event (without change) after re-render", async () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "default@example.com", name: "Default" },
+    });
+    form.mount();
+
+    const input = el.querySelector<HTMLInputElement>('[name="email"]')!;
+    input.value = "typed@example.com";
+    dispatch(input, "input");
+
+    rerender(el, basicHtml);
+    await Promise.resolve();
+
+    expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe(
+      "typed@example.com",
+    );
 
     form.unmount();
     cleanup(el);

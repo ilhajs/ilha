@@ -121,6 +121,10 @@ export interface CreateFormOptions<S extends StandardSchemaV1> {
    * Keys are field `name` attributes; values are strings (or string arrays
    * for checkbox / multi-select groups). File inputs are always skipped.
    *
+   * These values are tracked and automatically re-applied after re-renders
+   * (via MutationObserver). If the user has changed a field, their value is
+   * preserved instead of the default.
+   *
    * @example
    * defaultValues: { email: "ada@example.com", role: "admin" }
    */
@@ -153,9 +157,6 @@ export interface Form<S extends StandardSchemaV1> {
    * - `type="radio"`: checks the matching option
    * - `<select multiple>`: sets `.selected` per option
    * - `type="file"`: skipped
-   *
-   * Useful for controlled steps, discriminator fields backed by a
-   * `<input type="hidden">`, or any programmatic state change.
    */
   setValue(
     name: (keyof StandardSchemaV1.InferInput<S> & string) | (string & {}),
@@ -169,14 +170,14 @@ export interface Form<S extends StandardSchemaV1> {
 
   /**
    * Attach event listeners to the form and activate the binding.
-   * If `defaultValues` are provided they are applied to the DOM here, and
-   * any stale validation and dirty state is cleared.
+   * Applies `defaultValues` to the DOM, resets dirty + validation state,
+   * and starts a MutationObserver to re-apply values after re-renders.
    * Returns a cleanup/unmount function.
    */
   mount(): () => void;
 
   /**
-   * Remove all event listeners. Idempotent.
+   * Remove all event listeners and disconnect the MutationObserver. Idempotent.
    */
   unmount(): void;
 }
@@ -235,7 +236,7 @@ export function issuesToErrors(issues: ReadonlyArray<StandardSchemaV1.Issue>): F
 
 /**
  * Applies a value to all DOM elements matching `name` inside `form`.
- * Same rules as `defaultValues` — file inputs are skipped.
+ * File inputs are skipped. Silently ignores missing elements.
  */
 function applyValueToField(form: HTMLFormElement, name: string, value: string | string[]): void {
   const elements = Array.from(
@@ -277,38 +278,16 @@ function applyValueToField(form: HTMLFormElement, name: string, value: string | 
  * Bind a Standard Schema to a form element. Wires up typed submission,
  * validation, and per-field error state using native DOM event listeners.
  *
- * Designed to integrate cleanly with ilha islands — pass `el` from an
- * `.effect()` context or resolve it inside `.on()` handlers.
- *
  * @example
- * const island = ilha
- *   .state("errors", {} as FormErrors)
- *   .effect(({ el, state }) => {
- *     const formEl = el.querySelector("form")!;
- *     const form = createForm({
- *       el: formEl,
- *       schema: z.object({
- *         email: z.string().email(),
- *         name: z.string().min(1),
- *       }),
- *       defaultValues: { email: "ada@example.com" },
- *       onSubmit(values) {
- *         console.log(values);
- *       },
- *       onError(issues) {
- *         state.errors(issuesToErrors(issues));
- *       },
- *       validateOn: "change",
- *     });
- *     return form.mount();
- *   })
- *   .render(({ state }) => html`
- *     <form>
- *       <input name="email" />
- *       <input name="name" />
- *       <button>Submit</button>
- *     </form>
- *   `);
+ * const form = createForm({
+ *   el: formEl,
+ *   schema: z.object({ email: z.string().email(), name: z.string().min(1) }),
+ *   defaultValues: { email: "ada@example.com" },
+ *   onSubmit(values) { console.log(values); },
+ *   onError(issues) { state.errors(issuesToErrors(issues)); },
+ *   validateOn: "change",
+ * });
+ * return form.mount();
  */
 export function createForm<S extends StandardSchemaV1>(options: CreateFormOptions<S>): Form<S> {
   const { el, schema, onSubmit, onError, validateOn = "submit", defaultValues } = options;
@@ -368,19 +347,20 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
 
     mount() {
       dirty = false;
+      currentErrors = {}; // always reset on every mount
 
-      // Tracks the latest value per field name — updated on every change/input
-      // event. After a re-render the observer restores this instead of the default.
+      // Tracks the latest value per field — seeded with defaults, updated on
+      // change/input. The MutationObserver restores these after re-renders so
+      // user-edited values survive DOM reconstruction.
       const trackedValues = new Map<string, string | string[]>();
 
       if (defaultValues) {
         for (const [name, value] of Object.entries(defaultValues)) {
           if (value !== undefined) {
             applyValueToField(el, name, value);
-            trackedValues.set(name, value); // seed with default
+            trackedValues.set(name, value);
           }
         }
-        currentErrors = {};
       }
 
       const listeners: Array<() => void> = [];
@@ -394,7 +374,6 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
         listeners.push(() => target.removeEventListener(type, handler as EventListener));
       }
 
-      // Track value changes so we can restore them after re-renders
       function trackCurrentValues(): void {
         if (!defaultValues) return;
         for (const name of Object.keys(defaultValues)) {
@@ -405,8 +384,8 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
           );
           if (elements.length === 0) continue;
           const first = elements[0]!;
+
           if (first instanceof HTMLInputElement && first.type === "checkbox") {
-            // array of checked values
             const checked = (elements as HTMLInputElement[])
               .filter((e) => e.checked)
               .map((e) => e.value);
@@ -414,6 +393,9 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
           } else if (first instanceof HTMLInputElement && first.type === "radio") {
             const checked = (elements as HTMLInputElement[]).find((e) => e.checked);
             if (checked) trackedValues.set(name, checked.value);
+          } else if (first instanceof HTMLSelectElement && first.multiple) {
+            const selected = Array.from(first.selectedOptions).map((o) => o.value);
+            trackedValues.set(name, selected);
           } else if (!(first instanceof HTMLInputElement && first.type === "file")) {
             trackedValues.set(name, first.value);
           }
@@ -425,14 +407,11 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
         trackCurrentValues();
         markDirty();
       });
+      on(el, "input", trackCurrentValues); // always track on input, regardless of validateOn
 
       if (validateOn === "change") on(el, "change", runFieldValidation);
-      if (validateOn === "input") {
-        on(el, "input", () => trackCurrentValues());
-        on(el, "input", runFieldValidation);
-      }
+      if (validateOn === "input") on(el, "input", runFieldValidation);
 
-      // After re-render, restore tracked values (user-changed or default)
       let observer: MutationObserver | null = null;
       if (defaultValues) {
         observer = new MutationObserver(() => {
