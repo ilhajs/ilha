@@ -1053,7 +1053,7 @@ describe("createForm — setValue()", () => {
     const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
     form.mount();
 
-    expect(() => form.setValue("name" as any, "ghost")).not.toThrow();
+    expect(() => form.setValue("nonexistent" as any, "ghost")).not.toThrow();
 
     form.unmount();
     cleanup(el);
@@ -1079,7 +1079,7 @@ describe("createForm — setValue()", () => {
     cleanup(el);
   });
 
-  it("does not skip file inputs — leaves them unchanged", () => {
+  it("skips file inputs without throwing and leaves them unchanged", () => {
     const el = makeForm(`<input type="file" name="avatar" />`);
     const form = createForm({
       el,

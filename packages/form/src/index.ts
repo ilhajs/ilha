@@ -157,7 +157,10 @@ export interface Form<S extends StandardSchemaV1> {
    * Useful for controlled steps, discriminator fields backed by a
    * `<input type="hidden">`, or any programmatic state change.
    */
-  setValue(name: keyof StandardSchemaV1.InferInput<S> & string, value: string | string[]): void;
+  setValue(
+    name: (keyof StandardSchemaV1.InferInput<S> & string) | (string & {}),
+    value: string | string[],
+  ): void;
 
   /**
    * Manually trigger the validate → onSubmit/onError cycle programmatically.
@@ -247,7 +250,8 @@ function applyValueToField(form: HTMLFormElement, name: string, value: string | 
         const values = Array.isArray(value) ? value : [value];
         el.checked = values.includes(el.value);
       } else if (el.type === "radio") {
-        el.checked = el.value === value;
+        const scalar = Array.isArray(value) ? (value[0] ?? "") : value;
+        el.checked = el.value === scalar;
       } else if (el.type !== "file") {
         el.value = Array.isArray(value) ? (value[0] ?? "") : value;
       }
