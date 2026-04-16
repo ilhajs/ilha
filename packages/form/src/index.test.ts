@@ -853,3 +853,245 @@ describe("createForm — defaultValues", () => {
     cleanup(el);
   });
 });
+
+// ---------------------------------------------------------------------------
+// createForm — setValue()
+// ---------------------------------------------------------------------------
+
+describe("createForm — setValue()", () => {
+  it("sets value on a text input", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
+    form.mount();
+
+    form.setValue("email", "ada@example.com");
+
+    expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("ada@example.com");
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("set value is picked up by values()", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
+    form.mount();
+
+    form.setValue("email", "ada@example.com");
+    form.setValue("name", "Ada");
+
+    const result = form.values();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toEqual({ email: "ada@example.com", name: "Ada" });
+    }
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("set value is picked up by onSubmit", () => {
+    const submitted: any[] = [];
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: (values) => submitted.push(values),
+    });
+    const unmount = form.mount();
+
+    form.setValue("email", "ada@example.com");
+    form.setValue("name", "Ada");
+    submit(el);
+
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0]).toEqual({ email: "ada@example.com", name: "Ada" });
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("works without mount() — updates DOM directly", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
+
+    expect(() => form.setValue("email", "ada@example.com")).not.toThrow();
+    expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("ada@example.com");
+
+    cleanup(el);
+  });
+
+  it("does not mark form as dirty", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
+    form.mount();
+
+    form.setValue("email", "ada@example.com");
+
+    expect(form.isDirty()).toBe(false);
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("sets checked on a checkbox matching the value", () => {
+    const el = makeForm(`
+      <input type="checkbox" name="tags" value="a" />
+      <input type="checkbox" name="tags" value="b" />
+      <input type="checkbox" name="tags" value="c" />
+    `);
+    const form = createForm({
+      el,
+      schema: z.object({ tags: z.array(z.string()) }),
+      onSubmit: () => {},
+    });
+    form.mount();
+
+    form.setValue("tags", ["a", "c"]);
+
+    const checkboxes = el.querySelectorAll<HTMLInputElement>('[name="tags"]');
+    expect(checkboxes[0]!.checked).toBe(true); // "a"
+    expect(checkboxes[1]!.checked).toBe(false); // "b"
+    expect(checkboxes[2]!.checked).toBe(true); // "c"
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("sets checked on the matching radio input", () => {
+    const el = makeForm(`
+      <input type="radio" name="role" value="admin" />
+      <input type="radio" name="role" value="user" />
+      <input type="radio" name="role" value="guest" />
+    `);
+    const form = createForm({
+      el,
+      schema: z.object({ role: z.string() }),
+      onSubmit: () => {},
+    });
+    form.mount();
+
+    form.setValue("role", "user");
+
+    const radios = el.querySelectorAll<HTMLInputElement>('[name="role"]');
+    expect(radios[0]!.checked).toBe(false); // "admin"
+    expect(radios[1]!.checked).toBe(true); // "user"
+    expect(radios[2]!.checked).toBe(false); // "guest"
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("sets value on a <select> element", () => {
+    const el = makeForm(`
+      <select name="country">
+        <option value="pl">Poland</option>
+        <option value="de">Germany</option>
+        <option value="fr">France</option>
+      </select>
+    `);
+    const form = createForm({
+      el,
+      schema: z.object({ country: z.string() }),
+      onSubmit: () => {},
+    });
+    form.mount();
+
+    form.setValue("country", "de");
+
+    expect((el.querySelector('[name="country"]') as HTMLSelectElement).value).toBe("de");
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("sets selected options on a <select multiple>", () => {
+    const el = makeForm(`
+      <select name="langs" multiple>
+        <option value="en">English</option>
+        <option value="pl">Polish</option>
+        <option value="de">German</option>
+      </select>
+    `);
+    const form = createForm({
+      el,
+      schema: z.object({ langs: z.array(z.string()) }),
+      onSubmit: () => {},
+    });
+    form.mount();
+
+    form.setValue("langs", ["en", "de"]);
+
+    const options = el.querySelectorAll<HTMLOptionElement>('[name="langs"] option');
+    expect(options[0]!.selected).toBe(true); // "en"
+    expect(options[1]!.selected).toBe(false); // "pl"
+    expect(options[2]!.selected).toBe(true); // "de"
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("sets value on a <textarea>", () => {
+    const el = makeForm(`<textarea name="bio"></textarea>`);
+    const form = createForm({
+      el,
+      schema: z.object({ bio: z.string() }),
+      onSubmit: () => {},
+    });
+    form.mount();
+
+    form.setValue("bio", "Hello world");
+
+    expect((el.querySelector('[name="bio"]') as HTMLTextAreaElement).value).toBe("Hello world");
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("silently does nothing for a name with no matching DOM element", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
+    form.mount();
+
+    expect(() => form.setValue("nonexistent" as any, "ghost")).not.toThrow();
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("overwrites a value set by defaultValues", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "default@example.com", name: "Default" },
+    });
+    form.mount();
+
+    form.setValue("email", "overridden@example.com");
+
+    expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe(
+      "overridden@example.com",
+    );
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("skips file inputs without throwing and leaves them unchanged", () => {
+    const el = makeForm(`<input type="file" name="avatar" />`);
+    const form = createForm({
+      el,
+      schema: z.object({ avatar: z.any() }),
+      onSubmit: () => {},
+    });
+    form.mount();
+
+    // file inputs must not throw when setValue is called
+    expect(() => form.setValue("avatar" as any, "ignored")).not.toThrow();
+
+    form.unmount();
+    cleanup(el);
+  });
+});

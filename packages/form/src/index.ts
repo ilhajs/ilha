@@ -146,6 +146,23 @@ export interface Form<S extends StandardSchemaV1> {
   isDirty(): boolean;
 
   /**
+   * Programmatically set the value of a named field in the DOM.
+   * Follows the same element-type rules as `defaultValues`:
+   * - text/number/… inputs and `<textarea>`: sets `.value`
+   * - `type="checkbox"`: checks/unchecks based on array membership
+   * - `type="radio"`: checks the matching option
+   * - `<select multiple>`: sets `.selected` per option
+   * - `type="file"`: skipped
+   *
+   * Useful for controlled steps, discriminator fields backed by a
+   * `<input type="hidden">`, or any programmatic state change.
+   */
+  setValue(
+    name: (keyof StandardSchemaV1.InferInput<S> & string) | (string & {}),
+    value: string | string[],
+  ): void;
+
+  /**
    * Manually trigger the validate → onSubmit/onError cycle programmatically.
    */
   submit(): void;
@@ -217,49 +234,37 @@ export function issuesToErrors(issues: ReadonlyArray<StandardSchemaV1.Issue>): F
 }
 
 /**
- * Applies `defaultValues` to the DOM elements inside the form.
- *
- * - Text / number / email / … inputs: sets `.value`
- * - `type="file"`: skipped — browser blocks programmatic `.value` assignment
- * - `type="checkbox"`: checks the element if its `.value` is in the default array
- * - `type="radio"`: checks the element whose `.value` matches the default string
- * - `<select>`: sets `.value`
- * - `<select multiple>`: marks each matching option as `.selected`
- * - `<textarea>`: sets `.value`
+ * Applies a value to all DOM elements matching `name` inside `form`.
+ * Same rules as `defaultValues` — file inputs are skipped.
  */
-function applyDefaultValues(
-  form: HTMLFormElement,
-  defaults: Record<string, string | string[]>,
-): void {
-  for (const [name, defaultValue] of Object.entries(defaults)) {
-    const elements = Array.from(
-      form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
-        `[name="${CSS.escape(name)}"]`,
-      ),
-    );
+function applyValueToField(form: HTMLFormElement, name: string, value: string | string[]): void {
+  const elements = Array.from(
+    form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+      `[name="${CSS.escape(name)}"]`,
+    ),
+  );
 
-    for (const el of elements) {
-      if (el instanceof HTMLInputElement) {
-        if (el.type === "checkbox") {
-          const values = Array.isArray(defaultValue) ? defaultValue : [defaultValue];
-          el.checked = values.includes(el.value);
-        } else if (el.type === "radio") {
-          el.checked = el.value === defaultValue;
-        } else if (el.type !== "file") {
-          // file inputs are intentionally skipped — browser blocks programmatic .value
-          el.value = Array.isArray(defaultValue) ? (defaultValue[0] ?? "") : defaultValue;
-        }
-      } else if (el instanceof HTMLSelectElement) {
-        if (el.multiple && Array.isArray(defaultValue)) {
-          for (const option of el.options) {
-            option.selected = defaultValue.includes(option.value);
-          }
-        } else {
-          el.value = Array.isArray(defaultValue) ? (defaultValue[0] ?? "") : defaultValue;
-        }
-      } else if (el instanceof HTMLTextAreaElement) {
-        el.value = Array.isArray(defaultValue) ? (defaultValue[0] ?? "") : defaultValue;
+  for (const el of elements) {
+    if (el instanceof HTMLInputElement) {
+      if (el.type === "checkbox") {
+        const values = Array.isArray(value) ? value : [value];
+        el.checked = values.includes(el.value);
+      } else if (el.type === "radio") {
+        const scalar = Array.isArray(value) ? (value[0] ?? "") : value;
+        el.checked = el.value === scalar;
+      } else if (el.type !== "file") {
+        el.value = Array.isArray(value) ? (value[0] ?? "") : value;
       }
+    } else if (el instanceof HTMLSelectElement) {
+      if (el.multiple && Array.isArray(value)) {
+        for (const option of el.options) {
+          option.selected = value.includes(option.value);
+        }
+      } else {
+        el.value = Array.isArray(value) ? (value[0] ?? "") : value;
+      }
+    } else if (el instanceof HTMLTextAreaElement) {
+      el.value = Array.isArray(value) ? (value[0] ?? "") : value;
     }
   }
 }
@@ -348,6 +353,10 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
       return dirty;
     },
 
+    setValue(name, value) {
+      applyValueToField(el, name, value);
+    },
+
     submit() {
       const event = new SubmitEvent("submit", { bubbles: true, cancelable: true });
       if (activeUnmount) {
@@ -361,7 +370,9 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
       dirty = false; // reset: isDirty() reflects "since this mount() call"
 
       if (defaultValues) {
-        applyDefaultValues(el, defaultValues as Record<string, string | string[]>);
+        for (const [name, value] of Object.entries(defaultValues)) {
+          if (value !== undefined) applyValueToField(el, name, value);
+        }
         currentErrors = {}; // reset stale validation state after defaults are applied
       }
 
