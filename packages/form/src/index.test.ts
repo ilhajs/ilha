@@ -1420,4 +1420,24 @@ describe("createForm — error clearing on fix", () => {
     unmount();
     cleanup(el);
   });
+
+  it("does not revalidate on input when there are no errors (validateOn: submit)", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      validateOn: "submit",
+    });
+    const unmount = form.mount();
+
+    // no prior submission — errors are empty
+    const input = setField(el, "email", "bad");
+    dispatch(input, "input");
+
+    // should stay empty — no proactive validation when clean
+    expect(form.errors()).toEqual({});
+    unmount();
+    cleanup(el);
+  });
 });
