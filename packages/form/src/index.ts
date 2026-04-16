@@ -70,9 +70,13 @@ export type FormErrors = Record<string, string[]>;
 /**
  * When to run schema validation automatically against field changes.
  *
- * - `"submit"` (default) — only on form submission
- * - `"change"` — on `change` events (after a field loses focus with a new value)
- * - `"input"` — on every `input` event (every keystroke)
+ * - `"submit"` (default) — defers validation to submission while the form is
+ *   clean (no active errors). Once a submission fails, the form automatically
+ *   revalidates on every `change` and `input` event until all errors are
+ *   cleared, at which point it returns to submit-only validation.
+ * - `"change"` — validates on every `change` event (and on `input` when errors
+ *   are active).
+ * - `"input"` — validates on every `input` event (every keystroke).
  */
 export type ValidateOn = "submit" | "change" | "input";
 
@@ -347,11 +351,8 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
 
     mount() {
       dirty = false;
-      currentErrors = {}; // always reset on every mount
+      currentErrors = {};
 
-      // Tracks the latest value per field — seeded with defaults, updated on
-      // change/input. The MutationObserver restores these after re-renders so
-      // user-edited values survive DOM reconstruction.
       const trackedValues = new Map<string, string | string[]>();
 
       if (defaultValues) {
@@ -402,15 +403,31 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
         }
       }
 
+      function runFieldValidationIfErrors(): void {
+        if (Object.keys(currentErrors).length > 0) runFieldValidation();
+      }
+
       on(el, "submit", (e) => runSubmit(e as SubmitEvent));
+
       on(el, "change", () => {
         trackCurrentValues();
         markDirty();
+        if (validateOn === "change") {
+          runFieldValidation();
+        } else {
+          runFieldValidationIfErrors();
+        }
       });
-      on(el, "input", trackCurrentValues); // always track on input, regardless of validateOn
 
-      if (validateOn === "change") on(el, "change", runFieldValidation);
-      if (validateOn === "input") on(el, "input", runFieldValidation);
+      on(el, "input", () => {
+        trackCurrentValues();
+        markDirty();
+        if (validateOn === "input") {
+          runFieldValidation();
+        } else {
+          runFieldValidationIfErrors();
+        }
+      });
 
       let observer: MutationObserver | null = null;
       if (defaultValues) {

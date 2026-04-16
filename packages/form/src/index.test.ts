@@ -1363,3 +1363,81 @@ describe("createForm — re-render resilience", () => {
     cleanup(el);
   });
 });
+
+describe("createForm — error clearing on fix", () => {
+  it("clears errors on change after failed submission", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
+    const unmount = form.mount();
+
+    setField(el, "email", "bad");
+    submit(el);
+    expect(Object.keys(form.errors()).length).toBeGreaterThan(0);
+
+    const input = setField(el, "email", "ada@example.com");
+    setField(el, "name", "Ada");
+    dispatch(input, "change");
+
+    expect(form.errors()).toEqual({});
+    unmount();
+    cleanup(el);
+  });
+
+  it("clears errors on input keystroke after failed submission", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
+    const unmount = form.mount();
+
+    setField(el, "email", "bad");
+    submit(el);
+    expect(Object.keys(form.errors()).length).toBeGreaterThan(0);
+
+    const input = setField(el, "email", "ada@example.com");
+    setField(el, "name", "Ada");
+    dispatch(input, "input");
+
+    expect(form.errors()).toEqual({});
+    unmount();
+    cleanup(el);
+  });
+
+  it("does not revalidate on change when there are no errors (validateOn: submit)", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      validateOn: "submit",
+    });
+    const unmount = form.mount();
+
+    // no prior submission — errors are empty
+    const input = setField(el, "email", "bad");
+    dispatch(input, "change");
+
+    // should stay empty — no proactive validation when clean
+    expect(form.errors()).toEqual({});
+    unmount();
+    cleanup(el);
+  });
+
+  it("does not revalidate on input when there are no errors (validateOn: submit)", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      validateOn: "submit",
+    });
+    const unmount = form.mount();
+
+    // no prior submission — errors are empty
+    const input = setField(el, "email", "bad");
+    dispatch(input, "input");
+
+    // should stay empty — no proactive validation when clean
+    expect(form.errors()).toEqual({});
+    unmount();
+    cleanup(el);
+  });
+});
