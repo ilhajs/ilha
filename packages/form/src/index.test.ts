@@ -589,3 +589,267 @@ describe("createForm — async schema guard", () => {
     cleanup(el);
   });
 });
+
+// ---------------------------------------------------------------------------
+// createForm — defaultValues
+// ---------------------------------------------------------------------------
+
+describe("createForm — defaultValues", () => {
+  it("applies string default to a text input on mount()", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "ada@example.com", name: "Ada" },
+    });
+    form.mount();
+
+    expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("ada@example.com");
+    expect((el.querySelector('[name="name"]') as HTMLInputElement).value).toBe("Ada");
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("does not apply defaults before mount()", () => {
+    const el = makeForm(basicHtml);
+    createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "ada@example.com" },
+    });
+
+    expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("");
+    cleanup(el);
+  });
+
+  it("default values are read by values() after mount()", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "ada@example.com", name: "Ada" },
+    });
+    form.mount();
+
+    const result = form.values();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toEqual({ email: "ada@example.com", name: "Ada" });
+    }
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("default values cause onSubmit to fire with pre-filled data", () => {
+    const submitted: any[] = [];
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: (values) => submitted.push(values),
+      defaultValues: { email: "ada@example.com", name: "Ada" },
+    });
+    const unmount = form.mount();
+
+    submit(el);
+
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0]).toEqual({ email: "ada@example.com", name: "Ada" });
+    unmount();
+    cleanup(el);
+  });
+
+  it("does not mark form as dirty after applying defaults", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "ada@example.com", name: "Ada" },
+    });
+    form.mount();
+
+    expect(form.isDirty()).toBe(false);
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("user change after defaults marks form as dirty", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "ada@example.com", name: "Ada" },
+    });
+    const unmount = form.mount();
+
+    const input = setField(el, "email", "other@example.com");
+    dispatch(input, "change");
+
+    expect(form.isDirty()).toBe(true);
+    unmount();
+    cleanup(el);
+  });
+
+  it("applies defaults to a checkbox group — checks matching values", () => {
+    const el = makeForm(`
+      <input type="checkbox" name="tags" value="a" />
+      <input type="checkbox" name="tags" value="b" />
+      <input type="checkbox" name="tags" value="c" />
+    `);
+    const form = createForm({
+      el,
+      schema: z.object({ tags: z.array(z.string()) }),
+      onSubmit: () => {},
+      defaultValues: { tags: ["a", "c"] },
+    });
+    form.mount();
+
+    const checkboxes = el.querySelectorAll<HTMLInputElement>('[name="tags"]');
+    expect(checkboxes[0]!.checked).toBe(true); // "a"
+    expect(checkboxes[1]!.checked).toBe(false); // "b"
+    expect(checkboxes[2]!.checked).toBe(true); // "c"
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("applies defaults to radio inputs — checks matching value", () => {
+    const el = makeForm(`
+      <input type="radio" name="role" value="admin" />
+      <input type="radio" name="role" value="user" />
+      <input type="radio" name="role" value="guest" />
+    `);
+    const form = createForm({
+      el,
+      schema: z.object({ role: z.string() }),
+      onSubmit: () => {},
+      defaultValues: { role: "user" },
+    });
+    form.mount();
+
+    const radios = el.querySelectorAll<HTMLInputElement>('[name="role"]');
+    expect(radios[0]!.checked).toBe(false); // "admin"
+    expect(radios[1]!.checked).toBe(true); // "user"
+    expect(radios[2]!.checked).toBe(false); // "guest"
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("applies defaults to a <select> element", () => {
+    const el = makeForm(`
+      <select name="country">
+        <option value="pl">Poland</option>
+        <option value="de">Germany</option>
+        <option value="fr">France</option>
+      </select>
+    `);
+    const form = createForm({
+      el,
+      schema: z.object({ country: z.string() }),
+      onSubmit: () => {},
+      defaultValues: { country: "de" },
+    });
+    form.mount();
+
+    expect((el.querySelector('[name="country"]') as HTMLSelectElement).value).toBe("de");
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("applies defaults to a <select multiple> element", () => {
+    const el = makeForm(`
+      <select name="langs" multiple>
+        <option value="en">English</option>
+        <option value="pl">Polish</option>
+        <option value="de">German</option>
+      </select>
+    `);
+    const form = createForm({
+      el,
+      schema: z.object({ langs: z.array(z.string()) }),
+      onSubmit: () => {},
+      defaultValues: { langs: ["en", "pl"] },
+    });
+    form.mount();
+
+    const options = el.querySelectorAll<HTMLOptionElement>('[name="langs"] option');
+    expect(options[0]!.selected).toBe(true); // "en"
+    expect(options[1]!.selected).toBe(true); // "pl"
+    expect(options[2]!.selected).toBe(false); // "de"
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("applies defaults to a <textarea>", () => {
+    const el = makeForm(`<textarea name="bio"></textarea>`);
+    const form = createForm({
+      el,
+      schema: z.object({ bio: z.string() }),
+      onSubmit: () => {},
+      defaultValues: { bio: "Hello world" },
+    });
+    form.mount();
+
+    expect((el.querySelector('[name="bio"]') as HTMLTextAreaElement).value).toBe("Hello world");
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("re-applies defaults on each mount() call", () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "ada@example.com", name: "Ada" },
+    });
+
+    const unmount1 = form.mount();
+    setField(el, "email", "changed@example.com");
+    unmount1();
+
+    // Second mount re-applies defaults
+    form.mount();
+    expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("ada@example.com");
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("works fine with no defaultValues provided (undefined)", () => {
+    const el = makeForm(basicHtml);
+    expect(() => {
+      const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
+      form.mount();
+      form.unmount();
+    }).not.toThrow();
+    cleanup(el);
+  });
+
+  it("ignores defaultValues keys that have no matching DOM element", () => {
+    const el = makeForm(basicHtml);
+    expect(() => {
+      const form = createForm({
+        el,
+        schema: basicSchema,
+        onSubmit: () => {},
+        defaultValues: { email: "ada@example.com", name: "Ada" },
+      });
+      form.mount();
+      form.unmount();
+    }).not.toThrow();
+    cleanup(el);
+  });
+});
