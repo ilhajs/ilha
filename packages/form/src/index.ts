@@ -421,6 +421,7 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
 
       on(el, "input", () => {
         trackCurrentValues();
+        markDirty();
         if (validateOn === "input") {
           runFieldValidation();
         } else {
