@@ -347,11 +347,8 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
 
     mount() {
       dirty = false;
-      currentErrors = {}; // always reset on every mount
+      currentErrors = {};
 
-      // Tracks the latest value per field — seeded with defaults, updated on
-      // change/input. The MutationObserver restores these after re-renders so
-      // user-edited values survive DOM reconstruction.
       const trackedValues = new Map<string, string | string[]>();
 
       if (defaultValues) {
@@ -402,12 +399,21 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
         }
       }
 
+      // Revalidate on change/input when there are active errors — clears stale
+      // error state as soon as the user fixes a field, regardless of validateOn.
+      function runFieldValidationIfErrors(): void {
+        if (Object.keys(currentErrors).length > 0) runFieldValidation();
+      }
+
       on(el, "submit", (e) => runSubmit(e as SubmitEvent));
       on(el, "change", () => {
         trackCurrentValues();
         markDirty();
       });
-      on(el, "input", trackCurrentValues); // always track on input, regardless of validateOn
+      on(el, "input", trackCurrentValues);
+
+      on(el, "change", runFieldValidationIfErrors);
+      on(el, "input", runFieldValidationIfErrors);
 
       if (validateOn === "change") on(el, "change", runFieldValidation);
       if (validateOn === "input") on(el, "input", runFieldValidation);
