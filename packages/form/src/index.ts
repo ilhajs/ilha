@@ -367,13 +367,20 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
     },
 
     mount() {
-      dirty = false; // reset: isDirty() reflects "since this mount() call"
+      dirty = false;
+
+      // Tracks the latest value per field name — updated on every change/input
+      // event. After a re-render the observer restores this instead of the default.
+      const trackedValues = new Map<string, string | string[]>();
 
       if (defaultValues) {
         for (const [name, value] of Object.entries(defaultValues)) {
-          if (value !== undefined) applyValueToField(el, name, value);
+          if (value !== undefined) {
+            applyValueToField(el, name, value);
+            trackedValues.set(name, value); // seed with default
+          }
         }
-        currentErrors = {}; // reset stale validation state after defaults are applied
+        currentErrors = {};
       }
 
       const listeners: Array<() => void> = [];
@@ -387,14 +394,58 @@ export function createForm<S extends StandardSchemaV1>(options: CreateFormOption
         listeners.push(() => target.removeEventListener(type, handler as EventListener));
       }
 
+      // Track value changes so we can restore them after re-renders
+      function trackCurrentValues(): void {
+        if (!defaultValues) return;
+        for (const name of Object.keys(defaultValues)) {
+          const elements = Array.from(
+            el.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+              `[name="${CSS.escape(name)}"]`,
+            ),
+          );
+          if (elements.length === 0) continue;
+          const first = elements[0]!;
+          if (first instanceof HTMLInputElement && first.type === "checkbox") {
+            // array of checked values
+            const checked = (elements as HTMLInputElement[])
+              .filter((e) => e.checked)
+              .map((e) => e.value);
+            trackedValues.set(name, checked);
+          } else if (first instanceof HTMLInputElement && first.type === "radio") {
+            const checked = (elements as HTMLInputElement[]).find((e) => e.checked);
+            if (checked) trackedValues.set(name, checked.value);
+          } else if (!(first instanceof HTMLInputElement && first.type === "file")) {
+            trackedValues.set(name, first.value);
+          }
+        }
+      }
+
       on(el, "submit", (e) => runSubmit(e as SubmitEvent));
-      on(el, "change", markDirty);
+      on(el, "change", () => {
+        trackCurrentValues();
+        markDirty();
+      });
 
       if (validateOn === "change") on(el, "change", runFieldValidation);
-      if (validateOn === "input") on(el, "input", runFieldValidation);
+      if (validateOn === "input") {
+        on(el, "input", () => trackCurrentValues());
+        on(el, "input", runFieldValidation);
+      }
+
+      // After re-render, restore tracked values (user-changed or default)
+      let observer: MutationObserver | null = null;
+      if (defaultValues) {
+        observer = new MutationObserver(() => {
+          for (const [name, value] of trackedValues) {
+            applyValueToField(el, name, value);
+          }
+        });
+        observer.observe(el, { childList: true, subtree: true });
+      }
 
       const unmountFn = () => {
         listeners.forEach((off) => off());
+        observer?.disconnect();
         activeUnmount = null;
       };
 

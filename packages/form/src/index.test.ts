@@ -1095,3 +1095,212 @@ describe("createForm — setValue()", () => {
     cleanup(el);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Helpers — simulate re-render by replacing form innerHTML
+// ---------------------------------------------------------------------------
+
+function rerender(form: HTMLFormElement, html: string) {
+  form.innerHTML = html;
+}
+
+// ---------------------------------------------------------------------------
+// createForm — MutationObserver / re-render resilience
+// ---------------------------------------------------------------------------
+
+describe("createForm — re-render resilience", () => {
+  it("re-applies defaultValues to a field that reappears after re-render", async () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "ada@example.com", name: "Ada" },
+    });
+    form.mount();
+
+    // simulate re-render — replaces DOM nodes, wiping values
+    rerender(el, basicHtml);
+
+    await Promise.resolve(); // let MutationObserver fire
+
+    expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("ada@example.com");
+    expect((el.querySelector('[name="name"]') as HTMLInputElement).value).toBe("Ada");
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("restores user-changed value after re-render, not the default", async () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "default@example.com", name: "Default" },
+    });
+    form.mount();
+
+    // user changes the value
+    const input = setField(el, "email", "user@example.com");
+    dispatch(input, "change");
+
+    // re-render wipes DOM
+    rerender(el, basicHtml);
+    await Promise.resolve();
+
+    // should restore user value, not the default
+    expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("user@example.com");
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("restores default for untouched fields even if another field was changed", async () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "default@example.com", name: "Default Name" },
+    });
+    form.mount();
+
+    // only change email, leave name untouched
+    const input = setField(el, "email", "user@example.com");
+    dispatch(input, "change");
+
+    rerender(el, basicHtml);
+    await Promise.resolve();
+
+    expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("user@example.com");
+    expect((el.querySelector('[name="name"]') as HTMLInputElement).value).toBe("Default Name");
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("does not restore values after unmount — observer is disconnected", async () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "ada@example.com", name: "Ada" },
+    });
+    form.mount();
+    form.unmount();
+
+    rerender(el, basicHtml);
+    await Promise.resolve();
+
+    // observer disconnected — values stay empty after re-render
+    expect((el.querySelector('[name="email"]') as HTMLInputElement).value).toBe("");
+
+    cleanup(el);
+  });
+
+  it("restores checkbox group state after re-render", async () => {
+    const el = makeForm(`
+      <input type="checkbox" name="tags" value="a" />
+      <input type="checkbox" name="tags" value="b" />
+      <input type="checkbox" name="tags" value="c" />
+    `);
+    const form = createForm({
+      el,
+      schema: z.object({ tags: z.array(z.string()) }),
+      onSubmit: () => {},
+      defaultValues: { tags: ["a", "c"] },
+    });
+    form.mount();
+
+    rerender(
+      el,
+      `
+      <input type="checkbox" name="tags" value="a" />
+      <input type="checkbox" name="tags" value="b" />
+      <input type="checkbox" name="tags" value="c" />
+    `,
+    );
+    await Promise.resolve();
+
+    const checkboxes = el.querySelectorAll<HTMLInputElement>('[name="tags"]');
+    expect(checkboxes[0]!.checked).toBe(true); // "a"
+    expect(checkboxes[1]!.checked).toBe(false); // "b"
+    expect(checkboxes[2]!.checked).toBe(true); // "c"
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("restores user-checked checkboxes after re-render", async () => {
+    const el = makeForm(`
+      <input type="checkbox" name="tags" value="a" />
+      <input type="checkbox" name="tags" value="b" />
+    `);
+    const form = createForm({
+      el,
+      schema: z.object({ tags: z.array(z.string()) }),
+      onSubmit: () => {},
+      defaultValues: { tags: ["a"] },
+    });
+    form.mount();
+
+    // user also checks "b"
+    const b = el.querySelector<HTMLInputElement>('[value="b"]')!;
+    b.checked = true;
+    dispatch(b, "change");
+
+    rerender(
+      el,
+      `
+      <input type="checkbox" name="tags" value="a" />
+      <input type="checkbox" name="tags" value="b" />
+    `,
+    );
+    await Promise.resolve();
+
+    const checkboxes = el.querySelectorAll<HTMLInputElement>('[name="tags"]');
+    expect(checkboxes[0]!.checked).toBe(true); // "a" — default
+    expect(checkboxes[1]!.checked).toBe(true); // "b" — user checked
+
+    form.unmount();
+    cleanup(el);
+  });
+
+  it("no observer is set up when defaultValues is not provided", async () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({ el, schema: basicSchema, onSubmit: () => {} });
+
+    expect(() => {
+      form.mount();
+      rerender(el, basicHtml);
+      form.unmount();
+    }).not.toThrow();
+
+    cleanup(el);
+  });
+
+  it("values() reflects restored values after re-render", async () => {
+    const el = makeForm(basicHtml);
+    const form = createForm({
+      el,
+      schema: basicSchema,
+      onSubmit: () => {},
+      defaultValues: { email: "ada@example.com", name: "Ada" },
+    });
+    form.mount();
+
+    rerender(el, basicHtml);
+    await Promise.resolve();
+
+    const result = form.values();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toEqual({ email: "ada@example.com", name: "Ada" });
+    }
+
+    form.unmount();
+    cleanup(el);
+  });
+});
