@@ -13,11 +13,38 @@ import {
   routeParams,
   routeSearch,
   defineLayout,
+  loader,
+  redirect,
+  Redirect,
+  error,
+  LoaderError,
+  composeLoaders,
+  prefetch,
+  RouterLink,
 } from "./index";
 
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
+
+// Simple schema helper for tests - creates a StandardSchemaV1 compatible schema
+function createSchema<T>(): {
+  "~standard": {
+    version: 1;
+    vendor: "test";
+    types: { input: T; output: T };
+    validate: (value: unknown) => { value: T };
+  };
+} {
+  return {
+    "~standard": {
+      version: 1 as const,
+      vendor: "test",
+      types: undefined as unknown as { input: any; output: any },
+      validate: (value: unknown) => ({ value: value as any }),
+    },
+  } as any;
+}
 
 function makeEl(inner = ""): Element {
   const el = document.createElement("div");
@@ -1010,5 +1037,573 @@ describe("defineLayout()", () => {
     expect(html).toContain("<p>page</p>");
     expect(html.indexOf("<outer>")).toBeLessThan(html.indexOf("<inner>"));
     expect(html.indexOf("<inner>")).toBeLessThan(html.indexOf("<p>page</p>"));
+  });
+});
+
+// ─────────────────────────────────────────────
+// loader() identity + type anchor
+// ─────────────────────────────────────────────
+
+describe("loader()", () => {
+  it("returns the function unchanged (identity)", () => {
+    const fn = async () => ({ x: 1 });
+    expect(loader(fn)).toBe(fn);
+  });
+
+  it("works with sync loaders", () => {
+    const fn = () => ({ x: 1 });
+    expect(loader(fn)).toBe(fn);
+  });
+});
+
+// ─────────────────────────────────────────────
+// redirect() / error() sentinels
+// ─────────────────────────────────────────────
+
+describe("redirect()", () => {
+  it("throws a Redirect instance", () => {
+    expect(() => redirect("/login")).toThrow();
+    try {
+      redirect("/login");
+    } catch (e) {
+      expect(e).toBeInstanceOf(Redirect);
+    }
+  });
+
+  it("defaults to status 302", () => {
+    try {
+      redirect("/login");
+    } catch (e: any) {
+      expect(e.status).toBe(302);
+      expect(e.to).toBe("/login");
+    }
+  });
+
+  it("accepts a custom status", () => {
+    try {
+      redirect("/new", 301);
+    } catch (e: any) {
+      expect(e.status).toBe(301);
+    }
+  });
+
+  it("Redirect instances have the __ilhaRedirect marker", () => {
+    try {
+      redirect("/x");
+    } catch (e: any) {
+      expect(e.__ilhaRedirect).toBe(true);
+    }
+  });
+});
+
+describe("error()", () => {
+  it("throws a LoaderError instance", () => {
+    expect(() => error(404, "not found")).toThrow();
+    try {
+      error(404, "not found");
+    } catch (e) {
+      expect(e).toBeInstanceOf(LoaderError);
+    }
+  });
+
+  it("carries status and message", () => {
+    try {
+      error(403, "forbidden");
+    } catch (e: any) {
+      expect(e.status).toBe(403);
+      expect(e.message).toBe("forbidden");
+    }
+  });
+
+  it("LoaderError instances have the __ilhaLoaderError marker", () => {
+    try {
+      error(500, "oops");
+    } catch (e: any) {
+      expect(e.__ilhaLoaderError).toBe(true);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────
+// composeLoaders() — merges layout + page loaders
+// ─────────────────────────────────────────────
+
+describe("composeLoaders()", () => {
+  const ctx = () => ({
+    params: {},
+    request: new Request("http://localhost/"),
+    url: new URL("http://localhost/"),
+    signal: new AbortController().signal,
+  });
+
+  it("returns an empty object for an empty list", async () => {
+    const composed = composeLoaders([] as const);
+    expect(await composed(ctx())).toEqual({});
+  });
+
+  it("returns the single loader unchanged when given one", () => {
+    const fn = async () => ({ x: 1 });
+    expect(composeLoaders([fn])).toBe(fn);
+  });
+
+  it("merges results from multiple loaders", async () => {
+    const a = async () => ({ a: 1 });
+    const b = async () => ({ b: 2 });
+    const composed = composeLoaders([a, b]);
+    expect(await composed(ctx())).toEqual({ a: 1, b: 2 });
+  });
+
+  it("later loader wins on key collision (page overrides layout)", async () => {
+    const layout = async () => ({ user: "layout-user", extra: 1 });
+    const page = async () => ({ user: "page-user" });
+    const composed = composeLoaders([layout, page]);
+    const result = await composed(ctx());
+    expect(result).toEqual({ user: "page-user", extra: 1 });
+  });
+
+  it("runs loaders in parallel (concurrent, not sequential)", async () => {
+    const order: string[] = [];
+    const slow = async () => {
+      order.push("slow-start");
+      await new Promise((r) => setTimeout(r, 30));
+      order.push("slow-end");
+      return { slow: true };
+    };
+    const fast = async () => {
+      order.push("fast-start");
+      await new Promise((r) => setTimeout(r, 5));
+      order.push("fast-end");
+      return { fast: true };
+    };
+    await composeLoaders([slow, fast])(ctx());
+    // Both starts happen before either end — proves parallelism
+    expect(order.indexOf("slow-start")).toBeLessThan(order.indexOf("fast-end"));
+    expect(order.indexOf("fast-start")).toBeLessThan(order.indexOf("slow-end"));
+  });
+
+  it("passes the same ctx to all loaders", async () => {
+    const seen: any[] = [];
+    const a = async (c: any) => {
+      seen.push(c);
+      return {};
+    };
+    const b = async (c: any) => {
+      seen.push(c);
+      return {};
+    };
+    const c = ctx();
+    await composeLoaders([a, b])(c);
+    expect(seen[0]).toBe(c);
+    expect(seen[1]).toBe(c);
+  });
+
+  it("propagates a Redirect thrown by any loader", async () => {
+    const ok = async () => ({ a: 1 });
+    const redirects = async () => {
+      redirect("/login");
+    };
+    await expect(composeLoaders([ok, redirects])(ctx())).rejects.toBeInstanceOf(Redirect);
+  });
+
+  it("propagates a LoaderError thrown by any loader", async () => {
+    const ok = async () => ({ a: 1 });
+    const errs = async () => {
+      error(404, "nope");
+    };
+    await expect(composeLoaders([ok, errs])(ctx())).rejects.toBeInstanceOf(LoaderError);
+  });
+
+  it("tolerates null/undefined loader return (treats as empty)", async () => {
+    // Loaders should generally return objects, but undefined should not corrupt the merge.
+    const a = async () => ({ a: 1 });
+    const b = async () => undefined as any;
+    const composed = composeLoaders([a, b]);
+    const result = await composed(ctx());
+    expect(result).toEqual({ a: 1 });
+  });
+});
+
+// ─────────────────────────────────────────────
+// router.runLoader() — the loader endpoint entry
+// ─────────────────────────────────────────────
+
+describe("router.runLoader()", () => {
+  it("returns { kind: 'data', data: {} } for routes without a loader", async () => {
+    const r = router().route("/", homePage);
+    const result = await r.runLoader("/");
+    expect(result).toEqual({ kind: "data", data: {} });
+  });
+
+  it("returns { kind: 'not-found' } for unmatched paths", async () => {
+    const r = router().route("/", homePage);
+    const result = await r.runLoader("/missing");
+    expect(result).toEqual({ kind: "not-found" });
+  });
+
+  it("runs the loader and returns its data", async () => {
+    const load = loader(async () => ({ user: "alice" }));
+    const r = router().route("/", homePage, load);
+    const result = await r.runLoader("/");
+    expect(result).toEqual({ kind: "data", data: { user: "alice" } });
+  });
+
+  it("passes decoded params to the loader", async () => {
+    const captured: any[] = [];
+    const load = loader(async (c) => {
+      captured.push(c.params);
+      return { id: c.params.id };
+    });
+    const r = router().route("/user/:id", userPage, load);
+    const result = await r.runLoader("/user/42");
+    expect(captured[0]).toEqual({ id: "42" });
+    expect(result).toEqual({ kind: "data", data: { id: "42" } });
+  });
+
+  it("decodes URL-encoded params before passing to loader", async () => {
+    const captured: any[] = [];
+    const load = loader(async (c) => {
+      captured.push(c.params);
+      return {};
+    });
+    const r = router().route("/user/:id", userPage, load);
+    await r.runLoader("/user/hello%20world");
+    expect(captured[0]).toEqual({ id: "hello world" });
+  });
+
+  it("passes the URL object to the loader", async () => {
+    let capturedUrl: URL | undefined;
+    const load = loader(async (c) => {
+      capturedUrl = c.url;
+      return {};
+    });
+    const r = router().route("/about", aboutPage, load);
+    await r.runLoader("/about?tab=docs");
+    expect(capturedUrl).toBeInstanceOf(URL);
+    expect(capturedUrl!.pathname).toBe("/about");
+    expect(capturedUrl!.search).toBe("?tab=docs");
+  });
+
+  it("provides an AbortSignal to the loader", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const load = loader(async (c) => {
+      capturedSignal = c.signal;
+      return {};
+    });
+    const r = router().route("/", homePage, load);
+    await r.runLoader("/");
+    expect(capturedSignal).toBeDefined();
+    expect(typeof capturedSignal!.aborted).toBe("boolean");
+  });
+
+  it("forwards the supplied Request to the loader", async () => {
+    let capturedRequest: Request | undefined;
+    const load = loader(async (c) => {
+      capturedRequest = c.request;
+      return {};
+    });
+    const r = router().route("/", homePage, load);
+    const req = new Request("http://example.com/", { headers: { "x-custom": "yes" } });
+    await r.runLoader("/", req);
+    expect(capturedRequest).toBe(req);
+  });
+
+  it("synthesises a Request when none is supplied", async () => {
+    let capturedRequest: Request | undefined;
+    const load = loader(async (c) => {
+      capturedRequest = c.request;
+      return {};
+    });
+    const r = router().route("/", homePage, load);
+    await r.runLoader("http://example.com/");
+    expect(capturedRequest).toBeDefined();
+  });
+
+  it("catches redirect() and returns { kind: 'redirect' }", async () => {
+    const load = loader(async () => {
+      redirect("/login", 301);
+    });
+    const r = router().route("/", homePage, load);
+    const result = await r.runLoader("/");
+    expect(result).toEqual({ kind: "redirect", to: "/login", status: 301 });
+  });
+
+  it("catches error() and returns { kind: 'error' }", async () => {
+    const load = loader(async () => {
+      error(404, "not found");
+    });
+    const r = router().route("/", homePage, load);
+    const result = await r.runLoader("/");
+    expect(result).toEqual({ kind: "error", status: 404, message: "not found" });
+  });
+
+  it("catches generic thrown errors as 500", async () => {
+    const load = loader(async () => {
+      throw new Error("boom");
+    });
+    const r = router().route("/", homePage, load);
+    const result = await r.runLoader("/");
+    expect(result).toEqual({ kind: "error", status: 500, message: "boom" });
+  });
+
+  it("honours error.status on generic thrown errors", async () => {
+    const load = loader(async () => {
+      const e: any = new Error("bad");
+      e.status = 418;
+      throw e;
+    });
+    const r = router().route("/", homePage, load);
+    const result = await r.runLoader("/");
+    expect(result).toEqual({ kind: "error", status: 418, message: "bad" });
+  });
+
+  it("accepts a URL object as the first argument", async () => {
+    const load = loader(async () => ({ ok: true }));
+    const r = router().route("/", homePage, load);
+    const result = await r.runLoader(new URL("http://example.com/"));
+    expect(result).toEqual({ kind: "data", data: { ok: true } });
+  });
+});
+
+// ─────────────────────────────────────────────
+// router.renderHydratable() — loader-fed input
+// ─────────────────────────────────────────────
+
+describe("renderHydratable() with loader", () => {
+  const greeter = ilha
+    .input(createSchema<{ name?: string }>())
+    .render(({ input }) => `<p>hello ${input.name ?? "stranger"}</p>`);
+
+  it("feeds loader output into the island as input", async () => {
+    const load = loader(async () => ({ name: "world" }));
+    const html = await router().route("/", greeter, load).renderHydratable("/", { greeter });
+    expect(html).toContain("hello world");
+  });
+
+  it("loader receives params from the matched route", async () => {
+    const userIsland = ilha
+      .input(createSchema<{ id?: string }>())
+      .render(({ input }) => `<p>u:${input.id ?? "?"}</p>`);
+    const load = loader(async ({ params }) => ({ id: params.id }));
+    const html = await router()
+      .route("/user/:id", userIsland, load)
+      .renderHydratable("/user/7", { u: userIsland });
+    expect(html).toContain("u:7");
+  });
+
+  it("renders empty-route HTML when no route matches (loader not invoked)", async () => {
+    let called = false;
+    const load = loader(async () => {
+      called = true;
+      return {};
+    });
+    const html = await router().route("/", greeter, load).renderHydratable("/missing", { greeter });
+    expect(html).toContain("data-router-empty");
+    expect(called).toBe(false);
+  });
+
+  it("routes without loaders still render (backward-compat)", async () => {
+    const html = await router().route("/", homePage).renderHydratable("/", registry);
+    expect(html).toContain("home");
+  });
+
+  it("forwards the supplied Request to the loader", async () => {
+    let captured: Request | undefined;
+    const load = loader(async ({ request }) => {
+      captured = request;
+      return {};
+    });
+    const req = new Request("http://example.com/", { headers: { "x-trace": "abc" } });
+    await router().route("/", greeter, load).renderHydratable("/", { greeter }, {}, req);
+    expect(captured).toBe(req);
+  });
+
+  it("loader data appears in data-ilha-props when snapshot is on", async () => {
+    const load = loader(async () => ({ name: "alice" }));
+    const html = await router()
+      .route("/", greeter, load)
+      .renderHydratable("/", { greeter }, { snapshot: true });
+    // Loader return is the island's input — ilha serialises it in data-ilha-props
+    expect(html).toContain("data-ilha-props");
+    expect(html).toContain("alice");
+  });
+
+  it("renders meta-refresh for redirects (string-return compat)", async () => {
+    const load = loader(async () => {
+      redirect("/login");
+    });
+    const html = await router().route("/", greeter, load).renderHydratable("/", { greeter });
+    expect(html).toContain('meta http-equiv="refresh"');
+    expect(html).toContain("/login");
+  });
+});
+
+// ─────────────────────────────────────────────
+// router.renderResponse() — structured envelope
+// ─────────────────────────────────────────────
+
+describe("renderResponse()", () => {
+  const greeter = ilha
+    .input(createSchema<{ name?: string }>())
+    .render(({ input }) => `<p>hi ${input.name ?? "anon"}</p>`);
+
+  it("returns { kind: 'html' } for successful renders", async () => {
+    const load = loader(async () => ({ name: "bob" }));
+    const res = await router().route("/", greeter, load).renderResponse("/", { greeter });
+    expect(res.kind).toBe("html");
+    if (res.kind === "html") {
+      expect(res.html).toContain("hi bob");
+    }
+  });
+
+  it("returns { kind: 'redirect' } when loader calls redirect()", async () => {
+    const load = loader(async () => {
+      redirect("/signin", 307);
+    });
+    const res = await router()
+      .route("/protected", greeter, load)
+      .renderResponse("/protected", { greeter });
+    expect(res).toEqual({ kind: "redirect", to: "/signin", status: 307 });
+  });
+
+  it("returns { kind: 'error' } when loader calls error()", async () => {
+    const load = loader(async () => {
+      error(404, "gone");
+    });
+    const res = await router().route("/", greeter, load).renderResponse("/", { greeter });
+    expect(res.kind).toBe("error");
+    if (res.kind === "error") {
+      expect(res.status).toBe(404);
+      expect(res.message).toBe("gone");
+      expect(typeof res.html).toBe("string");
+    }
+  });
+
+  it("returns { kind: 'html', status: 404 } for unmatched routes", async () => {
+    const res = await router().route("/", greeter).renderResponse("/nowhere", { greeter });
+    expect(res.kind).toBe("html");
+    if (res.kind === "html") {
+      expect(res.status).toBe(404);
+      expect(res.html).toContain("data-router-empty");
+    }
+  });
+
+  it("renders html without invoking a loader when none is registered", async () => {
+    const res = await router().route("/", homePage).renderResponse("/", registry);
+    expect(res.kind).toBe("html");
+    if (res.kind === "html") expect(res.html).toContain("home");
+  });
+});
+
+// ─────────────────────────────────────────────
+// route() — backward compatibility with 2-arg form
+// ─────────────────────────────────────────────
+
+describe("route() backward compatibility", () => {
+  it("2-argument .route() still registers the route", () => {
+    const r = router().route("/", homePage).route("/about", aboutPage);
+    // Use isActive as a cheap probe that the route is registered
+    setLocation("/about");
+    // Need a sync that doesn't require .mount() — renderHydratable() does it
+    // but is async. Just check that runLoader reports data+island resolved.
+    return r.runLoader("/about").then((res) => {
+      expect(res.kind).toBe("data");
+    });
+  });
+
+  it("mixing loader and non-loader routes on the same builder works", async () => {
+    const load = loader(async () => ({ x: 1 }));
+    const r = router().route("/", homePage).route("/with-loader", homePage, load);
+
+    const a = await r.runLoader("/");
+    const b = await r.runLoader("/with-loader");
+    expect(a).toEqual({ kind: "data", data: {} });
+    expect(b).toEqual({ kind: "data", data: { x: 1 } });
+  });
+});
+
+// ─────────────────────────────────────────────
+// prefetch() — opt-out when no loader registered
+// ─────────────────────────────────────────────
+
+describe("prefetch()", () => {
+  let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
+
+  beforeEach(() => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
+      return new Response(JSON.stringify({ kind: "data", data: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("does not fetch when the route has no loader", () => {
+    router().route("/no-loader-a", homePage); // no loader
+    prefetch("/no-loader-a");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not fetch for unmatched paths", () => {
+    router().route(
+      "/has-loader",
+      homePage,
+      loader(async () => ({})),
+    );
+    prefetch("/not-a-route");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("fetches the loader endpoint when the route has a loader", () => {
+    router().route(
+      "/pf-fetch",
+      homePage,
+      loader(async () => ({})),
+    );
+    prefetch("/pf-fetch");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const url = (fetchSpy.mock.calls[0] as any[])[0] as string;
+    expect(url).toContain("/__ilha/loader");
+    expect(url).toContain("path=");
+  });
+
+  it("is idempotent — second call with same path does not fetch again", () => {
+    router().route(
+      "/pf-idem",
+      homePage,
+      loader(async () => ({})),
+    );
+    prefetch("/pf-idem");
+    prefetch("/pf-idem");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("encodes the path into the query string", () => {
+    router().route(
+      "/pf-enc/:id",
+      homePage,
+      loader(async () => ({})),
+    );
+    prefetch("/pf-enc/abc?tab=reviews");
+    const url = (fetchSpy.mock.calls[0] as any[])[0] as string;
+    expect(url).toContain(encodeURIComponent("/pf-enc/abc?tab=reviews"));
+  });
+});
+
+// ─────────────────────────────────────────────
+// RouterLink — data-prefetch attribute + hover
+// ─────────────────────────────────────────────
+
+describe("RouterLink", () => {
+  it("renders with data-prefetch attribute and data-link marker", () => {
+    // RouterLink uses .state() so toString props don't seed state — the SSR
+    // markup carries the empty defaults. We just assert the static markers
+    // that enable click interception and hover prefetch are present.
+    const html = RouterLink.toString();
+    expect(html).toContain("data-prefetch");
+    expect(html).toContain("data-link");
   });
 });
