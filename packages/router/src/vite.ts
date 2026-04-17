@@ -23,6 +23,10 @@ interface PageEntry {
   name: string;
   layouts: string[];
   errors: string[];
+  /** True if the page module declares `export const load` / `export … function load`. */
+  hasLoader: boolean;
+  /** Subset of `layouts` whose modules declare a `load` export. */
+  loaderLayouts: string[];
 }
 
 // ─────────────────────────────────────────────
@@ -31,6 +35,30 @@ interface PageEntry {
 
 /** Files that should never be treated as pages even if they match the ts/tsx extension. */
 const EXCLUDED_RE = /\.(test|spec|d)\.(ts|tsx)$/;
+
+// ─────────────────────────────────────────────
+// Codegen — loader export detection
+// ─────────────────────────────────────────────
+
+/**
+ * Match a top-of-statement `export const load`, `export let load`,
+ * `export function load`, or `export async function load`. Intentionally
+ * conservative: `export { load } from "./x"` re-exports are NOT detected
+ * in v1. Declare `load` directly in the file to be picked up.
+ */
+const LOADER_EXPORT_RE = /^\s*export\s+(?:const|let|var|async\s+function|function)\s+load\b/m;
+
+async function hasLoaderExport(file: string): Promise<boolean> {
+  try {
+    const src = await readFile(file, "utf8");
+    // Strip single-line comments at the start of lines to avoid matching
+    // commented-out loaders. Block comments are rare enough to skip.
+    const stripped = src.replace(/^\s*\/\/.*$/gm, "");
+    return LOADER_EXPORT_RE.test(stripped);
+  } catch {
+    return false;
+  }
+}
 
 // ─────────────────────────────────────────────
 // Codegen — filename → rou3 pattern
@@ -144,16 +172,41 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
   const all = await collectFiles(pagesDir);
   const allSet = new Set(all);
   const pages = all.filter((f) => !basename(f).startsWith("+"));
-  return pages.map((file) => {
-    const pattern = fileToPattern(pagesDir, file);
-    return {
-      file,
-      pattern,
-      name: patternToName(pattern),
-      layouts: chainForFile(pagesDir, file, allSet, "+layout.ts"),
-      errors: chainForFile(pagesDir, file, allSet, "+error.ts"),
-    };
-  });
+
+  // Detect loader exports on pages and on +layout.ts files in parallel. Error
+  // sentinels don't carry loaders so we skip them. Cache layout results since
+  // the same layout can apply to many pages.
+  const layoutLoaderCache = new Map<string, Promise<boolean>>();
+  const getLayoutHasLoader = (file: string): Promise<boolean> => {
+    let cached = layoutLoaderCache.get(file);
+    if (!cached) {
+      cached = hasLoaderExport(file);
+      layoutLoaderCache.set(file, cached);
+    }
+    return cached;
+  };
+
+  return Promise.all(
+    pages.map(async (file) => {
+      const pattern = fileToPattern(pagesDir, file);
+      const layouts = chainForFile(pagesDir, file, allSet, "+layout.ts");
+      const errors = chainForFile(pagesDir, file, allSet, "+error.ts");
+      const [pageHasLoader, ...layoutFlags] = await Promise.all([
+        hasLoaderExport(file),
+        ...layouts.map(getLayoutHasLoader),
+      ]);
+      const loaderLayouts = layouts.filter((_, i) => layoutFlags[i]);
+      return {
+        file,
+        pattern,
+        name: patternToName(pattern),
+        layouts,
+        errors,
+        hasLoader: pageHasLoader,
+        loaderLayouts,
+      };
+    }),
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -211,6 +264,7 @@ async function generate(pagesDir: string, outFile: string): Promise<void> {
     return r.startsWith(".") ? r : `./${r}`;
   };
 
+  // ─── Client-safe routes file ────────────────────────────────────────────
   const imports: string[] = [
     `import { router, wrapLayout, wrapError } from "@ilha/router";`,
     `import type { Island } from "ilha";`,
@@ -220,15 +274,26 @@ async function generate(pagesDir: string, outFile: string): Promise<void> {
   const registryLines: string[] = [];
   const routeLines: string[] = [];
 
+  // The `?client` query suffix resolves (via the plugin) to a virtual module
+  // that re-exports only the default. This strips `load` and any symbol only
+  // reachable from `load`, keeping server-only code out of the client bundle.
+  const clientImport = (abs: string) => `${rel(abs)}?client`;
+
   for (const [i, entry] of entries.entries()) {
     const pageId = `_page${i}`;
-    imports.push(`import { default as ${pageId} } from ${JSON.stringify(rel(entry.file))};`);
+    imports.push(
+      `import { default as ${pageId} } from ${JSON.stringify(clientImport(entry.file))};`,
+    );
 
     for (const [j, l] of entry.layouts.entries())
-      imports.push(`import { default as _layout${i}_${j} } from ${JSON.stringify(rel(l))};`);
+      imports.push(
+        `import { default as _layout${i}_${j} } from ${JSON.stringify(clientImport(l))};`,
+      );
 
     for (const [j, e] of entry.errors.entries())
-      imports.push(`import { default as _error${i}_${j} } from ${JSON.stringify(rel(e))};`);
+      imports.push(
+        `import { default as _error${i}_${j} } from ${JSON.stringify(clientImport(e))};`,
+      );
 
     let expr = pageId;
     for (let j = entry.errors.length - 1; j >= 0; j--) expr = `wrapError(_error${i}_${j}, ${expr})`;
@@ -263,10 +328,90 @@ async function generate(pagesDir: string, outFile: string): Promise<void> {
 
   // Only write if content actually changed — avoids unnecessary HMR invalidation
   await mkdir(dirname(outFile), { recursive: true });
-  const changed = await writeIfChanged(outFile, code);
-  if (changed) {
+  const routesChanged = await writeIfChanged(outFile, code);
+
+  // ─── Server-only loaders file ───────────────────────────────────────────
+  const loadersFile = join(dirname(outFile), "loaders.ts");
+  const loadersCode = buildLoadersFile(entries, loadersFile, outFile);
+  const loadersChanged = await writeIfChanged(loadersFile, loadersCode);
+
+  if (routesChanged || loadersChanged) {
     await generateTypes(outFile);
   }
+}
+
+// ─────────────────────────────────────────────
+// Codegen — build the server-only loaders file
+// ─────────────────────────────────────────────
+
+function buildLoadersFile(entries: PageEntry[], loadersFile: string, routesFile: string): string {
+  const relFromLoaders = (abs: string) => {
+    const r = relative(dirname(loadersFile), abs);
+    return r.startsWith(".") ? r : `./${r}`;
+  };
+
+  // Only include pages that have at least one loader in their chain (page or
+  // any layout). Pages without any loaders don't need an attachLoader call.
+  const withLoaders = entries.filter((e) => e.hasLoader || e.loaderLayouts.length > 0);
+
+  if (withLoaders.length === 0) {
+    return [
+      `// @generated by @ilha/router — do not edit`,
+      `// This project has no loader exports; this file is intentionally empty.`,
+      ``,
+      `export {};`,
+      ``,
+    ].join("\n");
+  }
+
+  const routesRel = relFromLoaders(routesFile).replace(/\.ts$/, "");
+
+  const imports: string[] = [`import { pageRouter } from ${JSON.stringify(routesRel)};`];
+  let needsComposeLoaders = false;
+
+  const attachLines: string[] = [];
+
+  for (const [i, entry] of withLoaders.entries()) {
+    // Unique local names per page index to avoid collisions when the same
+    // layout file is imported by many pages (we import it once per page for
+    // clarity — Vite dedupes the underlying module anyway).
+    const loaderIds: string[] = [];
+
+    for (const [j, layout] of entry.loaderLayouts.entries()) {
+      const id = `_p${i}_l${j}`;
+      imports.push(`import { load as ${id} } from ${JSON.stringify(relFromLoaders(layout))};`);
+      loaderIds.push(id);
+    }
+
+    if (entry.hasLoader) {
+      const id = `_p${i}`;
+      imports.push(`import { load as ${id} } from ${JSON.stringify(relFromLoaders(entry.file))};`);
+      loaderIds.push(id);
+    }
+
+    const loadersExpr =
+      loaderIds.length === 1 ? loaderIds[0] : `composeLoaders([${loaderIds.join(", ")}])`;
+    if (loaderIds.length > 1) needsComposeLoaders = true;
+
+    attachLines.push(`pageRouter.attachLoader(${JSON.stringify(entry.pattern)}, ${loadersExpr});`);
+  }
+
+  // Only import composeLoaders if at least one page needs it (multiple loaders)
+  if (needsComposeLoaders) {
+    imports.unshift(`import { composeLoaders } from "@ilha/router";`);
+  }
+
+  return [
+    `// @generated by @ilha/router — do not edit`,
+    `// Server-only. Import this module from your SSR entry to wire loaders`,
+    `// onto pageRouter. Importing it from the client is a no-op but wastes`,
+    `// bundle size — rely on the default build pipeline to keep it out.`,
+    ``,
+    ...imports,
+    ``,
+    ...attachLines,
+    ``,
+  ].join("\n");
 }
 
 // ─────────────────────────────────────────────
@@ -304,6 +449,10 @@ async function generateTypes(outFile: string): Promise<void> {
     `  export const registry: Record<string, Island<any, any>>;`,
     `}`,
     ``,
+    `declare module "ilha:loaders" {`,
+    `  // Side-effect-only module. Importing it attaches loaders to pageRouter.`,
+    `}`,
+    ``,
   ].join("\n");
 
   await writeIfChanged(dtsFile, types);
@@ -315,8 +464,13 @@ async function generateTypes(outFile: string): Promise<void> {
 
 const VIRTUAL_PAGES = "ilha:pages";
 const VIRTUAL_REGISTRY = "ilha:registry";
+const VIRTUAL_LOADERS = "ilha:loaders";
 const RESOLVED_PAGES = "\0ilha:pages";
 const RESOLVED_REGISTRY = "\0ilha:registry";
+const RESOLVED_LOADERS = "\0ilha:loaders";
+
+/** Query suffix used on page/layout imports in the client-safe routes file. */
+const CLIENT_QUERY = "?client";
 
 export interface IlhaPagesOptions {
   /** Directory containing page files. Default: `src/pages` */
@@ -328,6 +482,7 @@ export interface IlhaPagesOptions {
 export function pages(options: IlhaPagesOptions = {}): Plugin {
   let pagesDir: string;
   let outFile: string;
+  let loadersFile: string;
 
   async function regen() {
     try {
@@ -343,6 +498,7 @@ export function pages(options: IlhaPagesOptions = {}): Plugin {
     configResolved(config) {
       pagesDir = resolve(config.root, options.dir ?? "src/pages");
       outFile = resolve(config.root, options.generated ?? ".ilha/routes.ts");
+      loadersFile = join(dirname(outFile), "loaders.ts");
     },
 
     async buildStart() {
@@ -352,43 +508,64 @@ export function pages(options: IlhaPagesOptions = {}): Plugin {
     configureServer(server) {
       server.watcher.add(pagesDir);
 
-      // Only regen on structural changes (add/remove), not content edits.
-      // Content edits to page files are handled by Vite's normal HMR.
+      // Structural changes (add/remove, +layout/+error edits, AND any edit
+      // that could toggle the presence of a `load` export) trigger regen.
       const structuralInvalidate = async (file: string) => {
         if (!file.startsWith(pagesDir)) return;
         await regen();
-        for (const id of [RESOLVED_PAGES, RESOLVED_REGISTRY]) {
+        for (const id of [RESOLVED_PAGES, RESOLVED_REGISTRY, RESOLVED_LOADERS]) {
           const mod = server.moduleGraph.getModuleById(id);
           if (mod) server.moduleGraph.invalidateModule(mod);
         }
         server.hot.send({ type: "full-reload" });
       };
 
-      // Structural events: file/dir added or removed
       server.watcher.on("add", structuralInvalidate);
       server.watcher.on("addDir", structuralInvalidate);
       server.watcher.on("unlink", structuralInvalidate);
 
-      // Content changes to sentinel files (+layout.ts, +error.ts) affect wrapping,
-      // so we treat those as structural. Regular page content changes are HMR'd by Vite.
+      // Edits to page/layout files may add or remove a `load` export, which
+      // changes whether attachLoader() is emitted. Run the regen; if the
+      // generated files are byte-identical, writeIfChanged is a no-op.
       server.watcher.on("change", async (file: string) => {
         if (!file.startsWith(pagesDir)) return;
         const base = basename(file);
-        if (base.startsWith("+")) {
+        if (base.startsWith("+") || /\.(ts|tsx)$/.test(base)) {
           await structuralInvalidate(file);
         }
-        // else: normal page content change — Vite HMR handles it
       });
     },
 
-    resolveId(id) {
+    resolveId(id, importer) {
       if (id === VIRTUAL_PAGES) return RESOLVED_PAGES;
       if (id === VIRTUAL_REGISTRY) return RESOLVED_REGISTRY;
+      if (id === VIRTUAL_LOADERS) return RESOLVED_LOADERS;
+
+      // `?client` suffix — resolve to a virtual module wrapping the real file.
+      // We keep the suffix in the resolved id so `load()` can branch on it.
+      if (id.endsWith(CLIENT_QUERY)) {
+        const bare = id.slice(0, -CLIENT_QUERY.length);
+        // Resolve relative to importer if we have one; otherwise use as-is.
+        const resolved = importer
+          ? resolve(dirname(importer.replace(/\?.*$/, "")), bare)
+          : resolve(bare);
+        return resolved + CLIENT_QUERY;
+      }
     },
 
     load(id) {
       if (id === RESOLVED_PAGES) return `export { pageRouter } from ${JSON.stringify(outFile)};`;
       if (id === RESOLVED_REGISTRY) return `export { registry } from ${JSON.stringify(outFile)};`;
+      if (id === RESOLVED_LOADERS) {
+        return `import ${JSON.stringify(loadersFile)};`;
+      }
+
+      // `?client` virtual: re-export only `default` from the underlying file.
+      // Rollup DCE will drop any non-default export and its dependency tree.
+      if (id.endsWith(CLIENT_QUERY)) {
+        const bare = id.slice(0, -CLIENT_QUERY.length);
+        return `export { default } from ${JSON.stringify(bare)};`;
+      }
     },
   };
 }
