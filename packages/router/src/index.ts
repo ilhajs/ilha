@@ -81,6 +81,10 @@ export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island
   return wrapper;
 }
 
+export function defineLayout(layout: LayoutHandler): LayoutHandler {
+  return layout;
+}
+
 export interface NavigateOptions {
   replace?: boolean;
 }

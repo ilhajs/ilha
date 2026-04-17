@@ -321,6 +321,32 @@ const wrapped = wrapLayout(myLayout, myPage);
 
 ---
 
+### `defineLayout(fn)`
+
+A typed helper that returns the layout function as-is. Use it instead of the `satisfies LayoutHandler` cast for a cleaner, import-light syntax.
+
+```ts
+// src/pages/+layout.ts
+import { defineLayout } from "@ilha/router/vite";
+import ilha, { html } from "ilha";
+
+export default defineLayout((children) =>
+  ilha.render(
+    () => html`
+      <nav>
+        <a href="/">Home</a>
+        <a href="/about">About</a>
+      </nav>
+      <main>${children}</main>
+    `,
+  ),
+);
+```
+
+Equivalent to annotating with `satisfies LayoutHandler` but requires no explicit type import.
+
+---
+
 ### `wrapError(handler, page)`
 
 Wraps a page island with an error boundary. If the page throws during SSR (`.toString()`), the `handler` receives the error and current route snapshot and returns a fallback island. Also intercepts errors during `.mount()` for client-side resilience.
@@ -367,6 +393,9 @@ interface HydrateOptions {
   root?: Element;
   target?: string | Element;
 }
+
+// Helper — returns fn as-is with LayoutHandler type enforced
+function defineLayout(fn: LayoutHandler): LayoutHandler;
 ```
 
 ---
@@ -466,9 +495,29 @@ Within the same tier, longer segment counts and alphabetical order act as tiebre
 A `+layout.ts` wraps every page in its directory and all subdirectories. Layouts compose **inside-out** — the nearest layout is innermost, the root layout is outermost.
 
 ```ts
-// src/pages/+layout.ts
-import { html } from "ilha";
+// src/pages/+layout.ts — using defineLayout (recommended)
+import { defineLayout } from "@ilha/router/vite";
+import ilha, { html } from "ilha";
+
+export default defineLayout((children) =>
+  ilha.render(
+    () => html`
+      <nav>
+        <a href="/">Home</a>
+        <a href="/about">About</a>
+      </nav>
+      <main>${children}</main>
+    `,
+  ),
+);
+```
+
+Alternatively, using the explicit type annotation:
+
+```ts
+// src/pages/+layout.ts — using satisfies (equivalent)
 import type { LayoutHandler } from "@ilha/router/vite";
+import ilha, { html } from "ilha";
 
 export default ((children) =>
   ilha.render(

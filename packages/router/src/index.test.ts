@@ -12,6 +12,7 @@ import {
   routePath,
   routeParams,
   routeSearch,
+  defineLayout,
 } from "./index";
 
 // ─────────────────────────────────────────────
@@ -946,5 +947,68 @@ describe("SSR full-page HTML template", () => {
     await r.renderHydratable("/", registry);
     expect(routePath()).toBe("/");
     expect(routeParams()).toEqual({});
+  });
+});
+
+// ─────────────────────────────────────────────
+// defineLayout()
+// ─────────────────────────────────────────────
+
+describe("defineLayout()", () => {
+  it("returns the same function reference (identity)", () => {
+    const layout = (children: typeof homePage) => ilha.render(() => children.toString());
+    const result = defineLayout(layout);
+    expect(result).toBe(layout);
+  });
+
+  it("wraps page content when the returned layout is called", () => {
+    const layout = defineLayout((children) =>
+      ilha.render(() => `<layout>${children.toString()}</layout>`),
+    );
+    const page = ilha.render(() => `<p>content</p>`);
+    const wrapped = layout(page);
+    expect(wrapped.toString()).toContain("<layout>");
+    expect(wrapped.toString()).toContain("<p>content</p>");
+  });
+
+  it("returned island has .toString and .mount", () => {
+    const layout = defineLayout((children) => ilha.render(() => children.toString()));
+    const wrapped = layout(homePage);
+    expect(typeof wrapped.toString).toBe("function");
+    expect(typeof wrapped.mount).toBe("function");
+  });
+
+  it("composes with wrapLayout — output is identical to satisfies LayoutHandler pattern", () => {
+    // defineLayout should produce the same result as the manual satisfies cast
+    const fn = (children: typeof homePage) =>
+      ilha.render(() => `<shell>${children.toString()}</shell>`);
+
+    const viaDefine = defineLayout(fn);
+    const page = ilha.render(() => `<p>page</p>`);
+
+    const wrappedViaDefine = viaDefine(page);
+    const wrappedDirect = fn(page);
+
+    expect(wrappedViaDefine.toString()).toBe(wrappedDirect.toString());
+  });
+
+  it("nested defineLayout calls compose inside-out", () => {
+    const outer = defineLayout((children) =>
+      ilha.render(() => `<outer>${children.toString()}</outer>`),
+    );
+    const inner = defineLayout((children) =>
+      ilha.render(() => `<inner>${children.toString()}</inner>`),
+    );
+    const page = ilha.render(() => `<p>page</p>`);
+
+    // outer wraps inner wraps page — outermost last in call chain
+    const wrapped = outer(inner(page));
+    const html = wrapped.toString();
+
+    expect(html).toContain("<outer>");
+    expect(html).toContain("<inner>");
+    expect(html).toContain("<p>page</p>");
+    expect(html.indexOf("<outer>")).toBeLessThan(html.indexOf("<inner>"));
+    expect(html.indexOf("<inner>")).toBeLessThan(html.indexOf("<p>page</p>"));
   });
 });
