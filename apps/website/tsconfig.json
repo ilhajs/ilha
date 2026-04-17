@@ -25,5 +25,6 @@
       "@ilha/router": ["../../packages/router/src/index.ts"],
       "@ilha/router/vite": ["../../packages/router/src/vite.ts"]
     }
-  }
+  },
+  "exclude": ["../../packages"]
 }

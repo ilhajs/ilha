@@ -335,7 +335,7 @@ export function prefetch(pathWithSearch: string): void {
   if (!isBrowser) return;
   if (prefetchCache.has(pathWithSearch)) return;
   // Don't prefetch routes that have no loader — nothing to fetch.
-  const pathOnly = pathWithSearch.split("?")[0];
+  const pathOnly = pathWithSearch.split("?")[0] ?? "";
   const match = findRoute(_rou3, "GET", pathOnly);
   if (!match?.data?.loader) return;
   const promise = fetchLoaderData(pathWithSearch).catch((e) => {
@@ -369,7 +369,7 @@ async function mountRouteWithHydration(
   // Fetch loader data *only if* the matched route has a loader registered.
   // Routes registered client-side have `loader: undefined` when the Vite
   // plugin emits server-only loader imports behind `import.meta.env.SSR`.
-  const clientMatch = findRoute(_rou3, "GET", pathWithSearch.split("?")[0]);
+  const clientMatch = findRoute(_rou3, "GET", pathWithSearch.split("?")[0] ?? "");
   const hasLoader = !!clientMatch?.data?.loader;
 
   let props: Record<string, unknown> = {};
