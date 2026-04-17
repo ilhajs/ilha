@@ -327,7 +327,7 @@ A typed helper that returns the layout function as-is. Use it instead of the `sa
 
 ```ts
 // src/pages/+layout.ts
-import { defineLayout } from "@ilha/router/vite";
+import { defineLayout } from "@ilha/router";
 import ilha, { html } from "ilha";
 
 export default defineLayout((children) =>
@@ -495,8 +495,8 @@ Within the same tier, longer segment counts and alphabetical order act as tiebre
 A `+layout.ts` wraps every page in its directory and all subdirectories. Layouts compose **inside-out** — the nearest layout is innermost, the root layout is outermost.
 
 ```ts
-// src/pages/+layout.ts — using defineLayout (recommended)
-import { defineLayout } from "@ilha/router/vite";
+// src/pages/+layout.ts
+import { defineLayout } from "@ilha/router";
 import ilha, { html } from "ilha";
 
 export default defineLayout((children) =>
