@@ -89,7 +89,7 @@ Returns a `RouterBuilder`.
 
 Registers a route. Patterns are matched in **declaration order** — first match wins. Uses [rou3](https://github.com/h3js/rou3) for matching, the same engine as Nitro.
 
-The optional `loader` is a data-fetching function that runs before the page renders. Its return value is passed as input props to the island. On the client, loaders are fetched via the `/_ilha/loader` endpoint exposed by the Vite plugin.
+The optional `loader` is a data-fetching function that runs before the page renders. Its return value is passed as input props to the island. On the client, loaders are fetched via the `/__ilha/loader` endpoint exposed by the Vite plugin.
 
 ```ts
 import { loader } from "@ilha/router";
@@ -200,7 +200,7 @@ return new Response(res.html, { headers: { "content-type": "text/html" } });
 
 #### `.runLoader(url, request?)` — server / SSR
 
-Runs the loader chain for the matched route without rendering any HTML. Returns a discriminated union result. Used by the `/_ilha/loader` endpoint the Vite plugin exposes for client-side navigation.
+Runs the loader chain for the matched route without rendering any HTML. Returns a discriminated union result. Used by the `/__ilha/loader` endpoint the Vite plugin exposes for client-side navigation.
 
 ```ts
 const result = await router().route("/user/:id", userPage, userLoader).runLoader("/user/42");
@@ -339,7 +339,7 @@ error(403, "Forbidden");
 
 ---
 
-### `composeLoaders(...loaders)`
+### `composeLoaders(loaders)`
 
 Merges multiple loaders into a single loader. All loaders run **concurrently** via `Promise.all`. Later loaders win on key collision — the page loader overrides a layout loader for the same key.
 
@@ -351,7 +351,7 @@ import { composeLoaders, loader } from "@ilha/router";
 const layoutLoader = loader(async () => ({ user: await getCurrentUser() }));
 const pageLoader = loader(async ({ params }) => ({ post: await getPost(params.id) }));
 
-const combined = composeLoaders(layoutLoader, pageLoader);
+const combined = composeLoaders([layoutLoader, pageLoader]);
 // → { user: …, post: … }
 ```
 
@@ -361,7 +361,7 @@ If any loader in the chain throws a `Redirect` or `LoaderError`, the composed lo
 
 ### `prefetch(pathWithSearch)`
 
-Prefetches the loader data for a given path by calling the `/_ilha/loader` endpoint in the background. The result is cached and consumed on the next navigation to that path, making the transition feel instant.
+Prefetches the loader data for a given path by calling the `/__ilha/loader` endpoint in the background. The result is cached and consumed on the next navigation to that path, making the transition feel instant.
 
 Safe to call repeatedly — an in-flight request for the same path is reused until it resolves and is consumed, avoiding duplicate network requests.
 
@@ -584,7 +584,7 @@ function redirect(to: string, status?: number): never;
 function error(status: number, message: string): never;
 
 // Merges loaders — later loaders win on key collision
-function composeLoaders<Ls extends readonly Loader<any>[]>(...loaders: Ls): Loader<MergeLoaders<Ls>>;
+function composeLoaders<Ls extends readonly Loader<any>[]>(loaders: Ls): Loader<MergeLoaders<Ls>>;
 ```
 
 ---
@@ -863,12 +863,12 @@ Or use the one-liner: `pageRouter.hydrate(registry)`.
 
 On the **server**, loaders run inside `.renderHydratable()` / `.renderResponse()`. Their return value is serialised into `data-ilha-props` on the island element so the client can rehydrate without re-fetching.
 
-On the **client**, navigations fetch loader data from the `/_ilha/loader` endpoint before mounting the next island. The endpoint is served automatically by the Vite plugin (dev) and the Nitro adapter (production). `RouterLink` and `prefetch()` both call this endpoint proactively on hover so the data is already in cache when the user clicks.
+On the **client**, navigations fetch loader data from the `/__ilha/loader` endpoint before mounting the next island. The endpoint is served automatically by the Vite plugin (dev) and the Nitro adapter (production). `RouterLink` and `prefetch()` both call this endpoint proactively on hover so the data is already in cache when the user clicks.
 
 ```
 server                         client (navigation)
 ────────────────────────────   ──────────────────────────────────────────────
-renderHydratable               GET /_ilha/loader?path=/user/42
+renderHydratable               GET /__ilha/loader?path=/user/42
   → executeLoader(…)             → runLoader("/user/42")
   → island.hydratable(props)     → fetchLoaderData("/user/42")
   → data-ilha-props="{…}"        → mountRouteWithHydration(island, host, …)
