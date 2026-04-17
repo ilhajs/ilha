@@ -924,3 +924,442 @@ describe("pages — Vite plugin", () => {
     await removeDir(root);
   });
 });
+
+// ─────────────────────────────────────────────
+// codegen — loader detection & ?client suffix
+// ─────────────────────────────────────────────
+
+describe("codegen — loader detection", () => {
+  let pagesDir: string;
+  let outFile: string;
+  let loadersFile: string;
+  let root: string;
+
+  beforeEach(async () => {
+    root = await makeDir("loaders");
+    pagesDir = join(root, "src/pages");
+    outFile = join(root, ".ilha/routes.ts");
+    loadersFile = join(root, ".ilha/loaders.ts");
+    await mkdir(pagesDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await removeDir(root);
+  });
+
+  async function runCodegen() {
+    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
+    plugin.configResolved({ root });
+    await plugin.buildStart();
+    return {
+      routes: await readFile(outFile, "utf8"),
+      loaders: await readFile(loadersFile, "utf8").catch(() => ""),
+    };
+  }
+
+  // ── client-safe routes file ────────────────────────────────────────────
+
+  it("page imports in routes.ts use the ?client suffix", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    const { routes } = await runCodegen();
+    const pageImport = routes
+      .split("\n")
+      .find((l) => l.startsWith("import") && l.includes("_page0"));
+    expect(pageImport).toBeDefined();
+    expect(pageImport!).toContain("?client");
+  });
+
+  it("layout imports in routes.ts use the ?client suffix", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    const { routes } = await runCodegen();
+    const layoutImport = routes
+      .split("\n")
+      .find((l) => l.startsWith("import") && l.includes("+layout"));
+    expect(layoutImport).toBeDefined();
+    expect(layoutImport!).toContain("?client");
+  });
+
+  it("error imports in routes.ts use the ?client suffix", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "+error.ts", `export default null;`);
+    const { routes } = await runCodegen();
+    const errorImport = routes
+      .split("\n")
+      .find((l) => l.startsWith("import") && l.includes("+error"));
+    expect(errorImport).toBeDefined();
+    expect(errorImport!).toContain("?client");
+  });
+
+  it("routes.ts does not reference loaders", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    const { routes } = await runCodegen();
+    expect(routes).not.toContain("attachLoader");
+    expect(routes).not.toContain("composeLoaders");
+    expect(routes).not.toContain("import { load");
+  });
+
+  // ── loaders.ts — written only when needed ──────────────────────────────
+
+  it("emits an empty loaders.ts when no page or layout has a loader", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "about.ts", `export default null;`);
+    const { loaders } = await runCodegen();
+    expect(loaders).toContain("intentionally empty");
+    expect(loaders).not.toContain("attachLoader");
+  });
+
+  it("emits attachLoader when a page has a load export", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({ x: 1 }); export default null;`,
+    );
+    const { loaders } = await runCodegen();
+    expect(loaders).toContain(`pageRouter.attachLoader("/",`);
+  });
+
+  it("imports load from the page module (no ?client suffix) in loaders.ts", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    const { loaders } = await runCodegen();
+    const loadImport = loaders
+      .split("\n")
+      .find((l) => l.startsWith("import") && l.includes("{ load as"));
+    expect(loadImport).toBeDefined();
+    expect(loadImport!).not.toContain("?client");
+  });
+
+  it("detects `export async function load`", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export async function load() { return {}; }\nexport default null;`,
+    );
+    const { loaders } = await runCodegen();
+    expect(loaders).toContain("attachLoader");
+  });
+
+  it("detects `export function load`", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export function load() { return {}; }\nexport default null;`,
+    );
+    const { loaders } = await runCodegen();
+    expect(loaders).toContain("attachLoader");
+  });
+
+  it("does not treat `export const loader` as a loader", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const loader = "not a loader";\nexport default null;`,
+    );
+    const { loaders } = await runCodegen();
+    expect(loaders).not.toContain("attachLoader");
+  });
+
+  it("does not treat `export const loaded` as a loader", async () => {
+    await writePage(pagesDir, "index.ts", `export const loaded = true;\nexport default null;`);
+    const { loaders } = await runCodegen();
+    expect(loaders).not.toContain("attachLoader");
+  });
+
+  it("ignores commented-out `// export const load`", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `// export const load = () => ({});\nexport default null;`,
+    );
+    const { loaders } = await runCodegen();
+    expect(loaders).not.toContain("attachLoader");
+  });
+
+  // ── layout loaders ─────────────────────────────────────────────────────
+
+  it("layout's load export is attached to pages in its subtree", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(
+      pagesDir,
+      "+layout.ts",
+      `export const load = async () => ({ layout: true });\nexport default null;`,
+    );
+    const { loaders } = await runCodegen();
+    expect(loaders).toContain(`pageRouter.attachLoader("/",`);
+    expect(loaders).toContain("+layout.ts");
+  });
+
+  it("composeLoaders is used when page and layout both have loaders", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({ page: true });\nexport default null;`,
+    );
+    await writePage(
+      pagesDir,
+      "+layout.ts",
+      `export const load = async () => ({ layout: true });\nexport default null;`,
+    );
+    const { loaders } = await runCodegen();
+    expect(loaders).toContain("composeLoaders(");
+    // Layout loader appears BEFORE page loader in the composed array (outer→inner; page last)
+    const composeCall = loaders.match(/composeLoaders\(\[([^\]]+)\]\)/)?.[1];
+    expect(composeCall).toBeDefined();
+    const ids = composeCall!.split(",").map((s) => s.trim());
+    // Layout id contains `_l`, page id is just `_pN`
+    expect(ids[0]).toMatch(/_l\d+/);
+    expect(ids[ids.length - 1]).not.toMatch(/_l\d+/);
+  });
+
+  it("no composeLoaders when only one loader in the chain", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    const { loaders } = await runCodegen();
+    expect(loaders).not.toContain("composeLoaders");
+    expect(loaders).toContain("attachLoader");
+  });
+
+  it("nested layout loader is applied only to pages in its subtree", async () => {
+    await writePage(pagesDir, "about.ts", `export default null;`);
+    await writePage(pagesDir, "user/index.ts", `export default null;`);
+    await writePage(
+      pagesDir,
+      "user/+layout.ts",
+      `export const load = async () => ({ inUser: true });\nexport default null;`,
+    );
+    const { loaders } = await runCodegen();
+    // /user is attached; /about is not
+    expect(loaders).toContain(`attachLoader("/user",`);
+    expect(loaders).not.toContain(`attachLoader("/about",`);
+  });
+
+  it("root layout loader wraps all pages, nested layout loader wraps only its subtree", async () => {
+    await writePage(pagesDir, "about.ts", `export default null;`);
+    await writePage(pagesDir, "user/index.ts", `export default null;`);
+    await writePage(
+      pagesDir,
+      "+layout.ts",
+      `export const load = async () => ({ root: true });\nexport default null;`,
+    );
+    await writePage(
+      pagesDir,
+      "user/+layout.ts",
+      `export const load = async () => ({ inUser: true });\nexport default null;`,
+    );
+    const { loaders } = await runCodegen();
+    // Both routes get attachLoader calls
+    const attachLines = loaders.split("\n").filter((l) => l.includes("attachLoader"));
+    expect(attachLines).toHaveLength(2);
+    // /user should have 2 loader ids composed; /about should have just 1
+    const userLine = attachLines.find((l) => l.includes(`"/user"`));
+    const aboutLine = attachLines.find((l) => l.includes(`"/about"`));
+    expect(userLine).toContain("composeLoaders");
+    expect(aboutLine).not.toContain("composeLoaders");
+  });
+
+  it("+error.ts loaders are ignored even if the file has `export const load`", async () => {
+    // Pathological but worth defending against.
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(
+      pagesDir,
+      "+error.ts",
+      `export const load = async () => ({ err: true });\nexport default null;`,
+    );
+    const { loaders } = await runCodegen();
+    expect(loaders).not.toContain("+error.ts");
+    expect(loaders).not.toContain("attachLoader");
+  });
+});
+
+// ─────────────────────────────────────────────
+// codegen — loaders.ts structure
+// ─────────────────────────────────────────────
+
+describe("codegen — loaders.ts file", () => {
+  let pagesDir: string;
+  let outFile: string;
+  let loadersFile: string;
+  let root: string;
+
+  beforeEach(async () => {
+    root = await makeDir("loaders-struct");
+    pagesDir = join(root, "src/pages");
+    outFile = join(root, ".ilha/routes.ts");
+    loadersFile = join(root, ".ilha/loaders.ts");
+    await mkdir(pagesDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await removeDir(root);
+  });
+
+  async function runCodegen() {
+    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
+    plugin.configResolved({ root });
+    await plugin.buildStart();
+    return readFile(loadersFile, "utf8");
+  }
+
+  it("has the @generated header", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    expect(await runCodegen()).toContain("@generated by @ilha/router");
+  });
+
+  it("imports composeLoaders from @ilha/router", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    await writePage(
+      pagesDir,
+      "+layout.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    const code = await runCodegen();
+    expect(code).toContain(`import { composeLoaders } from "@ilha/router"`);
+  });
+
+  it("imports pageRouter from the routes file", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    const code = await runCodegen();
+    expect(code).toContain(`import { pageRouter } from`);
+    expect(code).toContain("routes");
+  });
+
+  it("all imports are relative (no absolute paths)", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    const code = await runCodegen();
+    const importLines = code
+      .split("\n")
+      .filter((l) => l.startsWith("import") && !l.includes("@ilha/router"));
+    for (const line of importLines) {
+      expect(line).toMatch(/from ["']\.\.?/);
+    }
+  });
+
+  it("emits one attachLoader per page with loaders", async () => {
+    await writePage(pagesDir, "a.ts", `export const load = async () => ({}); export default null;`);
+    await writePage(pagesDir, "b.ts", `export const load = async () => ({}); export default null;`);
+    await writePage(pagesDir, "c.ts", `export default null;`); // no loader
+    const code = await runCodegen();
+    const attaches = code.split("\n").filter((l) => l.includes("attachLoader"));
+    expect(attaches).toHaveLength(2);
+    expect(code).not.toContain(`"/c"`);
+  });
+
+  it("does not include export default", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    const code = await runCodegen();
+    expect(code).not.toContain("export default");
+  });
+
+  it("writes loaders.ts to the same directory as routes.ts", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    await runCodegen();
+    // File must exist at the expected path
+    expect(readFile(loadersFile, "utf8")).resolves.toBeDefined();
+  });
+});
+
+// ─────────────────────────────────────────────
+// Vite plugin — ?client virtual module
+// ─────────────────────────────────────────────
+
+describe("pages — ?client virtual module", () => {
+  it("resolveId returns the id with ?client suffix for a relative ?client import", () => {
+    const plugin = pages() as any;
+    const resolved = plugin.resolveId("./foo.ts?client", "/proj/.ilha/routes.ts");
+    expect(resolved).toBe("/proj/.ilha/foo.ts?client");
+  });
+
+  it("resolveId resolves ../ paths relative to importer", () => {
+    const plugin = pages() as any;
+    const resolved = plugin.resolveId("../src/pages/index.ts?client", "/proj/.ilha/routes.ts");
+    expect(resolved).toBe("/proj/src/pages/index.ts?client");
+  });
+
+  it("resolveId without ?client suffix is unaffected", () => {
+    const plugin = pages() as any;
+    expect(plugin.resolveId("./foo.ts", "/proj/.ilha/routes.ts")).toBeUndefined();
+  });
+
+  it("load(?client) emits `export { default }` from the bare path", () => {
+    const plugin = pages() as any;
+    const result = plugin.load("/proj/src/pages/index.ts?client");
+    expect(result).toContain("export { default }");
+    expect(result).toContain(`"/proj/src/pages/index.ts"`);
+    // No other exports — the whole point of the suffix
+    expect(result).not.toContain("load");
+  });
+
+  it("load(?client) result does not re-export non-default symbols", () => {
+    const plugin = pages() as any;
+    const result = plugin.load("/abs/path.ts?client");
+    // The re-export is specifically of `default`, nothing else
+    expect(result).toMatch(/export\s*\{\s*default\s*\}/);
+    expect(result).not.toContain("*");
+  });
+});
+
+// ─────────────────────────────────────────────
+// Vite plugin — ilha:loaders virtual module
+// ─────────────────────────────────────────────
+
+describe("pages — ilha:loaders virtual module", () => {
+  it("resolves ilha:loaders virtual id", () => {
+    const plugin = pages() as any;
+    expect(plugin.resolveId("ilha:loaders")).toBe("\0ilha:loaders");
+  });
+
+  it("load for ilha:loaders imports the generated loaders file for side effects", async () => {
+    const root = await makeDir("loaders-virt");
+    const pagesDir = join(root, "src/pages");
+    const outFile = join(root, ".ilha/routes.ts");
+    await mkdir(pagesDir, { recursive: true });
+    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
+    plugin.configResolved({ root });
+    const result = plugin.load("\0ilha:loaders");
+    expect(result).toContain("loaders.ts");
+    // Must be a bare import (side-effect) not a named re-export
+    expect(result).toMatch(/import\s+["']/);
+    expect(result).not.toContain("export");
+    await removeDir(root);
+  });
+
+  it("plugin.resolveId returns undefined for unrelated ids", () => {
+    const plugin = pages() as any;
+    expect(plugin.resolveId("random-module")).toBeUndefined();
+  });
+});

@@ -82,22 +82,18 @@ export type MergeLoaders<Ls extends readonly Loader<any>[]> = Ls extends readonl
 
 export class Redirect {
   readonly __ilhaRedirect = true as const;
-  readonly to: string;
-  readonly status: number;
-  constructor(to: string, status: number = 302) {
-    this.to = to;
-    this.status = status;
-  }
+  constructor(
+    public readonly to: string,
+    public readonly status: number = 302,
+  ) {}
 }
 
 export class LoaderError {
   readonly __ilhaLoaderError = true as const;
-  readonly status: number;
-  readonly message: string;
-  constructor(status: number, message: string) {
-    this.status = status;
-    this.message = message;
-  }
+  constructor(
+    public readonly status: number,
+    public readonly message: string,
+  ) {}
 }
 
 export function redirect(to: string, status = 302): never {
@@ -215,6 +211,13 @@ export interface RouterBuilder {
    * the FS-routing codegen.
    */
   route(pattern: string, island: Island<any, any>, loader?: Loader<any>): RouterBuilder;
+  /**
+   * Attach (or replace) a loader on an already-registered route pattern.
+   * Used by the `ilha:loaders` virtual module to wire server-only loaders
+   * onto the client-safe `pageRouter` at SSR time. No-op if the pattern
+   * was never registered via `.route()`.
+   */
+  attachLoader(pattern: string, loader: Loader<any>): RouterBuilder;
   prime(): void;
   mount(target: string | Element, options?: MountOptions): () => void;
   render(url: string | URL): string;
@@ -335,7 +338,7 @@ export function prefetch(pathWithSearch: string): void {
   if (!isBrowser) return;
   if (prefetchCache.has(pathWithSearch)) return;
   // Don't prefetch routes that have no loader — nothing to fetch.
-  const pathOnly = pathWithSearch.split("?")[0] ?? "";
+  const pathOnly = pathWithSearch.split("?")[0];
   const match = findRoute(_rou3, "GET", pathOnly);
   if (!match?.data?.loader) return;
   const promise = fetchLoaderData(pathWithSearch).catch((e) => {
@@ -369,7 +372,7 @@ async function mountRouteWithHydration(
   // Fetch loader data *only if* the matched route has a loader registered.
   // Routes registered client-side have `loader: undefined` when the Vite
   // plugin emits server-only loader imports behind `import.meta.env.SSR`.
-  const clientMatch = findRoute(_rou3, "GET", pathWithSearch.split("?")[0] ?? "");
+  const clientMatch = findRoute(_rou3, "GET", pathWithSearch.split("?")[0]);
   const hasLoader = !!clientMatch?.data?.loader;
 
   let props: Record<string, unknown> = {};
@@ -465,6 +468,14 @@ let _rou3 = createRouter<RouteData>();
 // ─────────────────────────────────────────────
 
 let _islandToPattern = new Map<Island<any, any>, string>();
+
+// ─────────────────────────────────────────────
+// Pattern → RouteData map — lets attachLoader() mutate the loader in place
+// on an already-registered route. The object stored here is the SAME
+// reference stored in rou3, so mutating it is visible at findRoute time.
+// ─────────────────────────────────────────────
+
+let _patternToData = new Map<string, RouteData>();
 
 // ─────────────────────────────────────────────
 // Shared match → params extraction
@@ -705,18 +716,37 @@ export function router(): RouterBuilder {
   _records = [];
   _rou3 = createRouter<RouteData>();
   _islandToPattern = new Map();
+  _patternToData = new Map();
 
   let _popstateCleanup: (() => void) | null = null;
   let _linkCleanup: (() => void) | null = null;
 
   const builder: RouterBuilder = {
     route(pattern: string, island: Island<any, any>, loader?: Loader<any>): RouterBuilder {
+      const data: RouteData = { island, loader };
       _records.push({ pattern, island, loader });
-      addRoute(_rou3, "GET", pattern, { island, loader });
+      addRoute(_rou3, "GET", pattern, data);
+      _patternToData.set(pattern, data);
       // First pattern registered for an island wins (most specific due to sort order)
       if (!_islandToPattern.has(island)) {
         _islandToPattern.set(island, pattern);
       }
+      return builder;
+    },
+
+    attachLoader(pattern: string, loader: Loader<any>): RouterBuilder {
+      const data = _patternToData.get(pattern);
+      if (!data) {
+        console.warn(
+          `[ilha-router] attachLoader("${pattern}", …): pattern was never registered via .route(). ` +
+            `The loader will be ignored.`,
+        );
+        return builder;
+      }
+      data.loader = loader;
+      // Keep _records in sync for consumers that read it directly
+      const rec = _records.find((r) => r.pattern === pattern);
+      if (rec) rec.loader = loader;
       return builder;
     },
 
