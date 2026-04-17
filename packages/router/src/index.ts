@@ -82,18 +82,22 @@ export type MergeLoaders<Ls extends readonly Loader<any>[]> = Ls extends readonl
 
 export class Redirect {
   readonly __ilhaRedirect = true as const;
-  constructor(
-    public readonly to: string,
-    public readonly status: number = 302,
-  ) {}
+  readonly to: string;
+  readonly status: number;
+  constructor(to: string, status = 302) {
+    this.to = to;
+    this.status = status;
+  }
 }
 
 export class LoaderError {
   readonly __ilhaLoaderError = true as const;
-  constructor(
-    public readonly status: number,
-    public readonly message: string,
-  ) {}
+  readonly status: number;
+  readonly message: string;
+  constructor(status: number, message: string) {
+    this.status = status;
+    this.message = message;
+  }
 }
 
 export function redirect(to: string, status = 302): never {
@@ -338,7 +342,7 @@ export function prefetch(pathWithSearch: string): void {
   if (!isBrowser) return;
   if (prefetchCache.has(pathWithSearch)) return;
   // Don't prefetch routes that have no loader — nothing to fetch.
-  const pathOnly = pathWithSearch.split("?")[0];
+  const pathOnly = pathWithSearch.split("?")[0] ?? "";
   const match = findRoute(_rou3, "GET", pathOnly);
   if (!match?.data?.loader) return;
   const promise = fetchLoaderData(pathWithSearch).catch((e) => {
@@ -372,7 +376,7 @@ async function mountRouteWithHydration(
   // Fetch loader data *only if* the matched route has a loader registered.
   // Routes registered client-side have `loader: undefined` when the Vite
   // plugin emits server-only loader imports behind `import.meta.env.SSR`.
-  const clientMatch = findRoute(_rou3, "GET", pathWithSearch.split("?")[0]);
+  const clientMatch = findRoute(_rou3, "GET", pathWithSearch.split("?")[0] ?? "");
   const hasLoader = !!clientMatch?.data?.loader;
 
   let props: Record<string, unknown> = {};
