@@ -1,6 +1,6 @@
 # `@ilha/router`
 
-A lightweight, isomorphic router for [Ilha](https://github.com/ilhajs/ilha) islands. Runs in the browser with full reactivity and on the server as a synchronous HTML string renderer. Pairs natively with [Nitro](https://nitro.build/) and includes a Vite plugin for file-system based routing.
+A lightweight, isomorphic router for [Ilha](https://github.com/ilhajs/ilha) islands. Runs in the browser with full reactivity and on the server as a synchronous HTML string renderer. Pairs natively with the file-system routing Vite plugin for zero-config page management.
 
 ---
 
@@ -89,7 +89,7 @@ Returns a `RouterBuilder`.
 
 Registers a route. Patterns are matched in **declaration order** — first match wins. Uses [rou3](https://github.com/h3js/rou3) for matching, the same engine as Nitro.
 
-The optional `loader` is a data-fetching function that runs before the page renders. Its return value is passed as input props to the island. On the client, loaders are fetched via the `/__ilha/loader` endpoint exposed by the Vite plugin.
+The optional `loader` is a data-fetching function that runs before the page renders. Its return value is passed as input props to the island. On the client, loaders are fetched via the `/__ilha/loader` endpoint on navigation.
 
 ```ts
 import { loader } from "@ilha/router";
@@ -142,7 +142,7 @@ No-op with a console warning when called outside a browser environment.
 
 #### `.render(url)` — server / SSR
 
-Resolves the given URL against the route registry and returns a synchronous HTML string. Accepts a path string, full URL string, or `URL` object. Populates all route signals identically to the browser. Percent-encoded params are decoded automatically.
+Resolves the given URL against the route registry and returns a synchronous HTML string. Accepts a path string, full URL string, or `URL` object. Populates all route signals identically to the browser.
 
 ```ts
 const html = router().route("/", homePage).route("/**", notFound).render("/");
@@ -155,7 +155,7 @@ Renders `<div data-router-empty></div>` when no route matches.
 
 #### `.renderHydratable(url, registry, options?, request?)` — server / SSR
 
-Async variant of `.render()` that outputs HTML with `data-ilha` hydration markers so the client can rehydrate without a full re-render. If a loader is registered for the matched route, it runs first and its return value is passed as input props to the island. Redirects from loaders are encoded as a `<meta http-equiv="refresh">` tag; prefer `.renderResponse()` to handle redirects at the HTTP layer.
+Async variant of `.render()` that outputs HTML with `data-ilha` hydration markers so the client can rehydrate without a full re-render. If a loader is registered for the matched route, it runs first and its return value is serialized into `data-ilha-props`.
 
 ```ts
 const html = await router().route("/", homePage).renderHydratable("/", registry);
@@ -174,7 +174,7 @@ If the active island is not found in the registry, falls back to plain SSR and e
 
 #### `.renderResponse(url, registry, options?, request?)` — server / SSR
 
-Structured-envelope variant of `.renderHydratable()`. Returns a `RenderResponse` discriminated union instead of a raw HTML string, so the host server can emit proper HTTP status codes for redirects and errors rather than baking them into the HTML.
+Structured-envelope variant of `.renderHydratable()`. Returns a `RenderResponse` discriminated union instead of a raw HTML string, so the host server can emit proper HTTP status codes for redirects and loader errors.
 
 ```ts
 const res = await router()
@@ -194,7 +194,7 @@ return new Response(res.html, { headers: { "content-type": "text/html" } });
 | ------------ | --------------------------------------------------- | ------------------------------------------ |
 | `"html"`     | `html: string`, `status?: number`                   | Normal render; `status` is 404 if no match |
 | `"redirect"` | `to: string`, `status: number`                      | Loader called `redirect()`                 |
-| `"error"`    | `status: number`, `message: string`, `html: string` | Loader called `error()`                    |
+| `"error"`    | `status: number`, `message: string`, `html: string` | Loader called `error()` or threw           |
 
 ---
 
@@ -239,7 +239,7 @@ pageRouter.mount("#app", { hydrate: true, registry });
 
 #### `.hydrate(registry, options?)` — browser only
 
-Convenience method that combines `.prime()`, `ilha.mount()`, and `.mount()` into a single call. Use this as the recommended client entry point.
+Convenience method that combines `.prime()`, `ilha.mount()`, and `.mount()` into a single call. **This is the recommended client entry point.**
 
 ```ts
 pageRouter.hydrate(registry);
@@ -252,6 +252,16 @@ pageRouter.hydrate(registry, {
 ```
 
 Returns an `unmount` function that tears down all listeners and hydrated islands.
+
+---
+
+#### `.attachLoader(pattern, loader)` — runtime
+
+Attaches or replaces a loader on an already-registered route pattern. No-op if the pattern was never registered via `.route()`. Used by the `ilha:loaders` virtual module to wire server-only loaders onto the client-safe `pageRouter` at SSR time.
+
+```ts
+router().route("/user/:id", userPage).attachLoader("/user/:id", serverLoader);
+```
 
 ---
 
@@ -284,7 +294,7 @@ prime();
 
 ### `loader(fn)`
 
-Identity function for declaring a typed data loader. Exists as a type anchor and as a marker the Vite plugin uses to detect exported loaders automatically. The loader receives a `LoaderContext` and must return a plain object (or a `Promise` of one).
+Identity function for declaring a typed data loader. Exists as a type anchor and as a marker the Vite plugin uses to detect exported loaders automatically. The loader receives a `LoaderContext` and must return or resolve to a plain object (serializable to JSON for client-side fetches).
 
 ```ts
 import { loader } from "@ilha/router";
@@ -328,7 +338,7 @@ redirect("/moved", 301); // permanent redirect
 
 ### `error(status, message)`
 
-Throws a `LoaderError` sentinel that is caught by the loader execution pipeline. The rendered output will be an inline error element; use `.renderResponse()` on the server to intercept loader errors before they reach the HTML layer.
+Throws a `LoaderError` sentinel that is caught by the loader execution pipeline. The rendered output will be an inline error element; use `.renderResponse()` on the server to intercept loader errors before they reach the client.
 
 ```ts
 import { error } from "@ilha/router";
@@ -361,9 +371,7 @@ If any loader in the chain throws a `Redirect` or `LoaderError`, the composed lo
 
 ### `prefetch(pathWithSearch)`
 
-Prefetches the loader data for a given path by calling the `/__ilha/loader` endpoint in the background. The result is cached and consumed on the next navigation to that path, making the transition feel instant.
-
-Safe to call repeatedly — an in-flight request for the same path is reused until it resolves and is consumed, avoiding duplicate network requests.
+Prefetches the loader data for a given path by calling the `/__ilha/loader` endpoint in the background. The result is cached and consumed on the next navigation to that path, making the transition feel instant. Safe to call repeatedly — an in-flight request for the same path is reused until it resolves and is consumed, avoiding duplicate network requests.
 
 ```ts
 import { prefetch } from "@ilha/router";
@@ -421,18 +429,24 @@ isActive("/user/:id"); // → true when on any /user/* path
 
 ---
 
-### `enableLinkInterception(root?)`
+### `enableLinkInterception(root?, options?)`
 
 Attaches a delegated click listener to `root` (defaults to `document`) that intercepts `<a>` clicks and routes them client-side. Called automatically by `.mount()`.
 
-Skips links that are external, `target="_blank"`, anchor-only (`#hash`), or modified (`Ctrl`/`Meta`/`Shift`). Also skips events already handled (`e.defaultPrevented`).
+Skips links that are external, `target="_blank"`, anchor-only (`#hash`), modified (`Ctrl`/`Meta`/`Shift`), or marked with `data-no-intercept`. Also skips events already handled (`e.defaultPrevented`).
 
 Returns a cleanup function.
 
 ```ts
-const stop = enableLinkInterception(myContainer);
+const stop = enableLinkInterception(myContainer, { prefetch: true });
 stop(); // remove listener
 ```
+
+**Options:**
+
+| Option     | Type      | Default | Description                           |
+| ---------- | --------- | ------- | ------------------------------------- |
+| `prefetch` | `boolean` | `true`  | Enable prefetch on `mouseenter` hover |
 
 No-op on the server.
 
@@ -504,7 +518,7 @@ Equivalent to annotating with `satisfies LayoutHandler` but requires no explicit
 
 ### `wrapError(handler, page)`
 
-Wraps a page island with an error boundary. If the page throws during SSR (`.toString()`), the `handler` receives the error and current route snapshot and returns a fallback island. Also intercepts errors during `.mount()` for client-side resilience.
+Wraps a page island with an error boundary. If the page throws during SSR (`.toString()`) or on the client during `.mount()`, the `handler` receives the error and current route snapshot and returns a fallback island. The nearest (innermost) `wrapError` boundary catches first. If the inner handler re-throws, the next outer boundary takes over.
 
 ```ts
 import { wrapError } from "@ilha/router";
@@ -512,9 +526,7 @@ import { wrapError } from "@ilha/router";
 const safe = wrapError(myErrorHandler, myPage);
 ```
 
-The nearest (innermost) `wrapError` boundary catches first. If the inner handler re-throws, the next outer boundary takes over.
-
-> **Note:** Error boundaries wrap the _page island's render_, not the loader. Loader errors (thrown via `error()`) are surfaced through `.renderResponse()` — they do not currently route through `+error.ts`. Use `.renderResponse()` on the server to handle loader errors at the HTTP layer.
+> **Note:** Error boundaries wrap the _page island's render_, not the loader. Loader errors (thrown via `error()`) are surfaced through `.renderResponse()` — they do not currently route through `+error.ts` boundaries. Use `.renderResponse()` to handle loader errors at the HTTP layer.
 
 ---
 
@@ -667,7 +679,7 @@ Route groups are useful for:
 
 > Groups can be nested: `(a)/(b)/page.ts` → `/page`. Both group folders are transparent.
 
-> If two files in different groups resolve to the **same pattern** (e.g. `(auth)/sign-in.ts` and `sign-in.ts` both produce `/sign-in`), the plugin warns about a duplicate pattern and the first match wins.
+> If two files in different groups resolve to the **same pattern** (e.g. `(auth)/sign-in.ts` and `sign-in.ts` both produce `/sign-in`), the plugin warns about a duplicate pattern and the first match wins deterministically.
 
 ### Route sorting
 
@@ -677,7 +689,7 @@ Routes are sorted automatically by specificity — no need to order files manual
 2. **Parameterised** paths (`/user/:id`)
 3. **Wildcard** paths (`/**:slug`) — lowest priority
 
-Within the same tier, longer segment counts and alphabetical order act as tiebreakers for determinism. Route group pages sort alongside regular pages by their resolved pattern — the group folder is not considered.
+Within the same tier, longer segment counts and alphabetical order act as tiebreakers for determinism. Route group pages sort alongside regular pages by their resolved pattern — the group folder is transparent.
 
 ### Layouts
 
@@ -734,7 +746,7 @@ src/pages/
 
 ### Page loaders
 
-A page file can export a `loader` alongside its default island export. The Vite plugin automatically detects the named `loader` export, composes it with any layout loaders in the chain (outermost layout first, page last), and passes the merged result as input props to the island.
+A page file can export a `load` function declared with the `loader()` helper. The Vite plugin automatically detects the named `load` export, composes it with any layout loaders in the chain (outermost first, then page), and wires them into the router via `.attachLoader()` at SSR time.
 
 ```ts
 // src/pages/user/[id].ts
@@ -770,11 +782,12 @@ Layout loaders are composed automatically — you do not need to call `composeLo
 
 ### Error boundaries
 
-A `+error.ts` catches any error thrown during rendering of pages in its directory and all subdirectories. The nearest boundary wins. If an inner boundary re-throws, the next outer boundary takes over. Receives the error and the current route snapshot.
+A `+error.ts` catches any error thrown during rendering of pages in its directory and all subdirectories. The nearest boundary wins. If an inner boundary re-throws, the next outer boundary takes over.
 
 ```ts
 // src/pages/+error.ts
 import type { ErrorHandler } from "@ilha/router/vite";
+import ilha from "ilha";
 
 export default ((error, route) =>
   ilha.render(
@@ -790,17 +803,19 @@ export default ((error, route) =>
 
 ### Virtual modules
 
-The plugin exposes two virtual modules:
+The plugin exposes three virtual modules:
 
 | Module          | Export       | Description                                  |
 | --------------- | ------------ | -------------------------------------------- |
 | `ilha:pages`    | `pageRouter` | A `RouterBuilder` with all routes registered |
 | `ilha:registry` | `registry`   | `Record<string, Island>` for hydration       |
+| `ilha:loaders`  | —            | Side-effect import that wires server loaders |
 
 ```ts
 // routes/[...].ts — Nitro catch-all handler
 import { pageRouter } from "ilha:pages";
 import { registry } from "ilha:registry";
+import "ilha:loaders"; // ← wire server loaders
 
 export default defineEventHandler(async (event) => {
   const html = await pageRouter.renderHydratable(event.node.req.url ?? "/", registry);
@@ -827,13 +842,13 @@ pages({
 });
 ```
 
-The plugin regenerates the routes file only when content actually changes — avoiding unnecessary HMR invalidations. Structural changes (file add/remove, `+layout.ts`/`+error.ts` edits) trigger full HMR. Regular page content edits are handled by Vite's normal module HMR.
+The plugin regenerates the routes file only when content actually changes — avoiding unnecessary HMR invalidations. Structural changes (file add/remove, `+layout.ts`/`+error.ts` edits, or changes to loader exports) trigger full HMR reloads.
 
 ---
 
 ## SSR + Hydration
 
-The same route config runs on both sides. Signals (`routePath`, `routeParams`, etc.) are populated identically by `.render()`/`.renderHydratable()` on the server and `.mount()`/`.hydrate()` on the client.
+The same route config runs on both sides. Signals (`routePath`, `routeParams`, etc.) are populated identically by `.render()`/`.renderHydratable()` on the server and `.mount()`/`.hydrate()` on the client:
 
 ```ts
 // server: resolves URL → hydratable HTML string
@@ -850,7 +865,7 @@ routeParams(); // → { id: "99" }
 
 ```
 server                           client
-──────────────────────────────   ──────────────────────────────────────────────
+──────────────────────────────   ───────────────────────────────────
 renderHydratable(url, registry)  pageRouter.prime()        ← sync signals first
   → data-ilha="…" markers        mount(registry, { root }) ← hydrate islands
   → data-ilha-state snapshot     pageRouter.mount(target,  ← setup navigation
@@ -861,13 +876,13 @@ Or use the one-liner: `pageRouter.hydrate(registry)`.
 
 ### Loader data flow
 
-On the **server**, loaders run inside `.renderHydratable()` / `.renderResponse()`. Their return value is serialised into `data-ilha-props` on the island element so the client can rehydrate without re-fetching.
+On the **server**, loaders run inside `.renderHydratable()` / `.renderResponse()`. Their return value is serialized into `data-ilha-props` on the island element so the client can rehydrate without re-fetching.
 
-On the **client**, navigations fetch loader data from the `/__ilha/loader` endpoint before mounting the next island. The endpoint is served automatically by the Vite plugin (dev) and the Nitro adapter (production). `RouterLink` and `prefetch()` both call this endpoint proactively on hover so the data is already in cache when the user clicks.
+On the **client**, navigations fetch loader data from the `/__ilha/loader` endpoint before mounting the next island. The endpoint is served automatically by the Vite plugin (dev) and the Nitro adapter (production).
 
 ```
 server                         client (navigation)
-────────────────────────────   ──────────────────────────────────────────────
+────────────────────────────   ─────────────────────────────────────
 renderHydratable               GET /__ilha/loader?path=/user/42
   → executeLoader(…)             → runLoader("/user/42")
   → island.hydratable(props)     → fetchLoaderData("/user/42")
