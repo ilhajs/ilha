@@ -4,7 +4,7 @@ import path from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { serveStatic } from "hono/serve-static";
-import ilha, { html, type } from "ilha";
+import ilha, { html } from "ilha";
 
 import spaTemplate from "../index.html?raw";
 
@@ -18,16 +18,15 @@ const app = new Hono();
 
 app.use("/static/*", serveAssets);
 
-app.get("/task-counter", async (c) => {
-  const counter = ilha.input(type<{ count: string }>()).render(
-    ({ input }) =>
+app.get("/server-island", (c) => {
+  const counter = ilha.render(
+    () =>
       html`
-      <p>There are ${input.count} tasks</p>
-    `,
+        <p>Hello from the server.</p>
+      `,
   );
 
-  const url = new URL(c.req.url);
-  return c.html(await counter({ count: url.searchParams.get("count") ?? "" }));
+  return c.html(counter());
 });
 
 app.get("/*", async (c) => {
