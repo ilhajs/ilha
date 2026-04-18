@@ -42,7 +42,7 @@ export default ilha
     state.todos(deleteTodo(state.todos(), getIndex(target)));
   })
   .on("[data-action=fetch_component]@click", async ({ state }) => {
-    const req = await fetch("/task-counter?count=" + state.todos().length);
+    const req = await fetch("/api/server-island");
     const html = await req.text();
     state.serverResult(html);
   })
