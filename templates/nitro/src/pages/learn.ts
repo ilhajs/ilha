@@ -24,7 +24,7 @@ const LEARN_ITEMS = [
 
 const learnItem = (item: (typeof LEARN_ITEMS)[0]) =>
   html`
-    <a href="${item.href}" class="item" target="_blank">
+    <a href="${item.href}" class="item" target="_blank" rel="noopener noreferrer">
       <section>
         <h3>${item.title}</h3>
         <p>${item.description}</p>

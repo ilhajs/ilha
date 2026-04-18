@@ -34,7 +34,8 @@ export default ilha
   .on("[data-todo-form]@submit", ({ event, target, state }) => {
     event.preventDefault();
     const form = target as HTMLFormElement;
-    const text = new FormData(form).get("todo")!.toString();
+    const text = new FormData(form).get("todo")!.toString().trim();
+    if (!text) return;
     state.todos(addTodo(state.todos(), text));
     form.reset();
   })
