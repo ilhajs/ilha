@@ -56,22 +56,25 @@ const code = {
     const pokemon = context("pokemon", "charizard");
 
     const pokemonPicker = ilha
-      .state("pokemonList", [])
+      .state('pokemonList', [])
       .onMount(({ state }) => {
         const fetchList = async () => {
-          const req = await fetch("https://pokeapi.co/api/v2/pokemon");
+          const req = await fetch('https://pokeapi.co/api/v2/pokemon');
           const list = await req.json();
           state.pokemonList(list.results);
         };
         fetchList();
       })
-      .bind("#pokemon", pokemon)
+      .bind('#pokemon', pokemon)
       .render(({ state }) => {
-        const options = state
-          .pokemonList()
-          .map(({ name }) => html\`
-            <option value="\${name}">\${name}</option>
-          \`);
+        const currentPokemon = pokemon();
+        const options = state.pokemonList().map(
+          ({ name }) => html\`
+            <option value="\${name}" \${
+            name === currentPokemon ? 'selected' : ''
+          }>\${name}</option>
+          \`
+        );
         return html\`
           <label for="pokemon">Pick a Pokemon</label>
           <select id="pokemon">

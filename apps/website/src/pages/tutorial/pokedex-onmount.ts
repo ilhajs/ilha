@@ -38,33 +38,40 @@ const code = {
     <div data-ilha="pokedex"></div>
   `,
   script: dedent`
-    import ilha, { html, mount } from "ilha";
+    import ilha, { html, mount } from 'ilha';
 
     const pokedex = ilha
-      .state("pokemon", "charizard")
-      .state("pokemonList", [])
-      .state("pokemonData", null)
+      .state('pokemon', 'charizard')
+      .state('pokemonList', [])
+      .state('pokemonData', null)
       .onMount(({ state }) => {
         const fetchList = async () => {
-          const req = await fetch("https://pokeapi.co/api/v2/pokemon");
+          const req = await fetch('https://pokeapi.co/api/v2/pokemon');
           const list = await req.json();
           state.pokemonList(list.results);
         };
+        fetchList();
+      })
+      .effect(({ state }) => {
         const fetchPokemon = async () => {
-          const req = await fetch(\`https://pokeapi.co/api/v2/pokemon/\${state.pokemon()}\`);
+          const req = await fetch(
+            \`https://pokeapi.co/api/v2/pokemon/\${state.pokemon()}\`
+          );
           const data = await req.json();
           state.pokemonData(data);
         };
-        fetchList();
         fetchPokemon();
       })
-      .bind("#pokemon", "pokemon")
+      .bind('#pokemon', 'pokemon')
       .render(({ state }) => {
-        const options = state
-          .pokemonList()
-          .map(({ name }) => html\`
-            <option value="\${name}">\${name}</option>
-          \`);
+        const currentPokemon = state.pokemon();
+        const options = state.pokemonList().map(
+          ({ name }) => html\`
+            <option value="\${name}" \${
+            name === currentPokemon ? 'selected' : ''
+          }>\${name}</option>
+          \`
+        );
 
         const card = state.pokemonData()
           ? html\`
