@@ -17,10 +17,13 @@ const content = dedent`
   fetch a resource, resolve its result, and write it into state — Ilha will
   re-render automatically once the data arrives.
 
-  The example fetches both the Pokémon list and the selected Pokémon's data on mount.
-  Because \`.onMount()\` doesn't await async functions directly, each fetch is wrapped
-  in an inner async function and called immediately — a common pattern for async work
-  inside synchronous callbacks.
+  The example uses \`.onMount()\` to fetch the Pokémon list once. For the selected
+  Pokémon's data, it uses \`.effect()\` which re-runs whenever \`state.pokemon()\` changes.
+  The \`fetchPokemon\` function inside the effect reads the current selection and
+  fetches the corresponding data, writing the result to \`state.pokemonData()\`.
+  Because \`.onMount()\` and \`.effect()\` don't await async functions directly, each
+  fetch is wrapped in an inner async function and called immediately — a common
+  pattern for async work inside synchronous callbacks.
 
   ### Similar concepts
 
@@ -53,14 +56,26 @@ const code = {
         fetchList();
       })
       .effect(({ state }) => {
+        const controller = new AbortController();
         const fetchPokemon = async () => {
-          const req = await fetch(
-            \`https://pokeapi.co/api/v2/pokemon/\${state.pokemon()}\`
-          );
-          const data = await req.json();
-          state.pokemonData(data);
+          const pokemon = state.pokemon();
+          try {
+            const req = await fetch(
+              \`https://pokeapi.co/api/v2/pokemon/\${pokemon}\`,
+              { signal: controller.signal }
+            );
+            const data = await req.json();
+            // Only update if this request wasn't aborted (still the latest)
+            if (!controller.signal.aborted) {
+              state.pokemonData(data);
+            }
+          } catch (err) {
+            // Ignore abort errors
+            if (err.name !== 'AbortError') throw err;
+          }
         };
         fetchPokemon();
+        return () => controller.abort();
       })
       .bind('#pokemon', 'pokemon')
       .render(({ state }) => {

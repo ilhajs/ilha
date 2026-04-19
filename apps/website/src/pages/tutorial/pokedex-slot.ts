@@ -37,7 +37,7 @@ const code = {
     <div data-ilha="pokedex"></div>
   `,
   script: dedent`
-    import ilha, { html, mount, context, type } from "ilha";
+    import ilha, { html, mount, context } from "ilha";
 
     const selectedPokemon = context("selectedPokemon", "charizard");
 
@@ -65,10 +65,21 @@ const code = {
     const pokemonCard = ilha
       .state("pokemonData", null)
       .effect(({ state }) => {
+        const controller = new AbortController();
         const pokemon = selectedPokemon();
-        fetch(\`https://pokeapi.co/api/v2/pokemon/\${pokemon}\`)
+        fetch(\`https://pokeapi.co/api/v2/pokemon/\${pokemon}\`, {
+          signal: controller.signal,
+        })
           .then((r) => r.json())
-          .then((data) => state.pokemonData(data));
+          .then((data) => {
+            if (!controller.signal.aborted) {
+              state.pokemonData(data);
+            }
+          })
+          .catch((err) => {
+            if (err.name !== 'AbortError') throw err;
+          });
+        return () => controller.abort();
       })
       .render(({ state }) => {
         if (!state.pokemonData()) return html\`<p>Loading...</p>\`;

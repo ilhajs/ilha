@@ -64,14 +64,26 @@ const code = {
         fetchList();
       })
       .effect(({ state }) => {
+        const controller = new AbortController();
         const fetchPokemon = async () => {
-          const req = await fetch(
-            \`https://pokeapi.co/api/v2/pokemon/\${state.pokemon()}\`
-          );
-          const data = await req.json();
-          state.pokemonData(data);
+          const pokemon = state.pokemon();
+          try {
+            const req = await fetch(
+              \`https://pokeapi.co/api/v2/pokemon/\${pokemon}\`,
+              { signal: controller.signal }
+            );
+            const data = await req.json();
+            // Only update if this request wasn't aborted (still the latest)
+            if (!controller.signal.aborted) {
+              state.pokemonData(data);
+            }
+          } catch (err) {
+            // Ignore abort errors
+            if (err.name !== 'AbortError') throw err;
+          }
         };
         fetchPokemon();
+        return () => controller.abort();
       })
       .bind('#pokemon', 'pokemon')
       .render(({ state }) => {
