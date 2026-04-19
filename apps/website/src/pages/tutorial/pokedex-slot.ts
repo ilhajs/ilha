@@ -37,27 +37,23 @@ const code = {
     <div data-ilha="pokedex"></div>
   `,
   script: dedent`
-    import ilha, { html, mount, type } from "ilha";
+    import ilha, { html, mount, context } from "ilha";
+
+    const selectedPokemon = context("selectedPokemon", "charizard");
 
     const pokemonPicker = ilha
-      .input(type<{ defaultPokemon: string }>())
-      .state("pokemon", ({ defaultPokemon }) => defaultPokemon)
       .state("pokemonList", [])
       .onMount(({ state }) => {
-        const fetchList = async () => {
-          const req = await fetch("https://pokeapi.co/api/v2/pokemon");
-          const list = await req.json();
-          state.pokemonList(list.results);
-        };
-        fetchList();
+        fetch("https://pokeapi.co/api/v2/pokemon")
+          .then((r) => r.json())
+          .then((list) => state.pokemonList(list.results));
       })
-      .bind("#pokemon", "pokemon")
+      .bind("#pokemon", selectedPokemon)
       .render(({ state }) => {
-        const options = state
-          .pokemonList()
-          .map(({ name }) => html\`
-            <option value="\${name}">\${name}</option>
-          \`);
+        const currentPokemon = selectedPokemon();
+        const options = state.pokemonList().map(({ name }) =>
+          html\`<option value="\${name}" \${name === currentPokemon ? "selected" : ""}>\${name}</option>\`
+        );
         return html\`
           <label for="pokemon">Pick a Pokemon</label>
           <select id="pokemon">
@@ -67,24 +63,32 @@ const code = {
       });
 
     const pokemonCard = ilha
-      .input(type<{ pokemon: string }>())
       .state("pokemonData", null)
-      .onMount(({ state, input }) => {
-        const fetchPokemon = async () => {
-          const req = await fetch(\`https://pokeapi.co/api/v2/pokemon/\${input.pokemon}\`);
-          const data = await req.json();
-          state.pokemonData(data);
-        };
-        fetchPokemon();
+      .effect(({ state }) => {
+        const controller = new AbortController();
+        const pokemon = selectedPokemon();
+        fetch(\`https://pokeapi.co/api/v2/pokemon/\${pokemon}\`, {
+          signal: controller.signal,
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (!controller.signal.aborted) {
+              state.pokemonData(data);
+            }
+          })
+          .catch((err) => {
+            if (err.name !== 'AbortError') throw err;
+          });
+        return () => controller.abort();
       })
       .render(({ state }) => {
         if (!state.pokemonData()) return html\`<p>Loading...</p>\`;
         const { name, sprites, types } = state.pokemonData();
-        const typeBadges = types.map(({ type }) => html\`
-          <span class="badge">\${type.name}</span>
-        \`);
+        const typeBadges = types.map(({ type }) =>
+          html\`<span class="badge">\${type.name}</span>\`
+        );
         return html\`
-          <img src="\${sprites.front_default}" />
+          <img src="\${sprites.front_default}" alt="\${name}" />
           <h2>\${name}</h2>
           \${typeBadges}
         \`;
@@ -93,10 +97,9 @@ const code = {
     const pokedex = ilha
       .slot("picker", pokemonPicker)
       .slot("card", pokemonCard)
-      .state("selected", "charizard")
-      .render(({ slots, state }) => html\`
-        \${slots.picker({ defaultPokemon: state.selected() })}
-        \${slots.card({ pokemon: state.selected() })}
+      .render(({ slots }) => html\`
+        \${slots.picker()}
+        \${slots.card()}
       \`);
 
     mount({ pokedex });

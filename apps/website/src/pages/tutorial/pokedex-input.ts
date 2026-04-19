@@ -52,30 +52,49 @@ const code = {
 
     const pokemonPicker = ilha
       .input(type<{ defaultPokemon: string }>())
-      .state("pokemon", ({ defaultPokemon }) => defaultPokemon)
-      .state("pokemonList", [])
-      .state("pokemonData", null)
+      .state('pokemon', ({ defaultPokemon }) => defaultPokemon)
+      .state('pokemonList', [])
+      .state('pokemonData', null)
       .onMount(({ state }) => {
         const fetchList = async () => {
-          const req = await fetch("https://pokeapi.co/api/v2/pokemon");
+          const req = await fetch('https://pokeapi.co/api/v2/pokemon');
           const list = await req.json();
           state.pokemonList(list.results);
         };
-        const fetchPokemon = async () => {
-          const req = await fetch(\`https://pokeapi.co/api/v2/pokemon/\${state.pokemon()}\`);
-          const data = await req.json();
-          state.pokemonData(data);
-        };
         fetchList();
-        fetchPokemon();
       })
-      .bind("#pokemon", "pokemon")
+      .effect(({ state }) => {
+        const controller = new AbortController();
+        const fetchPokemon = async () => {
+          const pokemon = state.pokemon();
+          try {
+            const req = await fetch(
+              \`https://pokeapi.co/api/v2/pokemon/\${pokemon}\`,
+              { signal: controller.signal }
+            );
+            const data = await req.json();
+            // Only update if this request wasn't aborted (still the latest)
+            if (!controller.signal.aborted) {
+              state.pokemonData(data);
+            }
+          } catch (err) {
+            // Ignore abort errors
+            if (err.name !== 'AbortError') throw err;
+          }
+        };
+        fetchPokemon();
+        return () => controller.abort();
+      })
+      .bind('#pokemon', 'pokemon')
       .render(({ state }) => {
-        const options = state
-          .pokemonList()
-          .map(({ name }) => html\`
-            <option value="\${name}">\${name}</option>
-          \`);
+        const currentPokemon = state.pokemon();
+        const options = state.pokemonList().map(
+          ({ name }) => html\`
+            <option value="\${name}" \${
+            name === currentPokemon ? 'selected' : ''
+          }>\${name}</option>
+          \`
+        );
 
         const card = state.pokemonData()
           ? html\`
