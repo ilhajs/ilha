@@ -129,7 +129,6 @@ ilha
   .on("@click", ({ state }) => state.count(state.count() + 1)) // host click
   .on("button.inc@click", ({ state }) => state.count(state.count() + 1)) // child click
   .on("input@input:debounce", ({ state, event }) => {
-    // with modifier
     state.query((event.target as HTMLInputElement).value);
   })
   .render(({ state }) => html`<div><button class="inc">+</button></div>`);
@@ -220,6 +219,63 @@ You can also bind to an external signal created with `context()`:
 ```ts
 .bind("input", myContextSignal)
 ```
+
+---
+
+### `.css(strings, ...values)`
+
+Attaches scoped styles to the island. Accepts a tagged template literal or a plain string. The CSS is automatically wrapped in a `@scope` rule bounded to the island host, so styles are contained within the island and do not leak into child islands.
+
+```ts
+import { css } from "ilha";
+
+const Card = ilha.state("active", false).css`
+    .title { font-weight: 700; }
+    button { background: teal; color: white; }
+  `.render(
+  ({ state }) => html`
+    <div>
+      <p class="title">Hello</p>
+      <button>Toggle</button>
+    </div>
+  `,
+);
+```
+
+Interpolations are supported:
+
+```ts
+const accent = "teal";
+
+ilha.css`button { background: ${accent}; }`.render(() => `<button>Go</button>`);
+```
+
+You can also pass a plain string (e.g. from an external `.css` file):
+
+```ts
+import styles from "./card.css?raw";
+
+ilha.css(styles).render(() => `<div class="card">…</div>`);
+```
+
+**SSR output** — a `<style data-ilha-css>` tag is prepended as the first child of the island's rendered HTML:
+
+```html
+<style data-ilha-css>
+  @scope (:scope) to ([data-ilha]) {
+    .title {
+      font-weight: 700;
+    }
+  }
+</style>
+<div>…</div>
+```
+
+**Client mount** — the style element is injected once as the first child of the host and preserved across re-renders (morph never replaces it). During hydration, the SSR-emitted `<style>` node is reused and not duplicated.
+
+**`.hydratable()` integration** — the style tag is included inside the `data-ilha` wrapper regardless of the `snapshot` option.
+
+> **Note:** Calling `.css()` more than once on the same builder chain is not supported. In dev mode a warning is logged and only the last stylesheet is used. Compose all your styles into a single `.css()` call.
 
 ---
 
@@ -427,6 +483,41 @@ import { raw } from "ilha";
 
 raw("<strong>bold</strong>"); // → passes through unescaped
 ```
+
+---
+
+### `css\`\`` tagged template
+
+A passthrough tagged template for CSS strings. Functionally identical to a plain template literal — no runtime transformation occurs. Its purpose is purely to enable editor tooling (LSP syntax highlighting, Prettier formatting) to recognise the contents as CSS.
+
+```ts
+import { css } from "ilha";
+
+const styles = css`
+  button {
+    background: teal;
+    color: white;
+  }
+  .label {
+    font-weight: 700;
+  }
+`;
+
+ilha.css(styles).render(() => `<button class="label">Go</button>`);
+```
+
+Interpolations work as normal string concatenation:
+
+```ts
+const accent = "coral";
+const styles = css`
+  button {
+    background: ${accent};
+  }
+`;
+```
+
+> **Note:** `css` (the named export) is the plain passthrough tag for tooling. `ilha.css` is the builder chain method that attaches styles to an island. They are intentionally separate.
 
 ---
 

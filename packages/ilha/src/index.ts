@@ -178,6 +178,26 @@ const SIGNAL_ACCESSOR = Symbol("ilha.signalAccessor");
 const SLOT_ATTR = "data-ilha-slot";
 const PROPS_ATTR = "data-ilha-props";
 const STATE_ATTR = "data-ilha-state";
+const CSS_ATTR = "data-ilha-css";
+
+// ---------------------------------------------
+// CSS scoping
+// ---------------------------------------------
+//
+// Wrap the user's CSS in an @scope rule bounded by the island host (upper) and
+// any nested island root (lower). This gives us:
+//   - Selectors resolved against the host's descendants only
+//   - Low-specificity selectors that don't win cascade wars with utilities
+//   - A donut hole at every `[data-ilha]` descendant so parent styles don't
+//     leak into child islands
+//
+// The resulting <style> element is emitted as the first child of the host on
+// every render. Because it's deterministically the same node on both `from`
+// and `to` sides of the morph, `morphChildren` sees a matching <style> and
+// leaves it alone — no flicker, no re-parse, no special-case code in the morph.
+function buildScopedStyle(css: string): string {
+  return `<style ${CSS_ATTR}>@scope (:scope) to ([data-ilha]){${css}}</style>`;
+}
 
 export interface RawHtml {
   [RAW]: true;
@@ -230,6 +250,21 @@ function isSignalAccessor(v: unknown): v is MarkedSignalAccessor<unknown> {
 
 function ilhaRaw(value: string): RawHtml {
   return { [RAW]: true, value };
+}
+
+// Plain passthrough tagged template for CSS. This exists purely for editor
+// tooling — it lets authors tag their stylesheets as `css\`…\`` so LSPs and
+// Prettier plugins can syntax-highlight and format the contents. No runtime
+// magic: the result is just the interpolated string, identical to what you'd
+// get from a plain template literal.
+function ilhaCss(strings: TemplateStringsArray | string, ...values: (string | number)[]): string {
+  if (typeof strings === "string") return strings;
+  let result = "";
+  for (let i = 0; i < strings.length; i++) {
+    result += strings[i];
+    if (i < values.length) result += String(values[i]);
+  }
+  return result;
 }
 
 // Resolves any interpolated value to an HTML string.
@@ -720,6 +755,7 @@ interface BuilderConfig<
   slots: Record<string, AnyIsland>;
   transition: TransitionOptions | null;
   binds: BindEntry<TStateMap>[];
+  css: string | null;
 }
 
 // ---------------------------------------------
@@ -762,6 +798,7 @@ class IlhaBuilder<
       slots: {},
       transition: null,
       binds: [],
+      css: null,
     });
   }
 
@@ -866,6 +903,36 @@ class IlhaBuilder<
     return new IlhaBuilder({ ...this._cfg, transition: opts });
   }
 
+  css(
+    strings: TemplateStringsArray | string,
+    ...values: (string | number)[]
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
+    // Accept both tagged-template form and plain-string form. The tagged form
+    // is the intended authoring style; plain-string keeps things flexible for
+    // users who want to compose CSS externally.
+    let source: string;
+    if (typeof strings === "string") {
+      source = strings;
+    } else {
+      let result = "";
+      for (let i = 0; i < strings.length; i++) {
+        result += strings[i];
+        if (i < values.length) result += String(values[i]);
+      }
+      source = result;
+    }
+
+    if (__DEV__ && this._cfg.css !== null) {
+      warn(
+        `css(): called more than once on the same builder chain. ` +
+          `The previous stylesheet has been discarded. ` +
+          `Compose styles into a single .css() call instead.`,
+      );
+    }
+
+    return new IlhaBuilder({ ...this._cfg, css: source });
+  }
+
   render(
     fn: (ctx: RenderContext<TInput, TStateMap, TDerivedMap, TSlots>) => string | RawHtml,
   ): Island<TInput, TStateMap> {
@@ -879,7 +946,10 @@ class IlhaBuilder<
       slots: slotDefs,
       transition,
       binds,
+      css: cssSource,
     } = this._cfg;
+
+    const stylePrefix = cssSource != null ? buildScopedStyle(cssSource) : "";
 
     function resolveInput(props?: Partial<TInput>): TInput {
       const value = props ?? {};
@@ -979,8 +1049,9 @@ class IlhaBuilder<
             derived[r.key] = { loading: false, value: r.result as unknown, error: undefined };
           }
         }
-        return unwrapHtml(
-          fn({ state, derived: derived as IslandDerived<TDerivedMap>, input, slots }),
+        return (
+          stylePrefix +
+          unwrapHtml(fn({ state, derived: derived as IslandDerived<TDerivedMap>, input, slots }))
         );
       }
 
@@ -1009,8 +1080,9 @@ class IlhaBuilder<
       ).then((resolved) => {
         const derived: Record<string, DerivedValue<unknown>> = {};
         for (const r of resolved) derived[r.key] = r.envelope;
-        return unwrapHtml(
-          fn({ state, derived: derived as IslandDerived<TDerivedMap>, input, slots }),
+        return (
+          stylePrefix +
+          unwrapHtml(fn({ state, derived: derived as IslandDerived<TDerivedMap>, input, slots }))
         );
       });
     }
@@ -1201,7 +1273,7 @@ class IlhaBuilder<
       // to the existing SSR content.
       const hasExistingContent = hydrated && host.childNodes.length > 0;
       if (!hasExistingContent) {
-        host.innerHTML = unwrapHtml(fn({ state, derived, input, slots }));
+        host.innerHTML = stylePrefix + unwrapHtml(fn({ state, derived, input, slots }));
       }
       attachListeners();
 
@@ -1226,7 +1298,7 @@ class IlhaBuilder<
 
       let initialized = false;
       const stopRender = effect(() => {
-        const html = unwrapHtml(fn({ state, derived, input, slots }));
+        const html = stylePrefix + unwrapHtml(fn({ state, derived, input, slots }));
         if (!initialized) {
           initialized = true;
           return;
@@ -1450,6 +1522,7 @@ const EMPTY_CFG: BuilderConfig<
   slots: {},
   transition: null,
   binds: [],
+  css: null,
 };
 
 const rootBuilder = new IlhaBuilder(EMPTY_CFG);
@@ -1480,6 +1553,7 @@ export function type<TInput, TOutput = TInput>(
 
 export const html = ilhaHtml;
 export const raw = ilhaRaw;
+export const css = ilhaCss;
 export const mount = mountAll;
 export const from = ilhaFrom;
 export const context = ilhaContext;
