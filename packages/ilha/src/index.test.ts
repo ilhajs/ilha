@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { z } from "zod";
 
 import type { SlotAccessor } from "./index";
-import ilha, { html, raw, mount, from, context } from "./index";
+import ilha, { html, raw, css, mount, from, context } from "./index";
 
 // ---------------------------------------------
 // Helpers
@@ -3099,5 +3099,425 @@ describe("diagnostic: derived + slot + whitespace", () => {
 
     unmount();
     cleanup(el);
+  });
+});
+
+// ---------------------------------------------
+// .css() — scoped stylesheets
+// ---------------------------------------------
+//
+// The .css() chain method attaches a stylesheet that is scoped to the island
+// host via the CSS @scope at-rule. The wrapped stylesheet is emitted as a
+// <style data-ilha-css> element prepended to the island's rendered HTML in
+// both SSR and client-mount paths. These tests cover:
+//
+//   1. Backwards compatibility — no style tag when .css() is not called
+//   2. Output shape — SSR + hydratable contain exactly one <style> wrapped in @scope
+//   3. Scoping semantics — wrapper uses (:scope) upper + ([data-ilha]) lower
+//   4. Passthrough tag — the `css` tagged-template export is a plain string builder
+//   5. Dev warning on double-call
+//   6. Morph preserves <style> on state-driven re-renders (no flicker, no rebuild)
+//   7. Works alongside all other builder features (slots, derived, events, etc.)
+
+describe(".css()", () => {
+  describe("backwards compatibility", () => {
+    it("emits no <style> tag when .css() is not called", () => {
+      const island = ilha.state("count", 0).render(({ state }) => `<p>${state.count()}</p>`);
+
+      expect(island.toString()).toBe("<p>0</p>");
+      expect(island.toString()).not.toContain("<style");
+    });
+
+    it("emits no <style> tag for mount() when .css() is not called", () => {
+      const island = ilha.state("count", 0).render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+      expect(el.querySelector("style")).toBeNull();
+      unmount();
+      cleanup(el);
+    });
+  });
+
+  describe("SSR output shape", () => {
+    it("prepends a <style data-ilha-css> tag as the first child of the island", () => {
+      const island = ilha
+        .state("count", 0)
+        .css("button { color: red; }")
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const out = island.toString();
+      expect(out.startsWith("<style data-ilha-css>")).toBe(true);
+    });
+
+    it("emits exactly one <style> tag per render", () => {
+      const island = ilha
+        .state("count", 0)
+        .css("p { color: red; }")
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const out = island.toString();
+      const matches = out.match(/<style/g) ?? [];
+      expect(matches.length).toBe(1);
+    });
+
+    it("wraps user CSS in @scope (:scope) to ([data-ilha]) { ... }", () => {
+      const island = ilha.css("button { color: red; }").render(() => `<button>go</button>`);
+
+      const out = island.toString();
+      expect(out).toContain("@scope (:scope) to ([data-ilha]){");
+      expect(out).toContain("button { color: red; }");
+    });
+
+    it("preserves raw CSS verbatim inside the @scope wrapper", () => {
+      const src = "p { font-weight: 600; } .box > .item:hover { opacity: 0.5; }";
+      const island = ilha.css(src).render(() => `<div class="box"></div>`);
+      expect(island.toString()).toContain(src);
+    });
+
+    it("accepts a tagged-template literal and renders the same as a plain string", () => {
+      // Both should produce identical output: the tag is pure passthrough, so a
+      // tagged call and a plain call with the same source text are equivalent.
+      const src = `button { color: red; }`;
+      const tagged = ilha.css`button { color: red; }`.render(() => `<button>a</button>`);
+      const plain = ilha.css(src).render(() => `<button>a</button>`);
+      expect(tagged.toString()).toBe(plain.toString());
+    });
+
+    it("interpolates template expressions into the CSS source", () => {
+      // Whatever whitespace the formatter imposes on the tagged template, the
+      // interpolated value itself ("red") must appear in the rendered stylesheet.
+      const accent = "red";
+      const island = ilha.css`button { color: ${accent}; }`.render(() => `<button>x</button>`);
+      const out = island.toString();
+      expect(out).toContain(accent);
+      // The declaration must be syntactically intact regardless of whitespace,
+      // so strip the style block and normalise whitespace for comparison.
+      const normalised = out.replace(/\s+/g, " ");
+      expect(normalised).toContain("color: red");
+    });
+
+    it("preserves island content after the <style> tag", () => {
+      const island = ilha.css("p { color: red; }").render(() => `<p>hi</p>`);
+
+      const out = island.toString();
+      expect(out).toBe(
+        "<style data-ilha-css>@scope (:scope) to ([data-ilha]){p { color: red; }}</style><p>hi</p>",
+      );
+    });
+  });
+
+  describe(".hydratable() output shape", () => {
+    it("places the <style> tag inside the data-ilha wrapper", async () => {
+      const island = ilha
+        .state("count", 0)
+        .css("button { color: red; }")
+        .render(({ state }) => `<p>${state.count()}</p><button>+</button>`);
+
+      const out = await island.hydratable({}, { name: "styled", snapshot: false });
+      const doc = new DOMParser().parseFromString(out, "text/html");
+      const wrapper = doc.querySelector("[data-ilha='styled']");
+      expect(wrapper).not.toBeNull();
+      const style = wrapper!.querySelector("style[data-ilha-css]");
+      expect(style).not.toBeNull();
+      expect(style!.textContent).toContain("@scope (:scope) to ([data-ilha])");
+    });
+
+    it("still emits the <style> tag when snapshot=true", async () => {
+      const island = ilha
+        .state("count", 5)
+        .css(".label { font-weight: 700; }")
+        .render(({ state }) => `<p class="label">${state.count()}</p>`);
+
+      const out = await island.hydratable({}, { name: "counted", snapshot: true });
+      expect(out).toContain("<style data-ilha-css>");
+      expect(out).toContain("data-ilha-state=");
+    });
+  });
+
+  describe("passthrough `css` tag export", () => {
+    it("returns a string equal to what a plain untagged template would produce", () => {
+      // Deliberately written so the formatter can break it across lines however
+      // it likes. The contract is: `css\`X\`` === the plain template literal `X`.
+      const color = "red";
+      const tagged = css`button { color: ${color}; }`;
+      const plain = `button { color: ${color}; }`;
+      expect(tagged).toBe(plain);
+    });
+
+    it("does not perform any dedenting or whitespace normalisation", () => {
+      // Whatever whitespace is in the source literal, the tag returns it verbatim.
+      // We compare against the untagged version of the same literal so this test
+      // is resilient to any formatter reflowing the template.
+      const tagged = css`
+        button {
+          color: red;
+        }
+      `;
+      const plain = `
+        button {
+          color: red;
+        }
+      `;
+      expect(tagged).toBe(plain);
+    });
+
+    it("interpolates values as plain string concatenation", () => {
+      const color = "blue";
+      const size = 12;
+      const tagged = css`p { color: ${color}; font-size: ${size}px; }`;
+      const plain = `p { color: ${color}; font-size: ${size}px; }`;
+      expect(tagged).toBe(plain);
+    });
+
+    it("ilha.css is the builder method, not the passthrough tag", () => {
+      // The free-standing `css` export is the passthrough tag for tooling.
+      // `ilha.css` is the builder chain method, reached because IlhaBuilder
+      // has a .css() method. They are intentionally different callables.
+      expect(typeof ilha.css).toBe("function");
+      expect(ilha.css).not.toBe(css);
+    });
+
+    it("can be used as a plain string builder (non-tagged call)", () => {
+      // TS type allows TemplateStringsArray | string; runtime should accept both.
+      const s = (css as (v: string) => string)("p { margin: 0; }");
+      expect(s).toBe("p { margin: 0; }");
+    });
+  });
+
+  describe("dev-mode warnings", () => {
+    let warnSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+      warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      warnSpy.mockRestore();
+    });
+
+    it("warns when .css() is called more than once on the same chain", () => {
+      ilha
+        .css("p { color: red; }")
+        .css("p { color: blue; }")
+        .render(() => `<p>x</p>`);
+
+      expect(warnSpy).toHaveBeenCalled();
+      const msg: string = warnSpy.mock.calls[0]?.[0] ?? "";
+      expect(msg).toMatch(/ilha/i);
+      expect(msg).toMatch(/css/i);
+    });
+
+    it("uses the most recently supplied stylesheet when called twice", () => {
+      const island = ilha
+        .css("p { color: red; }")
+        .css("p { color: blue; }")
+        .render(() => `<p>x</p>`);
+
+      const out = island.toString();
+      expect(out).toContain("p { color: blue; }");
+      expect(out).not.toContain("p { color: red; }");
+    });
+
+    it("does NOT warn when .css() is called exactly once", () => {
+      ilha.css("p { color: red; }").render(() => `<p>x</p>`);
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("client mount", () => {
+    it("inserts the <style> tag as the first child of the host", () => {
+      const island = ilha
+        .state("count", 0)
+        .css("p { color: red; }")
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      const firstChild = el.firstElementChild;
+      expect(firstChild).not.toBeNull();
+      expect(firstChild!.tagName.toLowerCase()).toBe("style");
+      expect(firstChild!.hasAttribute("data-ilha-css")).toBe(true);
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("preserves the <style> element across state-driven re-renders", () => {
+      let setCount!: (v: number) => void;
+
+      const island = ilha
+        .state("count", 0)
+        .css("p { color: red; }")
+        .render(({ state }) => {
+          setCount = state.count as unknown as (v: number) => void;
+          return `<p>${state.count()}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      const styleBefore = el.querySelector("style[data-ilha-css]");
+      expect(styleBefore).not.toBeNull();
+
+      // Trigger a re-render via state change
+      setCount(42);
+      expect(el.querySelector("p")!.textContent).toBe("42");
+
+      const styleAfter = el.querySelector("style[data-ilha-css]");
+      expect(styleAfter).not.toBeNull();
+      // Same node identity — morph should NOT have replaced it.
+      expect(styleAfter).toBe(styleBefore);
+      expect(el.querySelectorAll("style[data-ilha-css]").length).toBe(1);
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("preserves <style> content across many re-renders", () => {
+      let setCount!: (v: number) => void;
+
+      const island = ilha
+        .state("count", 0)
+        .css(".value { color: red; }")
+        .render(({ state }) => {
+          setCount = state.count as unknown as (v: number) => void;
+          return `<p class="value">${state.count()}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      for (let i = 1; i <= 20; i++) setCount(i);
+
+      const style = el.querySelector("style[data-ilha-css]");
+      expect(style).not.toBeNull();
+      expect(style!.textContent).toContain(".value { color: red; }");
+      expect(el.querySelector("p")!.textContent).toBe("20");
+
+      unmount();
+      cleanup(el);
+    });
+  });
+
+  describe("hydration", () => {
+    it("does not duplicate the <style> tag when mounting over SSR output", async () => {
+      const island = ilha
+        .state("count", 0)
+        .css("p { color: red; }")
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const ssr = await island.hydratable({}, { name: "styled", snapshot: true });
+
+      document.body.innerHTML = ssr;
+      const wrapper = document.querySelector("[data-ilha='styled']")!;
+
+      const before = wrapper.querySelectorAll("style[data-ilha-css]").length;
+      expect(before).toBe(1);
+
+      const unmount = island.mount(wrapper);
+
+      const after = wrapper.querySelectorAll("style[data-ilha-css]").length;
+      expect(after).toBe(1);
+
+      unmount();
+      document.body.innerHTML = "";
+    });
+
+    it("keeps the same <style> element after hydration + first re-render", async () => {
+      let setCount!: (v: number) => void;
+
+      const island = ilha
+        .state("count", 0)
+        .css(".c { color: red; }")
+        .render(({ state }) => {
+          setCount = state.count as unknown as (v: number) => void;
+          return `<p class="c">${state.count()}</p>`;
+        });
+
+      const ssr = await island.hydratable({}, { name: "h", snapshot: true });
+      document.body.innerHTML = ssr;
+      const wrapper = document.querySelector("[data-ilha='h']")!;
+      const styleBefore = wrapper.querySelector("style[data-ilha-css]");
+
+      const unmount = island.mount(wrapper);
+      setCount(7);
+
+      const styleAfter = wrapper.querySelector("style[data-ilha-css]");
+      expect(styleAfter).not.toBeNull();
+      // After hydration the mount re-uses the SSR-emitted style node; subsequent
+      // morph passes should not replace it.
+      expect(styleAfter).toBe(styleBefore);
+
+      unmount();
+      document.body.innerHTML = "";
+    });
+  });
+
+  describe("interop with other builder features", () => {
+    it("works alongside .state / .on / .derived / events", async () => {
+      const island = ilha
+        .state("count", 1)
+        .derived("doubled", ({ state }) => state.count() * 2)
+        .css(".count { font-weight: 600; }")
+        .on("button@click", ({ state }) => state.count(state.count() + 1))
+        .render(
+          ({ state, derived }) =>
+            `<p class="count">${state.count()}/${derived.doubled.value ?? "?"}</p><button>+</button>`,
+        );
+
+      const el = makeEl();
+      const unmount = island.mount(el);
+
+      expect(el.querySelector("style[data-ilha-css]")).not.toBeNull();
+      expect(el.querySelector("p")!.textContent).toBe("1/2");
+
+      (el.querySelector("button") as HTMLButtonElement).click();
+      expect(el.querySelector("p")!.textContent).toBe("2/4");
+
+      // <style> must survive the re-render triggered by the click
+      expect(el.querySelectorAll("style[data-ilha-css]").length).toBe(1);
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("child island in a slot emits its own <style> inside the slot, scoped by its own host", async () => {
+      const Inner = ilha.css("span { color: red; }").render(() => `<span>inner</span>`);
+
+      const Outer = ilha
+        .slot("inner", Inner)
+        .css("div { color: blue; }")
+        .render(({ slots }) => html`<div>${slots.inner()}</div>`);
+
+      const out = Outer.toString();
+
+      // Outer style present
+      expect(out).toContain("div { color: blue; }");
+      // Inner style present (emitted as part of the slot SSR string)
+      expect(out).toContain("span { color: red; }");
+      // Two separate @scope wrappers, one per island
+      const scopeCount = (out.match(/@scope \(:scope\) to \(\[data-ilha\]\)/g) ?? []).length;
+      expect(scopeCount).toBe(2);
+    });
+
+    it("does not interfere with .toString() synchronous contract when derived are async", () => {
+      const island = ilha
+        .state("count", 3)
+        .derived("slow", async () => {
+          await new Promise((r) => setTimeout(r, 50));
+          return "loaded";
+        })
+        .css("p { color: red; }")
+        .render(({ state, derived }) =>
+          derived.slow.loading ? `<p>loading ${state.count()}</p>` : `<p>${derived.slow.value}</p>`,
+        );
+
+      // Synchronous toString() still works and still contains the <style>
+      const out = island.toString();
+      expect(out).toContain("<style data-ilha-css>");
+      expect(out).toContain("loading 3");
+    });
   });
 });
