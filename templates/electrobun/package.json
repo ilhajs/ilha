@@ -1,0 +1,23 @@
+{
+  "name": "electrobun",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "vite build && electrobun dev",
+    "dev": "electrobun dev --watch",
+    "dev:hmr": "concurrently \"bun run hmr\" \"bun run start\"",
+    "hmr": "vite --port 5173",
+    "build:canary": "vite build && electrobun build --env=canary"
+  },
+  "dependencies": {
+    "@ilha/router": "^0.1.1",
+    "electrobun": "1.16.0",
+    "ilha": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "concurrently": "^9.2.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.9"
+  }
+}

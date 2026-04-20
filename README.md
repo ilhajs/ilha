@@ -1,5 +1,9 @@
 # Ilha
 
+[![Continuous Integration](https://github.com/ilhajs/ilha/actions/workflows/ci.yml/badge.svg)](https://github.com/ilhajs/ilha/actions/workflows/ci.yml)
+[![NPM Version](https://img.shields.io/npm/v/ilha)](https://www.npmjs.com/package/ilha)
+[![Discord](https://img.shields.io/discord/1428724223756472373)](https://discord.gg/WnVTMCTz74)
+
 > Alpha is live
 
 **Ilha** is a tiny, isomorphic web UI library built around the [islands architecture](https://www.patterns.dev/vanilla/islands-architecture/) — ship minimal JavaScript, hydrate only what matters.
