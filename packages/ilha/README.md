@@ -262,7 +262,7 @@ ilha.css(styles).render(() => `<div class="card">…</div>`);
 
 ```html
 <style data-ilha-css>
-  @scope {
+  @scope (:scope) to ([data-ilha]) {
     .title {
       font-weight: 700;
     }
