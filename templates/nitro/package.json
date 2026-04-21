@@ -9,12 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ilha/router": "^0.1.1",
-    "ilha": "^0.1.0",
-    "nitro": "^3.0.260311-beta"
+    "@ilha/router": "^0.2.0",
+    "ilha": "^0.2.0",
+    "nitro": "^3.0.260415-beta"
   },
   "devDependencies": {
-    "typescript": "~5.9.3",
-    "vite": "^8.0.1"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.9"
   }
 }

@@ -2,6 +2,10 @@
 
 ## `ilha`
 
+### 0.2.0 - 2026-04-21
+
+- Adds scoped CSS with client and SSR support
+
 ### 0.1.0 — 2026-04-14
 
 Initial release of **ilha** — a tiny, isomorphic island framework for building reactive UI components. Renders to HTML strings on the server and mounts as fine-grained reactive islands in the browser. No virtual DOM. No compiler. Powered by [alien-signals](https://github.com/stackblitz/alien-signals).
@@ -29,6 +33,11 @@ Initial release of **ilha** — a tiny, isomorphic island framework for building
 
 ## `@ilha/form`
 
+### 0.2.0 - 2026-04-21
+
+- Adds `defaultValues` property to set initial form state
+- Adds Programmatic `form.setValue` API
+
 ### 0.1.0 — 2026-04-14
 
 Initial release of **@ilha/form** — a tiny, typed form binding library for ilha islands. Binds a Standard Schema validator to a native `<form>` element; wires up typed submission, per-field error tracking, and dirty state using native DOM events only. No virtual DOM. No external runtime dependencies. Async schema validation is not supported.
@@ -47,6 +56,12 @@ Initial release of **@ilha/form** — a tiny, typed form binding library for ilh
 - Adds exported types: `FormResult<T>`, `FormErrors`, `ValidateOn`, `Form<S>`, `CreateFormOptions<S>`
 
 ## `@ilha/router`
+
+### 0.2.0 - 2026-04-21
+
+- Adds route groups - not affecting pathname
+- Adds defineLayout helper
+- Adds SPA and SSR data loaders
 
 ### 0.1.0 — 2026-04-14
 
@@ -74,6 +89,10 @@ Initial release of **@ilha/router** — a lightweight, isomorphic router for ilh
 - Adds exported types: `RouteRecord`, `RouteSnapshot`, `AppError`, `LayoutHandler`, `ErrorHandler`, `NavigateOptions`, `MountOptions`, `HydrateOptions`, `HydratableRenderOptions`, `RouterBuilder`
 
 ## `@ilha/store`
+
+### 0.1.1 - 2026-04-21
+
+- Updates Ilha dependency to 0.2
 
 ### 0.1.0 — 2026-04-14
 

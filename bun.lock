@@ -43,14 +43,14 @@
     },
     "packages/form": {
       "name": "@ilha/form",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "zod": "^4.3.6",
       },
     },
     "packages/ilha": {
       "name": "ilha",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "alien-signals": "3.1.2",
       },
@@ -61,7 +61,7 @@
     },
     "packages/router": {
       "name": "@ilha/router",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "dependencies": {
         "ilha": "0.1.0",
         "rou3": "0.8.1",
@@ -72,7 +72,7 @@
     },
     "packages/store": {
       "name": "@ilha/store",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "alien-signals": "3.1.2",
         "ilha": "workspace:*",
@@ -644,6 +644,8 @@
     "punycode.js": ["punycode.js@2.3.1", "", {}, "sha512-uxFIHU0YlHYhDQtV4R9J6a52SLx28BCjT+4ieh7IGbgwVJWO+km431c4yRlREUAsAmt/uMjQUyQHNEPf0M39CA=="],
 
     "quansync": ["quansync@1.0.0", "", {}, "sha512-5xZacEEufv3HSTPQuchrvV6soaiACMFnq1H8wkVioctoH3TRha9Sz66lOxRwPK/qZj7HPiSveih9yAyh98gvqA=="],
+
+    "react": ["react@19.2.5", "", {}, "sha512-llUJLzz1zTUBrskt2pwZgLq59AemifIftw4aB7JxOqf1HY2FDaGDxgwpAPVzHU1kdWabH7FauP4i1oEeer2WCA=="],
 
     "readdirp": ["readdirp@5.0.0", "", {}, "sha512-9u/XQ1pvrQtYyMpZe7DXKv2p5CNvyVwzUB6uhLAnQwHMSgKMBR62lc7AHljaeteeHXn11XTAaLLUVZYVZyuRBQ=="],
 
