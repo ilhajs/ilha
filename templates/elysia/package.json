@@ -11,9 +11,9 @@
   "dependencies": {
     "@elysiajs/html": "^1.4.0",
     "@elysiajs/static": "^1.4.9",
-    "@ilha/router": "https://pkg.pr.new/@ilha/router@565ffa7",
+    "@ilha/router": "^0.2.0",
     "elysia": "^1.4.28",
-    "ilha": "https://pkg.pr.new/ilha@565ffa7"
+    "ilha": "^0.2.0"
   },
   "devDependencies": {
     "bun-types": "latest",

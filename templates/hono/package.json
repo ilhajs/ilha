@@ -7,14 +7,14 @@
     "start": "node dist/server.mjs"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.12",
-    "@ilha/router": "^0.1.1",
-    "hono": "^4.12.9",
-    "ilha": "^0.1.0"
+    "@hono/node-server": "^2.0.0",
+    "@ilha/router": "^0.2.0",
+    "hono": "^4.12.14",
+    "ilha": "^0.2.0"
   },
   "devDependencies": {
-    "@types/node": "^20.11.17",
-    "tsdown": "^0.21.7",
-    "typescript": "^5.8.3"
+    "@types/node": "^24",
+    "tsdown": "^0.21.9",
+    "typescript": "^6.0.3"
   }
 }
