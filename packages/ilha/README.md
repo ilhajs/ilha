@@ -50,11 +50,21 @@ State is managed with signals — when a signal changes, only the affected islan
 
 ## Builder API
 
-Every island starts from the `ilha` builder object (or `ilha.input()` if you need typed props).
+Every island starts from the `ilha` builder object (or `ilha.input<T>()` / `ilha.input(schema)` if you need typed props).
 
-### `ilha.input(schema)`
+### `ilha.input<T>()` / `ilha.input(schema)`
 
-Declares the island's external input type using any [Standard Schema](https://standardschema.dev/) compatible validator (e.g. Zod, Valibot, ArkType).
+Declares the island's external input type. Two forms:
+
+**1. Type-only (no runtime validation):**
+
+```ts
+const MyIsland = ilha
+  .input<{ name: string }>()
+  .render(({ input }) => `<p>Hello, ${input.name}!</p>`);
+```
+
+**2. With a [Standard Schema](https://standardschema.dev/) validator** (Zod, Valibot, ArkType, etc.) — runs validation at render time and uses the schema's inferred output type:
 
 ```ts
 import { z } from "zod";
@@ -518,20 +528,6 @@ const styles = css`
 ```
 
 > **Note:** `css` (the named export) is the plain passthrough tag for tooling. `ilha.css` is the builder chain method that attaches styles to an island. They are intentionally separate.
-
----
-
-### `type(coerce?)`
-
-Creates a lightweight Standard Schema validator for use with `.input()` — useful when you don't want a full validation library.
-
-```ts
-import { type } from "ilha";
-
-const MyIsland = ilha
-  .input(type((v: unknown) => v as { count: number }))
-  .render(({ input }) => `<p>${input.count}</p>`);
-```
 
 ---
 

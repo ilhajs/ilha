@@ -780,6 +780,12 @@ class IlhaBuilder<
     this._cfg = cfg;
   }
 
+  input<T extends Record<string, unknown>>(): IlhaBuilder<
+    T,
+    Record<string, never>,
+    Record<string, never>,
+    Record<string, never>
+  >;
   input<S extends StandardSchemaV1>(
     schema: S,
   ): IlhaBuilder<
@@ -787,9 +793,10 @@ class IlhaBuilder<
     Record<string, never>,
     Record<string, never>,
     Record<string, never>
-  > {
+  >;
+  input(schema?: StandardSchemaV1): IlhaBuilder<Record<string, unknown>, Record<string, never>> {
     return new IlhaBuilder({
-      schema,
+      schema: schema ?? null,
       states: [],
       deriveds: [],
       ons: [],
@@ -1534,22 +1541,6 @@ const ilha = Object.assign(rootBuilder, {
   from: ilhaFrom,
   context: ilhaContext,
 });
-
-export function type<TInput, TOutput = TInput>(
-  coerce?: (input: TInput) => TOutput,
-): StandardSchemaV1<TInput, TOutput> {
-  return {
-    "~standard": {
-      version: 1,
-      vendor: "ilha",
-      validate(value: unknown) {
-        return {
-          value: coerce ? coerce(value as TInput) : (value as TOutput),
-        };
-      },
-    },
-  };
-}
 
 export const html = ilhaHtml;
 export const raw = ilhaRaw;

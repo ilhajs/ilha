@@ -1,0 +1,476 @@
+---
+title: "@ilha/router"
+---
+
+import { PackageManagerTabs } from "@rspress/core/theme";
+
+`@ilha/router` is a lightweight, isomorphic router for ilha apps. It runs on the server as a synchronous HTML renderer and in the browser with full signal-driven reactivity. It is a separate package — not bundled with `ilha` — so you only pay for it when you need multi-page routing.
+
+## How it relates to ilha
+
+Every route in `@ilha/router` is just an ilha island. The router maps URL patterns to islands, runs their loaders, and manages which one is rendered or mounted at any given time. Route context signals (`routePath`, `routeParams`, etc.) are standard [`context()`](/guide/helpers/context) signals, so any island in your app can read the current route without any special wiring.
+
+## Install
+
+<PackageManagerTabs command="install @ilha/router" />
+
+## Quick start
+
+### Client-side SPA
+
+```ts
+import { router } from "@ilha/router";
+import { homePage, aboutPage, userPage, notFound } from "./pages";
+
+router()
+  .route("/", homePage)
+  .route("/about", aboutPage)
+  .route("/user/:id", userPage)
+  .route("/**", notFound)
+  .mount("#app");
+```
+
+### Server-side rendering
+
+```ts
+import { router } from "@ilha/router";
+import { homePage, aboutPage, notFound } from "./pages";
+
+const html = router()
+  .route("/", homePage)
+  .route("/about", aboutPage)
+  .route("/**", notFound)
+  .render(request.url);
+
+return new Response(`<!doctype html><html><body>${html}</body></html>`, {
+  headers: { "content-type": "text/html" },
+});
+```
+
+### SSR + hydration (recommended)
+
+```ts
+// server entry
+import { pageRouter } from "ilha:pages";
+import { registry } from "ilha:registry";
+import "ilha:loaders"; // wires server-only loaders
+
+export default defineEventHandler(async (event) => {
+  const html = await pageRouter.renderHydratable(event.node.req.url ?? "/", registry);
+  return new Response(`<!doctype html><html><body>${html}</body></html>`, {
+    headers: { "content-type": "text/html" },
+  });
+});
+```
+
+```ts
+// client entry
+import { pageRouter } from "ilha:pages";
+import { registry } from "ilha:registry";
+
+pageRouter.hydrate(registry);
+```
+
+---
+
+## The `router()` builder
+
+`router()` creates a fresh router instance and resets the route registry. Always call it fresh — never share instances across server requests.
+
+### `.route(pattern, island, loader?)`
+
+Registers a route. Uses [rou3](https://github.com/h3js/rou3) for matching — the same engine as Nitro. First match wins.
+
+| Pattern         | Matches             | `routeParams()`                   |
+| --------------- | ------------------- | --------------------------------- |
+| `/`             | `/`                 | `{}`                              |
+| `/user/:id`     | `/user/42`          | `{ id: "42" }`                    |
+| `/:org/:repo`   | `/ilha/router`      | `{ org: "ilha", repo: "router" }` |
+| `/docs/**:slug` | `/docs/guide/intro` | `{ slug: "guide/intro" }`         |
+| `/**`           | anything            | `{}`                              |
+
+Static segments always take priority over `:param` segments.
+
+### `.mount(target, options?)` — browser only
+
+Mounts the router into a DOM element or CSS selector. Sets up `popstate` listening and intercepts internal `<a>` clicks automatically. Returns an `unmount` function.
+
+| Option     | Type                     | Default     | Description                                             |
+| ---------- | ------------------------ | ----------- | ------------------------------------------------------- |
+| `hydrate`  | `boolean`                | `false`     | Preserve SSR DOM, don't wipe on first mount             |
+| `registry` | `Record<string, Island>` | `undefined` | Island registry for interactive hydration on navigation |
+
+### `.render(url)` — server only
+
+Returns a synchronous HTML string for the matched route. Renders `<div data-router-empty></div>` when no route matches.
+
+### `.renderHydratable(url, registry, options?, request?)` — server only
+
+Async variant of `.render()` that outputs HTML with `data-ilha` hydration markers and serialized loader data. Use this in your SSR handler for the full hydration pipeline.
+
+### `.renderResponse(url, registry, options?, request?)` — server only
+
+Structured-envelope variant of `.renderHydratable()` that returns a discriminated union instead of a raw string, letting your server emit proper HTTP status codes:
+
+```ts
+const res = await router()
+  .route("/protected", protectedPage, authLoader)
+  .renderResponse("/protected", registry);
+
+if (res.kind === "redirect") return Response.redirect(res.to, res.status);
+if (res.kind === "error") return new Response(res.html, { status: res.status });
+return new Response(res.html, { headers: { "content-type": "text/html" } });
+```
+
+| `kind`       | Fields                      | When                             |
+| ------------ | --------------------------- | -------------------------------- |
+| `"html"`     | `html`, `status?`           | Normal render                    |
+| `"redirect"` | `to`, `status`              | Loader called `redirect()`       |
+| `"error"`    | `status`, `message`, `html` | Loader called `error()` or threw |
+
+### `.hydrate(registry, options?)` — browser only
+
+Convenience method combining `.prime()`, `ilha.mount()`, and `.mount()` in one call. This is the recommended client entry point.
+
+```ts
+pageRouter.hydrate(registry);
+
+// With options:
+pageRouter.hydrate(registry, {
+  root: document.getElementById("root"),
+  target: "#app",
+});
+```
+
+---
+
+## Loaders
+
+A loader is a data-fetching function that runs before a page renders. Its return value is passed as input props to the island.
+
+```ts
+import { loader, redirect, error } from "@ilha/router";
+
+export const load = loader(async ({ params, request, signal }) => {
+  const session = await getSession(request);
+  if (!session) redirect("/login");
+
+  const user = await fetchUser(params.id, { signal });
+  if (!user) error(404, "User not found");
+
+  return { user };
+});
+```
+
+The loader receives a `LoaderContext`:
+
+```ts
+{
+  params: Record<string, string>; // matched URL params
+  request: Request; // the incoming request
+  url: URL; // parsed URL
+  signal: AbortSignal; // abort on superseded navigation
+}
+```
+
+On the server, loaders run inside `.renderHydratable()`. On the client, navigations fetch loader data from the `/__ilha/loader` endpoint before mounting the next island.
+
+### `redirect(to, status?)`
+
+Throws a redirect sentinel inside a loader. The router catches it and either issues an HTTP redirect on the server or calls `navigate()` on the client.
+
+```ts
+redirect("/login"); // 302 by default
+redirect("/moved", 301); // permanent
+```
+
+### `error(status, message)`
+
+Throws a loader error sentinel. On the server, use `.renderResponse()` to intercept it and emit a proper HTTP status code.
+
+```ts
+error(404, "Not found");
+error(403, "Forbidden");
+```
+
+### `composeLoaders(loaders)`
+
+Merges multiple loaders into one. All run concurrently via `Promise.all`. Later loaders win on key collision — the page loader overrides layout loaders for the same key.
+
+```ts
+const combined = composeLoaders([layoutLoader, pageLoader]);
+// → { user: …, post: … }
+```
+
+Used internally by the Vite plugin. Also available for manual composition.
+
+---
+
+## Navigation helpers
+
+### `navigate(to, options?)`
+
+Programmatically navigate to a path. Updates the URL, history stack, and all reactive signals. Duplicate navigations are no-ops.
+
+```ts
+import { navigate } from "@ilha/router";
+
+navigate("/about");
+navigate("/about", { replace: true }); // replaces instead of pushing
+```
+
+### `prefetch(pathWithSearch)`
+
+Prefetches loader data for a path in the background. The result is cached and consumed on the next navigation, making the transition feel instant.
+
+```ts
+prefetch("/user/42");
+prefetch("/dashboard?tab=overview");
+```
+
+`RouterLink` calls this automatically on `mouseenter` for links with the `data-prefetch` attribute.
+
+---
+
+## Route context
+
+These signals reflect the current route and are safe to read inside any island on both server and client.
+
+### `useRoute()`
+
+Returns reactive accessors for the current route state as a convenience object:
+
+```ts twoslash
+import ilha from "ilha";
+import { useRoute } from "@ilha/router";
+
+const MyPage = ilha.render(() => {
+  const { path, params, search, hash } = useRoute();
+  return `<p>User: ${params().id}</p>`;
+});
+```
+
+### `routePath` · `routeParams` · `routeSearch` · `routeHash`
+
+The underlying context signals for direct access outside of islands:
+
+```ts twoslash
+import { routePath, routeParams } from "@ilha/router";
+
+routePath(); // → "/user/42"
+routeParams(); // → { id: "42" }
+```
+
+### `isActive(pattern)`
+
+Returns `true` if the current path matches a registered pattern:
+
+```ts twoslash
+import { isActive } from "@ilha/router";
+
+isActive("/about"); // → true / false
+isActive("/user/:id"); // → true when on any /user/* path
+```
+
+---
+
+## Built-in islands
+
+### `RouterView`
+
+The outlet island rendered by `.mount()` and `.render()`. Wraps the active page island in `<div data-router-view>`. Renders `<div data-router-empty></div>` when no route matches.
+
+### `RouterLink`
+
+A declarative link island. Calls `navigate()` on click and prefetches loader data on `mouseenter`.
+
+```ts
+RouterLink.toString({ href: "/about", label: "About" });
+// → '<a data-link data-prefetch href="/about">About</a>'
+```
+
+Opt a specific link out of prefetching with `data-prefetch="false"`.
+
+---
+
+## File-system routing
+
+`@ilha/router` ships a Vite plugin that scans `src/pages/`, resolves layout and error boundary chains, and generates a ready-to-use router with zero manual route registration.
+
+### Setup
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+import { pages } from "@ilha/router/vite";
+
+export default defineConfig({
+  plugins: [pages()],
+});
+```
+
+Add `.ilha/` to `.gitignore`.
+
+### Directory structure
+
+```
+src/pages/
+  +layout.ts              ← root layout (wraps all pages)
+  +error.ts               ← root error boundary
+  index.ts                → /
+  about.ts                → /about
+  (auth)/                 ← route group — invisible in the URL
+    +layout.ts            ← layout scoped to (auth) pages only
+    sign-in.ts            → /sign-in
+    sign-up.ts            → /sign-up
+  user/
+    +layout.ts            ← nested layout (wraps user/* only)
+    +error.ts             ← nested error boundary
+    [id].ts               → /user/:id
+    [id]/
+      settings.ts         → /user/:id/settings
+  [...slug].ts            → /**:slug
+```
+
+### Filename → pattern mapping
+
+| File                | Pattern     |
+| ------------------- | ----------- |
+| `index.ts`          | `/`         |
+| `about.ts`          | `/about`    |
+| `[id].ts`           | `/:id`      |
+| `user/[id].ts`      | `/user/:id` |
+| `[...slug].ts`      | `/**:slug`  |
+| `(auth)/sign-in.ts` | `/sign-in`  |
+
+### Route groups
+
+Folders wrapped in parentheses — `(name)` — organise files without contributing a URL segment. Use them for shared layouts, co-located pages, or logical grouping with no effect on the URL.
+
+### Layouts
+
+A `+layout.ts` wraps every page in its directory and all subdirectories. Layouts compose inside-out — nearest layout is innermost.
+
+```ts twoslash
+// src/pages/+layout.ts
+import { defineLayout } from "@ilha/router";
+import ilha, { html } from "ilha";
+
+export default defineLayout((children) =>
+  ilha.render(
+    () => html`
+      <nav>
+        <a href="/">Home</a>
+        <a href="/about">About</a>
+      </nav>
+      <main>${children}</main>
+    `,
+  ),
+);
+```
+
+### Page loaders
+
+Export a `load` function from any page file. The Vite plugin detects it automatically, composes it with any layout loaders, and wires it into the router at SSR time.
+
+```ts
+// src/pages/user/[id].ts
+import { loader } from "@ilha/router";
+import ilha from "ilha";
+
+type User = { name: string };
+
+export const load = loader(async ({ params }) => {
+  const user = await fetchUser(params.id);
+  return { user };
+});
+
+export default ilha.input<{ user: User }>().render(({ input }) => `<h1>${input.user.name}</h1>`);
+```
+
+### Error boundaries
+
+A `+error.ts` catches rendering errors for pages in its directory. The nearest boundary wins. If it re-throws, the next outer boundary takes over.
+
+```ts twoslash
+// src/pages/+error.ts
+import type { ErrorHandler } from "@ilha/router/vite";
+import ilha from "ilha";
+
+export default ((err, route) =>
+  ilha.render(
+    () => `
+    <div class="error">
+      <h1>${err.status ?? 500}</h1>
+      <p>${err.message}</p>
+    </div>
+  `,
+  )) satisfies ErrorHandler;
+```
+
+### Virtual modules
+
+The plugin exposes three virtual modules:
+
+| Module          | Export       | Description                                  |
+| --------------- | ------------ | -------------------------------------------- |
+| `ilha:pages`    | `pageRouter` | `RouterBuilder` with all routes registered   |
+| `ilha:registry` | `registry`   | `Record<string, Island>` for hydration       |
+| `ilha:loaders`  | —            | Side-effect import that wires server loaders |
+
+### Plugin options
+
+```ts twoslash
+import { pages } from "@ilha/router/vite";
+// ---cut---
+pages({
+  dir: "src/pages", // default
+  generated: ".ilha/routes.ts", // default
+});
+```
+
+---
+
+## Route sorting
+
+Routes are sorted automatically — no need to order files manually:
+
+1. **Static** paths (`/about`) — highest priority
+2. **Parameterised** paths (`/user/:id`)
+3. **Wildcard** paths (`/**:slug`) — lowest priority
+
+Within the same tier, longer segment counts and alphabetical order act as tiebreakers.
+
+---
+
+## SSR + hydration flow
+
+```
+server                              client
+──────────────────────────────────  ────────────────────────────────────
+renderHydratable(url, registry)     pageRouter.hydrate(registry)
+  → loader runs, props serialized     → prime() — syncs route signals
+  → island.hydratable(props, …)       → mount(registry) — hydrates islands
+  → data-ilha-state snapshot          → mount(target, { hydrate: true })
+  → data-ilha-props on island           → navigation handler activated
+```
+
+On navigation, the client fetches `/__ilha/loader?path=…`, receives loader data as JSON, and mounts the next island with hydration markers — no full page reload.
+
+---
+
+## TypeScript
+
+Key exported types:
+
+```ts
+import type {
+  LoaderContext, // { params, request, url, signal }
+  LoaderFn, // the async function passed to loader()
+  ErrorHandler, // (err, route) => Island — for +error.ts files
+} from "@ilha/router";
+
+import type {
+  ErrorHandler, // (err, route) => Island — for +error.ts files
+} from "@ilha/router/vite";
+```

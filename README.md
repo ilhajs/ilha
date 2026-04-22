@@ -2,6 +2,7 @@
 
 [![Continuous Integration](https://github.com/ilhajs/ilha/actions/workflows/ci.yml/badge.svg)](https://github.com/ilhajs/ilha/actions/workflows/ci.yml)
 [![NPM Version](https://img.shields.io/npm/v/ilha)](https://www.npmjs.com/package/ilha)
+![Bundlephobia](https://badgen.net/bundlephobia/minzip/ilha)
 [![Discord](https://img.shields.io/discord/1428724223756472373)](https://discord.gg/WnVTMCTz74)
 
 > Alpha is live
@@ -43,11 +44,13 @@ bun add ilha
 
 Scaffold a project in seconds with one of the official starters:
 
-| Template                                                                   | Command                                           | Sandbox                                                                     |
-| -------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
-| [Vite](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite) | `npx giget@latest gh:ilhajs/ilha/templates/vite`  | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  |
-| [Hono](https://github.com/ilhajs/ilha/tree/main/templates/hono)            | `npx giget@latest gh:ilhajs/ilha/templates/hono`  | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/hono)  |
-| [Nitro](https://github.com/ilhajs/ilha/tree/main/templates/nitro)          | `npx giget@latest gh:ilhajs/ilha/templates/nitro` | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro) |
+| Template                                                                    | Command                                                | Sandbox                                                                     |
+| --------------------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| [Vite](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  | `npx giget@latest gh:ilhajs/ilha/templates/vite`       | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  |
+| [Hono](https://github.com/ilhajs/ilha/tree/main/templates/hono)             | `npx giget@latest gh:ilhajs/ilha/templates/hono`       | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/hono)  |
+| [Nitro](https://github.com/ilhajs/ilha/tree/main/templates/nitro)           | `npx giget@latest gh:ilhajs/ilha/templates/nitro`      | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro) |
+| [Elysia](https://github.com/ilhajs/ilha/tree/main/templates/elysia)         | `npx giget@latest gh:ilhajs/ilha/templates/elysia`     |                                                                             |
+| [Electrobun](https://github.com/ilhajs/ilha/tree/main/templates/electrobun) | `npx giget@latest gh:ilhajs/ilha/templates/electrobun` |                                                                             |
 
 ---
 

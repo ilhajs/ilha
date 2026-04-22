@@ -1,0 +1,113 @@
+---
+pageType: doc-wide
+outline: false
+title: .onMount()
+---
+
+import dedent from "dedent";
+import { Sandbox } from "$src/sandbox";
+
+export const script = dedent`
+    import "./styles.css";
+    import ilha, { html, mount } from 'ilha';
+
+    const pokedex = ilha
+      .state('pokemon', 'charizard')
+      .state('pokemonList', [])
+      .state('pokemonData', null)
+      .onMount(({ state }) => {
+        const fetchList = async () => {
+          const req = await fetch('https://pokeapi.co/api/v2/pokemon');
+          const list = await req.json();
+          state.pokemonList(list.results);
+        };
+        fetchList();
+      })
+      .effect(({ state }) => {
+        const controller = new AbortController();
+        const fetchPokemon = async () => {
+          const pokemon = state.pokemon();
+          try {
+            const req = await fetch(
+              \`https://pokeapi.co/api/v2/pokemon/\${pokemon}\`,
+              { signal: controller.signal }
+            );
+            const data = await req.json();
+            // Only update if this request wasn't aborted (still the latest)
+            if (!controller.signal.aborted) {
+              state.pokemonData(data);
+            }
+          } catch (err) {
+            // Ignore abort errors
+            if (err.name !== 'AbortError') throw err;
+          }
+        };
+        fetchPokemon();
+        return () => controller.abort();
+      })
+      .bind('#pokemon', 'pokemon')
+      .render(({ state }) => {
+        const currentPokemon = state.pokemon();
+        const options = state.pokemonList().map(
+          ({ name }) => html\`
+            <option value="\${name}" \${
+            name === currentPokemon ? 'selected' : ''
+          }>\${name}</option>
+          \`
+        );
+
+        const card = state.pokemonData()
+          ? html\`
+              <img src="\${state.pokemonData().sprites.front_default}" />
+              <h2>\${state.pokemonData().name}</h2>
+            \`
+          : html\`<p>Loading...</p>\`;
+
+        return html\`
+          <label for="pokemon">Pick a Pokemon</label>
+          <select id="pokemon">
+            \${options}
+          </select>
+          \${card}
+        \`;
+      });
+
+    mount({ pokedex });
+
+`;
+export const template = `<div data-ilha="pokedex"></div>`;
+
+# onMount
+
+Use `.onMount()` to run logic once, immediately after the component renders for
+the first time. Unlike `.effect()`, it does not re-run on state changes — making
+it the right place for one-time setup work.
+
+```
+.onMount(({ state, derived }) => { ... })
+```
+
+The callback receives the full component context, so you have direct access to
+`state` and `derived`. This makes `.onMount()` ideal for seeding initial data:
+fetch a resource, resolve its result, and write it into state — Ilha will
+re-render automatically once the data arrives.
+
+The example uses `.onMount()` to fetch the Pokémon list once. For the selected
+Pokémon's data, it uses `.effect()` which re-runs whenever `state.pokemon()` changes.
+The `fetchPokemon` function inside the effect reads the current selection and
+fetches the corresponding data, writing the result to `state.pokemonData()`.
+Because `.onMount()` and `.effect()` don't await async functions directly, each
+fetch is wrapped in an inner async function and called immediately — a common
+pattern for async work inside synchronous callbacks.
+
+> Pokémon and PokéDex are trademarks of Nintendo/Creatures Inc./GAME FREAK inc.
+> This tutorial uses the PokéAPI for educational purposes only and is not affiliated
+> with or endorsed by the Pokémon Company.
+
+<Sandbox script={script} template={template} />
+
+## Similar concepts
+
+- React: `useEffect` with an empty dependency array
+- Vue: `onMounted()`
+- Svelte: `onMount()`

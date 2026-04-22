@@ -1,0 +1,18 @@
+[
+  "index",
+  {
+    "type": "dir",
+    "label": "Interfaces",
+    "name": "interfaces"
+  },
+  {
+    "type": "dir",
+    "label": "Types",
+    "name": "types"
+  },
+  {
+    "type": "dir",
+    "label": "Variables",
+    "name": "variables"
+  }
+]

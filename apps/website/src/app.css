@@ -15,7 +15,6 @@
 
 .shiki {
   @apply p-4;
-  /*background-color: rgba(250, 244, 237, 0.8) !important;*/
 }
 
 .container {

@@ -1,0 +1,126 @@
+---
+pageType: doc-wide
+outline: false
+title: .input()
+---
+
+import dedent from "dedent";
+import { Sandbox } from "$src/sandbox";
+
+export const script = dedent`
+    import "./styles.css";
+    import ilha, { html, mount, type } from "ilha";
+
+    const pokemonPicker = ilha
+      .input<{ defaultPokemon: string }>()
+      .state('pokemon', ({ defaultPokemon }) => defaultPokemon)
+      .state('pokemonList', [])
+      .state('pokemonData', null)
+      .onMount(({ state }) => {
+        const fetchList = async () => {
+          const req = await fetch('https://pokeapi.co/api/v2/pokemon');
+          const list = await req.json();
+          state.pokemonList(list.results);
+        };
+        fetchList();
+      })
+      .effect(({ state }) => {
+        const controller = new AbortController();
+        const fetchPokemon = async () => {
+          const pokemon = state.pokemon();
+          try {
+            const req = await fetch(
+              \`https://pokeapi.co/api/v2/pokemon/\${pokemon}\`,
+              { signal: controller.signal }
+            );
+            const data = await req.json();
+            // Only update if this request wasn't aborted (still the latest)
+            if (!controller.signal.aborted) {
+              state.pokemonData(data);
+            }
+          } catch (err) {
+            // Ignore abort errors
+            if (err.name !== 'AbortError') throw err;
+          }
+        };
+        fetchPokemon();
+        return () => controller.abort();
+      })
+      .bind('#pokemon', 'pokemon')
+      .render(({ state }) => {
+        const currentPokemon = state.pokemon();
+        const options = state.pokemonList().map(
+          ({ name }) => html\`
+            <option value="\${name}" \${
+            name === currentPokemon ? 'selected' : ''
+          }>\${name}</option>
+          \`
+        );
+
+        const card = state.pokemonData()
+          ? html\`
+              <img src="\${state.pokemonData().sprites.front_default}" />
+              <h2>\${state.pokemonData().name}</h2>
+            \`
+          : html\`<p>Loading...</p>\`;
+
+        return html\`
+          <label for="pokemon">Pick a Pokemon</label>
+          <select id="pokemon">
+            \${options}
+          </select>
+          \${card}
+        \`;
+      });
+
+    const pokedex = ilha
+      .slot("picker", pokemonPicker)
+      .render(({ slots }) => html\`
+        \${slots.picker({ defaultPokemon: "charizard" })}
+      \`);
+
+    mount({ pokedex });
+
+`;
+export const template = `<div data-ilha="pokedex"></div>`;
+
+# Input
+
+Use `.input()` to define the properties passed into your component from the
+outside. Two forms are available depending on whether you need runtime validation.
+
+For simple cases where you just need type safety, pass a TypeScript generic
+directly — no extra dependencies required:
+
+```ts
+.input<{ defaultPokemon: string }>()
+```
+
+When you need runtime validation rules like min/max lengths, regex patterns,
+or conditional logic, pass any [Standard Schema](https://standardschema.dev)-compatible
+library instead — Zod, Valibot, and ArkType all work:
+
+```ts
+.input(z.object({ defaultPokemon: z.string().min(1) }))
+```
+
+Once an input type is defined, the props become available as the first argument
+to any builder method that accepts a callback — including `.state()`. This means
+you can initialize state directly from an input value by passing a function
+instead of a plain default:
+
+```ts
+.state("pokemon", ({ defaultPokemon }) => defaultPokemon)
+```
+
+Input values are passed to the component at the call site — in the example above,
+the parent `pokedex` passes `{ defaultPokemon: "charizard" }` when rendering
+the `picker` slot. With the schema form, if the value doesn't match the schema,
+Ilha will throw at render time rather than silently passing invalid data into
+your component.
+
+> Pokémon and PokéDex are trademarks of Nintendo/Creatures Inc./GAME FREAK inc.
+> This tutorial uses the PokéAPI for educational purposes only and is not affiliated
+> with or endorsed by the Pokémon Company.
+
+<Sandbox script={script} template={template} />
