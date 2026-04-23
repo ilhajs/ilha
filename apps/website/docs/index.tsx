@@ -2,6 +2,7 @@ if (typeof window !== "undefined") {
   // @ts-expect-error
   import("basecoat-css/all");
 }
+import { useHead } from "@rspress/core/runtime";
 import ilha, { html, mount, raw } from "ilha";
 import { useEffect } from "react";
 import { createHighlighter } from "shiki";
@@ -351,6 +352,16 @@ export default () => {
   useEffect(() => {
     mount({ Hero, AiPrompt, Heading, WhyIlha, Libraries, Creator, Footer });
   }, []);
+  useHead({
+    title: "Build Modern UI, Your Way",
+    meta: [
+      {
+        name: "description",
+        content:
+          "Ilha is a lightweight UI framework under 1,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
+      },
+    ],
+  });
   return (
     <div className="flex min-h-screen flex-col">
       <div id="toaster" className="toaster"></div>
