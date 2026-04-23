@@ -2,6 +2,11 @@
 
 ## `ilha`
 
+### 0.2.1 - 2026-04-23
+
+- Removes `type()` helper.
+- Adds `.input<{}>()` simple typing instead of `type()` helper.
+
 ### 0.2.0 - 2026-04-21
 
 - Adds scoped CSS with client and SSR support
@@ -57,6 +62,10 @@ Initial release of **@ilha/form** — a tiny, typed form binding library for ilh
 
 ## `@ilha/router`
 
+### 0.2.1 - 2026-04-23
+
+- Updates Ilha dependency to 0.2.1
+
 ### 0.2.0 - 2026-04-21
 
 - Adds route groups - not affecting pathname
@@ -90,9 +99,13 @@ Initial release of **@ilha/router** — a lightweight, isomorphic router for ilh
 
 ## `@ilha/store`
 
+### 0.1.2 - 2026-04-23
+
+- Updates Ilha dependency to 0.2.1
+
 ### 0.1.1 - 2026-04-21
 
-- Updates Ilha dependency to 0.2
+- Updates Ilha dependency to 0.2.0
 
 ### 0.1.0 — 2026-04-14
 

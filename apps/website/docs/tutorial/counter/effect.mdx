@@ -1,0 +1,71 @@
+---
+pageType: doc-wide
+outline: false
+title: .effect()
+---
+
+import dedent from "dedent";
+import { Sandbox } from "$src/sandbox";
+
+export const script = dedent`
+    import "./styles.css";
+    import ilha, { html, mount } from "ilha";
+
+    const Counter = ilha
+      .state("count", 0)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .on("[data-action=increase]@click", ({ state }) => {
+        state.count(state.count() + 1)
+      })
+      .bind("#count", 'count')
+      .effect(({ state }) => {
+        if (state.count() > 3) {
+          state.count(0);
+        }
+      })
+      .render(
+        ({ state, derived }) => html\`
+          <p>Count: \${state.count()}</p>
+          <p>Doubled: \${derived.doubled.value}</p>
+          <label for="count">Current count</label>
+          <input id="count" type="number" />
+          <button data-action="increase">Increase</button>
+        \`
+      );
+
+    mount({ Counter });
+
+`;
+export const template = `<div data-ilha="Counter"></div>`;
+
+# Effect
+
+Use the `.effect()` method to run a side effect whenever reactive state changes.
+The callback receives the component context — giving you access to `state`,
+`derived`, and more — and runs automatically after every state update.
+
+```ts
+.effect(({ state, derived }) => { ... })
+```
+
+Effects are the right place for logic that needs to _react_ to state but doesn't
+belong in an event handler. This includes enforcing constraints, syncing to
+external systems, triggering animations, or logging.
+
+In the example below, the effect watches `count` and resets it to `0` the moment
+it exceeds `3`. Because the reset itself is a state update, Ilha re-runs the effect
+to confirm the new value satisfies the condition — so your constraints are always
+guaranteed.
+
+Effects run synchronously after each state change. If you need to interact with the
+DOM after a render — for example, to measure an element or focus an input — use
+`queueMicrotask()` or `requestAnimationFrame()` inside the callback to defer
+execution until the render is complete.
+
+<Sandbox script={script} template={template} />
+
+## Similar concepts
+
+- React: `useEffect`
+- Vue: `watch` / `watchEffect`
+- Svelte: `$effect()`

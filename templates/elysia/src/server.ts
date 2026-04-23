@@ -7,13 +7,13 @@ const app = new Elysia()
   .use(staticPlugin({ indexHTML: true, assets: "./dist", prefix: "/" }))
   .use(htmlPlugin())
   .get("/server-island", () => {
-    const greeting = ilha.render(
+    const Greeting = ilha.render(
       () =>
         html`
           <p>Hello from the server.</p>
         `,
     );
-    return greeting();
+    return Greeting();
   })
   .listen(3000);
 

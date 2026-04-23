@@ -1,0 +1,14 @@
+[
+  "input",
+  "state",
+  "derived",
+  "on",
+  "bind",
+  "effect",
+  "onmount",
+  "slot",
+  "transition",
+  "css",
+  "render",
+  "hydratable"
+]

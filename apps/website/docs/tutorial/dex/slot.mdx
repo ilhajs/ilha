@@ -1,0 +1,111 @@
+---
+pageType: doc-wide
+outline: false
+title: .slot()
+---
+
+import dedent from "dedent";
+import { Sandbox } from "$src/sandbox";
+
+export const script = dedent`
+    import "./styles.css";
+    import ilha, { html, mount, context } from "ilha";
+
+    const selectedPokemon = context("selectedPokemon", "charizard");
+
+    const PokemonPicker = ilha
+      .state("pokemonList", [])
+      .onMount(({ state }) => {
+        fetch("https://pokeapi.co/api/v2/pokemon")
+          .then((r) => r.json())
+          .then((list) => state.pokemonList(list.results));
+      })
+      .bind("#pokemon", selectedPokemon)
+      .render(({ state }) => {
+        const currentPokemon = selectedPokemon();
+        const options = state.pokemonList().map(({ name }) =>
+          html\`<option value="\${name}" \${name === currentPokemon ? "selected" : ""}>\${name}</option>\`
+        );
+        return html\`
+          <label for="pokemon">Pick a Pokemon</label>
+          <select id="pokemon">
+            \${options}
+          </select>
+        \`;
+      });
+
+    const PokemonCard = ilha
+      .state("pokemonData", null)
+      .effect(({ state }) => {
+        const controller = new AbortController();
+        const pokemon = selectedPokemon();
+        fetch(\`https://pokeapi.co/api/v2/pokemon/\${pokemon}\`, {
+          signal: controller.signal,
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (!controller.signal.aborted) {
+              state.pokemonData(data);
+            }
+          })
+          .catch((err) => {
+            if (err.name !== 'AbortError') throw err;
+          });
+        return () => controller.abort();
+      })
+      .render(({ state }) => {
+        if (!state.pokemonData()) return html\`<p>Loading...</p>\`;
+        const { name, sprites, types } = state.pokemonData();
+        const typeBadges = types.map(({ type }) =>
+          html\`<span class="badge">\${type.name}</span>\`
+        );
+        return html\`
+          <img src="\${sprites.front_default}" alt="\${name}" />
+          <h2>\${name}</h2>
+          \${typeBadges}
+        \`;
+      });
+
+    const Pokedex = ilha
+      .slot("picker", PokemonPicker)
+      .slot("card", PokemonCard)
+      .render(({ slots }) => html\`
+        \${slots.picker()}
+        \${slots.card()}
+      \`);
+
+    mount({ Pokedex });
+
+`;
+export const template = `<div data-ilha="Pokedex"></div>`;
+
+# Slot
+
+As your components grow, you'll want to split logic into smaller, focused pieces.
+Use `.slot()` to compose multiple Ilha components together into a single parent
+component — each child manages its own state, lifecycle, and rendering independently.
+
+```ts
+.slot("slotName", childComponent)
+```
+
+A slot registers a child component under a name. The parent can then place it
+anywhere in its template by calling `slots.slotName()` inside `.render()`.
+The parent doesn't need to know anything about the child's internals — it just
+decides _where_ it appears.
+
+This is Ilha's approach to composition over inheritance. Rather than one large
+component with all the state and logic in one place, you build a tree of focused
+islands — each one independently reactive — and assemble them in a parent via slots.
+
+In the example above, the single component from the previous step is split into two:
+`pokemonPicker` handles the dropdown, and `pokemonCard` handles the display.
+The `pokedex` parent registers both as slots and renders them without coupling to
+either's implementation. Swapping or reusing either child elsewhere requires no
+changes to the parent.
+
+> Pokémon and PokéDex are trademarks of Nintendo/Creatures Inc./GAME FREAK inc.
+> This tutorial uses the PokéAPI for educational purposes only and is not affiliated
+> with or endorsed by the Pokémon Company.
+
+<Sandbox script={script} template={template} />

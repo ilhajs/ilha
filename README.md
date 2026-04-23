@@ -2,6 +2,7 @@
 
 [![Continuous Integration](https://github.com/ilhajs/ilha/actions/workflows/ci.yml/badge.svg)](https://github.com/ilhajs/ilha/actions/workflows/ci.yml)
 [![NPM Version](https://img.shields.io/npm/v/ilha)](https://www.npmjs.com/package/ilha)
+![Bundlephobia](https://badgen.net/bundlephobia/minzip/ilha)
 [![Discord](https://img.shields.io/discord/1428724223756472373)](https://discord.gg/WnVTMCTz74)
 
 > Alpha is live
@@ -43,11 +44,13 @@ bun add ilha
 
 Scaffold a project in seconds with one of the official starters:
 
-| Template                                                                   | Command                                           | Sandbox                                                                     |
-| -------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
-| [Vite](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite) | `npx giget@latest gh:ilhajs/ilha/templates/vite`  | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  |
-| [Hono](https://github.com/ilhajs/ilha/tree/main/templates/hono)            | `npx giget@latest gh:ilhajs/ilha/templates/hono`  | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/hono)  |
-| [Nitro](https://github.com/ilhajs/ilha/tree/main/templates/nitro)          | `npx giget@latest gh:ilhajs/ilha/templates/nitro` | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro) |
+| Template                                                                    | Command                                                | Sandbox                                                                     |
+| --------------------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| [Vite](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  | `npx giget@latest gh:ilhajs/ilha/templates/vite`       | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  |
+| [Hono](https://github.com/ilhajs/ilha/tree/main/templates/hono)             | `npx giget@latest gh:ilhajs/ilha/templates/hono`       | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/hono)  |
+| [Nitro](https://github.com/ilhajs/ilha/tree/main/templates/nitro)           | `npx giget@latest gh:ilhajs/ilha/templates/nitro`      | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro) |
+| [Elysia](https://github.com/ilhajs/ilha/tree/main/templates/elysia)         | `npx giget@latest gh:ilhajs/ilha/templates/elysia`     |                                                                             |
+| [Electrobun](https://github.com/ilhajs/ilha/tree/main/templates/electrobun) | `npx giget@latest gh:ilhajs/ilha/templates/electrobun` |                                                                             |
 
 ---
 
@@ -57,7 +60,7 @@ Place a mount point anywhere in your HTML:
 
 ```html
 <body>
-  <div data-ilha="counter"></div>
+  <div data-ilha="Counter"></div>
 </body>
 ```
 
@@ -66,19 +69,19 @@ Define your island and mount it:
 ```ts
 import ilha, { html, mount } from "ilha";
 
-const counter = ilha
+const Counter = ilha
   .state("count", 0)
   .on("[data-action=increase]@click", ({ state }) => state.count(state.count() + 1))
   .on("[data-action=decrease]@click", ({ state }) => state.count(state.count() - 1))
   .render(
     ({ state }) => html`
-      <p>Count: ${state.count}</p>
+      <p>Count: ${state.count()}</p>
       <button data-action="increase">Increase</button>
       <button data-action="decrease">Decrease</button>
     `,
   );
 
-mount({ counter });
+mount({ Counter });
 ```
 
 `mount()` auto-discovers every `[data-ilha]` element on the page and activates the matching island.

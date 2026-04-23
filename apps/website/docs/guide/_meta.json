@@ -1,0 +1,27 @@
+[
+  {
+    "type": "dir-section-header",
+    "name": "getting-started",
+    "label": "Getting Started"
+  },
+  {
+    "type": "dir-section-header",
+    "name": "island",
+    "label": "Island API"
+  },
+  {
+    "type": "dir-section-header",
+    "name": "helpers",
+    "label": "Helpers"
+  },
+  {
+    "type": "dir-section-header",
+    "name": "libraries",
+    "label": "Libraries"
+  },
+  {
+    "type": "dir-section-header",
+    "name": "resources",
+    "label": "Resources"
+  }
+]

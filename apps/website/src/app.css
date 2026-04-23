@@ -9,13 +9,21 @@
   --font-mono: "Geist Mono Variable", monospace;
 }
 
+:root {
+  --rp-c-brand: #06b6d4; /* hsl(189deg 94% 43%) */
+  --rp-c-brand-dark: #05a1bb; /* hsl(189deg 94% 38%) */
+  --rp-c-brand-darker: #058ba2; /* hsl(189deg 94% 33%) */
+  --rp-c-brand-light: #15d7f8; /* hsl(189deg 94% 53%) */
+  --rp-c-brand-lighter: #46e0fa; /* hsl(189deg 94% 63%) */
+  --rp-c-brand-tint: rgba(6, 182, 212, 0.15);
+}
+
 [data-ilha-slot] {
   display: contents;
 }
 
 .shiki {
   @apply p-4;
-  /*background-color: rgba(250, 244, 237, 0.8) !important;*/
 }
 
 .container {

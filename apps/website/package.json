@@ -1,32 +1,33 @@
 {
   "name": "website",
   "version": "0.0.1",
+  "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build && cp dist/index.html dist/404.html",
-    "preview": "vite preview"
+    "build": "rspress build",
+    "dev": "rspress dev",
+    "preview": "rspress preview"
   },
   "dependencies": {
-    "@fontsource-variable/geist": "^5.2.8",
-    "@fontsource-variable/geist-mono": "^5.2.7",
-    "alien-signals": "^3.1.2",
+    "@codesandbox/sandpack-react": "^2.20.0",
     "basecoat-css": "^0.3.11",
-    "clsx": "^2.1.1",
     "dedent": "^1.7.2",
-    "lucide": "^1.7.0",
-    "markdown-exit": "^1.0.0-beta.9",
-    "shedit": "https://pkg.pr.new/yzuyr/shedit@e4fdd10",
-    "shiki": "^4.0.2",
-    "shiki-magic-move": "^1.3.0",
-    "unhead": "^3.0.4"
+    "ilha": "^0.2.0",
+    "shiki": "^4.0.2"
   },
   "devDependencies": {
+    "@fontsource-variable/geist": "^5.2.8",
+    "@fontsource-variable/geist-mono": "^5.2.7",
+    "@ilha/router": "^0.2.0",
+    "@rspress/core": "^2.0.9",
+    "@rspress/plugin-llms": "^2.0.9",
+    "@rspress/plugin-sitemap": "^2.0.9",
+    "@rspress/plugin-twoslash": "^2.0.9",
+    "@rspress/plugin-typedoc": "^2.0.9",
+    "@shikijs/transformers": "^4.0.2",
+    "@tailwindcss/postcss": "^4.2.4",
     "@tailwindcss/typography": "^0.5.19",
-    "@tailwindcss/vite": "^4.2.2",
-    "tailwindcss": "^4.2.2",
-    "typescript": "^5",
-    "vite": "^8.0.2",
+    "tailwindcss": "^4.2.4",
     "zod": "^4.3.6"
   }
 }

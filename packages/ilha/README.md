@@ -25,7 +25,7 @@ const Counter = ilha
   .render(
     ({ state }) => html`
       <div>
-        <p>Count: ${state.count}</p>
+        <p>Count: ${state.count()}</p>
         <button>Increment</button>
       </div>
     `,
@@ -50,11 +50,21 @@ State is managed with signals — when a signal changes, only the affected islan
 
 ## Builder API
 
-Every island starts from the `ilha` builder object (or `ilha.input()` if you need typed props).
+Every island starts from the `ilha` builder object (or `ilha.input<T>()` / `ilha.input(schema)` if you need typed props).
 
-### `ilha.input(schema)`
+### `ilha.input<T>()` / `ilha.input(schema)`
 
-Declares the island's external input type using any [Standard Schema](https://standardschema.dev/) compatible validator (e.g. Zod, Valibot, ArkType).
+Declares the island's external input type. Two forms:
+
+**1. Type-only (no runtime validation):**
+
+```ts
+const MyIsland = ilha
+  .input<{ name: string }>()
+  .render(({ input }) => `<p>Hello, ${input.name}!</p>`);
+```
+
+**2. With a [Standard Schema](https://standardschema.dev/) validator** (Zod, Valibot, ArkType, etc.) — runs validation at render time and uses the schema's inferred output type:
 
 ```ts
 import { z } from "zod";
@@ -370,13 +380,13 @@ Async method that renders the island wrapped in a `data-ilha` hydration containe
 const html = await MyIsland.hydratable(
   { name: "Ilha" },
   {
-    name: "my-island", // registry key for client-side activation
+    name: "MyIsland", // registry key for client-side activation
     as: "div", // wrapper tag (default: "div")
     snapshot: true, // embed state + derived as data-ilha-state
     skipOnMount: false, // skip onMount on hydration (default: true when snapshot)
   },
 );
-// → '<div data-ilha="my-island" data-ilha-props="…" data-ilha-state="…">…</div>'
+// → '<div data-ilha="MyIsland" data-ilha-props="…" data-ilha-state="…">…</div>'
 ```
 
 **`snapshot` option:**
@@ -521,20 +531,6 @@ const styles = css`
 
 ---
 
-### `type(coerce?)`
-
-Creates a lightweight Standard Schema validator for use with `.input()` — useful when you don't want a full validation library.
-
-```ts
-import { type } from "ilha";
-
-const MyIsland = ilha
-  .input(type((v: unknown) => v as { count: number }))
-  .render(({ input }) => `<p>${input.count}</p>`);
-```
-
----
-
 ## SSR + Hydration
 
 The recommended SSR + hydration pattern uses `.hydratable()` on the server and `ilha.mount()` on the client.
@@ -555,7 +551,7 @@ return `<!doctype html><html><body>${html}</body></html>`;
 import { mount } from "ilha";
 import { MyIsland } from "./islands";
 
-mount({ "my-island": MyIsland });
+mount({ MyIsland });
 ```
 
 The client reads `data-ilha-state` to restore signal values from the snapshot, skipping a needless re-render and calling `.onMount()` only if `skipOnMount` is not set.
@@ -565,7 +561,7 @@ The client reads `data-ilha-state` to restore signal values from the snapshot, s
 ```
 server                                    client
 ──────────────────────────────────────    ──────────────────────────────────────────
-.hydratable({ count: 42 }, {              mount({ "my-island": MyIsland })
+.hydratable({ count: 42 }, {              mount({ MyIsland })
   name: "my-island",                        → reads data-ilha-state
   snapshot: true                            → restores signals from snapshot
 })                                          → skips onMount (skipOnMount: true)

@@ -19,14 +19,14 @@ const app = new Hono();
 app.use("/static/*", serveAssets);
 
 app.get("/server-island", (c) => {
-  const counter = ilha.render(
+  const Counter = ilha.render(
     () =>
       html`
         <p>Hello from the server.</p>
       `,
   );
 
-  return c.html(counter());
+  return c.html(Counter());
 });
 
 app.get("/*", async (c) => {

@@ -145,7 +145,7 @@ No-op with a console warning when called outside a browser environment.
 Resolves the given URL against the route registry and returns a synchronous HTML string. Accepts a path string, full URL string, or `URL` object. Populates all route signals identically to the browser.
 
 ```ts
-const html = router().route("/", homePage).route("/**", notFound).render("/");
+const html = router().route("/", HomePage).route("/**", notFound).render("/");
 // → '<div data-router-view><p>home</p></div>'
 ```
 
@@ -158,8 +158,8 @@ Renders `<div data-router-empty></div>` when no route matches.
 Async variant of `.render()` that outputs HTML with `data-ilha` hydration markers so the client can rehydrate without a full re-render. If a loader is registered for the matched route, it runs first and its return value is serialized into `data-ilha-props`.
 
 ```ts
-const html = await router().route("/", homePage).renderHydratable("/", registry);
-// → '<div data-router-view><div data-ilha="home">…</div></div>'
+const html = await router().route("/", HomePage).renderHydratable("/", registry);
+// → '<div data-router-view><div data-ilha="Home">…</div></div>'
 ```
 
 If the active island is not found in the registry, falls back to plain SSR and emits a `console.warn`.

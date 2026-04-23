@@ -1,30 +1,31 @@
 {
   "compilerOptions": {
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "target": "ESNext",
-    "module": "Preserve",
-    "moduleDetection": "force",
+    "lib": ["DOM", "ES2020"],
     "jsx": "react-jsx",
-    "allowJs": true,
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
+    "target": "ES2020",
     "noEmit": true,
-    "strict": true,
     "skipLibCheck": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false,
+    "useDefineForClassFields": true,
+
+    /* modules */
+    "module": "ESNext",
+    "moduleDetection": "force",
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+
+    /* type checking */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "paths": {
-      "$lib/*": ["./src/lib/*"],
-      "$routes/*": ["./src/routes/*"],
-      "ilha": ["../../packages/ilha/src/index.ts"],
-      "@ilha/router": ["../../packages/router/src/index.ts"],
-      "@ilha/router/vite": ["../../packages/router/src/vite.ts"]
+      "$src/*": ["./src/*"]
     }
   },
-  "exclude": ["../../packages"]
+  "include": ["docs", "theme", "rspress.config.ts", "../../packages/ilha/src/index.ts"],
+  "mdx": {
+    "checkMdx": true
+  }
 }

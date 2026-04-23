@@ -1,0 +1,244 @@
+---
+title: "@ilha/store"
+---
+
+import { PackageManagerTabs } from "@rspress/core/theme";
+
+`@ilha/store` is a zustand-shaped reactive store for ilha apps. It lives outside any island and is backed by [alien-signals](https://github.com/stackblitz/alien-signals) — the same engine that powers ilha core state — so stores and islands share a single reactive graph with no extra bridging.
+
+## How it relates to ilha
+
+ilha state is **island-local** — signals are scoped to a single component instance. `@ilha/store` adds a layer of **shared global state** that any island (or any non-island code) can read and write. A store is a plain object with `getState`, `setState`, `subscribe`, and `bind` — no context providers, no wrapping components, no framework lock-in.
+
+## Install
+
+<PackageManagerTabs command="install @ilha/store" />
+
+## Quick start
+
+```ts
+import { createStore } from "@ilha/store";
+
+const store = createStore({ count: 0 });
+
+store.setState({ count: 1 });
+store.getState(); // → { count: 1 }
+```
+
+With encapsulated actions:
+
+```ts
+const store = createStore({ count: 0 }, (set, get) => ({
+  increment() {
+    set({ count: get().count + 1 });
+  },
+  reset() {
+    set({ count: 0 });
+  },
+}));
+
+store.getState().increment();
+store.getState().count; // → 1
+```
+
+---
+
+## When to use
+
+ilha's built-in `.state()` is the right choice when only one island reads and writes a piece of state. Use `@ilha/store` when state needs to be:
+
+- **Shared across multiple islands** — e.g. a cart, auth session, or active theme
+- **Updated from outside an island** — e.g. from a WebSocket handler or global event bus
+- **Persisted or derived globally** — e.g. synced to `localStorage` via a `subscribe` listener
+
+---
+
+## API
+
+### `createStore(initialState, actions?)`
+
+Creates a store. Optionally accepts an actions creator for encapsulating mutations.
+
+```ts
+// State only
+const store = createStore({ count: 0, name: "Ada" });
+
+// State + actions
+const store = createStore({ count: 0 }, (set, get, getInitialState) => ({
+  increment() {
+    set({ count: get().count + 1 });
+  },
+  reset() {
+    set(getInitialState());
+  },
+}));
+```
+
+The actions creator receives:
+
+| Argument            | Description                                                       |
+| ------------------- | ----------------------------------------------------------------- |
+| `set(patch \| fn)`  | Merge a partial patch or apply an updater function                |
+| `get()`             | Read the current live state, including other actions              |
+| `getInitialState()` | Read the frozen initial state snapshot as it was at creation time |
+
+Actions are live functions that survive `setState` calls and are accessible directly on the state object:
+
+```ts
+store.getState().increment(); // calls set internally
+```
+
+### `store.setState(update)`
+
+Merges a shallow partial update. Accepts a plain object or an updater function. Keys not included in the patch are preserved.
+
+```ts
+store.setState({ count: 5 });
+store.setState((s) => ({ count: s.count + 1 }));
+```
+
+### `store.getState()`
+
+Returns the current state snapshot. When state has not changed, returns a stable reference.
+
+```ts
+store.getState(); // → { count: 5, increment: [Function], reset: [Function] }
+```
+
+### `store.getInitialState()`
+
+Returns the frozen initial state as it was at construction time. Not affected by subsequent `setState` calls. Useful for reset actions.
+
+```ts
+store.getInitialState(); // → { count: 0 }
+
+// Reset from outside an action:
+store.setState(store.getInitialState());
+```
+
+### `store.subscribe(listener)`
+
+Subscribes to all state changes. The listener receives `(newState, prevState)` and is **not** called on initial subscription. Returns an unsubscribe function.
+
+```ts
+const unsub = store.subscribe((state, prev) => {
+  console.log(state.count, prev.count);
+});
+
+unsub(); // stop listening
+```
+
+### `store.subscribe(selector, listener)` — slice subscription
+
+Subscribes to a derived slice. The listener only fires when the selected value changes (compared with `Object.is`), so unrelated state updates are ignored.
+
+```ts
+const unsub = store.subscribe(
+  (s) => s.count,
+  (count, prev) => console.log("count changed:", prev, "→", count),
+);
+```
+
+### `store.bind(el, render)`
+
+Reactively renders a store-driven HTML string into a DOM element whenever state changes. The render function may return a plain string or an `html\`\`` tagged template. Runs immediately on call to set initial content.
+
+```ts
+import { html } from "ilha";
+
+const unsub = store.bind(
+  document.getElementById("counter")!,
+  (state) => html`<p>Count: ${state.count}</p>`,
+);
+
+unsub(); // detach
+```
+
+### `store.bind(el, selector, render)` — slice bind
+
+Only re-renders when the selected slice changes.
+
+```ts
+store.bind(
+  document.getElementById("badge")!,
+  (s) => s.count,
+  (count) => html`<span>${count}</span>`,
+);
+```
+
+Both forms assign to `el.innerHTML`. Binding two selectors to the same element is allowed — each bind effect is independent, and the last write wins whenever both fire.
+
+---
+
+## `effectScope`
+
+Re-exported from alien-signals. Runs a setup function inside a reactive scope and returns a `stop()` function that tears down every `subscribe` and `bind` effect registered inside it in one call. Use this when you need to mount and unmount a group of store consumers together.
+
+```ts
+import { createStore, effectScope } from "@ilha/store";
+
+const stop = effectScope(() => {
+  store.subscribe((s) => console.log(s.count));
+  store.bind(document.getElementById("count")!, (s) => `${s.count}`);
+  store.bind(document.getElementById("name")!, (s) => s.name);
+});
+
+// Later — stops all three effects at once:
+stop();
+```
+
+---
+
+## Usage with ilha islands
+
+The standard pattern is subscribing to a store slice inside an island's `.effect()` and driving a local signal from it. The `.effect()` cleanup return keeps things tidy on unmount.
+
+```ts
+import { createStore } from "@ilha/store";
+import ilha, { html } from "ilha";
+
+export const cartStore = createStore({ items: [] as string[] }, (set, get) => ({
+  add(item: string) {
+    set({ items: [...get().items, item] });
+  },
+  remove(item: string) {
+    set({ items: get().items.filter((i) => i !== item) });
+  },
+}));
+
+export const CartIsland = ilha
+  .state("items", cartStore.getState().items)
+  .effect(({ state }) => {
+    return cartStore.subscribe(
+      (s) => s.items,
+      (items) => state.items(items),
+    );
+  })
+  .render(
+    ({ state }) => html`
+      <ul>
+        ${state.items().map((item) => html`<li>${item}</li>`)}
+      </ul>
+    `,
+  );
+```
+
+When the store updates, the slice subscription fires, the island signal updates, and ilha re-renders only the affected DOM — no manual wiring needed.
+
+---
+
+## TypeScript
+
+All types are inferred from the initial state and actions creator. Key exported types:
+
+```ts
+import type {
+  StoreApi, // the store instance interface
+  SetState, // (patch | updater) => void
+  GetState, // () => T
+  Listener, // (state, prevState) => void
+  SliceListener, // (slice, prevSlice) => void
+  RenderResult, // string | RawHtml
+  Unsub, // () => void
+} from "@ilha/store";
+```
