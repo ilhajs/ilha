@@ -1,6 +1,9 @@
 ---
 title: html&grave;&grave;
+description: An XSS-safe tagged template for building HTML strings with automatic escaping and signal interpolation.
 ---
+
+# HTML
 
 An XSS-safe tagged template for building HTML strings. Interpolated values are HTML-escaped by default, making the safe path the default and explicit opt-in required for raw markup.
 

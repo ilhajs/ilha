@@ -1,6 +1,9 @@
 ---
 title: Introduction
+description: An introduction to ilha, a tiny isomorphic island framework with fine-grained signal reactivity.
 ---
+
+# Introduction
 
 ilha is a tiny, isomorphic island framework for building reactive UI components.
 

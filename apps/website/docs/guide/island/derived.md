@@ -1,6 +1,9 @@
 ---
 title: .derived()
+description: Declare computed values that depend on state or input, with built-in loading and error envelopes.
 ---
+
+# Derived
 
 Declares a computed value that depends on state or input. Derived values can be synchronous or async, and they re-run automatically when any reactive dependency changes.
 

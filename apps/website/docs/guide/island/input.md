@@ -1,6 +1,9 @@
 ---
 title: .input()
+description: Declare typed external props with optional Standard Schema runtime validation and coercion.
 ---
+
+# Input
 
 Declares the island's external props and their types. Two forms are supported: a type-only generic for when you just need TypeScript inference, and a [Standard Schema](https://standardschema.dev/)-compatible validator (Zod, Valibot, ArkType, etc.) for runtime validation too.
 

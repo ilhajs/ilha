@@ -72,6 +72,27 @@ export default defineConfig({
             defer: true,
           },
         },
+        {
+          tag: "meta",
+          attrs: {
+            property: "og:image",
+            content: "https://ilha.build/og.jpg",
+          },
+        },
+        {
+          tag: "meta",
+          attrs: {
+            name: "twitter:image",
+            content: "https://ilha.build/og.jpg",
+          },
+        },
+        {
+          tag: "link",
+          attrs: {
+            rel: "canonical",
+            href: "https://ilha.build",
+          },
+        },
       ],
     },
   },

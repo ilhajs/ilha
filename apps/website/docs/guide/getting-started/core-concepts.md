@@ -1,6 +1,9 @@
 ---
 title: Core Concepts
+description: Learn the core ideas behind ilha — islands, signals, HTML-first rendering, and the builder chain.
 ---
+
+# Core Concepts
 
 ilha is built around a small set of ideas: islands, signals, HTML-first rendering, and a builder-based API. Once these click, the rest of the library feels straightforward.
 

@@ -1,6 +1,9 @@
 ---
 title: css&grave;&grave;
+description: A passthrough tagged template for CSS strings that enables editor tooling and syntax highlighting.
 ---
+
+# CSS
 
 A passthrough tagged template for CSS strings. It has no runtime effect — its sole purpose is to tell editors and language tools that the content is CSS, enabling syntax highlighting, autocompletion, and formatting.
 

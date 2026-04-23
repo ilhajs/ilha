@@ -1,6 +1,9 @@
 ---
 title: mount()
+description: Auto-discover and mount ilha islands from the DOM, with support for lazy loading and hydration.
 ---
+
+# Mount
 
 Auto-discovers all `[data-ilha]` elements in the DOM and mounts the matching island from a registry. This is the recommended way to activate islands on a page, especially when using SSR and hydration.
 

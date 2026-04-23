@@ -1,6 +1,9 @@
 ---
 title: .slot()
+description: Embed child islands as named slots inside a parent, rendered inline during SSR and activated independently.
 ---
+
+# Slot
 
 Embeds a child island as a named slot inside a parent island. The child is rendered inline during SSR and activated independently on the client. Each slot is managed as its own island — it owns its own state, lifecycle, and reactivity.
 

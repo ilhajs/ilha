@@ -1,6 +1,9 @@
 ---
 title: .state()
+description: Declare reactive signals local to an island to store values that change over time and drive re-renders.
 ---
+
+# State
 
 Declares a reactive signal local to the island. State is the primary way to store values that change over time and drive re-renders.
 

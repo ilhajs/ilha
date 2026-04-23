@@ -1,6 +1,9 @@
 ---
 title: .hydratable()
+description: Render islands wrapped in hydration containers with serialized props and optional state snapshots.
 ---
+
+# Hydratable
 
 Renders the island wrapped in a hydration container. The output includes everything `ilha.mount()` needs to activate the island on the client — the rendered HTML, serialized props, and optionally a state snapshot — all embedded as data attributes on a wrapper element.
 

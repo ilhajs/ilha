@@ -1,6 +1,9 @@
 ---
 title: .transition()
+description: Attach enter and leave animation callbacks to islands for async mount and unmount transitions.
 ---
+
+# Transition
 
 Attaches enter and leave animation callbacks to the island. The enter callback runs when the island mounts, and the leave callback runs when it unmounts. Both are async — ilha awaits the leave transition before tearing down the island.
 
