@@ -25,7 +25,7 @@
 ## Quick Navigation
 
 - [Website](https://ilha.build)
-- [Documentation](https://ilha.build/docs)
+- [Documentation](https://ilha.build/guide/getting-started/introduction)
 - [Templates](https://github.com/ilhajs/ilha/tree/main/templates)
 - [Discord](https://discord.gg/WnVTMCTz74)
 - [Follow us on X](https://x.com/ilha_js)
