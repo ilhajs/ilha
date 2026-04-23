@@ -4,7 +4,6 @@ const PASCAL_CASE = /^[A-Z][a-zA-Z0-9]*$/;
 const ilhaPascalCase = {
   meta: {
     type: "suggestion",
-    fixable: "code",
     docs: {
       description: "Enforce PascalCase for ilha island variable names",
     },

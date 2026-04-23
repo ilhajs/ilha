@@ -24,7 +24,7 @@
       "$src/*": ["./src/*"]
     }
   },
-  "include": ["docs", "theme", "rspress.config.ts", "node_modules/ilha/src/index.ts"],
+  "include": ["docs", "theme", "rspress.config.ts", "../../packages/ilha/src/index.ts"],
   "mdx": {
     "checkMdx": true
   }

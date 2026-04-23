@@ -1,4 +1,7 @@
+import { createRequire } from "node:module";
 import * as path from "node:path";
+
+const require = createRequire(import.meta.url);
 
 import { defineConfig } from "@rspress/core";
 import { pluginLlms } from "@rspress/plugin-llms";
@@ -17,7 +20,7 @@ export default defineConfig({
     pluginLlms(),
     pluginSitemap({ siteUrl: "https://ilha.build" }),
     pluginTypeDoc({
-      entryPoints: [path.join(__dirname, "node_modules", "ilha", "src", "index.ts")],
+      entryPoints: [require.resolve("../../packages/ilha/src/index.ts")],
     }),
   ],
   root: path.join(__dirname, "docs"),

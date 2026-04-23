@@ -4,7 +4,7 @@ if (typeof window !== "undefined") {
 }
 import ilha, { html, mount, raw } from "ilha";
 import { useEffect } from "react";
-import { createHighlighter, type HighlighterGeneric } from "shiki";
+import { createHighlighter } from "shiki";
 
 import {
   AI_SYSTEM_PROMPT,
@@ -18,19 +18,19 @@ import {
 } from "../src/const";
 import { toast } from "../src/ui";
 
-const NITRO_SANDBOX = URLS.SANDBOX.replace("{template}", "nitro") + "?file=src%2Fpages%2Findex.ts";
-
-let highlighter: HighlighterGeneric<any, any>;
-
-if (typeof window !== "undefined") {
-  highlighter = await createHighlighter({
-    themes: ["night-owl-light", "night-owl"],
-    langs: ["typescript"],
-  });
+function ToJsx({ children }: { children: string }) {
+  return <div style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: children }} />;
 }
 
+const NITRO_SANDBOX = URLS.SANDBOX.replace("{template}", "nitro") + "?file=src%2Fpages%2Findex.ts";
+
+const highlighter = await createHighlighter({
+  themes: ["night-owl-light", "night-owl"],
+  langs: ["typescript"],
+});
+
 function highlightCode(code: string): string {
-  return highlighter?.codeToHtml(code, {
+  return highlighter.codeToHtml(code, {
     lang: "typescript",
     themes: { light: "night-owl-light", dark: "night-owl" },
   });
@@ -337,22 +337,29 @@ export const frontmatter = {
   pageType: "custom",
 };
 
+const hero = await Hero.hydratable({}, { name: "Hero", snapshot: true });
+const aiPrompt = await AiPrompt.hydratable({}, { name: "AiPrompt", snapshot: true });
+const whyIlha = await WhyIlha.hydratable({}, { name: "WhyIlha", snapshot: true });
+const libraries = await Libraries.hydratable({}, { name: "Libraries", snapshot: true });
+const creator = await Creator.hydratable({}, { name: "Creator", snapshot: true });
+const footer = await Footer.hydratable({}, { name: "Footer", snapshot: true });
+
 export default () => {
   useEffect(() => {
     mount({ Hero, AiPrompt, Heading, WhyIlha, Libraries, Creator, Footer });
-  });
+  }, []);
   return (
     <div className="flex min-h-screen flex-col">
       <div id="toaster" className="toaster"></div>
       <div className="container mx-auto flex flex-1 flex-col p-4">
-        <div data-ilha="Hero"></div>
-        <div data-ilha="AiPrompt"></div>
+        <ToJsx>{hero}</ToJsx>
+        <ToJsx>{aiPrompt}</ToJsx>
         <div data-ilha="Heading" data-ilha-props='{"text": "Why Ilha?"}'></div>
-        <div data-ilha="WhyIlha"></div>
+        <ToJsx>{whyIlha}</ToJsx>
         <div data-ilha="Heading" data-ilha-props='{"text": "And there&apos;s more."}'></div>
-        <div data-ilha="Libraries"></div>
-        <div data-ilha="Creator"></div>
-        <div data-ilha="Footer"></div>
+        <ToJsx>{libraries}</ToJsx>
+        <ToJsx>{creator}</ToJsx>
+        <ToJsx>{footer}</ToJsx>
       </div>
     </div>
   );
