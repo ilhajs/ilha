@@ -2,6 +2,8 @@
 title: .input()
 ---
 
+# Input
+
 Declares the island's external props and their types. Two forms are supported: a type-only generic for when you just need TypeScript inference, and a [Standard Schema](https://standardschema.dev/)-compatible validator (Zod, Valibot, ArkType, etc.) for runtime validation too.
 
 ## Basic usage

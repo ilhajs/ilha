@@ -2,6 +2,8 @@
 title: .bind()
 ---
 
+# Bind
+
 Two-way binds a form element to a state key or external signal. When the state changes, the element updates. When the user interacts with the element, the state updates.
 
 ## Basic usage

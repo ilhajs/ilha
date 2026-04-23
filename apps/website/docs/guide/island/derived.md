@@ -2,6 +2,8 @@
 title: .derived()
 ---
 
+# Derived
+
 Declares a computed value that depends on state or input. Derived values can be synchronous or async, and they re-run automatically when any reactive dependency changes.
 
 ## Basic usage

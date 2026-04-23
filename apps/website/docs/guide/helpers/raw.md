@@ -2,6 +2,8 @@
 title: raw()
 ---
 
+# Raw
+
 Marks a string as trusted HTML, bypassing escaping when interpolated inside [`html`](/guide/helpers/html). Use it when you need to inject markup you fully control — icons, pre-rendered fragments, or server-sanitized content.
 
 ## Basic usage

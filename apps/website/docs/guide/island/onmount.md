@@ -2,6 +2,8 @@
 title: .onMount()
 ---
 
+# onMount
+
 Registers a function that runs once after the island is mounted into the DOM. Use it for one-time setup that needs access to the host element, such as initializing third-party libraries, measuring layout, or setting up manual DOM integrations.
 
 ## Basic usage

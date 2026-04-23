@@ -2,6 +2,8 @@
 title: .state()
 ---
 
+# State
+
 Declares a reactive signal local to the island. State is the primary way to store values that change over time and drive re-renders.
 
 ## Basic usage

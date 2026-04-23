@@ -2,6 +2,8 @@
 title: .on()
 ---
 
+# On
+
 Attaches a DOM event listener to the island host or any descendant element. Listeners are set up at mount time and cleaned up automatically on unmount.
 
 ## Basic usage

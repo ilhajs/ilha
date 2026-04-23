@@ -2,6 +2,8 @@
 title: html&grave;&grave;
 ---
 
+# HTML
+
 An XSS-safe tagged template for building HTML strings. Interpolated values are HTML-escaped by default, making the safe path the default and explicit opt-in required for raw markup.
 
 ## Basic usage

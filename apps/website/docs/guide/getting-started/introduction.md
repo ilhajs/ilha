@@ -2,6 +2,8 @@
 title: Introduction
 ---
 
+# Introduction
+
 ilha is a tiny, isomorphic island framework for building reactive UI components.
 
 It lets you render on the server and mount in the browser with fine-grained signal reactivity, without a virtual DOM or compiler overhead. The result is a UI model that stays close to HTML, but still gives you state, events, lifecycle hooks, scoped styles, and hydration when you need them.

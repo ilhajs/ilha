@@ -2,6 +2,8 @@
 title: context()
 ---
 
+# Context
+
 Creates a named global signal shared across all islands. Identical keys always return the same signal instance, making it the primary way to share reactive state between islands without prop drilling or a separate store.
 
 ## Basic usage

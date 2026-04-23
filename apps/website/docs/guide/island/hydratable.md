@@ -2,6 +2,8 @@
 title: .hydratable()
 ---
 
+# Hydratable
+
 Renders the island wrapped in a hydration container. The output includes everything `ilha.mount()` needs to activate the island on the client — the rendered HTML, serialized props, and optionally a state snapshot — all embedded as data attributes on a wrapper element.
 
 Use this method in your SSR handler whenever you want the island to become interactive in the browser without a full client-side re-render.

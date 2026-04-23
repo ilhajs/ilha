@@ -17,10 +17,12 @@ export const SHOWCASE = [
   },
 ];
 
-<div class="rp-not-doc grid grid-cols-3 gap-4">
+# Showcase
+
+<div className="rp-not-doc grid grid-cols-3 gap-4">
   {SHOWCASE.map((item) => (
-    <div class="card pt-0 overflow-hidden">
-      <img loading="lazy" class="aspect-video object-cover" src={item.image} />
+    <div className="card pt-0 overflow-hidden">
+      <img loading="lazy" className="aspect-video object-cover" src={item.image} />
       <header>
         <h2>
           <a href={item.link} target="_blank" rel="noopener noreferrer" className="underline">

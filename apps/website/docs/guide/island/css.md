@@ -2,6 +2,8 @@
 title: .css()
 ---
 
+# CSS
+
 Attaches scoped styles to the island. Styles are automatically wrapped in a `@scope` rule bounded to the island host, so they apply only within the island and do not leak into child islands.
 
 ## Basic usage

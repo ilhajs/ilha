@@ -2,6 +2,8 @@
 title: mount()
 ---
 
+# Mount
+
 Auto-discovers all `[data-ilha]` elements in the DOM and mounts the matching island from a registry. This is the recommended way to activate islands on a page, especially when using SSR and hydration.
 
 ## Basic usage

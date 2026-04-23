@@ -2,6 +2,8 @@
 title: .render()
 ---
 
+# Render
+
 Finalizes the builder chain and returns a callable `Island`. This is always the last method in the chain — every other builder method must be called before `.render()`.
 
 ## Basic usage
