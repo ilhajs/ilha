@@ -9,7 +9,10 @@ Finalizes the builder chain and returns a callable `Island`. This is always the 
 ```ts twoslash
 import ilha, { html } from "ilha";
 
-const MyIsland = ilha.state("x", 1).render(({ state }) => html`<p>${state.x}</p>`);
+const MyIsland = ilha
+  .state("x", 1)
+  // [!code highlight]
+  .render(({ state }) => html`<p>${state.x}</p>`);
 ```
 
 ## Render context
@@ -29,7 +32,7 @@ All four are always present, even if not declared. An island with no state gets 
 
 ## Return type
 
-The render function must return a `string` or a `RawHtml` object. In practice this means returning either a plain template literal or an `html\`\`` tagged template:
+The render function must return a `string` or a `RawHtml` object. In practice this means returning either a plain template literal or an [`html`](/guide/helpers/html)`\`\`` tagged template:
 
 ```ts twoslash
 import ilha, { html, raw } from "ilha";
@@ -44,7 +47,7 @@ const B = ilha.render(({ state }) => html`<p>${state}</p>`);
 const C = ilha.render(() => html`<div>${raw("<em>trusted</em>")}</div>`);
 ```
 
-Use `html\`\`` whenever you interpolate dynamic values. Plain strings are fine for fully static markup.
+Use [`html`](/guide/helpers/html)`\`\`` whenever you interpolate dynamic values. Plain strings are fine for fully static markup.
 
 ## Conditional rendering
 
@@ -58,9 +61,9 @@ const Island = ilha
   .state("error", "")
   .state("items", [] as string[])
   .render(({ state }) => {
+    // [!code highlight:2]
     if (state.loading()) return html`<p>Loading…</p>`;
     if (state.error()) return html`<p>Error: ${state.error}</p>`;
-
     return html`
       <ul>
         ${state.items().map((item) => html`<li>${item}</li>`)}
@@ -71,7 +74,7 @@ const Island = ilha
 
 ## List rendering
 
-Arrays of `html\`\`` results are joined without commas. This is the canonical list rendering pattern:
+Arrays of [`html`](/guide/helpers/html)`\`\`` results are joined without commas. This is the canonical list rendering pattern:
 
 ```ts twoslash
 import ilha, { html } from "ilha";
@@ -79,7 +82,7 @@ import ilha, { html } from "ilha";
 const List = ilha.state("fruits", ["apple", "banana", "cherry"]).render(
   ({ state }) => html`
     <ul>
-      ${state.fruits().map((fruit) => html`<li>${fruit}</li>`)}
+      ${state.fruits().map((fruit) => html`<li>${fruit}</li>`)} // [!code highlight]
     </ul>
   `,
 );
@@ -87,7 +90,7 @@ const List = ilha.state("fruits", ["apple", "banana", "cherry"]).render(
 
 ## Async rendering
 
-If the island uses async `.derived()` values, calling the island as a function awaits all of them before rendering:
+If the island uses async [`.derived()`](/guide/island/derived) values, calling the island as a function awaits all of them before rendering:
 
 ```ts twoslash
 import ilha from "ilha";
@@ -103,7 +106,7 @@ const Island = ilha
   });
 
 // Async — waits for derived values
-const html = await Island();
+const html = await Island(); // [!code highlight]
 
 // Sync — derived renders in loading state
 const html2 = Island.toString();
@@ -123,6 +126,6 @@ island.hydratable(props, options) // renders wrapped in hydration container
 ## Notes
 
 - `.render()` must be called exactly once and always last in the chain.
-- The render function runs on every re-render triggered by a signal change. Keep it fast and free of side effects — use `.effect()` or `.onMount()` for side effects instead.
+- The render function runs on every re-render triggered by a signal change. Keep it fast and free of side effects — use [`.effect()`](/guide/island/effect) or [`.onMount()`](/guide/island/onmount) for side effects instead.
 - During SSR the render function runs synchronously. Avoid browser-only APIs (`window`, `document`) at the top level of the render function.
-- The render function does not receive `host` — if you need the host element, use `.onMount()` or `.effect()`.
+- The render function does not receive `host` — if you need the host element, use [`.onMount()`](/guide/island/onmount) or [`.effect()`](/guide/island/effect).

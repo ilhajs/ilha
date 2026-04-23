@@ -25,7 +25,7 @@ const Counter = ilha
   .render(
     ({ state }) => html`
       <div>
-        <p>Count: ${state.count}</p>
+        <p>Count: ${state.count()}</p>
         <button>Increment</button>
       </div>
     `,

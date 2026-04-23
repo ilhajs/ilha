@@ -10,8 +10,14 @@ Attaches scoped styles to the island. Styles are automatically wrapped in a `@sc
 import ilha, { html } from "ilha";
 
 const Card = ilha.css`
-    .title { font-weight: 700; }
-    button { background: teal; color: white; }
+    // [!code highlight:7]
+    .title {
+        font-weight: 700;
+    }
+    button {
+        background: teal;
+        color: white;
+    }
   `.render(
   () => html`
     <div>
@@ -40,11 +46,11 @@ When using the tagged template form, interpolations work as normal string concat
 ```ts twoslash
 import ilha, { html } from "ilha";
 
-const accent = "coral";
+const accent = "coral"; // [!code highlight]
 
 const Button = ilha.css`
     button {
-      background: ${accent};
+      background: ${accent}; // [!code highlight]
       color: white;
     }
   `.render(() => html`<button>Go</button>`);
@@ -124,5 +130,5 @@ On the client, the style element is injected once as the first child of the host
 ## Notes
 
 - Calling `.css()` more than once on the same builder chain is not supported. In dev mode a warning is logged and only the last stylesheet is used. Compose all styles into a single `.css()` call.
-- `.css()` is compatible with `.hydratable()` — the style tag is included inside the `data-ilha` wrapper regardless of the `snapshot` option.
+- `.css()` is compatible with [`.hydratable()`](/guide/island/hydratable) — the style tag is included inside the `data-ilha` wrapper regardless of the `snapshot` option.
 - Browser support for `@scope` is required. Check [caniuse.com/css-cascade-scope](https://caniuse.com/css-cascade-scope) for current coverage if you need to support older browsers.

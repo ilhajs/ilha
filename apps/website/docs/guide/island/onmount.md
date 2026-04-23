@@ -10,6 +10,7 @@ Registers a function that runs once after the island is mounted into the DOM. Us
 import ilha from "ilha";
 
 const Island = ilha
+  // [!code highlight:3]
   .onMount(({ host }) => {
     console.log("mounted", host);
   })
@@ -30,7 +31,7 @@ const Island = ilha
     });
     observer.observe(host);
 
-    return () => observer.disconnect();
+    return () => observer.disconnect(); // [!code highlight]
   })
   .render(() => `<div>hello</div>`);
 ```
@@ -81,6 +82,7 @@ import ilha from "ilha";
 const Map = ilha
   .input<{ lat: number; lng: number }>()
   .onMount(({ host, input }) => {
+    // [!code highlight:4]
     const map = new window.MapLibrary(host, {
       center: [input.lat, input.lng],
       zoom: 12,
@@ -122,7 +124,14 @@ const Island = ilha
   .render(() => `<div>hello</div>`);
 
 // On the server:
-await Island.hydratable({}, { name: "my-island", snapshot: true, skipOnMount: true });
+await Island.hydratable(
+  {},
+  {
+    name: "my-island",
+    snapshot: true,
+    skipOnMount: true, // [!code highlight]
+  },
+);
 ```
 
 ## `.onMount()` vs `.effect()`

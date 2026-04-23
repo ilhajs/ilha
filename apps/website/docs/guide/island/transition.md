@@ -12,12 +12,32 @@ import ilha from "ilha";
 const Island = ilha
   .transition({
     enter: async (host) => {
-      await host.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, fill: "forwards" })
-        .finished;
+      await host.animate(
+        [
+          {
+            opacity: 0,
+          },
+          { opacity: 1 },
+        ],
+        {
+          duration: 300,
+          fill: "forwards",
+        },
+      ).finished;
     },
     leave: async (host) => {
-      await host.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, fill: "forwards" })
-        .finished;
+      await host.animate(
+        [
+          {
+            opacity: 1,
+          },
+          { opacity: 0 },
+        ],
+        {
+          duration: 300,
+          fill: "forwards",
+        },
+      ).finished;
     },
   })
   .render(() => `<div>content</div>`);
@@ -32,6 +52,7 @@ import ilha from "ilha";
 
 const Island = ilha
   .transition({
+    // [!code highlight:9]
     enter: (host) => {
       host.animate(
         [
@@ -56,6 +77,7 @@ import ilha from "ilha";
 
 const Island = ilha
   .transition({
+    // [!code highlight:4]
     leave: async (host) => {
       await host.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200 }).finished;
     },
@@ -118,16 +140,16 @@ const Island = ilha
   .render(() => `<div>content</div>`);
 ```
 
-## Interaction with `.onMount()`
+## Interaction with [`.onMount()`](/guide/island/onmount)
 
-The enter transition and `.onMount()` both run after mount, but in a specific order:
+The enter transition and [`.onMount()`](/guide/island/onmount) both run after mount, but in a specific order:
 
 1. Island mounts and renders into the DOM.
 2. Effects are set up.
-3. `.onMount()` callbacks run.
+3. [`.onMount()`](/guide/island/onmount) callbacks run.
 4. Enter transition runs.
 
-This means `.onMount()` always completes before the enter animation starts.
+This means [`.onMount()`](/guide/island/onmount) always completes before the enter animation starts.
 
 ## Notes
 

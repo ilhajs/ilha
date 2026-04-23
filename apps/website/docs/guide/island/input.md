@@ -36,7 +36,7 @@ Greeting.toString(); // → <p>Hello, World!</p>
 
 Without `.input()`, any props passed to an island are untyped and unvalidated. Adding a type or schema gives you:
 
-- Full TypeScript inference for `input` inside `.state()`, `.render()`, `.on()`, `.effect()`, and every other builder method.
+- Full TypeScript inference for `input` inside [`.state()`](/guide/island/state), [`.render()`](/guide/island/render), [`.on()`](/guide/island/on), [`.effect()`](/guide/island/effect), and every other builder method.
 - Runtime validation and coercion on every call, including during SSR and hydration (schema form only).
 - Default values handled by the schema itself, so the island works without props (schema form only).
 
@@ -92,5 +92,5 @@ Async schemas are not supported. If your validator's `validate()` method returns
 ## Notes
 
 - `.input()` must be called before any other builder method if you want the input type to flow through the chain.
-- Calling `.input()` resets the builder — any previously chained `.state()` or other methods are not carried over.
+- Calling `.input()` resets the builder — any previously chained [`.state()`](/guide/island/state) or other methods are not carried over.
 - If `.input()` is omitted entirely, props are accepted as `Record<string, unknown>` with no validation.

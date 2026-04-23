@@ -11,6 +11,7 @@ import ilha from "ilha";
 
 const Island = ilha
   .state("title", "Hello")
+  // [!code highlight:3]
   .effect(({ state }) => {
     document.title = state.title();
   })
@@ -32,8 +33,7 @@ const Island = ilha
     const id = setInterval(() => {
       console.log("tick");
     }, state.delay());
-
-    return () => clearInterval(id);
+    return () => clearInterval(id); // [!code highlight]
   })
   .render(({ state }) => `<p>Interval: ${state.delay()}ms</p>`);
 ```

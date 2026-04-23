@@ -1,5 +1,5 @@
 ---
-title: html
+title: html&grave;&grave;
 ---
 
 An XSS-safe tagged template for building HTML strings. Interpolated values are HTML-escaped by default, making the safe path the default and explicit opt-in required for raw markup.
@@ -70,9 +70,9 @@ html`<button>${raw(icon)} Submit</button>`;
 
 Only use `raw()` with markup you fully control. Never pass user input to `raw()`.
 
-## Nesting `html\`\`` results
+## Nesting html&grave;&grave; results
 
-Results of `html\`\`` are already safe and pass through unescaped when interpolated into a parent template. This is the foundation of composable templates:
+Results of html&grave;&grave; are already safe and pass through unescaped when interpolated into a parent template. This is the foundation of composable templates:
 
 ```ts twoslash
 import { html } from "ilha";
@@ -95,8 +95,8 @@ import ilha, { html } from "ilha";
 
 const Island = ilha
   .state("label", "<b>hello</b>")
+  // [!code highlight]
   .render(({ state }) => html` <p>${state.label}</p> `);
-//       ^^^^^^^^^^^ same as ${state.label()} — escaped either way
 ```
 
 Both forms are equivalent. The no-call shorthand is purely a convenience.
@@ -118,7 +118,7 @@ html`
 // → <ul><li>apple</li><li>banana</li><li>cherry</li></ul>
 ```
 
-Each `html\`\``result in the array passes through unescaped. Mixed arrays of strings and`html\`\`` results also work — each item is processed by its own rules.
+Each html&grave;&grave; result in the array passes through unescaped. Mixed arrays of strings and html&grave;&grave; results also work — each item is processed by its own rules.
 
 ## Whitespace and indentation
 
@@ -137,7 +137,7 @@ const result = html`
 
 ## Return type
 
-`html\`\``returns a`RawHtml`object, not a plain string. This lets ilha distinguish between trusted and untrusted content when the result is interpolated into another template. To get the plain string value, access`.value` or let ilha unwrap it at a render boundary:
+html&grave;&grave; returns a `RawHtml` object, not a plain string. This lets ilha distinguish between trusted and untrusted content when the result is interpolated into another template. To get the plain string value, access `.value` or let ilha unwrap it at a render boundary:
 
 ```ts twoslash
 import { html } from "ilha";
@@ -151,5 +151,5 @@ In practice you rarely need to access `.value` directly — ilha handles unwrapp
 
 ## Notes
 
-- `html\`\`` is purely a runtime helper with no compiler step. It works in any JavaScript environment including Node, Bun, Deno, and the browser.
-- Do not use `html\`\`` for CSS or attribute values where HTML escaping is not appropriate. Use the [`css\`\``](/guide/helpers/css) tag for stylesheets and plain template literals for everything else.
+- html&grave;&grave; is purely a runtime helper with no compiler step. It works in any JavaScript environment including Node, Bun, Deno, and the browser.
+- Do not use html&grave;&grave; for CSS or attribute values where HTML escaping is not appropriate. Use the [css&grave;&grave;](/guide/helpers/css) tag for stylesheets and plain template literals for everything else.

@@ -2,7 +2,7 @@
 title: raw()
 ---
 
-Marks a string as trusted HTML, bypassing escaping when interpolated inside `html\`\``. Use it when you need to inject markup you fully control — icons, pre-rendered fragments, or server-sanitized content.
+Marks a string as trusted HTML, bypassing escaping when interpolated inside [`html`](/guide/helpers/html). Use it when you need to inject markup you fully control — icons, pre-rendered fragments, or server-sanitized content.
 
 ## Basic usage
 
@@ -30,9 +30,13 @@ html`<div>${"<em>hello</em>"}</div>`;
 import ilha, { html, raw } from "ilha";
 
 // SVG icons defined in your codebase
-const chevron = `<svg viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></svg>`;
+const chevron = `<svg viewBox="0 0 16 16">
+    <path d="M4 6l4 4 4-4"/>
+</svg>`;
 
-const Dropdown = ilha.render(() => html` <button>Options ${raw(chevron)}</button> `);
+const Dropdown = ilha
+  // [!code highlight]
+  .render(() => html`<button>Options ${raw(chevron)}</button>`);
 ```
 
 ```ts twoslash
@@ -59,9 +63,9 @@ html`<p>${raw(userComment)}</p>`;
 html`<p>${userComment}</p>`;
 ```
 
-## Composing with `html\`\``
+## Composing with [`html`](/guide/helpers/html)
 
-`html\`\``results are already treated as safe and pass through unescaped without needing`raw()`. Reserve `raw()` for plain strings that contain trusted markup:
+[`html`](/guide/helpers/html) results are already treated as safe and pass through unescaped without needing`raw()`. Reserve `raw()` for plain strings that contain trusted markup:
 
 ```ts twoslash
 import { html, raw } from "ilha";
@@ -77,7 +81,7 @@ html`<div>${raw(iconStr)}</div>`;
 
 ## Return type
 
-`raw()` returns a `RawHtml` object — the same type produced by `html\`\``. This means raw values compose freely with nested templates and arrays:
+`raw()` returns a `RawHtml` object — the same type produced by [`html`](/guide/helpers/html). This means raw values compose freely with nested templates and arrays:
 
 ```ts twoslash
 import { html, raw } from "ilha";
@@ -93,5 +97,5 @@ html`
 
 ## Notes
 
-- `raw()` only has an effect inside `html\`\``. Outside of a template it simply wraps the string in a `RawHtml` object with no other transformation.
+- `raw()` only has an effect inside [`html`](/guide/helpers/html). Outside of a template it simply wraps the string in a `RawHtml` object with no other transformation.
 - There is no runtime sanitization inside `raw()`. If you need to accept user-generated HTML, sanitize it with a dedicated library such as [DOMPurify](https://github.com/cure53/DOMPurify) before passing it to `raw()`.

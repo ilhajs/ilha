@@ -75,7 +75,7 @@ const Counter = ilha
   .on("[data-action=decrease]@click", ({ state }) => state.count(state.count() - 1))
   .render(
     ({ state }) => html`
-      <p>Count: ${state.count}</p>
+      <p>Count: ${state.count()}</p>
       <button data-action="increase">Increase</button>
       <button data-action="decrease">Decrease</button>
     `,

@@ -33,32 +33,32 @@ state.count(5); // write
 Inside `html\`\``, you can interpolate the accessor directly:
 
 ```ts
-html`<p>${state.count}</p>`;
+html`<p>${state.count()}</p>`;
 ```
 
 This keeps reactive state small and direct. You read what you need, update what you need, and the island updates accordingly.
 
 ## Builder chain
 
-You create islands with a fluent builder chain. Each method adds one capability, and `.render()` finalizes the component.
+You create islands with a fluent builder chain. Each method adds one capability, and [`.render()`](/guide/island/render) finalizes the component.
 
 A typical island might include:
 
-- `.input()` for typed props.
-- `.state()` for local state.
-- `.derived()` for computed or async values.
-- `.on()` for event handlers.
-- `.bind()` for form binding.
-- `.effect()` and `.onMount()` for side effects.
-- `.slot()` for child islands.
-- `.css()` for scoped styles.
-- `.render()` to produce the final island.
+- [`.input()`](/guide/island/input) for typed props.
+- [`.state()`](/guide/island/state) for local reactive state.
+- [`.derived()`](/guide/island/derived) for computed or async values.
+- [`.on()`](/guide/island/on) for event handlers.
+- [`.bind()`](/guide/island/bind) for form binding.
+- [`.effect()`](/guide/island/effect) and [`.onMount()`](/guide/island/onmount) for side effects.
+- [`.slot()`](/guide/island/slot) for child islands.
+- [`.css()`](/guide/island/css) for scoped styles.
+- [`.render()`](/guide/island/render) to produce the final island.
 
 This step-by-step structure is one of the core design ideas in ilha. Instead of putting everything in one large options object, you compose behavior in a readable chain.
 
 ## HTML-first rendering
 
-ilha uses tagged template literals to build HTML. The main template helper is `html`\`\`, which escapes interpolated values by default.
+ilha uses tagged template literals to build HTML. The main template helper is [`html`](/guide/helpers/html), which escapes interpolated values by default.
 
 ```ts twoslash
 const userInput = "Ilha is awesome";
@@ -68,13 +68,13 @@ import { html } from "ilha";
 html`<p>${userInput}</p>`;
 ```
 
-This keeps markup easy to read while making the safe path the default. If you really need to inject trusted markup, you can opt into that explicitly with `raw()`.
+This keeps markup easy to read while making the safe path the default. If you really need to inject trusted markup, you can opt into that explicitly with [`raw()`](/guide/helpers/raw).
 
 ## Derived values
 
 Not every value belongs in local state. Sometimes a component needs data that depends on state or input, including async data.
 
-That is what `.derived()` is for. A derived value exposes a small envelope with:
+That is what [`.derived()`](/guide/island/derived) is for. A derived value exposes a small envelope with:
 
 - `loading`
 - `value`
@@ -86,7 +86,7 @@ This makes loading and error states part of the normal rendering model instead o
 
 ilha separates user interaction from side effects.
 
-Use `.on()` for DOM events such as clicks, input, and change events. Use `.effect()` when you want reactive behavior that runs after mount and reruns when its dependencies change. Use `.onMount()` when something should run once after the island is attached to the DOM.
+Use [`.on()`](/guide/island/on) for DOM events such as clicks, input, and change events. Use [`.effect()`](/guide/island/effect) when you want reactive behavior that runs after mount and reruns when its dependencies change. Use [`.onMount()`](/guide/island/onmount) when something should run once after the island is attached to the DOM.
 
 This separation helps keep component logic easier to scan:
 
@@ -96,7 +96,7 @@ This separation helps keep component logic easier to scan:
 
 ## Scoped styles
 
-ilha supports component-level styles with `.css()`. Styles are scoped to the island so they stay local and do not leak into nested child islands.
+ilha supports component-level styles with [`.css()`](/guide/island/css). Styles are scoped to the island so they stay local and do not leak into nested child islands.
 
 This lets you keep structure, behavior, and styling close together when that is useful, without giving up isolation.
 

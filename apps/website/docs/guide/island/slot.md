@@ -12,6 +12,7 @@ import ilha, { html } from "ilha";
 const Icon = ilha.render(() => `<svg>…</svg>`);
 
 const Card = ilha.slot("icon", Icon).render(
+  //              ^^^^^^^^^^^^^^^^^^
   ({ slots }) => html`
     <div class="card">
       ${slots.icon()}
@@ -30,13 +31,18 @@ import ilha, { html } from "ilha";
 import { z } from "zod";
 
 const Badge = ilha
-  .input(z.object({ label: z.string(), color: z.string().default("teal") }))
+  .input(
+    z.object({
+      label: z.string(),
+      color: z.string().default("teal"),
+    }),
+  )
   .render(({ input }) => html` <span style="background:${input.color}">${input.label}</span> `);
 
 const Card = ilha.slot("badge", Badge).render(
   ({ slots }) => html`
     <div>
-      ${slots.badge({ label: "New", color: "coral" })}
+      ${slots.badge({ label: "New", color: "coral" })} // [!code highlight]
       <p>Content</p>
     </div>
   `,

@@ -34,6 +34,16 @@ export default defineConfig({
         mode: "link",
         content: "https://github.com/ilhajs/ilha",
       },
+      {
+        icon: "discord",
+        mode: "link",
+        content: "https://discord.gg/WnVTMCTz74",
+      },
+      {
+        icon: "x",
+        mode: "link",
+        content: "https://x.com/ilha_js",
+      },
     ],
     editLink: {
       docRepoBaseUrl: "https://github.com/ilhajs/ilha/tree/main/apps/website/docs",
@@ -45,6 +55,20 @@ export default defineConfig({
         transformerNotationHighlight(),
         transformerMetaHighlight(),
         transformerNotationDiff(),
+      ],
+    },
+  },
+  builderConfig: {
+    html: {
+      tags: [
+        {
+          tag: "script",
+          attrs: {
+            src: "https://umami.guarana.studio/script.js",
+            "data-website-id": "410cd0a6-1ee7-4d3a-b1ae-52dd9379e9c7",
+            defer: true,
+          },
+        },
       ],
     },
   },

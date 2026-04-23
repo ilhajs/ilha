@@ -11,12 +11,12 @@ import ilha, { html } from "ilha";
 
 const Form = ilha
   .state("name", "")
-  .bind("input.name", "name")
+  .bind("input.name", "name") // [!code highlight]
   .render(
     ({ state }) => html`
       <form>
         <input class="name" />
-        <p>Hello, ${state.name}!</p>
+        <p>Hello, ${state.name()}!</p>
       </form>
     `,
   );
@@ -109,7 +109,7 @@ const Island = ilha
   .render(({ state }) => `<input value="${state.value()}" />`);
 ```
 
-## Combining with `.on()`
+## Combining with [`.on()`](/guide/island/on)
 
 `.bind()` handles value synchronization. If you also need to react to the same change — for example to trigger validation — combine it with `.on()`:
 
@@ -140,4 +140,4 @@ In development, if the selector matches no elements at mount time, ilha logs a w
 
 - `.bind()` initializes the element's value from state on mount, so the element always reflects the current state on first render.
 - For radio inputs, `.bind()` sets `checked` on the radio whose `value` attribute matches the current state value. Writing a new value to state checks the matching radio automatically.
-- `.bind()` does not replace `.on()` — it only handles value synchronization. Use `.on()` for anything beyond reading and writing the element's value.
+- `.bind()` does not replace [`.on()`](/guide/island/on) — it only handles value synchronization. Use [`.on()`](/guide/island/on) for anything beyond reading and writing the element's value.

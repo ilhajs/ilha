@@ -1,5 +1,5 @@
 ---
-title: css
+title: css&grave;&grave;
 ---
 
 A passthrough tagged template for CSS strings. It has no runtime effect — its sole purpose is to tell editors and language tools that the content is CSS, enabling syntax highlighting, autocompletion, and formatting.
@@ -14,7 +14,6 @@ const styles = css`
     background: teal;
     color: white;
   }
-
   .label {
     font-weight: 700;
   }
@@ -25,7 +24,7 @@ The result is a plain string, identical to what you would get from an untagged t
 
 ## Using with the builder
 
-Pass the result to the `.css()` builder method to attach it to an island:
+Pass the result to the [`.css()`](/guide/island/css) builder method to attach it to an island:
 
 ```ts twoslash
 import ilha, { css, html } from "ilha";
@@ -42,14 +41,17 @@ const styles = css`
   }
 `;
 
-const Card = ilha.css(styles).render(
-  () => html`
-    <div>
-      <p class="title">Hello</p>
-      <button>Action</button>
-    </div>
-  `,
-);
+const Card = ilha
+  // [!code highlight]
+  .css(styles)
+  .render(
+    () => html`
+      <div>
+        <p class="title">Hello</p>
+        <button>Action</button>
+      </div>
+    `,
+  );
 ```
 
 ## Interpolations
@@ -70,17 +72,17 @@ const styles = css`
 `;
 ```
 
-## Difference from `.css()`
+## Difference from [`.css()`](/guide/island/css)
 
 `css\`\``and`.css()` are intentionally separate:
 
-|                | `css\`\``                     | `.css()`                             |
+|                | css&grave;&grave;             | .css()                               |
 | -------------- | ----------------------------- | ------------------------------------ |
 | What it is     | Named export, tagged template | Builder chain method                 |
 | Runtime effect | None — returns a plain string | Attaches scoped styles to the island |
 | Purpose        | Editor tooling support        | Actual style attachment              |
 
-A common pattern is to use both together: author styles with `css\`\``for tooling support, then pass the result to`.css()` to attach them:
+A common pattern is to use both together: author styles with css&grave;&grave; for tooling support, then pass the result to[`.css()`](/guide/island/css) to attach them:
 
 ```ts twoslash
 import ilha, { css } from "ilha";
@@ -140,5 +142,5 @@ const Card = ilha
 
 ## Notes
 
-- `css\`\``requires editor tooling to provide any benefit. The [vscode-styled-components](https://marketplace.visualstudio.com/items?itemName=styled-components.vscode-styled-components) extension and Prettier's`prettier-plugin-styled-components`recognize the`css` tag and apply CSS formatting automatically.
+- css&grave;&grave; requires editor tooling to provide any benefit. The [vscode-styled-components](https://marketplace.visualstudio.com/items?itemName=styled-components.vscode-styled-components) extension and Prettier's `prettier-plugin-styled-components`recognize the`css` tag and apply CSS formatting automatically.
 - The tag works with any string content — there is no validation or parsing at runtime. Syntax errors in your CSS will not be caught by ilha itself, only by your editor or browser.

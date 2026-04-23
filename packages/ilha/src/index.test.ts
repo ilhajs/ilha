@@ -76,7 +76,7 @@ describe("html``", () => {
     const Island = ilha
       .input(z.object({ count: z.number().default(7) }))
       .state("count", ({ count }) => count)
-      .render(({ state }) => html`<p>${state.count}</p>`);
+      .render(({ state }) => html`<p>${state.count()}</p>`);
 
     expect(Island()).toBe("<p>7</p>");
   });

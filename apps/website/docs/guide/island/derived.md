@@ -136,5 +136,5 @@ See [`.hydratable()`](/guide/island/hydratable) for full snapshot options.
 ## Notes
 
 - Derived keys must be unique within the same builder chain.
-- Async schemas are not supported as derived functions — the function itself can be async, but `ilha.input()` schemas must remain synchronous.
+- Async schemas are not supported as derived functions — the function itself can be async, but ilha[`.input()`](/guide/island/input) schemas must remain synchronous.
 - Multiple derived entries are independent. Each tracks its own dependencies and re-runs on its own schedule.

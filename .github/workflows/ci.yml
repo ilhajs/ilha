@@ -79,13 +79,9 @@ jobs:
       - name: Build Website
         run: bun run build
         working-directory: apps/website
-      - name: Build docs
-        run: bun run docs:build
-      - name: Move Docs build
-        run: mv dist/ apps/website/dist/docs/
       - name: Upload static files as artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/website/dist/
+          path: apps/website/doc_build/
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4

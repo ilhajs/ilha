@@ -13,7 +13,9 @@ import ilha from "ilha";
 
 const MyIsland = ilha.state("count", 0).render(({ state }) => `<p>${state.count()}</p>`);
 
-const html = await MyIsland.hydratable({ count: 42 }, { name: "MyIsland" });
+const html = await MyIsland
+  // [!code highlight]
+  .hydratable({ count: 42 }, { name: "MyIsland" });
 // → '<div data-ilha="MyIsland" data-ilha-props="{"count":42}">
 //      <p>42</p>
 //    </div>'
@@ -30,12 +32,12 @@ interface HydratableOptions {
 }
 ```
 
-| Option        | Type                | Default | Description                                                              |
-| ------------- | ------------------- | ------- | ------------------------------------------------------------------------ |
-| `name`        | `string`            | —       | Registry key used by `mount()` to find the matching island on the client |
-| `as`          | `string`            | `"div"` | Tag name for the wrapper element                                         |
-| `snapshot`    | `boolean \| object` | `false` | Embed state and/or derived values in `data-ilha-state`                   |
-| `skipOnMount` | `boolean`           | `false` | Skip all `.onMount()` callbacks when hydrating from snapshot             |
+| Option        | Type                | Default | Description                                                                           |
+| ------------- | ------------------- | ------- | ------------------------------------------------------------------------------------- |
+| `name`        | `string`            | —       | Registry key used by `mount()` to find the matching island on the client              |
+| `as`          | `string`            | `"div"` | Tag name for the wrapper element                                                      |
+| `snapshot`    | `boolean \| object` | `false` | Embed state and/or derived values in `data-ilha-state`                                |
+| `skipOnMount` | `boolean`           | `false` | Skip all [`.onMount()`](/guide/island/onmount) callbacks when hydrating from snapshot |
 
 ## The `name` option
 
@@ -48,10 +50,10 @@ import { mount } from "ilha";
 
 const Counter = ilha.state("count", 0).render(({ state }) => `<p>${state.count()}</p>`);
 
-const html = await Counter.hydratable({}, { name: "counter" });
+const html = await Counter.hydratable({}, { name: "Counter" });
 
 // client
-mount({ Counter }); // ← "counter" matches the name above
+mount({ Counter }); // ← "Counter" matches the name above
 ```
 
 If the name has no match in the registry, `mount()` skips the element silently.
@@ -66,14 +68,14 @@ import ilha from "ilha";
 const Counter = ilha.state("count", 0).render(({ state }) => `<p>${state.count()}</p>`);
 
 // Snapshot state only
-await Counter.hydratable({ count: 5 }, { name: "counter", snapshot: true });
+await Counter.hydratable({ count: 5 }, { name: "Counter", snapshot: true });
 // → data-ilha-state='{"count":5}'
 
 // Fine-grained control
 await Counter.hydratable(
   { count: 5 },
   {
-    name: "counter",
+    name: "Counter",
     snapshot: { state: true, derived: false },
   },
 );
@@ -86,11 +88,11 @@ await Counter.hydratable(
 | `{ state: true, derived: false }` | Yes               | No                  |
 | `{ state: false, derived: true }` | No                | Yes                 |
 
-When no snapshot is set, the island mounts fresh on the client — state initializers run again and `.onMount()` always fires.
+When no snapshot is set, the island mounts fresh on the client — state initializers run again and [`.onMount()`](/guide/island/onmount) always fires.
 
 ## The `skipOnMount` option
 
-When restoring from a snapshot, you often do not want `.onMount()` to run — the DOM is already correct and setup work would be redundant. Set `skipOnMount: true` to suppress all `.onMount()` callbacks during hydration:
+When restoring from a snapshot, you often do not want [`.onMount()`](/guide/island/onmount) to run — the DOM is already correct and setup work would be redundant. Set `skipOnMount: true` to suppress all [`.onMount()`](/guide/island/onmount) callbacks during hydration:
 
 ```ts twoslash
 import ilha from "ilha";
@@ -111,7 +113,7 @@ await Island.hydratable(
 );
 ```
 
-Note that `skipOnMount` only suppresses `.onMount()` — `.effect()` callbacks always run on mount regardless.
+Note that `skipOnMount` only suppresses [`.onMount()`](/guide/island/onmount) — [`.effect()`](/guide/island/effect) callbacks always run on mount regardless.
 
 ## The `as` option
 
@@ -142,7 +144,7 @@ The full rendered output looks like this:
 
 ## With scoped styles
 
-If the island uses `.css()`, the `<style>` tag is included inside the wrapper regardless of the snapshot option:
+If the island uses [`.css()`](/guide/island/css), the `<style>` tag is included inside the wrapper regardless of the snapshot option:
 
 ```html
 <div data-ilha="Card">
@@ -186,7 +188,7 @@ const Counter = ilha
   .render(
     ({ state }) => html`
       <div>
-        <p>Count: ${state.count}</p>
+        <p>Count: ${state.count()}</p>
         <button>Increment</button>
       </div>
     `,
@@ -195,7 +197,7 @@ const Counter = ilha
 // Server — render with snapshot
 const body = await Counter.hydratable(
   { count: 10 },
-  { name: "counter", snapshot: true, skipOnMount: true },
+  { name: "Counter", snapshot: true, skipOnMount: true },
 );
 
 // Client — hydrate in place
@@ -204,6 +206,6 @@ mount({ Counter });
 
 ## Notes
 
-- `.hydratable()` is always async — it awaits all `.derived()` values before rendering, regardless of whether the snapshot includes them.
+- `.hydratable()` is always async — it awaits all [`.derived()`](/guide/island/derived) values before rendering, regardless of whether the snapshot includes them.
 - Props are JSON-serialized into `data-ilha-props`. Values that are not JSON-serializable (functions, class instances, circular references) will cause a runtime error. Keep props plain and serializable.
 - The snapshot serializes signal values at the moment `.hydratable()` is called. If state changes after this point on the server, those changes are not reflected in the snapshot.

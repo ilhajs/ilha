@@ -63,9 +63,9 @@ const Form = ilha
   .render(({ state }) => `<p>${state.name()} — ${state.count()}</p>`);
 ```
 
-## Inside `html\`\``
+## Inside [html&grave;&grave;](/guide/helpers/html)
 
-Signal accessors can be interpolated directly into `html\`\`` without calling them. ilha detects signal accessors and calls them automatically, and applies HTML escaping:
+Signal accessors can be interpolated directly into [`html`](/guide/helpers/html) without calling them. ilha detects signal accessors and calls them automatically, and applies HTML escaping:
 
 ```ts twoslash
 import ilha, { html } from "ilha";
@@ -76,7 +76,7 @@ const Island = ilha
 //                                 ^^^^^^^^^^^ no () needed, value is escaped
 ```
 
-If you call `state.label()` explicitly it works the same way — both forms are equivalent inside `html\`\``.
+If you call `state.label()` explicitly it works the same way — both forms are equivalent inside [`html`](/guide/helpers/html)`\`\``.
 
 ## Updating state from events
 
@@ -106,4 +106,4 @@ State declared with `.state()` is local to one island. If you need to share a va
 
 - State keys must be unique within the same builder chain.
 - The initial value type inferred from the second argument becomes the permanent type of the accessor. Passing a value of a different type later will cause a TypeScript error.
-- State is not persisted between page loads unless you use `.hydratable()` with `snapshot: true` on the server side.
+- State is not persisted between page loads unless you use [`.hydratable()`](/guide/island/hydratable) with `snapshot: true` on the server side.

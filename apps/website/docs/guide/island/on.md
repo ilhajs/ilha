@@ -11,11 +11,11 @@ import ilha, { html } from "ilha";
 
 const Counter = ilha
   .state("count", 0)
-  .on("button@click", ({ state }) => state.count(state.count() + 1))
+  .on("button@click", ({ state }) => state.count(state.count() + 1)) // [!code highlight]
   .render(
     ({ state }) => html`
       <div>
-        <p>Count: ${state.count}</p>
+        <p>Count: ${state.count()}</p>
         <button>Increment</button>
       </div>
     `,
@@ -129,7 +129,7 @@ const Counter = ilha
   .render(
     ({ state }) => html`
       <div>
-        <p>${state.count}</p>
+        <p>${state.count()}</p>
         <button data-action="increment">+</button>
         <button data-action="decrement">−</button>
         <button data-action="reset">Reset</button>
