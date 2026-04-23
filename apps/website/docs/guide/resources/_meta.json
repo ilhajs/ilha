@@ -1,0 +1,8 @@
+[
+  "showcase",
+  {
+    "type": "custom-link",
+    "link": "https://github.com/ilhajs/awesome-ilha",
+    "label": "Awesome Ilha"
+  }
+]

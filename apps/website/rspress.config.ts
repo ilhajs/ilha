@@ -5,6 +5,11 @@ import { pluginLlms } from "@rspress/plugin-llms";
 import { pluginSitemap } from "@rspress/plugin-sitemap";
 import { pluginTwoslash } from "@rspress/plugin-twoslash";
 import { pluginTypeDoc } from "@rspress/plugin-typedoc";
+import {
+  transformerNotationHighlight,
+  transformerMetaHighlight,
+  transformerNotationDiff,
+} from "@shikijs/transformers";
 
 export default defineConfig({
   plugins: [
@@ -30,5 +35,17 @@ export default defineConfig({
         content: "https://github.com/ilhajs/ilha",
       },
     ],
+    editLink: {
+      docRepoBaseUrl: "https://github.com/ilhajs/ilha/tree/main/apps/website/docs",
+    },
+  },
+  markdown: {
+    shiki: {
+      transformers: [
+        transformerNotationHighlight(),
+        transformerMetaHighlight(),
+        transformerNotationDiff(),
+      ],
+    },
   },
 });

@@ -14,7 +14,7 @@ export const AI_SYSTEM_PROMPT =
 
 export const COUNTER_CODE = `import ilha, { html, mount } from "ilha";
 
-export const counter = ilha
+export const Counter = ilha
   .state("count", 0)
   .derived("doubled", ({ state }) => state.count() * 2)
   .on("[data-action=increase]@click", ({ state }) => {
@@ -32,18 +32,18 @@ export const counter = ilha
     \`,
   );
 
-mount({ counter });
+mount({ Counter });
 `;
 
 export const RENDERING_CODE = `import { mount } from "ilha";
-import { counter } from "./hero";
+import { Counter } from "./hero";
 
 // Client side (lazy mount)
-mount({ counter });
+mount({ Counter });
 // Server side (only initial state)
-counter.toString();
+Counter.toString();
 // Server side hydratable (execute derived)
-await counter.hydratable();
+await Counter.hydratable();
 `;
 
 export const ILHA_ROUTER_CODE = `// vite.config.ts
@@ -85,7 +85,7 @@ const form = createForm({
 `;
 
 export const SIGNALS_CODE = `\
-const search = ilha
+const Search = ilha
   .state("query", "")
   .derived("results", async ({ state, signal }) => {
     const url = \`/api/search?q=\${state.query()}\`;

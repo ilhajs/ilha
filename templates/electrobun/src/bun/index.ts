@@ -19,7 +19,7 @@ async function getMainViewUrl(): Promise<string> {
 
 const url = await getMainViewUrl();
 
-const mainWindow = new BrowserWindow({
+const _mainWindow = new BrowserWindow({
   title: "Ilha + Electrobun",
   url,
   frame: {

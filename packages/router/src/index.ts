@@ -146,7 +146,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
 export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island<any, any> {
   // Create a wrapper island that handles errors during SSR but preserves
   // the original page island's interactivity on the client
-  const wrapper = ilha.render(() => {
+  const Wrapper = ilha.render(() => {
     try {
       return page.toString();
     } catch (e: any) {
@@ -162,7 +162,7 @@ export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island
 
   // Preserve the original page's mount behavior for client-side interactivity.
   // We read .mount once and close over it — no repeated mutation.
-  wrapper.mount = (host: Element, props?: Record<string, unknown>) => {
+  Wrapper.mount = (host: Element, props?: Record<string, unknown>) => {
     try {
       return page.mount(host, props);
     } catch (e: any) {
@@ -179,7 +179,7 @@ export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island
     }
   };
 
-  return wrapper;
+  return Wrapper;
 }
 
 export function defineLayout(layout: LayoutHandler): LayoutHandler {
@@ -795,7 +795,7 @@ export function router(): RouterBuilder {
 
         let navVersion = 0;
 
-        const navHandler = ilha.render((): string => {
+        const NavHandler = ilha.render((): string => {
           const current = activeIsland();
           if (current !== currentMountedIsland) {
             const thisNav = ++navVersion;
@@ -829,7 +829,7 @@ export function router(): RouterBuilder {
         const navHost = document.createElement("div");
         navHost.style.display = "none";
         host.appendChild(navHost);
-        const unmountNavHandler = navHandler.mount(navHost);
+        const unmountNavHandler = NavHandler.mount(navHost);
 
         return () => {
           ++navVersion;
@@ -892,7 +892,7 @@ export function router(): RouterBuilder {
       navAbort = new AbortController();
       mountActiveIsland(activeIsland(), navAbort.signal);
 
-      const navHandler = ilha.render((): string => {
+      const NavHandler = ilha.render((): string => {
         const current = activeIsland();
         if (current !== currentMountedIsland) {
           const thisNav = ++navVersion;
@@ -910,7 +910,7 @@ export function router(): RouterBuilder {
       const navHost = document.createElement("div");
       navHost.style.display = "none";
       host.appendChild(navHost);
-      const unmountNavHandler = navHandler.mount(navHost);
+      const unmountNavHandler = NavHandler.mount(navHost);
 
       return () => {
         ++navVersion;

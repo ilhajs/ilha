@@ -11,7 +11,7 @@ export const script = dedent`
     import "./styles.css";
     import ilha, { html, mount, type } from "ilha";
 
-    const pokemonPicker = ilha
+    const PokemonPicker = ilha
       .input<{ defaultPokemon: string }>()
       .state('pokemon', ({ defaultPokemon }) => defaultPokemon)
       .state('pokemonList', [])
@@ -73,16 +73,16 @@ export const script = dedent`
         \`;
       });
 
-    const pokedex = ilha
-      .slot("picker", pokemonPicker)
+    const Pokedex = ilha
+      .slot("picker", PokemonPicker)
       .render(({ slots }) => html\`
         \${slots.picker({ defaultPokemon: "charizard" })}
       \`);
 
-    mount({ pokedex });
+    mount({ Pokedex });
 
 `;
-export const template = `<div data-ilha="pokedex"></div>`;
+export const template = `<div data-ilha="Pokedex"></div>`;
 
 # Input
 

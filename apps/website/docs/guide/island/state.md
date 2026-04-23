@@ -10,12 +10,12 @@ Declares a reactive signal local to the island. State is the primary way to stor
 import ilha, { html } from "ilha";
 
 const Counter = ilha
-  .state("count", 0)
+  .state("count", 0) // [!code highlight]
   .on("button@click", ({ state }) => state.count(state.count() + 1))
   .render(
     ({ state }) => html`
       <div>
-        <p>Count: ${state.count}</p>
+        <p>Count: ${state.count()}</p>
         <button>Increment</button>
       </div>
     `,
@@ -43,7 +43,7 @@ import { z } from "zod";
 
 const Counter = ilha
   .input(z.object({ start: z.number().default(0) }))
-  .state("count", ({ start }) => start)
+  .state("count", ({ start }) => start) // [!code highlight]
   .render(({ state }) => `<p>${state.count()}</p>`);
 ```
 
@@ -70,10 +70,10 @@ Signal accessors can be interpolated directly into `html\`\`` without calling th
 ```ts twoslash
 import ilha, { html } from "ilha";
 
-const island = ilha
+const Island = ilha
   .state("label", "<b>hello</b>")
   .render(({ state }) => html`<p>${state.label}</p>`);
-//                                   ^^^^^^^^^^^ no () needed, value is escaped
+//                                 ^^^^^^^^^^^ no () needed, value is escaped
 ```
 
 If you call `state.label()` explicitly it works the same way — both forms are equivalent inside `html\`\``.
@@ -87,7 +87,7 @@ import ilha, { html } from "ilha";
 
 const Toggle = ilha
   .state("open", false)
-  .on("button@click", ({ state }) => state.open(!state.open()))
+  .on("button@click", ({ state }) => state.open(!state.open())) // [!code highlight]
   .render(
     ({ state }) => html`
       <div>

@@ -70,23 +70,23 @@ function detached() {
 }
 
 // ─────────────────────────────────────────────
-// Shared page islands
+// Shared Page islands
 // ─────────────────────────────────────────────
 
-const homePage = ilha.render(() => `<p>home</p>`);
-const aboutPage = ilha.render(() => `<p>about</p>`);
-const userPage = ilha.render(() => {
+const HomePage = ilha.render(() => `<p>home</p>`);
+const AboutPage = ilha.render(() => `<p>about</p>`);
+const UserPage = ilha.render(() => {
   const { params } = useRoute();
   return `<p>user:${params().id ?? "none"}</p>`;
 });
-const notFound = ilha.render(() => `<p>404</p>`);
+const NotFound = ilha.render(() => `<p>404</p>`);
 
 // shared registry used across hydratable tests
-const registry: Record<string, typeof homePage> = {
-  home: homePage,
-  about: aboutPage,
-  user: userPage,
-  notFound: notFound,
+const registry: Record<string, typeof HomePage> = {
+  home: HomePage,
+  about: AboutPage,
+  user: UserPage,
+  NotFound: NotFound,
 };
 
 // ─────────────────────────────────────────────
@@ -101,10 +101,10 @@ describe("route matching", () => {
     setLocation("/");
     el = makeEl();
     unmount = router()
-      .route("/", homePage)
-      .route("/about", aboutPage)
-      .route("/user/:id", userPage)
-      .route("/**", notFound)
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .route("/user/:id", UserPage)
+      .route("/**", NotFound)
       .mount(el);
   });
 
@@ -161,7 +161,7 @@ describe("navigate()", () => {
   beforeEach(() => {
     setLocation("/");
     el = makeEl();
-    unmount = router().route("/", homePage).route("/about", aboutPage).mount(el);
+    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
   });
 
   afterEach(() => {
@@ -200,7 +200,7 @@ describe("navigate()", () => {
 
   it("renders empty outlet for unmatched path (no wildcard)", () => {
     unmount();
-    unmount = router().route("/", homePage).mount(el);
+    unmount = router().route("/", HomePage).mount(el);
     navigate("/ghost");
     expect(el.querySelector("[data-router-empty]")).not.toBeNull();
   });
@@ -217,7 +217,7 @@ describe("popstate", () => {
   beforeEach(() => {
     setLocation("/");
     el = makeEl();
-    unmount = router().route("/", homePage).route("/about", aboutPage).mount(el);
+    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
   });
 
   afterEach(() => {
@@ -252,7 +252,7 @@ describe("useRoute()", () => {
   beforeEach(() => {
     setLocation("/");
     el = makeEl();
-    unmount = router().route("/", homePage).route("/user/:id", userPage).mount(el);
+    unmount = router().route("/", HomePage).route("/user/:id", UserPage).mount(el);
   });
 
   afterEach(() => {
@@ -292,9 +292,9 @@ describe("isActive()", () => {
     setLocation("/");
     el = makeEl();
     unmount = router()
-      .route("/", homePage)
-      .route("/about", aboutPage)
-      .route("/user/:id", userPage)
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .route("/user/:id", UserPage)
       .mount(el);
   });
 
@@ -340,7 +340,7 @@ describe("enableLinkInterception()", () => {
   beforeEach(() => {
     setLocation("/");
     el = makeEl();
-    unmount = router().route("/", homePage).route("/about", aboutPage).mount(el);
+    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
   });
 
   afterEach(() => {
@@ -415,7 +415,7 @@ describe("RouterView", () => {
   beforeEach(() => {
     setLocation("/");
     el = makeEl();
-    unmount = router().route("/", homePage).route("/about", aboutPage).mount(el);
+    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
   });
 
   afterEach(() => {
@@ -437,7 +437,7 @@ describe("RouterView", () => {
 
   it("renders data-router-empty when no route matches", () => {
     unmount();
-    unmount = router().route("/", homePage).mount(el);
+    unmount = router().route("/", HomePage).mount(el);
     navigate("/unknown");
     expect(el.querySelector("[data-router-empty]")).not.toBeNull();
   });
@@ -457,8 +457,8 @@ describe("router() isolation", () => {
     setLocation("/");
     const el1 = makeEl();
     const el2 = makeEl();
-    const u1 = router().route("/", homePage).route("/about", aboutPage).mount(el1);
-    const u2 = router().route("/", homePage).mount(el2);
+    const u1 = router().route("/", HomePage).route("/about", AboutPage).mount(el1);
+    const u2 = router().route("/", HomePage).mount(el2);
     navigate("/about");
     expect(el2.querySelector("[data-router-empty]")).not.toBeNull();
     u1();
@@ -471,7 +471,7 @@ describe("router() isolation", () => {
   it("unmount() removes the popstate listener", () => {
     setLocation("/");
     const el = makeEl();
-    const unmount = router().route("/", homePage).route("/about", aboutPage).mount(el);
+    const unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
     unmount();
     setLocation("/about");
     popstate();
@@ -492,7 +492,7 @@ describe("URL encoding", () => {
   beforeEach(() => {
     setLocation("/");
     el = makeEl();
-    unmount = router().route("/user/:id", userPage).route("/**", notFound).mount(el);
+    unmount = router().route("/user/:id", UserPage).route("/**", NotFound).mount(el);
   });
 
   afterEach(() => {
@@ -514,7 +514,7 @@ describe("URL encoding", () => {
 describe("router() — missing host element", () => {
   it("warns and returns a no-op unmount when selector not found", () => {
     const warn = spyOn(console, "warn").mockImplementation(() => {});
-    const unmount = router().route("/", homePage).mount("#does-not-exist");
+    const unmount = router().route("/", HomePage).mount("#does-not-exist");
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("[ilha-router]"));
     expect(typeof unmount).toBe("function");
     unmount();
@@ -528,40 +528,40 @@ describe("router() — missing host element", () => {
 
 describe("rou3 pattern syntax", () => {
   it(":param — single named segment", () => {
-    router().route("/user/:id", userPage).render("/user/42");
+    router().route("/user/:id", UserPage).render("/user/42");
     expect(routeParams()).toEqual({ id: "42" });
   });
 
   it("**:slug — named catch-all captures rest of path", () => {
-    const catchAll = ilha.render(() => {
+    const CatchAll = ilha.render(() => {
       const { params } = useRoute();
       return `<p>slug:${(params() as any).slug ?? ""}</p>`;
     });
-    const html = router().route("/docs/**:slug", catchAll).render("/docs/guide/intro");
+    const html = router().route("/docs/**:slug", CatchAll).render("/docs/guide/intro");
     expect(html).toContain("slug:guide/intro");
     expect(routeParams()).toMatchObject({ slug: "guide/intro" });
   });
 
   it("/** — anonymous wildcard matches anything", () => {
-    const html = router().route("/", homePage).route("/**", notFound).render("/anything/nested");
+    const html = router().route("/", HomePage).route("/**", NotFound).render("/anything/nested");
     expect(html).toContain("404");
   });
 
   it("multiple :param segments", () => {
-    const page = ilha.render(() => {
+    const Page = ilha.render(() => {
       const { params } = useRoute();
       const p = params() as any;
       return `<p>${p.org}/${p.repo}</p>`;
     });
-    router().route("/:org/:repo", page).render("/ilha/router");
+    router().route("/:org/:repo", Page).render("/ilha/router");
     expect(routeParams()).toEqual({ org: "ilha", repo: "router" });
   });
 
   it("static segment takes priority over :param", () => {
-    const special = ilha.render(() => `<p>special</p>`);
+    const Special = ilha.render(() => `<p>special</p>`);
     const html = router()
-      .route("/user/me", special)
-      .route("/user/:id", userPage)
+      .route("/user/me", Special)
+      .route("/user/:id", UserPage)
       .render("/user/me");
     expect(html).toContain("special");
     expect(html).not.toContain("user:");
@@ -575,9 +575,9 @@ describe("rou3 pattern syntax", () => {
 describe("SSR render()", () => {
   it("renders matched island for root path", () => {
     const html = router()
-      .route("/", homePage)
-      .route("/about", aboutPage)
-      .route("/**", notFound)
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .route("/**", NotFound)
       .render("/");
     expect(html).toContain("home");
     expect(html).toContain("data-router-view");
@@ -585,39 +585,39 @@ describe("SSR render()", () => {
 
   it("renders matched island for /about", () => {
     const html = router()
-      .route("/", homePage)
-      .route("/about", aboutPage)
-      .route("/**", notFound)
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .route("/**", NotFound)
       .render("/about");
     expect(html).toContain("about");
     expect(html).not.toContain("home");
   });
 
   it("renders wildcard for unmatched path", () => {
-    const html = router().route("/", homePage).route("/**", notFound).render("/does-not-exist");
+    const html = router().route("/", HomePage).route("/**", NotFound).render("/does-not-exist");
     expect(html).toContain("404");
   });
 
   it("renders data-router-empty when no route matches and no wildcard", () => {
-    const html = router().route("/", homePage).render("/unknown");
+    const html = router().route("/", HomePage).render("/unknown");
     expect(html).toContain("data-router-empty");
   });
 
   it("resolves :id route and populates routeParams signal", () => {
-    router().route("/user/:id", userPage).route("/**", notFound).render("/user/42");
+    router().route("/user/:id", UserPage).route("/**", NotFound).render("/user/42");
     expect(routeParams()).toEqual({ id: "42" });
     expect(routePath()).toBe("/user/42");
   });
 
   it("populates routeSearch signal from query string", () => {
-    router().route("/about", aboutPage).render("/about?tab=docs");
+    router().route("/about", AboutPage).render("/about?tab=docs");
     expect(routeSearch()).toBe("?tab=docs");
   });
 
   it("accepts a full URL string", () => {
     const html = router()
-      .route("/about", aboutPage)
-      .route("/**", notFound)
+      .route("/about", AboutPage)
+      .route("/**", NotFound)
       .render("http://example.com/about?ref=test");
     expect(html).toContain("about");
     expect(routeSearch()).toBe("?ref=test");
@@ -625,25 +625,25 @@ describe("SSR render()", () => {
 
   it("accepts a URL object", () => {
     const html = router()
-      .route("/about", aboutPage)
-      .route("/**", notFound)
+      .route("/about", AboutPage)
+      .route("/**", NotFound)
       .render(new URL("http://example.com/about"));
     expect(html).toContain("about");
   });
 
   it("decodes percent-encoded params", () => {
-    router().route("/user/:id", userPage).render("/user/hello%20world");
+    router().route("/user/:id", UserPage).render("/user/hello%20world");
     expect(routeParams()).toEqual({ id: "hello world" });
   });
 
   it("isActive() reflects last render() path", () => {
-    router().route("/", homePage).route("/about", aboutPage).render("/about");
+    router().route("/", HomePage).route("/about", AboutPage).render("/about");
     expect(isActive("/about")).toBe(true);
     expect(isActive("/")).toBe(false);
   });
 
   it("useRoute() signals reflect last render() call", () => {
-    router().route("/user/:id", userPage).render("/user/99?sort=asc");
+    router().route("/user/:id", UserPage).render("/user/99?sort=asc");
     const { path, params, search } = useRoute();
     expect(path()).toBe("/user/99");
     expect(params()).toEqual({ id: "99" });
@@ -658,32 +658,32 @@ describe("SSR render()", () => {
 describe("SSR renderHydratable()", () => {
   it("returns a string (is async)", async () => {
     const html = await router()
-      .route("/", homePage)
-      .route("/**", notFound)
+      .route("/", HomePage)
+      .route("/**", NotFound)
       .renderHydratable("/", registry);
     expect(typeof html).toBe("string");
   });
 
   it("wraps output in data-router-view", async () => {
-    const html = await router().route("/", homePage).renderHydratable("/", registry);
+    const html = await router().route("/", HomePage).renderHydratable("/", registry);
     expect(html).toContain("data-router-view");
   });
 
   it("includes data-ilha attribute with the island name", async () => {
-    const html = await router().route("/", homePage).renderHydratable("/", registry);
+    const html = await router().route("/", HomePage).renderHydratable("/", registry);
     expect(html).toContain(`data-ilha="home"`);
   });
 
   it("includes island content in the output", async () => {
-    const html = await router().route("/", homePage).renderHydratable("/", registry);
+    const html = await router().route("/", HomePage).renderHydratable("/", registry);
     expect(html).toContain("home");
   });
 
   it("resolves correct island for /about", async () => {
     const html = await router()
-      .route("/", homePage)
-      .route("/about", aboutPage)
-      .route("/**", notFound)
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .route("/**", NotFound)
       .renderHydratable("/about", registry);
     expect(html).toContain(`data-ilha="about"`);
     expect(html).toContain("about");
@@ -691,40 +691,40 @@ describe("SSR renderHydratable()", () => {
   });
 
   it("renders data-router-empty when no route matches", async () => {
-    const html = await router().route("/", homePage).renderHydratable("/unknown", registry);
+    const html = await router().route("/", HomePage).renderHydratable("/unknown", registry);
     expect(html).toContain("data-router-empty");
     expect(html).not.toContain("data-ilha");
   });
 
   it("populates route signals identically to render()", async () => {
-    await router().route("/user/:id", userPage).renderHydratable("/user/42", registry);
+    await router().route("/user/:id", UserPage).renderHydratable("/user/42", registry);
     expect(routePath()).toBe("/user/42");
     expect(routeParams()).toEqual({ id: "42" });
   });
 
   it("populates routeSearch signal", async () => {
-    await router().route("/about", aboutPage).renderHydratable("/about?tab=docs", registry);
+    await router().route("/about", AboutPage).renderHydratable("/about?tab=docs", registry);
     expect(routeSearch()).toBe("?tab=docs");
   });
 
   it("accepts a full URL string", async () => {
     const html = await router()
-      .route("/about", aboutPage)
+      .route("/about", AboutPage)
       .renderHydratable("http://example.com/about", registry);
     expect(html).toContain(`data-ilha="about"`);
   });
 
   it("accepts a URL object", async () => {
     const html = await router()
-      .route("/about", aboutPage)
+      .route("/about", AboutPage)
       .renderHydratable(new URL("http://example.com/about"), registry);
     expect(html).toContain(`data-ilha="about"`);
   });
 
   it("falls back to plain SSR and warns when island is not in registry", async () => {
     const warn = spyOn(console, "warn").mockImplementation(() => {});
-    const unregistered = ilha.render(() => `<p>unregistered</p>`);
-    const html = await router().route("/", unregistered).renderHydratable("/", registry);
+    const Unregistered = ilha.render(() => `<p>unregistered</p>`);
+    const html = await router().route("/", Unregistered).renderHydratable("/", registry);
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("[ilha-router]"));
     expect(html).toContain("data-router-view");
@@ -735,30 +735,30 @@ describe("SSR renderHydratable()", () => {
 
   it("does not include data-ilha when falling back to plain SSR", async () => {
     const warn = spyOn(console, "warn").mockImplementation(() => {});
-    const unregistered = ilha.render(() => `<p>x</p>`);
-    const html = await router().route("/", unregistered).renderHydratable("/", {});
+    const Unregistered = ilha.render(() => `<p>x</p>`);
+    const html = await router().route("/", Unregistered).renderHydratable("/", {});
     expect(html).not.toContain("data-ilha");
     warn.mockRestore();
   });
 
   it("snapshot option is forwarded — data-ilha-state present", async () => {
-    const stateful = ilha.state("count", 0).render(() => `<p>count</p>`);
-    const reg = { stateful };
-    const html = await router().route("/", stateful).renderHydratable("/", reg, { snapshot: true });
+    const Stateful = ilha.state("count", 0).render(() => `<p>count</p>`);
+    const reg = { Stateful };
+    const html = await router().route("/", Stateful).renderHydratable("/", reg, { snapshot: true });
     expect(html).toContain("data-ilha-state");
   });
 
   it("snapshot: false omits data-ilha-state", async () => {
-    const stateful = ilha.state("count", 0).render(() => `<p>count</p>`);
-    const reg = { stateful };
+    const Stateful = ilha.state("count", 0).render(() => `<p>count</p>`);
+    const reg = { Stateful };
     const html = await router()
-      .route("/", stateful)
+      .route("/", Stateful)
       .renderHydratable("/", reg, { snapshot: false });
     expect(html).not.toContain("data-ilha-state");
   });
 
   it("each call is independent — registry lookup uses active island", async () => {
-    const r = router().route("/", homePage).route("/about", aboutPage);
+    const r = router().route("/", HomePage).route("/about", AboutPage);
 
     const h1 = await r.renderHydratable("/", registry);
     const h2 = await r.renderHydratable("/about", registry);
@@ -780,12 +780,12 @@ describe("SSR → client hydration pipeline", () => {
   });
 
   it("hydrate: true — does not wipe SSR innerHTML on mount", async () => {
-    const ssrHtml = await router().route("/", homePage).renderHydratable("/", registry);
+    const ssrHtml = await router().route("/", HomePage).renderHydratable("/", registry);
 
     setLocation("/");
     el = makeEl(ssrHtml);
 
-    const unmount = router().route("/", homePage).mount(el, { hydrate: true });
+    const unmount = router().route("/", HomePage).mount(el, { hydrate: true });
     // SSR content must still be present — mount() must not clear the DOM
     expect(el.innerHTML).toContain("home");
     expect(el.innerHTML).toContain("data-router-view");
@@ -793,23 +793,23 @@ describe("SSR → client hydration pipeline", () => {
   });
 
   it("hydrate: true — data-ilha attribute is preserved in the DOM", async () => {
-    const ssrHtml = await router().route("/", homePage).renderHydratable("/", registry);
+    const ssrHtml = await router().route("/", HomePage).renderHydratable("/", registry);
 
     setLocation("/");
     el = makeEl(ssrHtml);
 
-    const unmount = router().route("/", homePage).mount(el, { hydrate: true });
+    const unmount = router().route("/", HomePage).mount(el, { hydrate: true });
     expect(el.innerHTML).toContain('data-ilha="home"');
     unmount();
   });
 
   it("hydrate: true — sentinel node is hidden and appended", async () => {
-    const ssrHtml = await router().route("/", homePage).renderHydratable("/", registry);
+    const ssrHtml = await router().route("/", HomePage).renderHydratable("/", registry);
 
     setLocation("/");
     el = makeEl(ssrHtml);
 
-    const unmount = router().route("/", homePage).mount(el, { hydrate: true });
+    const unmount = router().route("/", HomePage).mount(el, { hydrate: true });
     // Sentinel is a display:none div injected by hydrate mode
     const sentinel = el.querySelector("div[style*='display: none']");
     expect(sentinel).not.toBeNull();
@@ -817,12 +817,12 @@ describe("SSR → client hydration pipeline", () => {
   });
 
   it("hydrate: true — sentinel is removed after unmount()", async () => {
-    const ssrHtml = await router().route("/", homePage).renderHydratable("/", registry);
+    const ssrHtml = await router().route("/", HomePage).renderHydratable("/", registry);
 
     setLocation("/");
     el = makeEl(ssrHtml);
 
-    const unmount = router().route("/", homePage).mount(el, { hydrate: true });
+    const unmount = router().route("/", HomePage).mount(el, { hydrate: true });
     unmount();
     const sentinel = el.querySelector("div[style*='display: none']");
     expect(sentinel).toBeNull();
@@ -832,24 +832,24 @@ describe("SSR → client hydration pipeline", () => {
     setLocation("/");
     el = makeEl('<div data-router-view><p id="ssr-content">old</p></div>');
 
-    const unmount = router().route("/", homePage).mount(el, { hydrate: false });
+    const unmount = router().route("/", HomePage).mount(el, { hydrate: false });
     // Non-hydrate mount overwrites the host with RouterView output
     expect(el.textContent).toContain("home");
     unmount();
   });
 
-  it("hydrate: true — navigation after hydration renders new page via RouterView", async () => {
+  it("hydrate: true — navigation after hydration renders new Page via RouterView", async () => {
     const ssrHtml = await router()
-      .route("/", homePage)
-      .route("/about", aboutPage)
+      .route("/", HomePage)
+      .route("/about", AboutPage)
       .renderHydratable("/", registry);
 
     setLocation("/");
     el = makeEl(ssrHtml);
 
     const unmount = router()
-      .route("/", homePage)
-      .route("/about", aboutPage)
+      .route("/", HomePage)
+      .route("/about", AboutPage)
       .mount(el, { hydrate: true });
 
     navigate("/about");
@@ -862,13 +862,13 @@ describe("SSR → client hydration pipeline", () => {
 
   it("hydrate: true — route signals are correct immediately after mount", async () => {
     const ssrHtml = await router()
-      .route("/user/:id", userPage)
+      .route("/user/:id", UserPage)
       .renderHydratable("/user/77", registry);
 
     setLocation("/user/77");
     el = makeEl(ssrHtml);
 
-    const unmount = router().route("/user/:id", userPage).mount(el, { hydrate: true });
+    const unmount = router().route("/user/:id", UserPage).mount(el, { hydrate: true });
     expect(routePath()).toBe("/user/77");
     expect(routeParams()).toEqual({ id: "77" });
     unmount();
@@ -876,16 +876,16 @@ describe("SSR → client hydration pipeline", () => {
 
   it("hydrate: true — popstate updates route signals", async () => {
     const ssrHtml = await router()
-      .route("/", homePage)
-      .route("/about", aboutPage)
+      .route("/", HomePage)
+      .route("/about", AboutPage)
       .renderHydratable("/", registry);
 
     setLocation("/");
     el = makeEl(ssrHtml);
 
     const unmount = router()
-      .route("/", homePage)
-      .route("/about", aboutPage)
+      .route("/", HomePage)
+      .route("/about", AboutPage)
       .mount(el, { hydrate: true });
 
     setLocation("/about");
@@ -896,14 +896,14 @@ describe("SSR → client hydration pipeline", () => {
   });
 
   it("hydrate: true — unmount() removes popstate listener", async () => {
-    const ssrHtml = await router().route("/", homePage).renderHydratable("/", registry);
+    const ssrHtml = await router().route("/", HomePage).renderHydratable("/", registry);
 
     setLocation("/");
     el = makeEl(ssrHtml);
 
     const unmount = router()
-      .route("/", homePage)
-      .route("/about", aboutPage)
+      .route("/", HomePage)
+      .route("/about", AboutPage)
       .mount(el, { hydrate: true });
     unmount();
 
@@ -915,16 +915,16 @@ describe("SSR → client hydration pipeline", () => {
 });
 
 // ─────────────────────────────────────────────
-// SSR full-page HTML template (entry-server shape)
+// SSR full-Page HTML template (entry-server shape)
 // ─────────────────────────────────────────────
 
-describe("SSR full-page HTML template", () => {
+describe("SSR full-Page HTML template", () => {
   function htmlTemplate(body: string, clientEntry = "/entry-client.js"): string {
     return `<!doctype html><html><head><title>Ilha App</title></head><body><div id="app">${body}</div><script type="module" src="${clientEntry}"></script></body></html>`;
   }
 
   it("wraps renderHydratable output in a full HTML document", async () => {
-    const body = await router().route("/", homePage).renderHydratable("/", registry);
+    const body = await router().route("/", HomePage).renderHydratable("/", registry);
 
     const full = htmlTemplate(body);
     expect(full).toContain("<!doctype html>");
@@ -935,7 +935,7 @@ describe("SSR full-page HTML template", () => {
   });
 
   it("includes the client entry script tag", async () => {
-    const body = await router().route("/", homePage).renderHydratable("/", registry);
+    const body = await router().route("/", HomePage).renderHydratable("/", registry);
 
     const full = htmlTemplate(body, "/entry-client.js");
     expect(full).toContain('src="/entry-client.js"');
@@ -943,7 +943,7 @@ describe("SSR full-page HTML template", () => {
   });
 
   it("SSR body is inside #app — client hydration target is correct", async () => {
-    const body = await router().route("/about", aboutPage).renderHydratable("/about", registry);
+    const body = await router().route("/about", AboutPage).renderHydratable("/about", registry);
 
     const full = htmlTemplate(body);
     const parser = new DOMParser();
@@ -955,7 +955,7 @@ describe("SSR full-page HTML template", () => {
   });
 
   it("multiple routes produce distinct HTML bodies", async () => {
-    const r = router().route("/", homePage).route("/about", aboutPage);
+    const r = router().route("/", HomePage).route("/about", AboutPage);
     const homeBody = await r.renderHydratable("/", registry);
     const aboutBody = await r.renderHydratable("/about", registry);
 
@@ -965,7 +965,7 @@ describe("SSR full-page HTML template", () => {
   });
 
   it("route signals are reset correctly after each renderHydratable call", async () => {
-    const r = router().route("/", homePage).route("/user/:id", userPage);
+    const r = router().route("/", HomePage).route("/user/:id", UserPage);
 
     await r.renderHydratable("/user/5", registry);
     expect(routePath()).toBe("/user/5");
@@ -983,38 +983,38 @@ describe("SSR full-page HTML template", () => {
 
 describe("defineLayout()", () => {
   it("returns the same function reference (identity)", () => {
-    const layout = (children: typeof homePage) => ilha.render(() => children.toString());
+    const layout = (children: typeof HomePage) => ilha.render(() => children.toString());
     const result = defineLayout(layout);
     expect(result).toBe(layout);
   });
 
-  it("wraps page content when the returned layout is called", () => {
+  it("wraps Page content when the returned layout is called", () => {
     const layout = defineLayout((children) =>
       ilha.render(() => `<layout>${children.toString()}</layout>`),
     );
-    const page = ilha.render(() => `<p>content</p>`);
-    const wrapped = layout(page);
+    const Page = ilha.render(() => `<p>content</p>`);
+    const wrapped = layout(Page);
     expect(wrapped.toString()).toContain("<layout>");
     expect(wrapped.toString()).toContain("<p>content</p>");
   });
 
   it("returned island has .toString and .mount", () => {
     const layout = defineLayout((children) => ilha.render(() => children.toString()));
-    const wrapped = layout(homePage);
+    const wrapped = layout(HomePage);
     expect(typeof wrapped.toString).toBe("function");
     expect(typeof wrapped.mount).toBe("function");
   });
 
   it("composes with wrapLayout — output is identical to satisfies LayoutHandler pattern", () => {
     // defineLayout should produce the same result as the manual satisfies cast
-    const fn = (children: typeof homePage) =>
+    const fn = (children: typeof HomePage) =>
       ilha.render(() => `<shell>${children.toString()}</shell>`);
 
     const viaDefine = defineLayout(fn);
-    const page = ilha.render(() => `<p>page</p>`);
+    const Page = ilha.render(() => `<p>Page</p>`);
 
-    const wrappedViaDefine = viaDefine(page);
-    const wrappedDirect = fn(page);
+    const wrappedViaDefine = viaDefine(Page);
+    const wrappedDirect = fn(Page);
 
     expect(wrappedViaDefine.toString()).toBe(wrappedDirect.toString());
   });
@@ -1026,17 +1026,17 @@ describe("defineLayout()", () => {
     const inner = defineLayout((children) =>
       ilha.render(() => `<inner>${children.toString()}</inner>`),
     );
-    const page = ilha.render(() => `<p>page</p>`);
+    const Page = ilha.render(() => `<p>Page</p>`);
 
-    // outer wraps inner wraps page — outermost last in call chain
-    const wrapped = outer(inner(page));
+    // outer wraps inner wraps Page — outermost last in call chain
+    const wrapped = outer(inner(Page));
     const html = wrapped.toString();
 
     expect(html).toContain("<outer>");
     expect(html).toContain("<inner>");
-    expect(html).toContain("<p>page</p>");
+    expect(html).toContain("<p>Page</p>");
     expect(html.indexOf("<outer>")).toBeLessThan(html.indexOf("<inner>"));
-    expect(html.indexOf("<inner>")).toBeLessThan(html.indexOf("<p>page</p>"));
+    expect(html.indexOf("<inner>")).toBeLessThan(html.indexOf("<p>Page</p>"));
   });
 });
 
@@ -1125,7 +1125,7 @@ describe("error()", () => {
 });
 
 // ─────────────────────────────────────────────
-// composeLoaders() — merges layout + page loaders
+// composeLoaders() — merges layout + Page loaders
 // ─────────────────────────────────────────────
 
 describe("composeLoaders()", () => {
@@ -1153,12 +1153,12 @@ describe("composeLoaders()", () => {
     expect(await composed(ctx())).toEqual({ a: 1, b: 2 });
   });
 
-  it("later loader wins on key collision (page overrides layout)", async () => {
+  it("later loader wins on key collision (Page overrides layout)", async () => {
     const layout = async () => ({ user: "layout-user", extra: 1 });
-    const page = async () => ({ user: "page-user" });
-    const composed = composeLoaders([layout, page]);
+    const Page = async () => ({ user: "Page-user" });
+    const composed = composeLoaders([layout, Page]);
     const result = await composed(ctx());
-    expect(result).toEqual({ user: "page-user", extra: 1 });
+    expect(result).toEqual({ user: "Page-user", extra: 1 });
   });
 
   it("runs loaders in parallel (concurrent, not sequential)", async () => {
@@ -1229,20 +1229,20 @@ describe("composeLoaders()", () => {
 
 describe("router.runLoader()", () => {
   it("returns { kind: 'data', data: {} } for routes without a loader", async () => {
-    const r = router().route("/", homePage);
+    const r = router().route("/", HomePage);
     const result = await r.runLoader("/");
     expect(result).toEqual({ kind: "data", data: {} });
   });
 
   it("returns { kind: 'not-found' } for unmatched paths", async () => {
-    const r = router().route("/", homePage);
+    const r = router().route("/", HomePage);
     const result = await r.runLoader("/missing");
     expect(result).toEqual({ kind: "not-found" });
   });
 
   it("runs the loader and returns its data", async () => {
     const load = loader(async () => ({ user: "alice" }));
-    const r = router().route("/", homePage, load);
+    const r = router().route("/", HomePage, load);
     const result = await r.runLoader("/");
     expect(result).toEqual({ kind: "data", data: { user: "alice" } });
   });
@@ -1253,7 +1253,7 @@ describe("router.runLoader()", () => {
       captured.push(c.params);
       return { id: c.params.id };
     });
-    const r = router().route("/user/:id", userPage, load);
+    const r = router().route("/user/:id", UserPage, load);
     const result = await r.runLoader("/user/42");
     expect(captured[0]).toEqual({ id: "42" });
     expect(result).toEqual({ kind: "data", data: { id: "42" } });
@@ -1265,7 +1265,7 @@ describe("router.runLoader()", () => {
       captured.push(c.params);
       return {};
     });
-    const r = router().route("/user/:id", userPage, load);
+    const r = router().route("/user/:id", UserPage, load);
     await r.runLoader("/user/hello%20world");
     expect(captured[0]).toEqual({ id: "hello world" });
   });
@@ -1276,7 +1276,7 @@ describe("router.runLoader()", () => {
       capturedUrl = c.url;
       return {};
     });
-    const r = router().route("/about", aboutPage, load);
+    const r = router().route("/about", AboutPage, load);
     await r.runLoader("/about?tab=docs");
     expect(capturedUrl).toBeInstanceOf(URL);
     expect(capturedUrl!.pathname).toBe("/about");
@@ -1289,7 +1289,7 @@ describe("router.runLoader()", () => {
       capturedSignal = c.signal;
       return {};
     });
-    const r = router().route("/", homePage, load);
+    const r = router().route("/", HomePage, load);
     await r.runLoader("/");
     expect(capturedSignal).toBeDefined();
     expect(typeof capturedSignal!.aborted).toBe("boolean");
@@ -1301,7 +1301,7 @@ describe("router.runLoader()", () => {
       capturedRequest = c.request;
       return {};
     });
-    const r = router().route("/", homePage, load);
+    const r = router().route("/", HomePage, load);
     const req = new Request("http://example.com/", { headers: { "x-custom": "yes" } });
     await r.runLoader("/", req);
     expect(capturedRequest).toBe(req);
@@ -1313,7 +1313,7 @@ describe("router.runLoader()", () => {
       capturedRequest = c.request;
       return {};
     });
-    const r = router().route("/", homePage, load);
+    const r = router().route("/", HomePage, load);
     await r.runLoader("http://example.com/");
     expect(capturedRequest).toBeDefined();
   });
@@ -1322,7 +1322,7 @@ describe("router.runLoader()", () => {
     const load = loader(async () => {
       redirect("/login", 301);
     });
-    const r = router().route("/", homePage, load);
+    const r = router().route("/", HomePage, load);
     const result = await r.runLoader("/");
     expect(result).toEqual({ kind: "redirect", to: "/login", status: 301 });
   });
@@ -1331,7 +1331,7 @@ describe("router.runLoader()", () => {
     const load = loader(async () => {
       error(404, "not found");
     });
-    const r = router().route("/", homePage, load);
+    const r = router().route("/", HomePage, load);
     const result = await r.runLoader("/");
     expect(result).toEqual({ kind: "error", status: 404, message: "not found" });
   });
@@ -1340,7 +1340,7 @@ describe("router.runLoader()", () => {
     const load = loader(async () => {
       throw new Error("boom");
     });
-    const r = router().route("/", homePage, load);
+    const r = router().route("/", HomePage, load);
     const result = await r.runLoader("/");
     expect(result).toEqual({ kind: "error", status: 500, message: "boom" });
   });
@@ -1351,14 +1351,14 @@ describe("router.runLoader()", () => {
       e.status = 418;
       throw e;
     });
-    const r = router().route("/", homePage, load);
+    const r = router().route("/", HomePage, load);
     const result = await r.runLoader("/");
     expect(result).toEqual({ kind: "error", status: 418, message: "bad" });
   });
 
   it("accepts a URL object as the first argument", async () => {
     const load = loader(async () => ({ ok: true }));
-    const r = router().route("/", homePage, load);
+    const r = router().route("/", HomePage, load);
     const result = await r.runLoader(new URL("http://example.com/"));
     expect(result).toEqual({ kind: "data", data: { ok: true } });
   });
@@ -1369,24 +1369,24 @@ describe("router.runLoader()", () => {
 // ─────────────────────────────────────────────
 
 describe("renderHydratable() with loader", () => {
-  const greeter = ilha
+  const Greeter = ilha
     .input(createSchema<{ name?: string }>())
     .render(({ input }) => `<p>hello ${input.name ?? "stranger"}</p>`);
 
   it("feeds loader output into the island as input", async () => {
     const load = loader(async () => ({ name: "world" }));
-    const html = await router().route("/", greeter, load).renderHydratable("/", { greeter });
+    const html = await router().route("/", Greeter, load).renderHydratable("/", { Greeter });
     expect(html).toContain("hello world");
   });
 
   it("loader receives params from the matched route", async () => {
-    const userIsland = ilha
+    const UserIsland = ilha
       .input(createSchema<{ id?: string }>())
       .render(({ input }) => `<p>u:${input.id ?? "?"}</p>`);
     const load = loader(async ({ params }) => ({ id: params.id }));
     const html = await router()
-      .route("/user/:id", userIsland, load)
-      .renderHydratable("/user/7", { u: userIsland });
+      .route("/user/:id", UserIsland, load)
+      .renderHydratable("/user/7", { u: UserIsland });
     expect(html).toContain("u:7");
   });
 
@@ -1396,13 +1396,13 @@ describe("renderHydratable() with loader", () => {
       called = true;
       return {};
     });
-    const html = await router().route("/", greeter, load).renderHydratable("/missing", { greeter });
+    const html = await router().route("/", Greeter, load).renderHydratable("/missing", { Greeter });
     expect(html).toContain("data-router-empty");
     expect(called).toBe(false);
   });
 
   it("routes without loaders still render (backward-compat)", async () => {
-    const html = await router().route("/", homePage).renderHydratable("/", registry);
+    const html = await router().route("/", HomePage).renderHydratable("/", registry);
     expect(html).toContain("home");
   });
 
@@ -1413,15 +1413,15 @@ describe("renderHydratable() with loader", () => {
       return {};
     });
     const req = new Request("http://example.com/", { headers: { "x-trace": "abc" } });
-    await router().route("/", greeter, load).renderHydratable("/", { greeter }, {}, req);
+    await router().route("/", Greeter, load).renderHydratable("/", { Greeter }, {}, req);
     expect(captured).toBe(req);
   });
 
   it("loader data appears in data-ilha-props when snapshot is on", async () => {
     const load = loader(async () => ({ name: "alice" }));
     const html = await router()
-      .route("/", greeter, load)
-      .renderHydratable("/", { greeter }, { snapshot: true });
+      .route("/", Greeter, load)
+      .renderHydratable("/", { Greeter }, { snapshot: true });
     // Loader return is the island's input — ilha serialises it in data-ilha-props
     expect(html).toContain("data-ilha-props");
     expect(html).toContain("alice");
@@ -1431,7 +1431,7 @@ describe("renderHydratable() with loader", () => {
     const load = loader(async () => {
       redirect("/login");
     });
-    const html = await router().route("/", greeter, load).renderHydratable("/", { greeter });
+    const html = await router().route("/", Greeter, load).renderHydratable("/", { Greeter });
     expect(html).toContain('meta http-equiv="refresh"');
     expect(html).toContain("/login");
   });
@@ -1442,13 +1442,13 @@ describe("renderHydratable() with loader", () => {
 // ─────────────────────────────────────────────
 
 describe("renderResponse()", () => {
-  const greeter = ilha
+  const Greeter = ilha
     .input(createSchema<{ name?: string }>())
     .render(({ input }) => `<p>hi ${input.name ?? "anon"}</p>`);
 
   it("returns { kind: 'html' } for successful renders", async () => {
     const load = loader(async () => ({ name: "bob" }));
-    const res = await router().route("/", greeter, load).renderResponse("/", { greeter });
+    const res = await router().route("/", Greeter, load).renderResponse("/", { Greeter });
     expect(res.kind).toBe("html");
     if (res.kind === "html") {
       expect(res.html).toContain("hi bob");
@@ -1460,8 +1460,8 @@ describe("renderResponse()", () => {
       redirect("/signin", 307);
     });
     const res = await router()
-      .route("/protected", greeter, load)
-      .renderResponse("/protected", { greeter });
+      .route("/protected", Greeter, load)
+      .renderResponse("/protected", { Greeter });
     expect(res).toEqual({ kind: "redirect", to: "/signin", status: 307 });
   });
 
@@ -1469,7 +1469,7 @@ describe("renderResponse()", () => {
     const load = loader(async () => {
       error(404, "gone");
     });
-    const res = await router().route("/", greeter, load).renderResponse("/", { greeter });
+    const res = await router().route("/", Greeter, load).renderResponse("/", { Greeter });
     expect(res.kind).toBe("error");
     if (res.kind === "error") {
       expect(res.status).toBe(404);
@@ -1479,7 +1479,7 @@ describe("renderResponse()", () => {
   });
 
   it("returns { kind: 'html', status: 404 } for unmatched routes", async () => {
-    const res = await router().route("/", greeter).renderResponse("/nowhere", { greeter });
+    const res = await router().route("/", Greeter).renderResponse("/nowhere", { Greeter });
     expect(res.kind).toBe("html");
     if (res.kind === "html") {
       expect(res.status).toBe(404);
@@ -1488,7 +1488,7 @@ describe("renderResponse()", () => {
   });
 
   it("renders html without invoking a loader when none is registered", async () => {
-    const res = await router().route("/", homePage).renderResponse("/", registry);
+    const res = await router().route("/", HomePage).renderResponse("/", registry);
     expect(res.kind).toBe("html");
     if (res.kind === "html") expect(res.html).toContain("home");
   });
@@ -1500,7 +1500,7 @@ describe("renderResponse()", () => {
 
 describe("route() backward compatibility", () => {
   it("2-argument .route() still registers the route", () => {
-    const r = router().route("/", homePage).route("/about", aboutPage);
+    const r = router().route("/", HomePage).route("/about", AboutPage);
     // Use isActive as a cheap probe that the route is registered
     setLocation("/about");
     // Need a sync that doesn't require .mount() — renderHydratable() does it
@@ -1512,7 +1512,7 @@ describe("route() backward compatibility", () => {
 
   it("mixing loader and non-loader routes on the same builder works", async () => {
     const load = loader(async () => ({ x: 1 }));
-    const r = router().route("/", homePage).route("/with-loader", homePage, load);
+    const r = router().route("/", HomePage).route("/with-loader", HomePage, load);
 
     const a = await r.runLoader("/");
     const b = await r.runLoader("/with-loader");
@@ -1542,7 +1542,7 @@ describe("prefetch()", () => {
   });
 
   it("does not fetch when the route has no loader", () => {
-    router().route("/no-loader-a", homePage); // no loader
+    router().route("/no-loader-a", HomePage); // no loader
     prefetch("/no-loader-a");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -1550,7 +1550,7 @@ describe("prefetch()", () => {
   it("does not fetch for unmatched paths", () => {
     router().route(
       "/has-loader",
-      homePage,
+      HomePage,
       loader(async () => ({})),
     );
     prefetch("/not-a-route");
@@ -1560,7 +1560,7 @@ describe("prefetch()", () => {
   it("fetches the loader endpoint when the route has a loader", () => {
     router().route(
       "/pf-fetch",
-      homePage,
+      HomePage,
       loader(async () => ({})),
     );
     prefetch("/pf-fetch");
@@ -1573,7 +1573,7 @@ describe("prefetch()", () => {
   it("is idempotent — second call with same path does not fetch again", () => {
     router().route(
       "/pf-idem",
-      homePage,
+      HomePage,
       loader(async () => ({})),
     );
     prefetch("/pf-idem");
@@ -1584,7 +1584,7 @@ describe("prefetch()", () => {
   it("encodes the path into the query string", () => {
     router().route(
       "/pf-enc/:id",
-      homePage,
+      HomePage,
       loader(async () => ({})),
     );
     prefetch("/pf-enc/abc?tab=reviews");

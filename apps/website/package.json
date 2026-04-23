@@ -24,6 +24,7 @@
     "@rspress/plugin-sitemap": "^2.0.9",
     "@rspress/plugin-twoslash": "^2.0.9",
     "@rspress/plugin-typedoc": "^2.0.9",
+    "@shikijs/transformers": "^4.0.2",
     "@tailwindcss/postcss": "^4.2.4",
     "@tailwindcss/typography": "^0.5.19",
     "tailwindcss": "^4.2.4",

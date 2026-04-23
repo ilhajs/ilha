@@ -380,13 +380,13 @@ Async method that renders the island wrapped in a `data-ilha` hydration containe
 const html = await MyIsland.hydratable(
   { name: "Ilha" },
   {
-    name: "my-island", // registry key for client-side activation
+    name: "MyIsland", // registry key for client-side activation
     as: "div", // wrapper tag (default: "div")
     snapshot: true, // embed state + derived as data-ilha-state
     skipOnMount: false, // skip onMount on hydration (default: true when snapshot)
   },
 );
-// → '<div data-ilha="my-island" data-ilha-props="…" data-ilha-state="…">…</div>'
+// → '<div data-ilha="MyIsland" data-ilha-props="…" data-ilha-state="…">…</div>'
 ```
 
 **`snapshot` option:**
@@ -551,7 +551,7 @@ return `<!doctype html><html><body>${html}</body></html>`;
 import { mount } from "ilha";
 import { MyIsland } from "./islands";
 
-mount({ "my-island": MyIsland });
+mount({ MyIsland });
 ```
 
 The client reads `data-ilha-state` to restore signal values from the snapshot, skipping a needless re-render and calling `.onMount()` only if `skipOnMount` is not set.
@@ -561,7 +561,7 @@ The client reads `data-ilha-state` to restore signal values from the snapshot, s
 ```
 server                                    client
 ──────────────────────────────────────    ──────────────────────────────────────────
-.hydratable({ count: 42 }, {              mount({ "my-island": MyIsland })
+.hydratable({ count: 42 }, {              mount({ MyIsland })
   name: "my-island",                        → reads data-ilha-state
   snapshot: true                            → restores signals from snapshot
 })                                          → skips onMount (skipOnMount: true)

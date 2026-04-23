@@ -31,7 +31,7 @@ A typical island reads a lot like a small HTML-aware module:
 ```ts twoslash
 import ilha, { html } from "ilha";
 
-const counter = ilha
+const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1))
   .render(

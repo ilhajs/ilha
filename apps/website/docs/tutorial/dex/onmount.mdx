@@ -11,7 +11,7 @@ export const script = dedent`
     import "./styles.css";
     import ilha, { html, mount } from 'ilha';
 
-    const pokedex = ilha
+    const Pokedex = ilha
       .state('pokemon', 'charizard')
       .state('pokemonList', [])
       .state('pokemonData', null)
@@ -72,10 +72,10 @@ export const script = dedent`
         \`;
       });
 
-    mount({ pokedex });
+    mount({ Pokedex });
 
 `;
-export const template = `<div data-ilha="pokedex"></div>`;
+export const template = `<div data-ilha="Pokedex"></div>`;
 
 # onMount
 

@@ -45,7 +45,7 @@ Use the default export for the builder chain, and named exports for helpers such
 ```ts twoslash
 import ilha, { html } from "ilha";
 
-const counter = ilha
+const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1))
   .render(
@@ -65,7 +65,7 @@ Render the island to an HTML string with `toString()`:
 ```ts twoslash
 import ilha, { html } from "ilha";
 
-const counter = ilha
+const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1))
   .render(
@@ -77,7 +77,7 @@ const counter = ilha
     `,
   );
 // ---cut---
-const htmlOutput = counter.toString();
+const htmlOutput = Counter.toString();
 ```
 
 If your island uses async derived values, you can also await the island itself:
@@ -85,7 +85,7 @@ If your island uses async derived values, you can also await the island itself:
 ```ts twoslash
 import ilha, { html } from "ilha";
 
-const counter = ilha
+const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1))
   .render(
@@ -97,7 +97,7 @@ const counter = ilha
     `,
   );
 // ---cut---
-const htmlOutput = await counter();
+const htmlOutput = await Counter();
 ```
 
 ## Client-side mounting
@@ -107,7 +107,7 @@ Mount the island into a DOM element:
 ```ts twoslash
 import ilha, { html } from "ilha";
 
-const counter = ilha
+const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1))
   .render(
@@ -121,7 +121,7 @@ const counter = ilha
 // ---cut---
 const root = document.getElementById("app");
 if (root) {
-  const unmount = counter.mount(root);
+  const unmount = Counter.mount(root);
 }
 ```
 

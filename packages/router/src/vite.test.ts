@@ -43,11 +43,11 @@ const make = (content: string) => ilha.render(() => content);
 // ─────────────────────────────────────────────
 
 describe("wrapLayout()", () => {
-  it("wraps page island with layout", () => {
-    const page: LayoutHandler = (children) =>
+  it("wraps Page island with layout", () => {
+    const Page: LayoutHandler = (children) =>
       ilha.render(() => `<layout>${children.toString()}</layout>`);
     const inner = make("<p>content</p>");
-    const wrapped = wrapLayout(page, inner);
+    const wrapped = wrapLayout(Page, inner);
     expect(wrapped.toString()).toContain("<layout>");
     expect(wrapped.toString()).toContain("<p>content</p>");
   });
@@ -57,14 +57,14 @@ describe("wrapLayout()", () => {
       ilha.render(() => `<root>${children.toString()}</root>`);
     const userLayout: LayoutHandler = (children) =>
       ilha.render(() => `<user>${children.toString()}</user>`);
-    const page = make("<p>page</p>");
-    const wrapped = wrapLayout(rootLayout, wrapLayout(userLayout, page));
+    const Page = make("<p>Page</p>");
+    const wrapped = wrapLayout(rootLayout, wrapLayout(userLayout, Page));
     const html = wrapped.toString();
     expect(html).toContain("<root>");
     expect(html).toContain("<user>");
-    expect(html).toContain("<p>page</p>");
+    expect(html).toContain("<p>Page</p>");
     expect(html.indexOf("<root>")).toBeLessThan(html.indexOf("<user>"));
-    expect(html.indexOf("<user>")).toBeLessThan(html.indexOf("<p>page</p>"));
+    expect(html.indexOf("<user>")).toBeLessThan(html.indexOf("<p>Page</p>"));
   });
 
   it("returns an island with .toString and .mount", () => {
@@ -80,19 +80,19 @@ describe("wrapLayout()", () => {
 // ─────────────────────────────────────────────
 
 describe("wrapError()", () => {
-  it("renders page normally when no error is thrown", () => {
+  it("renders Page normally when no error is thrown", () => {
     const handler: ErrorHandler = () => make(`<p>error</p>`);
     const wrapped = wrapError(handler, make(`<p>ok</p>`));
     expect(wrapped.toString()).toContain("<p>ok</p>");
     expect(wrapped.toString()).not.toContain("<p>error</p>");
   });
 
-  it("renders error island when page throws", () => {
+  it("renders error island when Page throws", () => {
     const handler: ErrorHandler = (err) => make(`<p>caught:${err.message}</p>`);
-    const page = ilha.render(() => {
+    const Page = ilha.render(() => {
       throw new Error("boom");
     });
-    const wrapped = wrapError(handler, page);
+    const wrapped = wrapError(handler, Page);
     expect(wrapped.toString()).toContain("caught:boom");
   });
 
@@ -102,12 +102,12 @@ describe("wrapError()", () => {
       captured = err;
       return make("");
     };
-    const page = ilha.render(() => {
+    const Page = ilha.render(() => {
       const e: any = new Error("fail");
       e.status = 500;
       throw e;
     });
-    wrapError(handler, page).toString();
+    wrapError(handler, Page).toString();
     expect(captured!.message).toBe("fail");
     expect(captured!.status).toBe(500);
     expect(typeof captured!.stack).toBe("string");
@@ -119,12 +119,12 @@ describe("wrapError()", () => {
       snapshot = route;
       return make("");
     };
-    const page = ilha.render(() => {
+    const Page = ilha.render(() => {
       throw new Error("x");
     });
     routePath("/user/7");
     routeParams({ id: "7" });
-    wrapError(handler, page).toString();
+    wrapError(handler, Page).toString();
     expect(snapshot!.path).toBe("/user/7");
     expect(snapshot!.params).toEqual({ id: "7" });
   });
@@ -136,10 +136,10 @@ describe("wrapError()", () => {
       return make("outer");
     };
     const inner: ErrorHandler = () => make("inner-caught");
-    const page = ilha.render(() => {
+    const Page = ilha.render(() => {
       throw new Error("e");
     });
-    const wrapped = wrapError(outer, wrapError(inner, page));
+    const wrapped = wrapError(outer, wrapError(inner, Page));
     expect(wrapped.toString()).toContain("inner-caught");
     expect(outerCalled).toBe(false);
   });
@@ -150,10 +150,10 @@ describe("wrapError()", () => {
       ilha.render(() => {
         throw err;
       });
-    const page = ilha.render(() => {
+    const Page = ilha.render(() => {
       throw new Error("e");
     });
-    const wrapped = wrapError(outer, wrapError(inner, page));
+    const wrapped = wrapError(outer, wrapError(inner, Page));
     expect(wrapped.toString()).toContain("outer-caught");
   });
 
@@ -176,7 +176,7 @@ describe("codegen — generated file", () => {
   beforeEach(async () => {
     root = await makeDir("root");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, "src/generated/page-routes.ts");
+    outFile = join(root, "src/generated/Page-routes.ts");
     await mkdir(pagesDir, { recursive: true });
   });
 
@@ -226,7 +226,7 @@ describe("codegen — generated file", () => {
     expect(await runCodegen()).toContain(`route("/:org/:repo"`);
   });
 
-  it("excludes +layout.ts and +error.ts from page routes", async () => {
+  it("excludes +layout.ts and +error.ts from Page routes", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await writePage(pagesDir, "+layout.ts", `export default null;`);
     await writePage(pagesDir, "+error.ts", `export default null;`);
@@ -238,7 +238,7 @@ describe("codegen — generated file", () => {
     expect(routeLines[0]).toContain(`"/"`);
   });
 
-  it("imports root +layout.ts and wraps page", async () => {
+  it("imports root +layout.ts and wraps Page", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await writePage(pagesDir, "+layout.ts", `export default null;`);
     const code = await runCodegen();
@@ -246,7 +246,7 @@ describe("codegen — generated file", () => {
     expect(code).toContain("+layout.ts");
   });
 
-  it("imports root +error.ts and wraps page", async () => {
+  it("imports root +error.ts and wraps Page", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await writePage(pagesDir, "+error.ts", `export default null;`);
     const code = await runCodegen();
@@ -348,13 +348,13 @@ describe("codegen — generated file", () => {
     const wrappedLines = lines.filter(
       (l) => l.includes("const _wrapped") && l.includes("wrapLayout"),
     );
-    // exactly one page gets wrapped (sign-in); about does not
+    // exactly one Page gets wrapped (sign-in); about does not
     expect(wrappedLines).toHaveLength(1);
     // find which _pageN import corresponds to sign-in, then verify that variable is the wrapped one
     const signInImport = lines.find((l) => l.startsWith("import") && l.includes("sign-in"));
-    const pageVar = signInImport?.match(/as (_page\d+)/)?.[1];
-    expect(pageVar).toBeDefined();
-    expect(wrappedLines[0]).toContain(pageVar!);
+    const PageVar = signInImport?.match(/as (_page\d+)/)?.[1];
+    expect(PageVar).toBeDefined();
+    expect(wrappedLines[0]).toContain(PageVar!);
   });
 
   it("route group +layout.ts is picked up by chainForFile for pages inside it", async () => {
@@ -372,9 +372,9 @@ describe("codegen — generated file", () => {
     expect(code).toContain("wrapLayout(");
   });
 
-  it("nested route group: (a)/(b)/page.ts → /page", async () => {
-    await writePage(pagesDir, "(a)/(b)/page.ts", `export default null;`);
-    expect(await runCodegen()).toContain(`route("/page"`);
+  it("nested route group: (a)/(b)/Page.ts → /Page", async () => {
+    await writePage(pagesDir, "(a)/(b)/Page.ts", `export default null;`);
+    expect(await runCodegen()).toContain(`route("/Page"`);
   });
 
   it("route group: (auth)/sign-in.ts → /sign-in", async () => {
@@ -585,7 +585,7 @@ describe("codegen — route sorting", () => {
   beforeEach(async () => {
     root = await makeDir("sort");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, "src/generated/page-routes.ts");
+    outFile = join(root, "src/generated/Page-routes.ts");
     await mkdir(pagesDir, { recursive: true });
   });
 
@@ -670,7 +670,7 @@ describe("codegen — duplicate pattern detection", () => {
   beforeEach(async () => {
     root = await makeDir("dup");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, "src/generated/page-routes.ts");
+    outFile = join(root, "src/generated/Page-routes.ts");
     await mkdir(pagesDir, { recursive: true });
     warnings = [];
     console.warn = (...args: any[]) => warnings.push(args.join(" "));
@@ -730,7 +730,7 @@ describe("codegen — empty pages dir warning", () => {
   beforeEach(async () => {
     root = await makeDir("empty");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, "src/generated/page-routes.ts");
+    outFile = join(root, "src/generated/Page-routes.ts");
     await mkdir(pagesDir, { recursive: true });
     warnings = [];
     console.warn = (...args: any[]) => warnings.push(args.join(" "));
@@ -757,7 +757,7 @@ describe("codegen — empty pages dir warning", () => {
     expect(warnings.find((w) => w.includes("No pages found"))).toContain(pagesDir);
   });
 
-  it("does not warn when pages dir has at least one page", async () => {
+  it("does not warn when pages dir has at least one Page", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await runCodegen();
     expect(warnings.some((w) => w.includes("No pages found"))).toBe(false);
@@ -798,7 +798,7 @@ describe("codegen — relative imports", () => {
     return readFile(outFile, "utf8");
   }
 
-  it("page imports start with . or ..", async () => {
+  it("Page imports start with . or ..", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     const importLines = (await runCodegen())
       .split("\n")
@@ -832,7 +832,7 @@ describe("codegen — relative imports", () => {
     expect(bad).toHaveLength(0);
   });
 
-  it("route group page imports are relative (no absolute path)", async () => {
+  it("route group Page imports are relative (no absolute path)", async () => {
     await writePage(pagesDir, "(auth)/sign-in.ts", `export default null;`);
     const importLines = (await runCodegen())
       .split("\n")
@@ -959,14 +959,14 @@ describe("codegen — loader detection", () => {
 
   // ── client-safe routes file ────────────────────────────────────────────
 
-  it("page imports in routes.ts use the ?client suffix", async () => {
+  it("Page imports in routes.ts use the ?client suffix", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     const { routes } = await runCodegen();
-    const pageImport = routes
+    const PageImport = routes
       .split("\n")
       .find((l) => l.startsWith("import") && l.includes("_page0"));
-    expect(pageImport).toBeDefined();
-    expect(pageImport!).toContain("?client");
+    expect(PageImport).toBeDefined();
+    expect(PageImport!).toContain("?client");
   });
 
   it("layout imports in routes.ts use the ?client suffix", async () => {
@@ -1005,7 +1005,7 @@ describe("codegen — loader detection", () => {
 
   // ── loaders.ts — written only when needed ──────────────────────────────
 
-  it("emits an empty loaders.ts when no page or layout has a loader", async () => {
+  it("emits an empty loaders.ts when no Page or layout has a loader", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await writePage(pagesDir, "about.ts", `export default null;`);
     const { loaders } = await runCodegen();
@@ -1013,7 +1013,7 @@ describe("codegen — loader detection", () => {
     expect(loaders).not.toContain("attachLoader");
   });
 
-  it("emits attachLoader when a page has a load export", async () => {
+  it("emits attachLoader when a Page has a load export", async () => {
     await writePage(
       pagesDir,
       "index.ts",
@@ -1023,7 +1023,7 @@ describe("codegen — loader detection", () => {
     expect(loaders).toContain(`pageRouter.attachLoader("/",`);
   });
 
-  it("imports load from the page module (no ?client suffix) in loaders.ts", async () => {
+  it("imports load from the Page module (no ?client suffix) in loaders.ts", async () => {
     await writePage(
       pagesDir,
       "index.ts",
@@ -1097,11 +1097,11 @@ describe("codegen — loader detection", () => {
     expect(loaders).toContain("+layout.ts");
   });
 
-  it("composeLoaders is used when page and layout both have loaders", async () => {
+  it("composeLoaders is used when Page and layout both have loaders", async () => {
     await writePage(
       pagesDir,
       "index.ts",
-      `export const load = async () => ({ page: true });\nexport default null;`,
+      `export const load = async () => ({ Page: true });\nexport default null;`,
     );
     await writePage(
       pagesDir,
@@ -1110,11 +1110,11 @@ describe("codegen — loader detection", () => {
     );
     const { loaders } = await runCodegen();
     expect(loaders).toContain("composeLoaders(");
-    // Layout loader appears BEFORE page loader in the composed array (outer→inner; page last)
+    // Layout loader appears BEFORE Page loader in the composed array (outer→inner; Page last)
     const composeCall = loaders.match(/composeLoaders\(\[([^\]]+)\]\)/)?.[1];
     expect(composeCall).toBeDefined();
     const ids = composeCall!.split(",").map((s) => s.trim());
-    // Layout id contains `_l`, page id is just `_pN`
+    // Layout id contains `_l`, Page id is just `_pN`
     expect(ids[0]).toMatch(/_l\d+/);
     expect(ids[ids.length - 1]).not.toMatch(/_l\d+/);
   });
@@ -1261,7 +1261,7 @@ describe("codegen — loaders.ts file", () => {
     }
   });
 
-  it("emits one attachLoader per page with loaders", async () => {
+  it("emits one attachLoader per Page with loaders", async () => {
     await writePage(pagesDir, "a.ts", `export const load = async () => ({}); export default null;`);
     await writePage(pagesDir, "b.ts", `export const load = async () => ({}); export default null;`);
     await writePage(pagesDir, "c.ts", `export default null;`); // no loader

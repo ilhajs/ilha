@@ -12,7 +12,7 @@ Declares the island's external props and their types. Two forms are supported: a
 import ilha from "ilha";
 
 const Greeting = ilha
-  .input<{ name: string }>()
+  .input<{ name: string }>() // [!code highlight]
   .render(({ input }) => `<p>Hello, ${input.name}!</p>`);
 
 Greeting.toString({ name: "ilha" }); // → <p>Hello, ilha!</p>
@@ -25,7 +25,7 @@ import ilha from "ilha";
 import { z } from "zod";
 
 const Greeting = ilha
-  .input(z.object({ name: z.string().default("World") }))
+  .input(z.object({ name: z.string().default("World") })) // [!code highlight]
   .render(({ input }) => `<p>Hello, ${input.name}!</p>`);
 
 Greeting.toString({ name: "ilha" }); // → <p>Hello, ilha!</p>
@@ -79,7 +79,7 @@ import { z } from "zod";
 
 const Counter = ilha
   .input(z.object({ start: z.number().default(0) }))
-  .state("count", ({ start }) => start)
+  .state("count", ({ start }) => start) // [!code highlight]
   .render(({ state }) => `<p>${state.count()}</p>`);
 ```
 

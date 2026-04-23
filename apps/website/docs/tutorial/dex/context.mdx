@@ -20,7 +20,7 @@ export const script = dedent`
 
     const pokemon = context("pokemon", "charizard");
 
-    const pokemonPicker = ilha
+    const PokemonPicker = ilha
       .state('pokemonList', [])
       .onMount(({ state }) => {
         const fetchList = async () => {
@@ -48,7 +48,7 @@ export const script = dedent`
         \`;
       });
 
-    const pokemonStats = ilha
+    const PokemonStats = ilha
       .input<{ stats: { key: string; value: number }[] }>()
       .render(({ input }) => {
         const stats = input.stats.map(({ key, value }) => html\`
@@ -74,7 +74,7 @@ export const script = dedent`
         \`;
       });
 
-    const pokemonCard = ilha
+    const PokemonCard = ilha
       .derived("pokemonData", async (): Promise<Pokemon> => {
         const req = await fetch(\`https://pokeapi.co/api/v2/pokemon/\${pokemon()}\`);
         return await req.json();
@@ -103,7 +103,7 @@ export const script = dedent`
         \`;
       });
 
-    const pokedex = ilha
+    const Pokedex = ilha
       .slot("picker", pokemonPicker)
       .slot("card", pokemonCard)
       .render(({ slots }) => html\`
@@ -111,10 +111,10 @@ export const script = dedent`
         \${slots.card()}
       \`);
 
-    mount({ pokedex });
+    mount({ Pokedex });
 
 `;
-export const template = `<div data-ilha="pokedex"></div>`;
+export const template = `<div data-ilha="Pokedex"></div>`;
 
 # Context
 

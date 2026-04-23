@@ -13,8 +13,8 @@ import ilha from "ilha";
 
 const MyIsland = ilha.state("count", 0).render(({ state }) => `<p>${state.count()}</p>`);
 
-const html = await MyIsland.hydratable({ count: 42 }, { name: "my-island" });
-// → '<div data-ilha="my-island" data-ilha-props="{"count":42}">
+const html = await MyIsland.hydratable({ count: 42 }, { name: "MyIsland" });
+// → '<div data-ilha="MyIsland" data-ilha-props="{"count":42}">
 //      <p>42</p>
 //    </div>'
 ```
@@ -51,7 +51,7 @@ const Counter = ilha.state("count", 0).render(({ state }) => `<p>${state.count()
 const html = await Counter.hydratable({}, { name: "counter" });
 
 // client
-mount({ counter: Counter }); // ← "counter" matches the name above
+mount({ Counter }); // ← "counter" matches the name above
 ```
 
 If the name has no match in the registry, `mount()` skips the element silently.
@@ -131,7 +131,7 @@ await Item.hydratable({}, { name: "item", as: "li" });
 The full rendered output looks like this:
 
 ```html
-<div data-ilha="my-island" data-ilha-props='{"count":42}' data-ilha-state='{"count":42}'>
+<div data-ilha="MyIsland" data-ilha-props='{"count":42}' data-ilha-state='{"count":42}'>
   <p>42</p>
 </div>
 ```
@@ -145,7 +145,7 @@ The full rendered output looks like this:
 If the island uses `.css()`, the `<style>` tag is included inside the wrapper regardless of the snapshot option:
 
 ```html
-<div data-ilha="card">
+<div data-ilha="Card">
   <style data-ilha-css>
     @scope (:scope) to ([data-ilha]) {
       .title {
@@ -199,7 +199,7 @@ const body = await Counter.hydratable(
 );
 
 // Client — hydrate in place
-mount({ counter: Counter });
+mount({ Counter });
 ```
 
 ## Notes

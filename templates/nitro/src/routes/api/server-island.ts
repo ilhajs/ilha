@@ -1,7 +1,7 @@
 import ilha, { html } from "ilha";
 import { defineHandler } from "nitro";
 
-const counter = ilha.render(
+const Counter = ilha.render(
   () =>
     html`
       <p>Hello from the server.</p>
@@ -9,5 +9,5 @@ const counter = ilha.render(
 );
 
 export default defineHandler(() => {
-  return counter();
+  return Counter();
 });

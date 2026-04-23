@@ -11,6 +11,7 @@ import ilha, { html } from "ilha";
 
 const UserCard = ilha
   .state("userId", 1)
+  // [!code highlight:4]
   .derived("user", async ({ state, signal }) => {
     const res = await fetch(`/api/users/${state.userId()}`, { signal });
     return res.json();

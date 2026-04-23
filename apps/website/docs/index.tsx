@@ -36,7 +36,7 @@ function highlightCode(code: string): string {
   });
 }
 
-const libraries = ilha
+const Libraries = ilha
   .state("library", "router")
   .derived("code", ({ state }) => {
     switch (state.library()) {
@@ -88,7 +88,7 @@ const libraries = ilha
     `,
   );
 
-const creator = ilha
+const Creator = ilha
   .state("name", "")
   .state("template", "vite")
   .state("useBun", false)
@@ -157,7 +157,7 @@ const creator = ilha
     `,
   );
 
-const aiPrompt = ilha
+const AiPrompt = ilha
   .state("provider", "claude")
   .bind("[data-provider]", "provider")
   .on('[data-form="ai"]@submit', ({ event, target, state }) => {
@@ -208,7 +208,7 @@ const aiPrompt = ilha
     `,
   );
 
-const whyIlha = ilha.render(
+const WhyIlha = ilha.render(
   () => html`
     <div class="mt-20 grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div class="card p-4 gap-2">
@@ -254,7 +254,7 @@ const whyIlha = ilha.render(
 `,
 );
 
-const hero = ilha.render(
+const Hero = ilha.render(
   () => html`
     <section class="relative lg:rounded-4xl overflow-hidden lg:h-160 -mx-4 lg:mx-0">
         <img src="/dither-1.jpg" class="absolute inset-0 w-full h-full object-cover lg:rounded-4xl lg:rounded-br-[2.5rem] z-0" />
@@ -291,7 +291,7 @@ const hero = ilha.render(
 `,
 );
 
-export const footer = ilha.render(
+const Footer = ilha.render(
   () => html`
     <footer class="mt-20 py-16 p-4">
       <h2 class="sr-only">Footer</h2>
@@ -326,7 +326,7 @@ export const footer = ilha.render(
   `,
 );
 
-const heading = ilha
+const Heading = ilha
   .input<{ text: string }>()
   .render(
     ({ input }) =>
@@ -339,20 +339,20 @@ export const frontmatter = {
 
 export default () => {
   useEffect(() => {
-    mount({ hero, aiPrompt, heading, whyIlha, libraries, creator, footer });
+    mount({ Hero, AiPrompt, Heading, WhyIlha, Libraries, Creator, Footer });
   });
   return (
     <div className="flex min-h-screen flex-col">
       <div id="toaster" className="toaster"></div>
       <div className="container mx-auto flex flex-1 flex-col p-4">
-        <div data-ilha="hero"></div>
-        <div data-ilha="aiPrompt"></div>
-        <div data-ilha="heading" data-ilha-props='{"text": "Why Ilha?"}'></div>
-        <div data-ilha="whyIlha"></div>
-        <div data-ilha="heading" data-ilha-props='{"text": "And there&apos;s more."}'></div>
-        <div data-ilha="libraries"></div>
-        <div data-ilha="creator"></div>
-        <div data-ilha="footer"></div>
+        <div data-ilha="Hero"></div>
+        <div data-ilha="AiPrompt"></div>
+        <div data-ilha="Heading" data-ilha-props='{"text": "Why Ilha?"}'></div>
+        <div data-ilha="WhyIlha"></div>
+        <div data-ilha="Heading" data-ilha-props='{"text": "And there&apos;s more."}'></div>
+        <div data-ilha="Libraries"></div>
+        <div data-ilha="Creator"></div>
+        <div data-ilha="Footer"></div>
       </div>
     </div>
   );

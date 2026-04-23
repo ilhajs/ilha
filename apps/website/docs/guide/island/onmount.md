@@ -78,7 +78,7 @@ declare global {
 // ---cut---
 import ilha from "ilha";
 
-const map = ilha
+const Map = ilha
   .input<{ lat: number; lng: number }>()
   .onMount(({ host, input }) => {
     const map = new window.MapLibrary(host, {

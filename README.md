@@ -60,7 +60,7 @@ Place a mount point anywhere in your HTML:
 
 ```html
 <body>
-  <div data-ilha="counter"></div>
+  <div data-ilha="Counter"></div>
 </body>
 ```
 
@@ -69,7 +69,7 @@ Define your island and mount it:
 ```ts
 import ilha, { html, mount } from "ilha";
 
-const counter = ilha
+const Counter = ilha
   .state("count", 0)
   .on("[data-action=increase]@click", ({ state }) => state.count(state.count() + 1))
   .on("[data-action=decrease]@click", ({ state }) => state.count(state.count() - 1))
@@ -81,7 +81,7 @@ const counter = ilha
     `,
   );
 
-mount({ counter });
+mount({ Counter });
 ```
 
 `mount()` auto-discovers every `[data-ilha]` element on the page and activates the matching island.

@@ -11,7 +11,7 @@ export const script = dedent`
     import "./styles.css";
     import ilha, { html, mount } from "ilha";
 
-    const counter = ilha
+    const Counter = ilha
         .state("count", 0)
         .render(
             ({ state }) => html\`
@@ -19,10 +19,10 @@ export const script = dedent`
             \`
         );
 
-    mount({ counter });
+    mount({ Counter });
 
 `;
-export const template = `<div data-ilha="counter"></div>`;
+export const template = `<div data-ilha="Counter"></div>`;
 
 # State
 

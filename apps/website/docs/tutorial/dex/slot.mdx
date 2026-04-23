@@ -13,7 +13,7 @@ export const script = dedent`
 
     const selectedPokemon = context("selectedPokemon", "charizard");
 
-    const pokemonPicker = ilha
+    const PokemonPicker = ilha
       .state("pokemonList", [])
       .onMount(({ state }) => {
         fetch("https://pokeapi.co/api/v2/pokemon")
@@ -34,7 +34,7 @@ export const script = dedent`
         \`;
       });
 
-    const pokemonCard = ilha
+    const PokemonCard = ilha
       .state("pokemonData", null)
       .effect(({ state }) => {
         const controller = new AbortController();
@@ -66,18 +66,18 @@ export const script = dedent`
         \`;
       });
 
-    const pokedex = ilha
-      .slot("picker", pokemonPicker)
-      .slot("card", pokemonCard)
+    const Pokedex = ilha
+      .slot("picker", PokemonPicker)
+      .slot("card", PokemonCard)
       .render(({ slots }) => html\`
         \${slots.picker()}
         \${slots.card()}
       \`);
 
-    mount({ pokedex });
+    mount({ Pokedex });
 
 `;
-export const template = `<div data-ilha="pokedex"></div>`;
+export const template = `<div data-ilha="Pokedex"></div>`;
 
 # Slot
 
