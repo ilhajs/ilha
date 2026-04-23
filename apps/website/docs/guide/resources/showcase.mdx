@@ -21,7 +21,7 @@ export const SHOWCASE = [
 
 <div className="rp-not-doc grid grid-cols-3 gap-4">
   {SHOWCASE.map((item) => (
-    <div className="card pt-0 overflow-hidden">
+    <div key={item.title} className="card pt-0 overflow-hidden">
       <img loading="lazy" className="aspect-video object-cover" src={item.image} />
       <header>
         <h2>

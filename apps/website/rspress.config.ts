@@ -75,7 +75,7 @@ export default defineConfig({
         {
           tag: "meta",
           attrs: {
-            name: "og:image",
+            property: "og:image",
             content: "https://ilha.build/og.jpg",
           },
         },
