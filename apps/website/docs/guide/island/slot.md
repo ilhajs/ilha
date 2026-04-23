@@ -1,5 +1,6 @@
 ---
 title: .slot()
+description: Embed child islands as named slots inside a parent, rendered inline during SSR and activated independently.
 ---
 
 # Slot

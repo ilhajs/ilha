@@ -1,5 +1,6 @@
 ---
 title: .effect()
+description: Register reactive side effects that run after mount and re-run when signal dependencies change.
 ---
 
 # Effect

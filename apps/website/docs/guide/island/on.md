@@ -1,5 +1,6 @@
 ---
 title: .on()
+description: Attach DOM event listeners to island hosts or descendant elements with selector syntax and modifiers.
 ---
 
 # On

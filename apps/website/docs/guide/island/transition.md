@@ -1,5 +1,6 @@
 ---
 title: .transition()
+description: Attach enter and leave animation callbacks to islands for async mount and unmount transitions.
 ---
 
 # Transition

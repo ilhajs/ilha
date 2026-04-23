@@ -1,5 +1,6 @@
 ---
 title: .input()
+description: Declare typed external props with optional Standard Schema runtime validation and coercion.
 ---
 
 # Input

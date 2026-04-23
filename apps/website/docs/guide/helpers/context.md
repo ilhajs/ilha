@@ -1,5 +1,6 @@
 ---
 title: context()
+description: Create named global signals to share reactive state across islands without prop drilling.
 ---
 
 # Context

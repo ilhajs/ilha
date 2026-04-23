@@ -1,5 +1,6 @@
 ---
 title: .derived()
+description: Declare computed values that depend on state or input, with built-in loading and error envelopes.
 ---
 
 # Derived

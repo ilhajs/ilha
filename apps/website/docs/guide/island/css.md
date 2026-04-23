@@ -1,5 +1,6 @@
 ---
 title: .css()
+description: Attach scoped styles to an island using CSS @scope rules that stay local and do not leak.
 ---
 
 # CSS

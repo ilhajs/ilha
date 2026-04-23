@@ -1,5 +1,6 @@
 ---
 title: raw()
+description: Mark strings as trusted HTML to bypass escaping inside html`` templates.
 ---
 
 # Raw

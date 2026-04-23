@@ -1,5 +1,6 @@
 ---
 title: Core Concepts
+description: Learn the core ideas behind ilha — islands, signals, HTML-first rendering, and the builder chain.
 ---
 
 # Core Concepts

@@ -1,5 +1,6 @@
 ---
 title: .render()
+description: Finalize the builder chain and produce a callable island that can render to HTML or mount in the browser.
 ---
 
 # Render

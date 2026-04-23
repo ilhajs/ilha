@@ -1,5 +1,6 @@
 ---
 title: .onMount()
+description: Register one-time setup functions that run after an island is mounted into the DOM.
 ---
 
 # onMount

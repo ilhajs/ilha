@@ -1,5 +1,6 @@
 ---
 title: html&grave;&grave;
+description: An XSS-safe tagged template for building HTML strings with automatic escaping and signal interpolation.
 ---
 
 # HTML

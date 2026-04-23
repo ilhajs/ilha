@@ -1,5 +1,6 @@
 ---
 title: .bind()
+description: Two-way bind form elements to state keys or external signals with automatic type coercion.
 ---
 
 # Bind

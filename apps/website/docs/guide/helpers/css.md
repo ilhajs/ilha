@@ -1,5 +1,6 @@
 ---
 title: css&grave;&grave;
+description: A passthrough tagged template for CSS strings that enables editor tooling and syntax highlighting.
 ---
 
 # CSS

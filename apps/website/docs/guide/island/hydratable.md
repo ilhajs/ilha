@@ -1,5 +1,6 @@
 ---
 title: .hydratable()
+description: Render islands wrapped in hydration containers with serialized props and optional state snapshots.
 ---
 
 # Hydratable

@@ -1,5 +1,6 @@
 ---
 title: mount()
+description: Auto-discover and mount ilha islands from the DOM, with support for lazy loading and hydration.
 ---
 
 # Mount

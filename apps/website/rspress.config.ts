@@ -86,6 +86,13 @@ export default defineConfig({
             content: "https://ilha.build/og.jpg",
           },
         },
+        {
+          tag: "link",
+          attrs: {
+            rel: "canonical",
+            href: "https://ilha.build",
+          },
+        },
       ],
     },
   },
