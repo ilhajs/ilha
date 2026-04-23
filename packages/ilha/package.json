@@ -26,7 +26,6 @@
     "alien-signals": "3.1.2"
   },
   "devDependencies": {
-    "docsome": "^0.0.6",
     "zod": "^4.3.6"
   }
 }
