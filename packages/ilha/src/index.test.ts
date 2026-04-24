@@ -2261,6 +2261,31 @@ describe(".derived", () => {
       cleanup(el);
     });
 
+    it("client sync derived re-runs after hydration with snapshot", async () => {
+      let accessor!: (v?: number) => number | void;
+
+      const Island = ilha
+        .state("count", 2)
+        .derived("doubled", ({ state }) => state.count() * 2)
+        .render(({ state, derived }) => {
+          accessor = state.count as typeof accessor;
+          return `<p>${derived.doubled.value}</p>`;
+        });
+
+      const ssr = await Island.hydratable({}, { name: "snap", snapshot: true });
+      document.body.innerHTML = ssr;
+      const wrapper = document.querySelector("[data-ilha='snap']")!;
+
+      const unmount = Island.mount(wrapper);
+      expect(wrapper.querySelector("p")!.textContent).toBe("4");
+
+      accessor(10);
+      expect(wrapper.querySelector("p")!.textContent).toBe("20");
+
+      unmount();
+      document.body.innerHTML = "";
+    });
+
     it("client async derived re-runs when tracked state changes", async () => {
       let accessor!: (v?: string) => string | void;
       const calls: string[] = [];

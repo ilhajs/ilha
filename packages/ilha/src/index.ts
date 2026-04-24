@@ -534,15 +534,15 @@ function buildDerivedSignals<
     let skipFirst = derivedSnapshot != null && entry.key in derivedSnapshot;
 
     const stopEffect = effect(() => {
-      if (skipFirst) {
-        skipFirst = false;
-        return;
-      }
-
       ac.abort();
       ac = new AbortController();
       const currentAc = ac;
       const result = entry.fn({ state, input, signal: currentAc.signal });
+
+      if (skipFirst) {
+        skipFirst = false;
+        return;
+      }
 
       if (!(result instanceof Promise)) {
         const prevSub = setActiveSub(undefined);
