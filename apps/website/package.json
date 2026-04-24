@@ -18,7 +18,7 @@
   "devDependencies": {
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/geist-mono": "^5.2.7",
-    "@ilha/router": "workspace:",
+    "@ilha/router": "workspace:*",
     "@rspress/core": "^2.0.9",
     "@rspress/plugin-llms": "^2.0.9",
     "@rspress/plugin-sitemap": "^2.0.9",

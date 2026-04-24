@@ -541,6 +541,13 @@ function buildDerivedSignals<
 
       if (skipFirst) {
         skipFirst = false;
+        if (result instanceof Promise) {
+          result.catch(() => {
+            // Suppress unhandled rejection for the skipped initial run.
+            // The snapshot already provides the correct value; we only ran
+            // entry.fn to establish reactive subscriptions.
+          });
+        }
         return;
       }
 
