@@ -13,6 +13,7 @@
     "basecoat-css": "^0.3.11",
     "dedent": "^1.7.2",
     "ilha": "workspace:*",
+    "react": "^19.2.5",
     "shiki": "^4.0.2"
   },
   "devDependencies": {
@@ -27,6 +28,7 @@
     "@shikijs/transformers": "^4.0.2",
     "@tailwindcss/postcss": "^4.2.4",
     "@tailwindcss/typography": "^0.5.19",
+    "@types/react": "^19.2.14",
     "tailwindcss": "^4.2.4",
     "zod": "^4.3.6"
   }
