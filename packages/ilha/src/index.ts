@@ -329,19 +329,22 @@ function emitIslandSlot(
   // instead of emitting loading markup.
   if (ctx?.pending) {
     popRenderCtx();
-    const result = island(props as Record<string, unknown>);
-    renderCtxStack.push(ctx);
+    try {
+      const result = island(props as Record<string, unknown>);
 
-    if (result instanceof Promise) {
-      // Store the pending render for later resolution by renderWithCtx.
-      ctx.pending.set(id, result.then(String));
-      // Emit a placeholder stub; resolveAsyncChildren will substitute the
-      // resolved inner HTML after all children have been awaited.
-      return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}></div>`;
+      if (result instanceof Promise) {
+        // Store the pending render for later resolution by renderWithCtx.
+        ctx.pending.set(id, result.then(String));
+        // Emit a placeholder stub; resolveAsyncChildren will substitute the
+        // resolved inner HTML after all children have been awaited.
+        return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}></div>`;
+      }
+
+      // Child rendered synchronously — inline its HTML as usual.
+      return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}>${result}</div>`;
+    } finally {
+      renderCtxStack.push(ctx);
     }
-
-    // Child rendered synchronously — inline its HTML as usual.
-    return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}>${result}</div>`;
   }
 
   // Sync SSR path (no async children support). The child's renderToString
@@ -360,6 +363,12 @@ async function resolveAsyncChildren(html: string, ctx: IslandRenderCtx): Promise
     //   <div data-ilha-slot="…" data-ilha-props="…"></div>
     // Replace it with the same tag but containing the resolved inner HTML.
     const escaped = escapeHtml(id);
+    // Guard against ReDoS from pathologically long slot ids.
+    if (escaped.length > 500) {
+      throw new Error(
+        `Slot id exceeds safe length for regex replacement (${escaped.length} > 500).`,
+      );
+    }
     // Build a regex that matches the empty slot div for this id.
     // Pattern: <div ... data-ilha-slot="ESCAPED" ...></div>
     const attrPattern = escaped.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1135,19 +1144,30 @@ class IlhaBuilder<
       | { html: string; slots: IslandRenderCtx["slots"] }
       | Promise<{ html: string; slots: IslandRenderCtx["slots"] }> {
       const ctx = pushRenderCtx(liveHost, asyncChildren);
-      const html = unwrapHtml(fn());
+      let isAsync = false;
+      try {
+        const html = unwrapHtml(fn());
 
-      if (ctx.pending && ctx.pending.size > 0) {
-        // Children with async derived were found — await them and substitute
-        // their resolved HTML into the parent output before returning.
-        return resolveAsyncChildren(html, ctx).then((resolvedHtml) => {
+        if (ctx.pending && ctx.pending.size > 0) {
+          isAsync = true;
+          // Children with async derived were found — await them and substitute
+          // their resolved HTML into the parent output before returning.
+          return (async () => {
+            try {
+              const resolvedHtml = await resolveAsyncChildren(html, ctx);
+              return { html: resolvedHtml, slots: ctx.slots };
+            } finally {
+              popRenderCtx();
+            }
+          })();
+        }
+
+        return { html, slots: ctx.slots };
+      } finally {
+        if (!isAsync) {
           popRenderCtx();
-          return { html: resolvedHtml, slots: ctx.slots };
-        });
+        }
       }
-
-      popRenderCtx();
-      return { html, slots: ctx.slots };
     }
 
     function buildPlainState(input: TInput): IslandState<TStateMap> {
@@ -1613,13 +1633,17 @@ class IlhaBuilder<
       };
     }
 
-    // Island is dual-mode when called:
-    //   - Top-level (no active render ctx): returns SSR HTML (string | Promise)
-    //     — the backward-compatible public SSR API (`Counter({ count: 7 })` etc).
-    //   - Inside html`` interpolation (active render ctx): returns an
-    //     IslandCall carrying props to be emitted as a child slot marker.
-    // This lets `${Counter({ count: 7 })}` do the intuitive thing (compose)
-    // while preserving `const out = Counter({ count: 7 })` as an SSR call.
+    /**
+     * Dual-mode island invocation:
+     * - When called inside an `html` interpolation (i.e. {@link currentRenderCtx}
+     *   is active), returns an {@link IslandCall} carrying props to be emitted
+     *   as a child slot marker; {@link interpolateValue} consumes this marker.
+     * - When called at the top level with no active render context, returns
+     *   SSR HTML via {@link renderToString} (backward-compatible public API).
+     *
+     * The declared return type omits {@link IslandCall} because TypeScript
+     * cannot narrow based on runtime stack state.
+     */
     const island = function (props?: Partial<TInput>): string | Promise<string> | IslandCall {
       if (currentRenderCtx()) {
         return {
@@ -1641,6 +1665,12 @@ class IlhaBuilder<
     // (useful in reorderable lists). Returns a callable that, when given
     // optional props, produces an IslandCall that interpolateValue recognises.
     island.key = (key: string): KeyedIsland<TInput> => {
+      if (typeof key !== "string" || key.trim().length === 0) {
+        throw new Error("island.key() requires a non-empty string.");
+      }
+      if (key.includes(":")) {
+        throw new Error(`island.key() key cannot contain the slot separator ":" (got "${key}").`);
+      }
       const keyed = ((props?: Partial<TInput>): IslandCall => ({
         [ISLAND_CALL]: true,
         island: island as AnyIsland,
