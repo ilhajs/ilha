@@ -2,6 +2,10 @@
 
 ## `ilha`
 
+### 0.3.1 - 2026-04-24
+
+- Fixes hydratable() snapshot interactivity regression.
+
 ### 0.3.0 - 2026-04-24
 
 - **Breaking:** Removes `.slot()` builder method and `slots` render context. Child islands are now interpolated directly inside `html\`\``` templates.
@@ -71,6 +75,10 @@ Initial release of **@ilha/form** — a tiny, typed form binding library for ilh
 
 ## `@ilha/router`
 
+### 0.2.3 - 2026-04-24
+
+- Updates Ilha dependency to 0.3.1
+
 ### 0.2.2 - 2026-04-24
 
 - Updates Ilha dependency to 0.3.0
@@ -111,6 +119,10 @@ Initial release of **@ilha/router** — a lightweight, isomorphic router for ilh
 - Adds exported types: `RouteRecord`, `RouteSnapshot`, `AppError`, `LayoutHandler`, `ErrorHandler`, `NavigateOptions`, `MountOptions`, `HydrateOptions`, `HydratableRenderOptions`, `RouterBuilder`
 
 ## `@ilha/store`
+
+### 0.1.4 - 2026-04-24
+
+- Updates Ilha dependency to 0.3.1
 
 ### 0.1.3 - 2026-04-24
 
