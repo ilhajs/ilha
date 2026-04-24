@@ -53,7 +53,6 @@ A typical island might include:
 - [`.on()`](/guide/island/on) for event handlers.
 - [`.bind()`](/guide/island/bind) for form binding.
 - [`.effect()`](/guide/island/effect) and [`.onMount()`](/guide/island/onmount) for side effects.
-- [`.slot()`](/guide/island/slot) for child islands.
 - [`.css()`](/guide/island/css) for scoped styles.
 - [`.render()`](/guide/island/render) to produce the final island.
 
@@ -105,7 +104,7 @@ This lets you keep structure, behavior, and styling close together when that is 
 
 ## Slots
 
-An island can include other islands through named slots. This gives you composition without losing encapsulation.
+An island can include other islands through direct interpolation. This gives you composition without losing encapsulation.
 
 A parent can render a child island inline during SSR, and that child can still mount independently on the client. In practice, this means you can build larger interfaces out of smaller interactive units.
 

@@ -74,11 +74,9 @@ export const script = dedent`
         \`;
       });
 
-    const Pokedex = ilha
-      .slot("picker", PokemonPicker)
-      .render(({ slots }) => html\`
-        \${slots.picker({ defaultPokemon: "charizard" })}
-      \`);
+    const Pokedex = ilha.render(() => html\`
+      \${PokemonPicker({ defaultPokemon: "charizard" })}
+    \`);
 
     mount({ Pokedex });
 
@@ -115,10 +113,26 @@ instead of a plain default:
 ```
 
 Input values are passed to the component at the call site — in the example above,
-the parent `pokedex` passes `{ defaultPokemon: "charizard" }` when rendering
-the `picker` slot. With the schema form, if the value doesn't match the schema,
+the parent `Pokedex` passes `{ defaultPokemon: "charizard" }` when rendering
+`PokemonPicker`. With the schema form, if the value doesn't match the schema,
 Ilha will throw at render time rather than silently passing invalid data into
 your component.
+
+## Composition
+
+The example above also demonstrates island composition. A parent island can
+render a child island directly inside its `html\`\```template by interpolating
+it with`${Child}` or `${Child({ prop: value })}`:
+
+```ts
+const Pokedex = ilha.render(() => html` ${PokemonPicker({ defaultPokemon: "charizard" })} `);
+```
+
+Each child manages its own state, lifecycle, and reactivity independently. The
+parent does not need to know anything about the child's internals — it only
+decides _where_ the child appears. During SSR the child's HTML is rendered
+inline; on the client the child mounts into its own host element and activates
+independently.
 
 > Pokémon and PokéDex are trademarks of Nintendo/Creatures Inc./GAME FREAK inc.
 > This tutorial uses the PokéAPI for educational purposes only and is not affiliated

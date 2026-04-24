@@ -172,8 +172,9 @@ function dedentString(str: string): string {
 // ---------------------------------------------
 
 const RAW = Symbol("ilha.raw");
-const SLOT_ACCESSOR = Symbol("ilha.slotAccessor");
 const SIGNAL_ACCESSOR = Symbol("ilha.signalAccessor");
+const ISLAND = Symbol("ilha.island");
+const ISLAND_CALL = Symbol("ilha.islandCall");
 
 const SLOT_ATTR = "data-ilha-slot";
 const PROPS_ATTR = "data-ilha-props";
@@ -205,24 +206,114 @@ export interface RawHtml {
 }
 
 // ---------------------------------------------
-// Slot accessor
+// Render-time composition: island interpolation
 // ---------------------------------------------
+//
+// Islands are directly interpolatable inside html``. When interpolateValue sees
+// an Island (or an IslandCall, produced by calling an Island as a function or
+// via .key()), it:
+//   1. Generates a stable slot id — either user-supplied via .key() or
+//      positional based on appearance order within the current render frame.
+//   2. Records { id -> { island, props } } in the active RenderContext so the
+//      parent's mount pass can look it up and mount the child onto the slot.
+//   3. Emits <div data-ilha-slot="{id}" data-ilha-props="...">{child SSR}</div>
+//      — the data-* attributes let hydration recover props without the map.
+//
+// Nested islands: each island's renderToString pushes its own RenderContext
+// onto the stack, so child-of-child interpolations are scoped to the correct
+// parent. The stack is thread-safe because rendering is synchronous (derived
+// resolution happens before fn() is called, not during).
 
-export interface SlotAccessor<TProps = Record<string, unknown>> {
-  (props?: TProps): RawHtml;
-  toString(): string;
-  [SLOT_ACCESSOR]: true;
+interface IslandCall {
+  [ISLAND_CALL]: true;
+  island: AnyIsland;
+  props: Record<string, unknown> | undefined;
+  key: string | undefined;
 }
 
-function makeSlotAccessor(render: (props?: Record<string, unknown>) => string): SlotAccessor<any> {
-  const fn = (props?: Record<string, unknown>): RawHtml => ({ [RAW]: true, value: render(props) });
-  fn.toString = () => render(undefined);
-  (fn as unknown as Record<symbol, boolean>)[SLOT_ACCESSOR] = true;
-  return fn as unknown as SlotAccessor;
+interface IslandRenderCtx {
+  // Slot id -> island to mount, populated during interpolation.
+  slots: Map<string, { island: AnyIsland; props: Record<string, unknown> | undefined }>;
+  // Monotonic counter for positional keys (first bare ${Island} = "0", etc.).
+  positional: number;
+  // When set (client re-render), emitIslandSlot reuses the live child subtree's
+  // outerHTML instead of re-running child SSR. This keeps morph from walking
+  // into the child and clobbering state-managed DOM.
+  liveHost: Element | undefined;
 }
 
-function isSlotAccessor(v: unknown): v is SlotAccessor<any> {
-  return typeof v === "function" && SLOT_ACCESSOR in (v as object);
+const renderCtxStack: IslandRenderCtx[] = [];
+
+function pushRenderCtx(liveHost?: Element): IslandRenderCtx {
+  const ctx: IslandRenderCtx = { slots: new Map(), positional: 0, liveHost };
+  renderCtxStack.push(ctx);
+  return ctx;
+}
+
+function popRenderCtx(): void {
+  renderCtxStack.pop();
+}
+
+function currentRenderCtx(): IslandRenderCtx | undefined {
+  return renderCtxStack[renderCtxStack.length - 1];
+}
+
+function isIsland(v: unknown): v is AnyIsland {
+  return typeof v === "function" && ISLAND in (v as object);
+}
+
+function isIslandCall(v: unknown): v is IslandCall {
+  // IslandCall objects are produced by in-interpolation calls (plain objects);
+  // KeyedIsland callables produced by .key() are functions that ALSO carry the
+  // ISLAND_CALL brand but need to be invoked (with no props) when interpolated
+  // bare. Both paths converge in interpolateValue.
+  return (
+    (typeof v === "object" || typeof v === "function") && v !== null && ISLAND_CALL in (v as object)
+  );
+}
+
+// Emit a slot marker for an island at this interpolation site.
+// Records the slot in the active render context so mount can find it.
+function emitIslandSlot(
+  island: AnyIsland,
+  props: Record<string, unknown> | undefined,
+  key: string | undefined,
+): string {
+  const ctx = currentRenderCtx();
+
+  // Assign id: user key wins; otherwise use positional index. Keys are
+  // prefixed to avoid collision with positional ids in the same render.
+  let id: string;
+  if (key !== undefined) {
+    id = `k:${key}`;
+    if (ctx && __DEV__ && ctx.slots.has(id)) {
+      warn(
+        `Duplicate slot key "${key}" — two children with the same key in a ` +
+          `single render will collide. Each .key() call must be unique.`,
+      );
+    }
+  } else {
+    id = ctx ? `p:${ctx.positional++}` : "p:0";
+  }
+
+  if (ctx) ctx.slots.set(id, { island, props });
+
+  const propsAttr = props ? ` ${PROPS_ATTR}='${escapeHtml(JSON.stringify(props))}'` : "";
+
+  // Client re-render path: emit an EMPTY stub. Post-morph, mountSlots rehomes
+  // the preserved live slot element (with all its mounted children, listeners,
+  // and state) into the stub's position. The morph therefore never walks into
+  // a slot subtree — it just places a stub, and we swap the stub for the real
+  // thing afterwards. New (not-yet-mounted) slots stay as stubs and get mounted
+  // by mountSlots.
+  if (ctx?.liveHost) {
+    return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}></div>`;
+  }
+
+  // SSR path: render the child's HTML inline. The child's renderToString
+  // pushes its own render context so grandchildren are scoped correctly.
+  const inner = island.toString(props);
+  return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}>${inner}</div>`;
 }
 
 // ---------------------------------------------
@@ -275,7 +366,14 @@ function interpolateValue(v: unknown): string {
   if (v == null) return "";
   if (Array.isArray(v)) return v.map(interpolateValue).join("");
   if (typeof v === "object" && RAW in (v as object)) return (v as RawHtml).value;
-  if (isSlotAccessor(v)) return v.toString();
+  if (isIslandCall(v)) {
+    // A KeyedIsland (e.g. `Item.key("a")`) is a callable branded IslandCall —
+    // calling it with no props yields the concrete IslandCall. A plain
+    // IslandCall (e.g. `Item({...})`) is already concrete.
+    const call = typeof v === "function" ? (v as () => IslandCall)() : v;
+    return emitIslandSlot(call.island, call.props, call.key);
+  }
+  if (isIsland(v)) return emitIslandSlot(v, undefined, undefined);
   if (isSignalAccessor(v)) return escapeHtml(v());
   if (typeof v === "function") return escapeHtml((v as () => unknown)());
   return escapeHtml(v);
@@ -569,30 +667,39 @@ export interface Island<
   TInput = Record<string, unknown>,
   _TStateMap extends Record<string, unknown> = Record<string, unknown>,
 > {
+  // Top-level call returns SSR HTML. Inside an html`` interpolation the call
+  // is intercepted by the render context and produces an IslandCall (a
+  // composition marker) instead — but from the caller's perspective the
+  // return type is the SSR string union; interpolation handles the rest.
   (props?: Partial<TInput>): string | Promise<string>;
   toString(props?: Partial<TInput>): string;
   mount(host: Element, props?: Partial<TInput>): () => void;
   hydratable(props: Partial<TInput>, options: HydratableOptions): Promise<string>;
+  // Create a keyed invocation for use inside html`` list rendering. The key
+  // stabilises slot identity across re-renders where positional order is not
+  // reliable (e.g. reorderable lists). Keys must be unique within a single
+  // parent render.
+  key(key: string): KeyedIsland<TInput>;
+  [ISLAND]: true;
 }
 
-type InferIslandInput<T> = T extends Island<infer TInput, any> ? TInput : Record<string, unknown>;
-type AnyIsland = Island<any, any>;
-type SlotMap = Record<string, AnyIsland>;
+// Returned by Island.key() — a callable that accepts props and produces an
+// IslandCall carrying the key through to interpolation.
+export interface KeyedIsland<TInput> {
+  (props?: Partial<TInput>): IslandCall;
+  [ISLAND_CALL]: true;
+}
 
-type SlotsProxy<TSlots extends SlotMap> = {
-  readonly [K in keyof TSlots]: SlotAccessor<Partial<InferIslandInput<TSlots[K]>>>;
-};
+type AnyIsland = Island<any, any>;
 
 type RenderContext<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown>,
-  TSlots extends SlotMap,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
   input: TInput;
-  slots: SlotsProxy<TSlots>;
 };
 
 type EffectContext<TInput, TStateMap extends Record<string, unknown>> = {
@@ -744,7 +851,6 @@ interface BuilderConfig<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown>,
-  _TSlots extends SlotMap,
 > {
   schema: StandardSchemaV1 | null;
   states: StateEntry<TInput>[];
@@ -752,7 +858,6 @@ interface BuilderConfig<
   ons: OnEntry<TInput, TStateMap, TDerivedMap>[];
   effects: EffectEntry<TInput, TStateMap>[];
   onMounts: OnMountEntry<TInput, TStateMap, TDerivedMap>[];
-  slots: Record<string, AnyIsland>;
   transition: TransitionOptions | null;
   binds: BindEntry<TStateMap>[];
   css: string | null;
@@ -772,17 +877,15 @@ class IlhaBuilder<
   TInput extends Record<string, unknown>,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown> = Record<string, never>,
-  TSlots extends SlotMap = Record<string, never>,
 > {
-  readonly _cfg: BuilderConfig<TInput, TStateMap, TDerivedMap, TSlots>;
+  readonly _cfg: BuilderConfig<TInput, TStateMap, TDerivedMap>;
 
-  constructor(cfg: BuilderConfig<TInput, TStateMap, TDerivedMap, TSlots>) {
+  constructor(cfg: BuilderConfig<TInput, TStateMap, TDerivedMap>) {
     this._cfg = cfg;
   }
 
   input<T extends Record<string, unknown>>(): IlhaBuilder<
     T,
-    Record<string, never>,
     Record<string, never>,
     Record<string, never>
   >;
@@ -790,7 +893,6 @@ class IlhaBuilder<
     schema: S,
   ): IlhaBuilder<
     StandardSchemaV1.InferOutput<S> & Record<string, unknown>,
-    Record<string, never>,
     Record<string, never>,
     Record<string, never>
   >;
@@ -802,7 +904,6 @@ class IlhaBuilder<
       ons: [],
       effects: [],
       onMounts: [],
-      slots: {},
       transition: null,
       binds: [],
       css: null,
@@ -812,37 +913,37 @@ class IlhaBuilder<
   state<V = undefined, K extends string = string>(
     key: K,
     init?: StateInit<TInput, V> | undefined,
-  ): IlhaBuilder<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TSlots> {
+  ): IlhaBuilder<TInput, MergeState<TStateMap, K, V>, TDerivedMap> {
     const cfg = this._cfg;
     return new IlhaBuilder({
       ...cfg,
       states: [...cfg.states, { key, init: init as StateInit<TInput, unknown> }],
-    } as unknown as BuilderConfig<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TSlots>);
+    } as unknown as BuilderConfig<TInput, MergeState<TStateMap, K, V>, TDerivedMap>);
   }
 
   derived<K extends string, V>(
     key: K,
     fn: DerivedFn<TInput, TStateMap, V>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap & Record<K, V>, TSlots> {
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap & Record<K, V>> {
     const cfg = this._cfg;
     return new IlhaBuilder({
       ...cfg,
       deriveds: [...cfg.deriveds, { key, fn: fn as DerivedFn<TInput, TStateMap, unknown> }],
-    } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap & Record<K, V>, TSlots>);
+    } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap & Record<K, V>>);
   }
 
   bind(
     selector: string,
     stateKey: keyof TStateMap & string,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>;
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap>;
   bind<T>(
     selector: string,
     externalSignal: ExternalSignal<T>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>;
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap>;
   bind(
     selector: string,
     target: (keyof TStateMap & string) | ExternalSignal,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
     return new IlhaBuilder({
       ...this._cfg,
       binds: [...this._cfg.binds, { selector, target }],
@@ -858,15 +959,15 @@ class IlhaBuilder<
           ? HandlerContextFor<TInput, TStateMap, E, TDerivedMap>
           : HandlerContext<TInput, TStateMap, TDerivedMap>,
     ) => void | Promise<void>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>;
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap>;
   on(
     selectorOrCombined: string,
     handler: (ctx: HandlerContext<TInput, TStateMap, TDerivedMap>) => void | Promise<void>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots>;
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap>;
   on(
     selectorOrCombined: string,
     handler: (ctx: HandlerContext<TInput, TStateMap, TDerivedMap>) => void | Promise<void>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
     const parsed = parseOnArgs(selectorOrCombined);
     return new IlhaBuilder({
       ...this._cfg,
@@ -886,34 +987,24 @@ class IlhaBuilder<
 
   effect(
     fn: (ctx: EffectContext<TInput, TStateMap>) => (() => void) | void,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
     return new IlhaBuilder({ ...this._cfg, effects: [...this._cfg.effects, { fn }] });
   }
 
   onMount(
     fn: (ctx: OnMountContext<TInput, TStateMap, TDerivedMap>) => (() => void) | void,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
     return new IlhaBuilder({ ...this._cfg, onMounts: [...this._cfg.onMounts, { fn }] });
   }
 
-  slot<K extends string, I extends AnyIsland>(
-    name: K,
-    island: I,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots & Record<K, I>> {
-    return new IlhaBuilder({
-      ...this._cfg,
-      slots: { ...this._cfg.slots, [name]: island },
-    } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap, TSlots & Record<K, I>>);
-  }
-
-  transition(opts: TransitionOptions): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
+  transition(opts: TransitionOptions): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
     return new IlhaBuilder({ ...this._cfg, transition: opts });
   }
 
   css(
     strings: TemplateStringsArray | string,
     ...values: (string | number)[]
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TSlots> {
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
     // Accept both tagged-template form and plain-string form. The tagged form
     // is the intended authoring style; plain-string keeps things flexible for
     // users who want to compose CSS externally.
@@ -941,7 +1032,7 @@ class IlhaBuilder<
   }
 
   render(
-    fn: (ctx: RenderContext<TInput, TStateMap, TDerivedMap, TSlots>) => string | RawHtml,
+    fn: (ctx: RenderContext<TInput, TStateMap, TDerivedMap>) => string | RawHtml,
   ): Island<TInput, TStateMap> {
     const {
       schema,
@@ -950,7 +1041,6 @@ class IlhaBuilder<
       ons,
       effects,
       onMounts,
-      slots: slotDefs,
       transition,
       binds,
       css: cssSource,
@@ -964,28 +1054,21 @@ class IlhaBuilder<
       return validateSchema(schema, value) as TInput;
     }
 
-    function makeSlotsProxy(ssr: boolean, host?: Element): SlotsProxy<TSlots> {
-      return new Proxy(
-        {},
-        {
-          get(_, prop: string) {
-            const name = String(prop);
-            if (!slotDefs[name]) return makeSlotAccessor(() => "");
-            if (ssr) {
-              return makeSlotAccessor((props?: Record<string, unknown>) => {
-                const json = props ? ` ${PROPS_ATTR}='${escapeHtml(JSON.stringify(props))}'` : "";
-                return `<div ${SLOT_ATTR}="${escapeHtml(name)}"${json}>${slotDefs[name]!.toString(props)}</div>`;
-              });
-            }
-            return makeSlotAccessor((props?: Record<string, unknown>) => {
-              const liveSlot = host?.querySelector(`[${SLOT_ATTR}="${escapeHtml(name)}"]`);
-              if (liveSlot) return liveSlot.outerHTML;
-              const json = props ? ` ${PROPS_ATTR}='${escapeHtml(JSON.stringify(props))}'` : "";
-              return `<div ${SLOT_ATTR}="${escapeHtml(name)}"${json}></div>`;
-            });
-          },
-        },
-      ) as SlotsProxy<TSlots>;
+    // Run fn inside a fresh render context so any interpolated ${Island}
+    // records itself into ctx.slots. Returns the rendered HTML plus the
+    // collected slot map. When liveHost is supplied (client re-render path),
+    // already-mounted child subtrees are reused as-is instead of re-SSR'd.
+    function renderWithCtx(
+      fn: () => string | RawHtml,
+      liveHost?: Element,
+    ): { html: string; slots: IslandRenderCtx["slots"] } {
+      const ctx = pushRenderCtx(liveHost);
+      try {
+        const html = unwrapHtml(fn());
+        return { html, slots: ctx.slots };
+      } finally {
+        popRenderCtx();
+      }
     }
 
     function buildPlainState(input: TInput): IslandState<TStateMap> {
@@ -1028,7 +1111,6 @@ class IlhaBuilder<
     function renderToString(props?: Partial<TInput>, sync = false): string | Promise<string> {
       const input = resolveInput(props);
       const state = buildPlainState(input);
-      const slots = makeSlotsProxy(true);
 
       const results = deriveds.map((entry) => {
         try {
@@ -1056,10 +1138,10 @@ class IlhaBuilder<
             derived[r.key] = { loading: false, value: r.result as unknown, error: undefined };
           }
         }
-        return (
-          stylePrefix +
-          unwrapHtml(fn({ state, derived: derived as IslandDerived<TDerivedMap>, input, slots }))
+        const { html } = renderWithCtx(() =>
+          fn({ state, derived: derived as IslandDerived<TDerivedMap>, input }),
         );
+        return stylePrefix + html;
       }
 
       return Promise.all(
@@ -1087,10 +1169,10 @@ class IlhaBuilder<
       ).then((resolved) => {
         const derived: Record<string, DerivedValue<unknown>> = {};
         for (const r of resolved) derived[r.key] = r.envelope;
-        return (
-          stylePrefix +
-          unwrapHtml(fn({ state, derived: derived as IslandDerived<TDerivedMap>, input, slots }))
+        const { html } = renderWithCtx(() =>
+          fn({ state, derived: derived as IslandDerived<TDerivedMap>, input }),
         );
+        return stylePrefix + html;
       });
     }
 
@@ -1169,25 +1251,50 @@ class IlhaBuilder<
       >(deriveds as DerivedEntry<TInput, TStateMap>[], state, input, derivedSnapshot);
       cleanups.push(stopDerived);
 
-      const slotCleanups = new Map<string, () => void>();
-      const slotEls = new Map<string, Element>();
+      // Tracks slots currently mounted into the host: id -> { element, unmount }.
+      // mountSlots reconciles this against the fresh slot map from each render.
+      // Preservation of identity across re-renders happens in the render effect
+      // (detach-before-morph, rehome-after-morph). This function's job is
+      // purely: unmount removed slots, mount newly-added ones.
+      const mountedSlots = new Map<string, { el: Element; unmount: () => void }>();
 
-      function mountSlots() {
-        for (const [name, childIsland] of Object.entries(slotDefs)) {
-          const slotEl = host.querySelector(`[${SLOT_ATTR}="${name}"]`);
+      function findSlot(id: string): Element | null {
+        // Use CSS.escape when available (DOM environments always have it); fall
+        // back to a simple attribute-safe escape for edge environments.
+        const escaped =
+          typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
+        return host.querySelector(`[${SLOT_ATTR}="${escaped}"]`);
+      }
+
+      function mountSlots(slotMap: IslandRenderCtx["slots"]) {
+        // Unmount slots that are no longer present (conditionally removed).
+        for (const [id, entry] of mountedSlots) {
+          if (!slotMap.has(id)) {
+            entry.unmount();
+            mountedSlots.delete(id);
+          }
+        }
+
+        // Mount new slot ids that aren't yet mounted.
+        for (const [id, { island: childIsland, props }] of slotMap) {
+          if (mountedSlots.has(id)) continue;
+
+          const slotEl = findSlot(id);
           if (!slotEl) continue;
-          if (slotEls.get(name) === slotEl) continue;
 
-          slotEls.set(name, slotEl);
-          slotCleanups.get(name)?.();
-
-          let slotProps: Record<string, unknown> | undefined;
-          const rawProps = slotEl.getAttribute(PROPS_ATTR) ?? slotEl.getAttribute("data-props");
-          if (rawProps) {
-            try {
-              slotProps = JSON.parse(rawProps) as Record<string, unknown>;
-            } catch {
-              warn(`Failed to parse props on [${SLOT_ATTR}="${name}"] — invalid JSON ignored.`);
+          // Props may have been encoded on the slot element during SSR/hydration
+          // (data-ilha-props). Fall back to that if not supplied inline via the
+          // slot map. Data-props is preserved as a secondary source for
+          // hydration scenarios where the map isn't populated.
+          let slotProps = props;
+          if (slotProps === undefined) {
+            const rawProps = slotEl.getAttribute(PROPS_ATTR) ?? slotEl.getAttribute("data-props");
+            if (rawProps) {
+              try {
+                slotProps = JSON.parse(rawProps) as Record<string, unknown>;
+              } catch {
+                warn(`Failed to parse props on [${SLOT_ATTR}="${id}"] — invalid JSON ignored.`);
+              }
             }
           }
 
@@ -1198,11 +1305,13 @@ class IlhaBuilder<
           // parent to child-internal state and preventing the child's own
           // render effect from receiving updates.
           const prevSub = setActiveSub(undefined);
+          let unmount: () => void;
           try {
-            slotCleanups.set(name, childIsland.mount(slotEl, slotProps));
+            unmount = childIsland.mount(slotEl, slotProps);
           } finally {
             setActiveSub(prevSub);
           }
+          mountedSlots.set(id, { el: slotEl, unmount });
         }
       }
 
@@ -1273,22 +1382,26 @@ class IlhaBuilder<
         listeners.length = 0;
       }
 
-      const slots = makeSlotsProxy(false, host);
-
-      // Skip initial render if hydrating and content already exists from SSR.
-      // The effect will handle future updates; we just need to attach listeners
-      // to the existing SSR content.
+      // Initial render. If hydrating over existing SSR output, we still need
+      // to walk the render function once to collect the slot map (so mountSlots
+      // knows which islands to mount into the existing [data-ilha-slot]
+      // elements). In that case we pass the host as liveHost so emitIslandSlot
+      // reuses the existing subtrees instead of re-SSR-ing children.
       const hasExistingContent = hydrated && host.childNodes.length > 0;
+      const initial = renderWithCtx(
+        () => fn({ state, derived, input }),
+        hasExistingContent ? host : undefined,
+      );
       if (!hasExistingContent) {
-        host.innerHTML = stylePrefix + unwrapHtml(fn({ state, derived, input, slots }));
+        host.innerHTML = stylePrefix + initial.html;
       }
       attachListeners();
 
       let stopBindings = applyBindings(host, binds as BindEntry<TStateMap>[], state);
       cleanups.push(() => stopBindings());
 
-      mountSlots();
-      cleanups.push(() => slotCleanups.forEach((unmount) => unmount()));
+      mountSlots(initial.slots);
+      cleanups.push(() => mountedSlots.forEach((entry) => entry.unmount()));
 
       if (!shouldSkipOnMount) {
         for (const entry of onMounts) {
@@ -1305,7 +1418,30 @@ class IlhaBuilder<
 
       let initialized = false;
       const stopRender = effect(() => {
-        const html = stylePrefix + unwrapHtml(fn({ state, derived, input, slots }));
+        // Re-render produces empty stubs for every child island site (see
+        // emitIslandSlot). The full strategy for preserving mounted children
+        // across parent re-renders:
+        //
+        //   1. Render a fresh HTML template with empty slot stubs.
+        //   2. In the LIVE host, replace each mounted slot element with an
+        //      empty stub (same [data-ilha-slot] attr). The live element is
+        //      detached and held in a local map.
+        //   3. Morph the stubbed live DOM against the stubbed template. Because
+        //      both sides now have structurally identical empty stubs at slot
+        //      positions, morph can reorder/match them by position without
+        //      walking into the child subtree (which was the source of state
+        //      corruption when children reorder).
+        //   4. After morph, find each stub by id and replace it with the
+        //      preserved live element. Children keep their DOM, listeners,
+        //      state, event bindings — untouched.
+        //
+        // Brand-new slot ids (added in this render) stay as stubs after morph;
+        // mountSlots mounts their islands onto them.
+        const { html: rendered, slots: newSlotMap } = renderWithCtx(
+          () => fn({ state, derived, input }),
+          host,
+        );
+        const html = stylePrefix + rendered;
         if (!initialized) {
           initialized = true;
           return;
@@ -1314,13 +1450,32 @@ class IlhaBuilder<
         detachListeners();
         stopBindings();
 
+        // Detach preserved slot elements from the live DOM, replacing each
+        // with an empty stub that matches what the template emitted.
+        const preserved = new Map<string, Element>();
+        for (const [id, entry] of mountedSlots) {
+          if (!newSlotMap.has(id)) continue;
+          if (!entry.el.isConnected) continue;
+          const stub = document.createElement("div");
+          stub.setAttribute(SLOT_ATTR, id);
+          entry.el.replaceWith(stub);
+          preserved.set(id, entry.el);
+        }
+
         const tpl = document.createElement("template");
         tpl.innerHTML = `<div>${html}</div>`;
         morphInner(host, tpl.content.firstElementChild as Element);
 
+        // Rehome preserved slots: swap post-morph stubs back to live elements.
+        for (const [id, liveEl] of preserved) {
+          const stub = findSlot(id);
+          if (!stub) continue;
+          stub.replaceWith(liveEl);
+        }
+
         attachListeners();
         stopBindings = applyBindings(host, binds as BindEntry<TStateMap>[], state);
-        mountSlots();
+        mountSlots(newSlotMap);
       });
       cleanups.push(stopRender);
       cleanups.push(detachListeners);
@@ -1356,14 +1511,45 @@ class IlhaBuilder<
       };
     }
 
-    const island = function (props?: Partial<TInput>): string | Promise<string> {
+    // Island is dual-mode when called:
+    //   - Top-level (no active render ctx): returns SSR HTML (string | Promise)
+    //     — the backward-compatible public SSR API (`Counter({ count: 7 })` etc).
+    //   - Inside html`` interpolation (active render ctx): returns an
+    //     IslandCall carrying props to be emitted as a child slot marker.
+    // This lets `${Counter({ count: 7 })}` do the intuitive thing (compose)
+    // while preserving `const out = Counter({ count: 7 })` as an SSR call.
+    const island = function (props?: Partial<TInput>): string | Promise<string> | IslandCall {
+      if (currentRenderCtx()) {
+        return {
+          [ISLAND_CALL]: true,
+          island: island as AnyIsland,
+          props: props as Record<string, unknown> | undefined,
+          key: undefined,
+        };
+      }
       return renderToString(props);
-    } as Island<TInput, TStateMap>;
+    } as unknown as Island<TInput, TStateMap>;
 
     island.toString = (props?: Partial<TInput>) => renderToString(props, true) as string;
 
     island.mount = (host: Element, props?: Partial<TInput>): (() => void) =>
       mountIsland(host, props);
+
+    // Create a keyed invocation for stable slot identity across re-renders
+    // (useful in reorderable lists). Returns a callable that, when given
+    // optional props, produces an IslandCall that interpolateValue recognises.
+    island.key = (key: string): KeyedIsland<TInput> => {
+      const keyed = ((props?: Partial<TInput>): IslandCall => ({
+        [ISLAND_CALL]: true,
+        island: island as AnyIsland,
+        props: props as Record<string, unknown> | undefined,
+        key,
+      })) as unknown as KeyedIsland<TInput>;
+      (keyed as unknown as Record<symbol, boolean>)[ISLAND_CALL] = true;
+      return keyed;
+    };
+
+    (island as unknown as Record<symbol, boolean>)[ISLAND] = true;
 
     island.hydratable = async (
       props: Partial<TInput>,
@@ -1517,7 +1703,6 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
 const EMPTY_CFG: BuilderConfig<
   Record<string, unknown>,
   Record<string, never>,
-  Record<string, never>,
   Record<string, never>
 > = {
   schema: null,
@@ -1526,7 +1711,6 @@ const EMPTY_CFG: BuilderConfig<
   ons: [],
   effects: [],
   onMounts: [],
-  slots: {},
   transition: null,
   binds: [],
   css: null,

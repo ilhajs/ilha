@@ -7,6 +7,8 @@ description: Declare computed values that depend on state or input, with built-i
 
 Declares a computed value that depends on state or input. Derived values can be synchronous or async, and they re-run automatically when any reactive dependency changes.
 
+[Interactive Tutorial](/tutorial/counter/derived)
+
 ## Basic usage
 
 ```ts twoslash

@@ -181,7 +181,7 @@ const AiPrompt = ilha
           >
             <h2 class="text-3xl font-semibold text-sky-950 lg:text-4xl">Small enough to think with.</h2>
             <p class="text-sky-950 lg:text-lg">
-              At under 1,500 lines of code, the entire source fits in a single AI context window, so your
+              At under 1,800 lines of code, the entire source fits in a single AI context window, so your
               assistant can reason about the whole framework, not just the docs.
             </p>
             <form
@@ -284,7 +284,7 @@ const Hero = ilha.render(
     <section class="mt-20">
         <p class="text-xl lg:text-4xl leading-normal text-balance">
         Ilha is a tiny island architecture library that renders to <b class="text-sky-700 dark:text-sky-300">plain HTML on the server</b>
-        and hydrates on the client with zero flicker. The core is <b class="text-sky-700 dark:text-sky-300">under 1,500 lines of code</b> —
+        and hydrates on the client with zero flicker. The core is <b class="text-sky-700 dark:text-sky-300">under 1,800 lines of code</b> —
         small enough to paste into any AI prompt. And when you need more, the extras are included:
         routing, typed forms, and shared state management.
         </p>
@@ -338,7 +338,7 @@ export const frontmatter = {
   pageType: "custom",
   title: "Build Modern UI, Your Way",
   description:
-    "Ilha is a lightweight UI framework under 1,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
+    "Ilha is a lightweight UI framework under 800 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
 };
 
 const hero = await Hero.hydratable({}, { name: "Hero", snapshot: true });
@@ -358,7 +358,7 @@ export default () => {
       {
         name: "description",
         content:
-          "Ilha is a lightweight UI framework under 1,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
+          "Ilha is a lightweight UI framework under 1,800 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
       },
     ],
   });

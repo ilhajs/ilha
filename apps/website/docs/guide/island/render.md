@@ -27,11 +27,10 @@ The render function receives a `RenderContext` with everything declared in the b
   state: IslandState; // reactive state signals
   derived: IslandDerived; // derived value envelopes
   input: TInput; // resolved input props
-  slots: SlotsProxy; // named slot accessors
 }
 ```
 
-All four are always present, even if not declared. An island with no state gets an empty `state` object, and so on.
+All three are always present, even if not declared. An island with no state gets an empty `state` object, and so on.
 
 ## Return type
 

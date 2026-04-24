@@ -80,8 +80,7 @@ export const script = dedent`
         const req = await fetch(\`https://pokeapi.co/api/v2/pokemon/\${pokemon()}\`);
         return await req.json();
       })
-      .slot("stats", pokemonStats)
-      .render(({ derived, slots }) => {
+      .render(({ derived }) => {
         if (derived.pokemonData.loading) return html\`<p>Loading Pokémon...</p>\`;
         if (derived.pokemonData.error) return html\`
           <p>\${derived.pokemonData.error.message}</p>
@@ -100,17 +99,14 @@ export const script = dedent`
           <img src="\${sprites.front_default}" />
           <h2>\${name}</h2>
           \${typesBadges}
-          \${slots.stats({ stats: mappedStats })}
+          \${PokemonStats({ stats: mappedStats })}
         \`;
       });
 
-    const Pokedex = ilha
-      .slot("picker", pokemonPicker)
-      .slot("card", pokemonCard)
-      .render(({ slots }) => html\`
-        \${slots.picker()}
-        \${slots.card()}
-      \`);
+    const Pokedex = ilha.render(() => html\`
+      \${PokemonPicker}
+      \${PokemonCard}
+    \`);
 
     mount({ Pokedex });
 
@@ -120,7 +116,7 @@ export const template = `<div data-ilha="Pokedex"></div>`;
 # Context
 
 Use `context()` to create a reactive value that can be shared across multiple
-components without passing it through inputs or slots. Any component that reads
+components without passing it through inputs. Any component that reads
 a context value will react to its changes automatically.
 
 ```ts
@@ -134,9 +130,9 @@ component tree.
 
 Context is the right tool when the same piece of state needs to be consumed by
 components that don't share a direct parent-child relationship, or when threading
-it through `.input()` and `.slot()` would create unnecessary coupling. In the
-example above, `pokemonPicker` writes to the context via `.bind()`, and
-`pokedex` reads it in `.derived()` — the two components stay fully decoupled.
+it through `.input()` would create unnecessary coupling. In the
+example above, `PokemonPicker` writes to the context via `.bind()`, and
+`PokemonCard` reads it in `.derived()` — the two components stay fully decoupled.
 
 Because context values are reactive, any `.derived()` or `.effect()` that reads
 a context value will re-run when it changes — just like state. Here, changing the

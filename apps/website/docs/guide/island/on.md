@@ -7,6 +7,8 @@ description: Attach DOM event listeners to island hosts or descendant elements w
 
 Attaches a DOM event listener to the island host or any descendant element. Listeners are set up at mount time and cleaned up automatically on unmount.
 
+[Interactive Tutorial](/tutorial/counter/on)
+
 ## Basic usage
 
 ```ts twoslash

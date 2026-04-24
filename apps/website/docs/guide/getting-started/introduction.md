@@ -13,7 +13,7 @@ It lets you render on the server and mount in the browser with fine-grained sign
 
 An **island** is a self-contained component that knows how to render itself to HTML and how to activate itself in the browser. That means the same component can be used for server-side rendering, client-side mounting, or both together in a hydration flow.
 
-ilha is built around a fluent builder chain. You declare input, state, derived values, event handlers, effects, slots, transitions, and styles, then finish with [`.render()`](/guide/island/render) to produce a reusable component.
+ilha is built around a fluent builder chain. You declare input, state, derived values, event handlers, effects, transitions, and styles, then finish with [`.render()`](/guide/island/render) to produce a reusable component.
 
 ## Why it exists
 
@@ -72,7 +72,6 @@ The fluent API lets you layer behavior step by step:
 - [`.derived()`](/guide/island/derived) for computed values.
 - [`.on()`](/guide/island/on) for events.
 - [`.effect()`](/guide/island/effect) and [`.onMount()`](/guide/island/onmount) for side effects.
-- [`.slot()`](/guide/island/slot) for nesting islands.
 - [`.css()`](/guide/island/css) for scoped styles.
 - [`.render()`](/guide/island/render) to finalize the component.
 
