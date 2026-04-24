@@ -534,15 +534,22 @@ function buildDerivedSignals<
     let skipFirst = derivedSnapshot != null && entry.key in derivedSnapshot;
 
     const stopEffect = effect(() => {
-      if (skipFirst) {
-        skipFirst = false;
-        return;
-      }
-
       ac.abort();
       ac = new AbortController();
       const currentAc = ac;
       const result = entry.fn({ state, input, signal: currentAc.signal });
+
+      if (skipFirst) {
+        skipFirst = false;
+        if (result instanceof Promise) {
+          result.catch(() => {
+            // Suppress unhandled rejection for the skipped initial run.
+            // The snapshot already provides the correct value; we only ran
+            // entry.fn to establish reactive subscriptions.
+          });
+        }
+        return;
+      }
 
       if (!(result instanceof Promise)) {
         const prevSub = setActiveSub(undefined);

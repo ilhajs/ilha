@@ -76,9 +76,9 @@ const Libraries = ilha
         <div class="flex-1 p-2 overflow-x-auto bg-[#FBFBFB]" data-action="copy">
             <div class="tabs w-full">
             <nav role="tablist" aria-orientation="horizontal" class="w-full rounded-full">
-                <button type="button" role="tab" aria-selected="true" tabindex="0" data-library="router" class="rounded-full">@ilha/router</button>
-                <button type="button" role="tab" aria-selected="false" tabindex="0" data-library="store" class="rounded-full">@ilha/store</button>
-                <button type="button" role="tab" aria-selected="false" tabindex="0" data-library="form" class="rounded-full">@ilha/form</button>
+                <button type="button" role="tab" aria-selected="${state.library() === "router"}" tabindex="0" data-library="router" class="rounded-full">@ilha/router</button>
+                <button type="button" role="tab" aria-selected="${state.library() === "store"}" tabindex="0" data-library="store" class="rounded-full">@ilha/store</button>
+                <button type="button" role="tab" aria-selected="${state.library() === "form"}" tabindex="0" data-library="form" class="rounded-full">@ilha/form</button>
               </nav>
             </div>
           <div class="text-sm lg:text-[1rem]">

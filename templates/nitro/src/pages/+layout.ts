@@ -1,5 +1,4 @@
 import { isActive, defineLayout } from "@ilha/router";
-import type { LayoutHandler } from "@ilha/router/vite";
 import ilha, { html } from "ilha";
 
 export default defineLayout((children) =>
