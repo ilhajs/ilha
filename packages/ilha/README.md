@@ -289,20 +289,48 @@ ilha.css(styles).render(() => `<div class="card">…</div>`);
 
 ---
 
-### `.slot(name, island)`
+### Composing Islands
 
-Embeds a child island as a named slot. The child island is mounted and managed independently. During SSR the slot renders the child's HTML inline; during client mount the child island is activated for interactivity.
+Child islands are interpolated directly inside a parent's html&grave;&grave; template. During SSR the child's HTML is rendered inline; during client mount the child is activated independently inside its own host element.
 
 ```ts
 const Icon = ilha.render(() => `<svg>…</svg>`);
 
-const Card = ilha.slot("icon", Icon).render(
-  ({ slots }) => html`
+const Card = ilha.render(
+  () => html`
     <div class="card">
-      ${slots.icon()}
+      ${Icon}
       <p>Card content</p>
     </div>
   `,
+);
+```
+
+**Passing props** — call the child island with a props object:
+
+```ts
+const Badge = ilha
+  .input(z.object({ label: z.string(), color: z.string().default("teal") }))
+  .render(({ input }) => html`<span style="background:${input.color}">${input.label}</span>`);
+
+const Card = ilha.render(
+  () => html`
+    <div>
+      ${Badge({ label: "New", color: "coral" })}
+      <p>Content</p>
+    </div>
+  `,
+);
+```
+
+**Keyed children** — use `.key()` when a child may reorder or appear conditionally. Keys must be unique within a parent render:
+
+```ts
+const List = ilha.render(
+  () =>
+    html`<ul>
+      ${items.map((item) => html`<li>${Item.key(item.id)({ name: item.name })}</li>`)}
+    </ul>`,
 );
 ```
 
@@ -331,7 +359,7 @@ The `leave` transition is awaited before cleanup runs.
 
 ### `.render(fn)`
 
-Finalises the builder and returns an `Island`. The render function receives `{ state, derived, input, slots }` and must return a string or `RawHtml`.
+Finalises the builder and returns an `Island`. The render function receives `{ state, derived, input }` and must return a string or `RawHtml`.
 
 ```ts
 const MyIsland = ilha.state("x", 1).render(({ state, input }) => html`<p>${state.x}</p>`);
@@ -471,6 +499,7 @@ Interpolation rules:
 | `raw(str)`           | Inserted as-is (no escaping)                |
 | `html\`…\``          | Inserted as-is (already safe)               |
 | Signal accessor      | Called and escaped                          |
+| Island / Island call | Emitted as `data-ilha-slot` host element    |
 | Array                | Each item processed recursively (no commas) |
 
 **List rendering pattern:**
@@ -581,7 +610,7 @@ import type {
   IslandState,
   IslandDerived,
   DerivedValue,
-  SlotAccessor,
+  KeyedIsland,
   HydratableOptions,
   OnMountContext,
   HandlerContext,

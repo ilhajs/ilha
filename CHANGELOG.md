@@ -2,6 +2,15 @@
 
 ## `ilha`
 
+### 0.3.0 - 2026-04-24
+
+- **Breaking:** Removes `.slot()` builder method and `slots` render context. Child islands are now interpolated directly inside `html\`\``` templates.
+- **Breaking:** Removes `SlotAccessor`, `SlotsProxy`, `SlotMap`, and `InferIslandInput` types.
+- Adds `ISLAND` and `ISLAND_CALL` symbols for branding islands and composition markers.
+- Adds `Island.key()` and `KeyedIsland` for explicit child keys in lists and conditional rendering.
+- Adds render-time child preservation across parent re-renders via detach-before-morph / rehome-after-morph.
+- Adds backward-compatible island call behavior: inside `html\`\``` it returns a slot marker; outside it returns an SSR string.
+
 ### 0.2.1 - 2026-04-23
 
 - Removes `type()` helper.
@@ -62,6 +71,10 @@ Initial release of **@ilha/form** — a tiny, typed form binding library for ilh
 
 ## `@ilha/router`
 
+### 0.2.2 - 2026-04-24
+
+- Updates Ilha dependency to 0.3.0
+
 ### 0.2.1 - 2026-04-23
 
 - Updates Ilha dependency to 0.2.1
@@ -98,6 +111,10 @@ Initial release of **@ilha/router** — a lightweight, isomorphic router for ilh
 - Adds exported types: `RouteRecord`, `RouteSnapshot`, `AppError`, `LayoutHandler`, `ErrorHandler`, `NavigateOptions`, `MountOptions`, `HydrateOptions`, `HydratableRenderOptions`, `RouterBuilder`
 
 ## `@ilha/store`
+
+### 0.1.3 - 2026-04-24
+
+- Updates Ilha dependency to 0.3.0
 
 ### 0.1.2 - 2026-04-23
 

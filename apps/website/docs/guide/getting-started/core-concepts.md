@@ -53,7 +53,6 @@ A typical island might include:
 - [`.on()`](/guide/island/on) for event handlers.
 - [`.bind()`](/guide/island/bind) for form binding.
 - [`.effect()`](/guide/island/effect) and [`.onMount()`](/guide/island/onmount) for side effects.
-- [`.slot()`](/guide/island/slot) for child islands.
 - [`.css()`](/guide/island/css) for scoped styles.
 - [`.render()`](/guide/island/render) to produce the final island.
 
@@ -102,12 +101,6 @@ This separation helps keep component logic easier to scan:
 ilha supports component-level styles with [`.css()`](/guide/island/css). Styles are scoped to the island so they stay local and do not leak into nested child islands.
 
 This lets you keep structure, behavior, and styling close together when that is useful, without giving up isolation.
-
-## Slots
-
-An island can include other islands through named slots. This gives you composition without losing encapsulation.
-
-A parent can render a child island inline during SSR, and that child can still mount independently on the client. In practice, this means you can build larger interfaces out of smaller interactive units.
 
 ## SSR and hydration
 

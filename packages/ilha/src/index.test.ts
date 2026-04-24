@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 
 import { z } from "zod";
 
-import type { SlotAccessor } from "./index";
 import ilha, { html, raw, css, mount, from, context } from "./index";
 
 // ---------------------------------------------
@@ -1637,19 +1636,19 @@ describe("ilha.mount()", () => {
 // Slots
 // ---------------------------------------------
 
-describe("slots", () => {
+describe("child islands (render-time composition)", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
   });
 
-  it("SSR renders Child Island inline via Children proxy", () => {
+  it("SSR renders Child Island inline via ${Child} interpolation", () => {
     const Badge = ilha
       .state("label", "hello")
       .render(({ state }) => `<span>${state.label()}</span>`);
 
-    const Card = ilha.slot("Badge", Badge).render(({ slots }) => `<div>${slots.Badge}</div>`);
+    const Card = ilha.render(() => html`<div>${Badge}</div>`);
 
-    expect(Card()).toBe(`<div><div data-ilha-slot="Badge"><span>hello</span></div></div>`);
+    expect(Card()).toBe(`<div><div data-ilha-slot="p:0"><span>hello</span></div></div>`);
   });
 
   it("SSR Child renders with its own schema defaults", () => {
@@ -1658,11 +1657,9 @@ describe("slots", () => {
       .state("count", ({ count }) => count)
       .render(({ state }) => `<p>${state.count()}</p>`);
 
-    const Parent = ilha
-      .slot("Counter", Counter)
-      .render(({ slots }) => `<section>${slots.Counter}</section>`);
+    const Parent = ilha.render(() => html`<section>${Counter}</section>`);
 
-    expect(Parent()).toBe(`<section><div data-ilha-slot="Counter"><p>99</p></div></section>`);
+    expect(Parent()).toBe(`<section><div data-ilha-slot="p:0"><p>99</p></div></section>`);
   });
 
   it("SSR slot renders with passed props", () => {
@@ -1671,24 +1668,22 @@ describe("slots", () => {
       .state("count", ({ count }) => count)
       .render(({ state }) => `<p>${state.count()}</p>`);
 
-    const Parent = ilha
-      .slot("Counter", Counter)
-      .render(({ slots }) => html`<div>${slots.Counter({ count: 5 })}</div>`);
+    const Parent = ilha.render(() => html`<div>${Counter({ count: 5 })}</div>`);
 
     expect(Parent()).toBe(
-      "<div><div data-ilha-slot=\"Counter\" data-ilha-props='{&quot;count&quot;:5}'><p>5</p></div></div>",
+      "<div><div data-ilha-slot=\"p:0\" data-ilha-props='{&quot;count&quot;:5}'><p>5</p></div></div>",
     );
   });
 
   it("client slot element is present in DOM after mount", () => {
     const Child = ilha.render(() => `<span>Child</span>`);
 
-    const Parent = ilha.slot("Child", Child).render(({ slots }) => `<div>${slots.Child}</div>`);
+    const Parent = ilha.render(() => html`<div>${Child}</div>`);
 
     const el = makeEl();
     const unmount = Parent.mount(el);
-    expect(el.querySelector("[data-ilha-slot='Child']")).not.toBeNull();
-    expect(el.querySelector("[data-ilha-slot='Child']")!.innerHTML).toBe("<span>Child</span>");
+    expect(el.querySelector("[data-ilha-slot='p:0']")).not.toBeNull();
+    expect(el.querySelector("[data-ilha-slot='p:0']")!.innerHTML).toBe("<span>Child</span>");
     unmount();
     cleanup(el);
   });
@@ -1699,11 +1694,9 @@ describe("slots", () => {
       .on("[data-inc]@click", ({ state }) => {
         state.count(state.count() + 1);
       })
-      .render(({ state }) => `<p>${state.count()}</p><button data-inc>+</button>`);
+      .render(({ state }) => html`<p>${state.count()}</p><button data-inc>+</button>`);
 
-    const Parent = ilha
-      .slot("Child", Child)
-      .render(({ slots }) => `<div class="Parent">${slots.Child}</div>`);
+    const Parent = ilha.render(() => html`<div class="Parent">${Child}</div>`);
 
     const el = makeEl();
     const unmount = Parent.mount(el);
@@ -1724,17 +1717,14 @@ describe("slots", () => {
       .on("[data-inc]@click", ({ state }) => {
         state.count(state.count() + 1);
       })
-      .render(({ state }) => `<p>${state.count()}</p><button data-inc>+</button>`);
+      .render(({ state }) => html`<p>${state.count()}</p><button data-inc>+</button>`);
 
     let ParentAccessor!: (v?: number) => number | void;
 
-    const Parent = ilha
-      .state("tick", 0)
-      .slot("Child", Child)
-      .render(({ state, slots }) => {
-        ParentAccessor = state.tick as typeof ParentAccessor;
-        return `<div><span>${state.tick()}</span>${slots.Child}</div>`;
-      });
+    const Parent = ilha.state("tick", 0).render(({ state }) => {
+      ParentAccessor = state.tick as typeof ParentAccessor;
+      return html`<div><span>${state.tick()}</span>${Child}</div>`;
+    });
 
     const el = makeEl();
     const unmount = Parent.mount(el);
@@ -1753,36 +1743,32 @@ describe("slots", () => {
     cleanup(el);
   });
 
-  it("client multiple slots are independently preserved on Parent re-render", () => {
+  it("client multiple children are independently preserved on Parent re-render", () => {
     const ChildA = ilha.state("val", "A").render(({ state }) => `<i>${state.val()}</i>`);
     const ChildB = ilha.state("val", "B").render(({ state }) => `<b>${state.val()}</b>`);
 
     let ParentAccessor!: (v?: number) => number | void;
 
-    const Parent = ilha
-      .state("tick", 0)
-      .slot("a", ChildA)
-      .slot("b", ChildB)
-      .render(({ state, slots }) => {
-        ParentAccessor = state.tick as typeof ParentAccessor;
-        return `<div>${state.tick()}${slots.a}${slots.b}</div>`;
-      });
+    const Parent = ilha.state("tick", 0).render(({ state }) => {
+      ParentAccessor = state.tick as typeof ParentAccessor;
+      return html`<div>${state.tick()}${ChildA}${ChildB}</div>`;
+    });
 
     const el = makeEl();
     const unmount = Parent.mount(el);
 
-    const slotA = el.querySelector("[data-ilha-slot='a']")!;
-    const slotB = el.querySelector("[data-ilha-slot='b']")!;
+    const slotA = el.querySelector("[data-ilha-slot='p:0']")!;
+    const slotB = el.querySelector("[data-ilha-slot='p:1']")!;
 
     ParentAccessor(1);
-    expect(el.querySelector("[data-ilha-slot='a']")).toBe(slotA);
-    expect(el.querySelector("[data-ilha-slot='b']")).toBe(slotB);
+    expect(el.querySelector("[data-ilha-slot='p:0']")).toBe(slotA);
+    expect(el.querySelector("[data-ilha-slot='p:1']")).toBe(slotB);
 
     unmount();
     cleanup(el);
   });
 
-  it("client Parent unmount cascades to Child slots", () => {
+  it("client Parent unmount cascades to Child islands", () => {
     const ChildCalls: string[] = [];
 
     const Child = ilha
@@ -1793,7 +1779,7 @@ describe("slots", () => {
       })
       .render(({ state }) => `<span>${state.x()}</span>`);
 
-    const Parent = ilha.slot("Child", Child).render(({ slots }) => `<div>${slots.Child}</div>`);
+    const Parent = ilha.render(() => html`<div>${Child}</div>`);
 
     const el = makeEl();
     const unmount = Parent.mount(el);
@@ -1803,27 +1789,13 @@ describe("slots", () => {
     cleanup(el);
   });
 
-  it("client unknown slot name in slots proxy renders empty string", () => {
-    const Parent = ilha.render(
-      ({ slots }) => html`<div>${(slots as Record<string, SlotAccessor>)["nonexistent"]}</div>`,
-    );
-
-    const el = makeEl();
-    const unmount = Parent.mount(el);
-    expect(el.innerHTML).toBe("<div></div>");
-    unmount();
-    cleanup(el);
-  });
-
-  it("client slot receives props via slots.x(props)", () => {
+  it("client slot receives props via Child(props) call", () => {
     const Counter = ilha
       .input(z.object({ count: z.number().default(0) }))
       .state("count", ({ count }) => count)
       .render(({ state }) => `<p>${state.count()}</p>`);
 
-    const Parent = ilha
-      .slot("Counter", Counter)
-      .render(({ slots }) => html`<div>${slots.Counter({ count: 7 })}</div>`);
+    const Parent = ilha.render(() => html`<div>${Counter({ count: 7 })}</div>`);
 
     const el = makeEl();
     const unmount = Parent.mount(el);
@@ -1832,19 +1804,184 @@ describe("slots", () => {
     cleanup(el);
   });
 
-  it("client slot receives props via data-props attribute", () => {
+  // .key() — explicit keys for stable identity across re-renders, required when
+  // positional order is not reliable (reorderable lists, conditional children).
+  describe(".key()", () => {
+    it("SSR emits slot id as k:{key}", () => {
+      const Badge = ilha
+        .state("label", "hi")
+        .render(({ state }) => `<span>${state.label()}</span>`);
+
+      const Parent = ilha.render(() => html`<div>${Badge.key("featured")}</div>`);
+
+      expect(Parent()).toBe(`<div><div data-ilha-slot="k:featured"><span>hi</span></div></div>`);
+    });
+
+    it("SSR .key() with props", () => {
+      const Counter = ilha
+        .input(z.object({ count: z.number().default(0) }))
+        .state("count", ({ count }) => count)
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const Parent = ilha.render(() => html`<div>${Counter.key("c1")({ count: 42 })}</div>`);
+
+      expect(Parent()).toBe(
+        "<div><div data-ilha-slot=\"k:c1\" data-ilha-props='{&quot;count&quot;:42}'><p>42</p></div></div>",
+      );
+    });
+
+    it("keyed list items preserve identity across reorder", () => {
+      const Item = ilha
+        .state("n", 0)
+        .on("[data-bump]@click", ({ state }) => state.n(state.n() + 1))
+        .render(({ state }) => html`<li>${state.n()}<button data-bump>+</button></li>`);
+
+      let setOrder!: (v: string[]) => void;
+
+      const List = ilha.state<string[]>("order", ["a", "b", "c"]).render(({ state }) => {
+        setOrder = state.order as unknown as typeof setOrder;
+        return html`<ul>${state.order().map((k) => Item.key(k))}</ul>`;
+      });
+
+      const el = makeEl();
+      const unmount = List.mount(el);
+
+      const slotA = el.querySelector("[data-ilha-slot='k:a']")!;
+      // bump the first Item's count — we'll check this state survives reorder.
+      slotA.querySelector<HTMLButtonElement>("[data-bump]")!.click();
+      expect(slotA.querySelector("li")!.textContent).toBe("1+");
+
+      setOrder(["c", "a", "b"]);
+      // Same DOM node for "a" after reorder — identity preserved by key.
+      expect(el.querySelector("[data-ilha-slot='k:a']")).toBe(slotA);
+      // Child state survives.
+      expect(slotA.querySelector("li")!.textContent).toBe("1+");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("removing a keyed child unmounts it and cleans up", () => {
+      const childCleanups: string[] = [];
+      const Child = ilha
+        .input<{ id: string }>()
+        .state("id", ({ id }) => id ?? "")
+        .effect(({ state }) => {
+          return () => childCleanups.push(`cleanup:${state.id()}`);
+        })
+        .render(({ state }) => `<span>${state.id()}</span>`);
+
+      let setKeys!: (v: string[]) => void;
+
+      const Parent = ilha.state<string[]>("keys", ["a", "b"]).render(({ state }) => {
+        setKeys = state.keys as unknown as typeof setKeys;
+        return html`<div>${state.keys().map((k) => Child.key(k)({ id: k }))}</div>`;
+      });
+
+      const el = makeEl();
+      const unmount = Parent.mount(el);
+
+      expect(el.querySelector("[data-ilha-slot='k:a']")).not.toBeNull();
+      expect(el.querySelector("[data-ilha-slot='k:b']")).not.toBeNull();
+
+      // Drop "a" — it should be unmounted and cleaned up; "b" survives.
+      setKeys(["b"]);
+      expect(el.querySelector("[data-ilha-slot='k:a']")).toBeNull();
+      expect(el.querySelector("[data-ilha-slot='k:b']")).not.toBeNull();
+      expect(childCleanups).toContain("cleanup:a");
+      expect(childCleanups).not.toContain("cleanup:b");
+
+      unmount();
+      cleanup(el);
+    });
+  });
+
+  describe("conditional rendering", () => {
+    it("conditionally-rendered child is mounted when it appears", () => {
+      const Child = ilha.state("x", 0).render(({ state }) => `<span>${state.x()}</span>`);
+
+      let setShow!: (v: boolean) => void;
+
+      const Parent = ilha.state("show", false).render(({ state }) => {
+        setShow = state.show as unknown as typeof setShow;
+        return html`<div>${state.show() ? Child : ""}</div>`;
+      });
+
+      const el = makeEl();
+      const unmount = Parent.mount(el);
+
+      expect(el.querySelector("[data-ilha-slot]")).toBeNull();
+
+      setShow(true);
+      const slot = el.querySelector("[data-ilha-slot='p:0']");
+      expect(slot).not.toBeNull();
+      expect(slot!.querySelector("span")?.textContent).toBe("0");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("child is unmounted when conditionally removed", () => {
+      const cleanups: string[] = [];
+      const Child = ilha
+        .state("x", 0)
+        .effect(() => () => cleanups.push("cleanup"))
+        .render(({ state }) => `<span>${state.x()}</span>`);
+
+      let setShow!: (v: boolean) => void;
+
+      const Parent = ilha.state("show", true).render(({ state }) => {
+        setShow = state.show as unknown as typeof setShow;
+        return html`<div>${state.show() ? Child : ""}</div>`;
+      });
+
+      const el = makeEl();
+      const unmount = Parent.mount(el);
+
+      expect(el.querySelector("[data-ilha-slot='p:0']")).not.toBeNull();
+
+      setShow(false);
+      expect(el.querySelector("[data-ilha-slot='p:0']")).toBeNull();
+      expect(cleanups).toContain("cleanup");
+
+      unmount();
+      cleanup(el);
+    });
+  });
+
+  it("calling an Island outside an html`` interpolation returns SSR string (backward compat)", () => {
     const Counter = ilha
       .input(z.object({ count: z.number().default(0) }))
       .state("count", ({ count }) => count)
       .render(({ state }) => `<p>${state.count()}</p>`);
 
-    const Parent = ilha
-      .slot("Counter", Counter)
-      .render(() => `<div><div data-ilha-slot="Counter" data-props='{"count":3}'></div></div>`);
+    // Outside any active render context: call returns SSR HTML, as before.
+    expect(Counter({ count: 7 })).toBe("<p>7</p>");
+  });
 
+  // data-ilha-props pre-existing on a slot element is still honoured for
+  // hydration scenarios where the slot map isn't the source of truth.
+  it("client slot reads props from data-ilha-props when slot already in DOM", () => {
+    const Counter = ilha
+      .input(z.object({ count: z.number().default(0) }))
+      .state("count", ({ count }) => count)
+      .render(({ state }) => `<p>${state.count()}</p>`);
+
+    // Parent renders a slot marker element with pre-encoded props but without
+    // calling Counter directly — simulates hydration over SSR output where the
+    // slot element carries props as attributes.
+    const Parent = ilha.render(() =>
+      raw(`<div><div data-ilha-slot="k:counter" data-ilha-props='{"count":3}'></div></div>`),
+    );
+
+    // We can't rely on positional emission here because Parent didn't interpolate
+    // Counter — instead we manually mount Counter into the slot via from().
     const el = makeEl();
     const unmount = Parent.mount(el);
+    const slot = el.querySelector("[data-ilha-slot='k:counter']") as Element;
+    const unmountChild = Counter.mount(slot);
     expect(el.querySelector("p")!.textContent).toBe("3");
+    unmountChild();
     unmount();
     cleanup(el);
   });
@@ -2895,14 +3032,12 @@ describe("diagnostic: Child-in-slot reactivity", () => {
 
   it("D3: slot placeholder is emitted as empty div in client render", () => {
     const Child = ilha.render(() => `<span>Child-content</span>`);
-    const Parent = ilha
-      .slot("Child", Child)
-      .render(({ slots }) => `<div class="Parent">${slots.Child}</div>`);
+    const Parent = ilha.render(() => html`<div class="Parent">${Child}</div>`);
 
     const el = makeEl();
     const unmount = Parent.mount(el);
 
-    const slotEl = el.querySelector("[data-ilha-slot='Child']");
+    const slotEl = el.querySelector("[data-ilha-slot='p:0']");
     expect(slotEl).not.toBeNull();
     // After mount, the Child Island has populated the slot.
     expect(slotEl!.querySelector("span")?.textContent).toBe("Child-content");
@@ -2913,15 +3048,15 @@ describe("diagnostic: Child-in-slot reactivity", () => {
 
   it("D4: slot element identity is stable across mountSlots cache", () => {
     const Child = ilha.render(() => `<span>x</span>`);
-    const Parent = ilha.slot("Child", Child).render(({ slots }) => `<div>${slots.Child}</div>`);
+    const Parent = ilha.render(() => html`<div>${Child}</div>`);
 
     const el = makeEl();
     const unmount = Parent.mount(el);
 
-    const slotElBefore = el.querySelector("[data-ilha-slot='Child']");
+    const slotElBefore = el.querySelector("[data-ilha-slot='p:0']");
     expect(slotElBefore).not.toBeNull();
     // The slot element should be a single node, inserted once.
-    expect(el.querySelectorAll("[data-ilha-slot='Child']").length).toBe(1);
+    expect(el.querySelectorAll("[data-ilha-slot='p:0']").length).toBe(1);
 
     unmount();
     cleanup(el);
@@ -2937,7 +3072,7 @@ describe("diagnostic: Child-in-slot reactivity", () => {
       })
       .render(({ state }) => `<p>${state.count()}</p><button data-inc>+</button>`);
 
-    const Parent = ilha.slot("Child", Child).render(({ slots }) => `<div>${slots.Child}</div>`);
+    const Parent = ilha.render(() => html`<div>${Child}</div>`);
 
     const el = makeEl();
     const unmount = Parent.mount(el);
@@ -2970,7 +3105,7 @@ describe("diagnostic: Child-in-slot reactivity", () => {
         return `<p>${state.count()}</p><button data-inc>+</button>`;
       });
 
-    const Parent = ilha.slot("Child", Child).render(({ slots }) => `<div>${slots.Child}</div>`);
+    const Parent = ilha.render(() => html`<div>${Child}</div>`);
 
     const el = makeEl();
     const unmount = Parent.mount(el);
@@ -3044,9 +3179,8 @@ describe("diagnostic: derived + slot + whitespace", () => {
       });
 
     const Parent = ilha
-      .slot("Picker", Picker)
       .derived("data", async () => dataPromise)
-      .render(({ slots, derived }) => {
+      .render(({ derived }) => {
         if (derived.data.loading)
           return html`
             <p>loading</p>
@@ -3056,7 +3190,7 @@ describe("diagnostic: derived + slot + whitespace", () => {
         // around the slot to mirror the pokedex layout and expose any
         // whitespace-alignment bugs in morph.
         return html`
-          ${slots.Picker()}
+          ${Picker}
           <img src="x.png" />
           <h2>${value.name}</h2>
           ${value.items.map((i) => html`<span>${i}</span>`)}
@@ -3487,10 +3621,7 @@ describe(".css()", () => {
     it("Child Island in a slot emits its own <style> inside the slot, scoped by its own host", async () => {
       const Inner = ilha.css("span { color: red; }").render(() => `<span>inner</span>`);
 
-      const Outer = ilha
-        .slot("inner", Inner)
-        .css("div { color: blue; }")
-        .render(({ slots }) => html`<div>${slots.inner()}</div>`);
+      const Outer = ilha.css("div { color: blue; }").render(() => html`<div>${Inner}</div>`);
 
       const out = Outer.toString();
 

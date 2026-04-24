@@ -6,9 +6,9 @@
   "bind",
   "effect",
   "onmount",
-  "slot",
   "transition",
   "css",
   "render",
-  "hydratable"
+  "hydratable",
+  "composition"
 ]

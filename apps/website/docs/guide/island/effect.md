@@ -7,6 +7,8 @@ description: Register reactive side effects that run after mount and re-run when
 
 Registers a reactive side effect that runs after the island mounts and re-runs automatically whenever any signal it reads changes. Use it to sync state to the outside world — the DOM, browser APIs, timers, or external systems.
 
+[Interactive Tutorial](/tutorial/counter/effect)
+
 ## Basic usage
 
 ```ts twoslash
