@@ -12,13 +12,13 @@
     "@codesandbox/sandpack-react": "^2.20.0",
     "basecoat-css": "^0.3.11",
     "dedent": "^1.7.2",
-    "ilha": "^0.2.0",
+    "ilha": "^0.3.0",
     "shiki": "^4.0.2"
   },
   "devDependencies": {
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/geist-mono": "^5.2.7",
-    "@ilha/router": "^0.2.0",
+    "@ilha/router": "^0.2.2",
     "@rspress/core": "^2.0.9",
     "@rspress/plugin-llms": "^2.0.9",
     "@rspress/plugin-sitemap": "^2.0.9",
