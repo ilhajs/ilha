@@ -240,12 +240,22 @@ interface IslandRenderCtx {
   // outerHTML instead of re-running child SSR. This keeps morph from walking
   // into the child and clobbering state-managed DOM.
   liveHost: Element | undefined;
+  // When set, emitIslandSlot will attempt async child-island rendering.
+  // Populated during SSR when the parent itself is in async mode, so child
+  // islands with async derived() can be properly awaited instead of emitting
+  // loading markup.
+  pending: Map<string, Promise<string>> | undefined;
 }
 
 const renderCtxStack: IslandRenderCtx[] = [];
 
-function pushRenderCtx(liveHost?: Element): IslandRenderCtx {
-  const ctx: IslandRenderCtx = { slots: new Map(), positional: 0, liveHost };
+function pushRenderCtx(liveHost?: Element, asyncChildren?: boolean): IslandRenderCtx {
+  const ctx: IslandRenderCtx = {
+    slots: new Map(),
+    positional: 0,
+    liveHost,
+    pending: asyncChildren ? new Map() : undefined,
+  };
   renderCtxStack.push(ctx);
   return ctx;
 }
@@ -310,10 +320,56 @@ function emitIslandSlot(
     return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}></div>`;
   }
 
-  // SSR path: render the child's HTML inline. The child's renderToString
+  // SSR path: render the child's HTML inline.
+  //
+  // When async child rendering is enabled (ctx.pending is set — the parent
+  // itself is in async SSR mode), pop the render context so island(props)
+  // invokes renderToString (the SSR path) instead of returning an IslandCall.
+  // This allows child islands with async derived() to be properly awaited
+  // instead of emitting loading markup.
+  if (ctx?.pending) {
+    popRenderCtx();
+    const result = island(props as Record<string, unknown>);
+    renderCtxStack.push(ctx);
+
+    if (result instanceof Promise) {
+      // Store the pending render for later resolution by renderWithCtx.
+      ctx.pending.set(id, result.then(String));
+      // Emit a placeholder stub; resolveAsyncChildren will substitute the
+      // resolved inner HTML after all children have been awaited.
+      return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}></div>`;
+    }
+
+    // Child rendered synchronously — inline its HTML as usual.
+    return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}>${result}</div>`;
+  }
+
+  // Sync SSR path (no async children support). The child's renderToString
   // pushes its own render context so grandchildren are scoped correctly.
   const inner = island.toString(props);
   return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}>${inner}</div>`;
+}
+
+// After the parent's render function has produced HTML with placeholder stubs
+// for async children, await each pending child and substitute its resolved
+// HTML into the parent's output. Returns the final HTML string.
+async function resolveAsyncChildren(html: string, ctx: IslandRenderCtx): Promise<string> {
+  for (const [id, promise] of ctx.pending!) {
+    const inner = await promise;
+    // The placeholder is an empty stub
+    //   <div data-ilha-slot="…" data-ilha-props="…"></div>
+    // Replace it with the same tag but containing the resolved inner HTML.
+    const escaped = escapeHtml(id);
+    // Build a regex that matches the empty slot div for this id.
+    // Pattern: <div ... data-ilha-slot="ESCAPED" ...></div>
+    const attrPattern = escaped.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const placeholder = new RegExp(`<div\\s[^>]*${SLOT_ATTR}="${attrPattern}"[^>]*></div>`, "g");
+    html = html.replace(placeholder, (match) => {
+      // Slice off `></div>` (last 6 chars) and insert inner HTML.
+      return match.slice(0, -6) + `>${inner}</div>`;
+    });
+  }
+  return html;
 }
 
 // ---------------------------------------------
@@ -1058,17 +1114,40 @@ class IlhaBuilder<
     // records itself into ctx.slots. Returns the rendered HTML plus the
     // collected slot map. When liveHost is supplied (client re-render path),
     // already-mounted child subtrees are reused as-is instead of re-SSR'd.
+    //
+    // When asyncChildren is true and any child island has async derived(),
+    // the returned value is a Promise that resolves once all children have
+    // been awaited and their resolved HTML substituted into the parent output.
     function renderWithCtx(
       fn: () => string | RawHtml,
       liveHost?: Element,
-    ): { html: string; slots: IslandRenderCtx["slots"] } {
-      const ctx = pushRenderCtx(liveHost);
-      try {
-        const html = unwrapHtml(fn());
-        return { html, slots: ctx.slots };
-      } finally {
-        popRenderCtx();
+    ): { html: string; slots: IslandRenderCtx["slots"] };
+    function renderWithCtx(
+      fn: () => string | RawHtml,
+      liveHost: Element | undefined,
+      asyncChildren: true,
+    ): Promise<{ html: string; slots: IslandRenderCtx["slots"] }>;
+    function renderWithCtx(
+      fn: () => string | RawHtml,
+      liveHost?: Element,
+      asyncChildren?: boolean,
+    ):
+      | { html: string; slots: IslandRenderCtx["slots"] }
+      | Promise<{ html: string; slots: IslandRenderCtx["slots"] }> {
+      const ctx = pushRenderCtx(liveHost, asyncChildren);
+      const html = unwrapHtml(fn());
+
+      if (ctx.pending && ctx.pending.size > 0) {
+        // Children with async derived were found — await them and substitute
+        // their resolved HTML into the parent output before returning.
+        return resolveAsyncChildren(html, ctx).then((resolvedHtml) => {
+          popRenderCtx();
+          return { html: resolvedHtml, slots: ctx.slots };
+        });
       }
+
+      popRenderCtx();
+      return { html, slots: ctx.slots };
     }
 
     function buildPlainState(input: TInput): IslandState<TStateMap> {
@@ -1166,11 +1245,13 @@ class IlhaBuilder<
             };
           }
         }),
-      ).then((resolved) => {
+      ).then(async (resolved) => {
         const derived: Record<string, DerivedValue<unknown>> = {};
         for (const r of resolved) derived[r.key] = r.envelope;
-        const { html } = renderWithCtx(() =>
-          fn({ state, derived: derived as IslandDerived<TDerivedMap>, input }),
+        const { html } = await renderWithCtx(
+          () => fn({ state, derived: derived as IslandDerived<TDerivedMap>, input }),
+          undefined,
+          true,
         );
         return stylePrefix + html;
       });
@@ -1263,7 +1344,18 @@ class IlhaBuilder<
         // back to a simple attribute-safe escape for edge environments.
         const escaped =
           typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
-        return host.querySelector(`[${SLOT_ATTR}="${escaped}"]`);
+        const candidates = host.querySelectorAll(`[${SLOT_ATTR}="${escaped}"]`);
+        for (const candidate of candidates) {
+          // Walk up from the candidate, ensuring we don't cross a [data-ilha]
+          // child-island boundary. If we reach `host`, the slot belongs to us.
+          let el: Element | null = candidate;
+          while (el && el !== host) {
+            if (el.hasAttribute("data-ilha")) break;
+            el = el.parentElement;
+          }
+          if (el === host) return candidate;
+        }
+        return null;
       }
 
       function mountSlots(slotMap: IslandRenderCtx["slots"]) {
@@ -1449,6 +1541,16 @@ class IlhaBuilder<
 
         detachListeners();
         stopBindings();
+
+        // Unmount slots that are no longer present BEFORE morphInner mutates
+        // the DOM. This ensures unmount hooks (transition.leave, effect
+        // cleanups, etc.) execute while the elements are still connected.
+        for (const [id, entry] of mountedSlots) {
+          if (!newSlotMap.has(id)) {
+            entry.unmount();
+            mountedSlots.delete(id);
+          }
+        }
 
         // Detach preserved slot elements from the live DOM, replacing each
         // with an empty stub that matches what the template emitted.

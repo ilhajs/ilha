@@ -102,12 +102,6 @@ ilha supports component-level styles with [`.css()`](/guide/island/css). Styles 
 
 This lets you keep structure, behavior, and styling close together when that is useful, without giving up isolation.
 
-## Slots
-
-An island can include other islands through direct interpolation. This gives you composition without losing encapsulation.
-
-A parent can render a child island inline during SSR, and that child can still mount independently on the client. In practice, this means you can build larger interfaces out of smaller interactive units.
-
 ## SSR and hydration
 
 ilha is designed to work naturally with server rendering and hydration. You can render HTML on the server, send it to the browser, and later activate the island in place.

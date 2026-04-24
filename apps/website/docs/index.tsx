@@ -338,7 +338,7 @@ export const frontmatter = {
   pageType: "custom",
   title: "Build Modern UI, Your Way",
   description:
-    "Ilha is a lightweight UI framework under 800 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
+    "Ilha is a lightweight UI framework under 1,800 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
 };
 
 const hero = await Hero.hydratable({}, { name: "Hero", snapshot: true });

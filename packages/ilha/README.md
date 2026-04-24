@@ -291,7 +291,7 @@ ilha.css(styles).render(() => `<div class="card">…</div>`);
 
 ### Composing Islands
 
-Child islands are interpolated directly inside a parent's `html\`\``` template. During SSR the child's HTML is rendered inline; during client mount the child is activated independently inside its own host element.
+Child islands are interpolated directly inside a parent's html&grave;&grave; template. During SSR the child's HTML is rendered inline; during client mount the child is activated independently inside its own host element.
 
 ```ts
 const Icon = ilha.render(() => `<svg>…</svg>`);

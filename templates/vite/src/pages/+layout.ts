@@ -1,8 +1,8 @@
-import { isActive } from "@ilha/router";
+import { isActive, defineLayout } from "@ilha/router";
 import type { LayoutHandler } from "@ilha/router/vite";
 import ilha, { html } from "ilha";
 
-export default ((children) =>
+export default defineLayout((children) =>
   ilha.render(
     () => html`
     <nav class="container navbar x-stack">
@@ -13,4 +13,5 @@ export default ((children) =>
       ${children}
     </main>
   `,
-  )) satisfies LayoutHandler;
+  ),
+);
