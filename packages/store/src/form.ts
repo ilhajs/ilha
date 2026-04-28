@@ -1,7 +1,7 @@
 // =============================================================================
 // @ilha/store/form — typed form helpers via Standard Schema
 // Unopinionated building blocks. Compose them with createStore however you like.
-// https://standardschema.dev
+// [https://standardschema.dev](https://standardschema.dev)
 // =============================================================================
 
 // ---------------------------------------------------------------------------
@@ -74,8 +74,9 @@ export type FormErrors = Record<string, string[]>;
 /**
  * Extract a plain object from a `<form>` element or `FormData` instance.
  * Duplicate keys (checkbox groups, `<select multiple>`) collapse to a
- * `string[]`; single keys stay as `string`. File inputs are preserved as
- * `File` values — pass them straight through to your schema.
+ * `FormDataEntryValue[]`; single keys stay as `FormDataEntryValue`. File
+ * inputs are preserved as `File` values — pass them straight through to
+ * your schema.
  *
  * @example
  * ilha.on("form@submit", ({ event }) => {
@@ -87,7 +88,8 @@ export type FormErrors = Record<string, string[]>;
  */
 export function extractFormData(source: HTMLFormElement | FormData): Record<string, unknown> {
   const data = source instanceof FormData ? source : new FormData(source);
-  const result: Record<string, unknown> = {};
+  // Object.create(null) avoids prototype pollution from field names like "__proto__"
+  const result: Record<string, unknown> = Object.create(null);
   for (const key of new Set(data.keys())) {
     const values = data.getAll(key);
     result[key] = values.length === 1 ? values[0] : values;
@@ -206,7 +208,8 @@ export async function validateWithSchemaAsync<S extends StandardSchemaV1>(
  * // => { email: ["Invalid email"] }
  */
 export function issuesToErrors(issues: ReadonlyArray<StandardSchemaV1.Issue>): FormErrors {
-  const errors: FormErrors = {};
+  // Object.create(null) avoids prototype pollution from path keys like "__proto__"
+  const errors: FormErrors = Object.create(null);
   for (const issue of issues) {
     const path =
       issue.path?.map((p) => (typeof p === "object" ? String(p.key) : String(p))).join(".") ?? "";
