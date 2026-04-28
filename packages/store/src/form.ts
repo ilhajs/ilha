@@ -140,6 +140,7 @@ export function validateWithSchema<S extends StandardSchemaV1>(
         "validateWithSchema is synchronous — use validateWithSchemaAsync " +
         "or call schema['~standard'].validate(...) directly for async schemas.",
     );
+    result.catch(() => {});
     return {
       ok: false,
       issues: [{ message: "Async schema validation is not supported by validateWithSchema." }],
