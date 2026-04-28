@@ -71,19 +71,6 @@ const store = createStore({ count: 0 }, (set, get) => ({
 store.getState().increment();
 store.getState().count; // → 1`;
 
-export const ILHA_FORM_CODE = `// src/pages/index.ts
-const form = createForm({
-  el: document.querySelector("form")!,
-  schema: mySchema,
-  onSubmit(values, event) {
-    /* … */
-  },
-  onError(issues, event) {
-    /* … */
-  },
-});
-`;
-
 export const SIGNALS_CODE = `\
 const Search = ilha
   .state("query", "")

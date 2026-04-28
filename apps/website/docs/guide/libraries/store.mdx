@@ -1,6 +1,6 @@
 ---
 title: "@ilha/store"
-description: A zustand-shaped reactive store for shared global state backed by alien-signals.
+description: A zustand-shaped reactive store for shared global state backed by alien-signals. Includes /form helpers for type-safe, schema-validated forms.
 ---
 
 # Ilha Store
@@ -8,6 +8,8 @@ description: A zustand-shaped reactive store for shared global state backed by a
 import { PackageManagerTabs } from "@rspress/core/theme";
 
 `@ilha/store` is a zustand-shaped reactive store for ilha apps. It lives outside any island and is backed by [alien-signals](https://github.com/stackblitz/alien-signals) — the same engine that powers ilha core state — so stores and islands share a single reactive graph with no extra bridging.
+
+It also ships a `/form` subpath with unopinionated, type-safe form helpers built on [Standard Schema](https://standardschema.dev), compatible with Zod, Valibot, ArkType, and any other compliant library.
 
 ## How it relates to ilha
 
@@ -53,6 +55,7 @@ ilha's built-in `.state()` is the right choice when only one island reads and wr
 - **Shared across multiple islands** — e.g. a cart, auth session, or active theme
 - **Updated from outside an island** — e.g. from a WebSocket handler or global event bus
 - **Persisted or derived globally** — e.g. synced to `localStorage` via a `subscribe` listener
+- **Form state** — pair `createStore` with `@ilha/store/form` helpers for typed validation, error mapping, and submission handling
 
 ---
 
@@ -230,6 +233,114 @@ When the store updates, the slice subscription fires, the island signal updates,
 
 ---
 
+## Forms — `@ilha/store/form`
+
+Three small helpers for building typed, validated forms with any [Standard Schema](https://standardschema.dev)-compatible library. They are **unopinionated** — you compose them with `createStore` however you like; nothing is imposed about your form's state shape.
+
+```ts
+import { extractFormData, validateWithSchema, issuesToErrors } from "@ilha/store/form";
+```
+
+### `extractFormData(source)`
+
+Turns an `HTMLFormElement` (or a `FormData` instance) into a plain object. Single fields stay scalar; repeated keys (checkbox groups, multi-selects) collapse to arrays. File inputs pass through as `File` values.
+
+```ts
+const data = extractFormData(event.target as HTMLFormElement);
+// → { email: "ada@example.com", role: ["admin", "editor"] }
+```
+
+### `validateWithSchema(schema, data)`
+
+Runs a Standard Schema synchronously and returns a discriminated union — **never throws**.
+
+```ts
+const result = validateWithSchema(SignInSchema, data);
+if (result.ok) {
+  result.data; // ← fully typed schema output
+} else {
+  result.issues; // ← ReadonlyArray<StandardSchemaV1.Issue>
+}
+```
+
+If your schema has async refinements (e.g. server-side uniqueness checks), use `validateWithSchemaAsync` instead — same return shape, always returns a `Promise`.
+
+### `issuesToErrors(issues)`
+
+Flattens Standard Schema issues into a per-field error map keyed by dot-separated path. Form-level errors (issues with no path) land under the `""` key.
+
+```ts
+issuesToErrors([
+  { message: "Required", path: ["email"] },
+  { message: "Invalid", path: ["user", "email"] },
+]);
+// → { email: ["Required"], "user.email": ["Invalid"] }
+```
+
+### Full example — contact form
+
+These three helpers form a straight pipeline from DOM event → typed data → error state. The store holds errors; the schema drives types.
+
+```ts
+import { createStore } from "@ilha/store";
+import { extractFormData, validateWithSchema, issuesToErrors } from "@ilha/store/form";
+import type { FormErrors } from "@ilha/store/form";
+import ilha, { html } from "ilha";
+import { z } from "zod";
+
+const ContactSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.email("Invalid email"),
+  message: z.string().min(10, "Message must be at least 10 characters"),
+});
+
+const formStore = createStore({ errors: {} as FormErrors }, (set) => ({
+  submit(event: SubmitEvent) {
+    const result = validateWithSchema(
+      ContactSchema,
+      extractFormData(event.target as HTMLFormElement),
+    );
+    if (result.ok) {
+      console.log("submitting:", result.data);
+      set({ errors: {} });
+    } else {
+      set({ errors: issuesToErrors(result.issues) });
+    }
+  },
+}));
+
+export default ilha
+  .on("form@submit", ({ event }) => {
+    event.preventDefault();
+    formStore.getState().submit(event);
+  })
+  .render(() => {
+    const errors = formStore.getState().errors;
+    return html`
+      <form>
+        <label>
+          Name
+          <input name="name" />
+          ${errors.name ? html`<p role="alert">${errors.name.join(", ")}</p>` : ""}
+        </label>
+        <label>
+          Email
+          <input name="email" type="email" />
+          ${errors.email ? html`<p role="alert">${errors.email.join(", ")}</p>` : ""}
+        </label>
+        <label>
+          Message
+          <textarea name="message"></textarea>
+          ${errors.message ? html`<p role="alert">${errors.message.join(", ")}</p>` : ""}
+        </label>
+        <button type="submit">Send</button>
+      </form>
+    `;
+  });
+```
+
+---
+
 ## TypeScript
 
 All types are inferred from the initial state and actions creator. Key exported types:
@@ -244,4 +355,10 @@ import type {
   RenderResult, // string | RawHtml
   Unsub, // () => void
 } from "@ilha/store";
+
+import type {
+  StandardSchemaV1, // the Standard Schema spec interface
+  FormResult, // { ok: true, data } | { ok: false, issues }
+  FormErrors, // Record<string, string[]>
+} from "@ilha/store/form";
 ```

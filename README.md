@@ -92,12 +92,11 @@ mount({ Counter });
 
 This monorepo contains the following packages:
 
-| Package                             | Description                                                                                                 |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [`ilha`](./packages/ilha)           | Core island builder — state, events, SSR rendering, and DOM hydration                                       |
-| [`@ilha/router`](./packages/router) | Isomorphic SPA router with SSR support and a Vite file-system routing plugin                                |
-| [`@ilha/store`](./packages/store)   | Zustand-shaped global store backed by alien-signals — share state across islands                            |
-| [`@ilha/form`](./packages/form)     | Typed form binding via Standard Schema — submission, validation, and error state with no extra dependencies |
+| Package                             | Description                                                                      |
+| ----------------------------------- | -------------------------------------------------------------------------------- |
+| [`ilha`](./packages/ilha)           | Core island builder — state, events, SSR rendering, and DOM hydration            |
+| [`@ilha/router`](./packages/router) | Isomorphic SPA router with SSR support and a Vite file-system routing plugin     |
+| [`@ilha/store`](./packages/store)   | Zustand-shaped global store backed by alien-signals — share state across islands |
 
 ---
 

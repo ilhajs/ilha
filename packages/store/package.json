@@ -1,6 +1,6 @@
 {
   "name": "@ilha/store",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Typed store.",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
