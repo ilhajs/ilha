@@ -3,8 +3,7 @@
   "compilerOptions": {
     "paths": {
       "ilha": ["./packages/ilha/src/index.ts"],
-      "@ilha/store": ["./packages/store/src/index.ts"],
-      "@ilha/form": ["./packages/form/src/index.ts"]
+      "@ilha/store": ["./packages/store/src/index.ts"]
     }
   },
   "include": ["packages/*/src/**/*", "packages/form/tsdown.config.ts"],

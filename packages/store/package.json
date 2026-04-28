@@ -1,6 +1,6 @@
 {
   "name": "@ilha/store",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Typed store.",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
@@ -16,6 +16,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./form": {
+      "types": "./dist/form.d.ts",
+      "import": "./dist/form.js"
     }
   },
   "scripts": {

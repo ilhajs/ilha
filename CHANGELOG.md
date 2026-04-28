@@ -51,6 +51,10 @@ Initial release of **ilha** — a tiny, isomorphic island framework for building
 
 ## `@ilha/form`
 
+### 0.2.1 - 2026-04-28
+
+- Deprecated the library in favor for handling form management with `@ilha/store` using `@ilha/store/form` helpers.
+
 ### 0.2.0 - 2026-04-21
 
 - Adds `defaultValues` property to set initial form state
@@ -119,6 +123,10 @@ Initial release of **@ilha/router** — a lightweight, isomorphic router for ilh
 - Adds exported types: `RouteRecord`, `RouteSnapshot`, `AppError`, `LayoutHandler`, `ErrorHandler`, `NavigateOptions`, `MountOptions`, `HydrateOptions`, `HydratableRenderOptions`, `RouterBuilder`
 
 ## `@ilha/store`
+
+### 0.2.0 - 2026-04-28
+
+- Adds `@ilha/store/form` helpers to work with <form> elements which lets deprecate `@ilha/form`.
 
 ### 0.1.4 - 2026-04-24
 

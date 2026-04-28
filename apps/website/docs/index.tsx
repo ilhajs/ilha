@@ -10,7 +10,6 @@ import { createHighlighter } from "shiki";
 import {
   AI_SYSTEM_PROMPT,
   COUNTER_CODE,
-  ILHA_FORM_CODE,
   ILHA_ROUTER_CODE,
   ILHA_STORE_CODE,
   RENDERING_CODE,
@@ -45,8 +44,6 @@ const Libraries = ilha
         return highlightCode(ILHA_ROUTER_CODE);
       case "store":
         return highlightCode(ILHA_STORE_CODE);
-      case "form":
-        return highlightCode(ILHA_FORM_CODE);
     }
   })
   .on("[data-library]@click", ({ state, target }) => {
@@ -78,7 +75,6 @@ const Libraries = ilha
             <nav role="tablist" aria-orientation="horizontal" class="w-full rounded-full">
                 <button type="button" role="tab" aria-selected="${state.library() === "router"}" tabindex="0" data-library="router" class="rounded-full">@ilha/router</button>
                 <button type="button" role="tab" aria-selected="${state.library() === "store"}" tabindex="0" data-library="store" class="rounded-full">@ilha/store</button>
-                <button type="button" role="tab" aria-selected="${state.library() === "form"}" tabindex="0" data-library="form" class="rounded-full">@ilha/form</button>
               </nav>
             </div>
           <div class="text-sm lg:text-[1rem]">
