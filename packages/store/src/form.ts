@@ -119,7 +119,20 @@ export function validateWithSchema<S extends StandardSchemaV1>(
   schema: S,
   data: unknown,
 ): FormResult<StandardSchemaV1.InferOutput<S>> {
-  const result = schema["~standard"].validate(data);
+  let result: StandardSchemaV1.Result<StandardSchemaV1.InferOutput<S>>;
+  try {
+    result = schema["~standard"].validate(data) as StandardSchemaV1.Result<
+      StandardSchemaV1.InferOutput<S>
+    >;
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Schema validation threw: " + String(error);
+    console.warn("[@ilha/store/form] Schema validation threw an exception:", message);
+    return {
+      ok: false,
+      issues: [{ message }],
+    };
+  }
 
   if (result instanceof Promise) {
     console.warn(
@@ -152,7 +165,20 @@ export async function validateWithSchemaAsync<S extends StandardSchemaV1>(
   schema: S,
   data: unknown,
 ): Promise<FormResult<StandardSchemaV1.InferOutput<S>>> {
-  const result = await schema["~standard"].validate(data);
+  let result: StandardSchemaV1.Result<StandardSchemaV1.InferOutput<S>>;
+  try {
+    result = (await schema["~standard"].validate(data)) as StandardSchemaV1.Result<
+      StandardSchemaV1.InferOutput<S>
+    >;
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Schema validation threw: " + String(error);
+    console.warn("[@ilha/store/form] Schema validation threw an exception:", message);
+    return {
+      ok: false,
+      issues: [{ message }],
+    };
+  }
 
   if (result.issues !== undefined) {
     return { ok: false, issues: result.issues };
