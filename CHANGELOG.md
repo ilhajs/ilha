@@ -2,6 +2,13 @@
 
 ## `ilha`
 
+### 0.4.0 - 2026-05-01
+
+- added `:abortable` modifier for `.on()`.
+- added `signal` property to the context of `.effect()`.
+- added `.onError()` builder method that callects errors from all of the lifecycle.
+- added more signal elements.
+
 ### 0.3.1 - 2026-04-24
 
 - Fixes hydratable() snapshot interactivity regression.
@@ -79,6 +86,10 @@ Initial release of **@ilha/form** — a tiny, typed form binding library for ilh
 
 ## `@ilha/router`
 
+### 0.2.4 - 2026-05-01
+
+- Updates Ilha dependency to 0.4.0
+
 ### 0.2.3 - 2026-04-24
 
 - Updates Ilha dependency to 0.3.1
@@ -123,6 +134,10 @@ Initial release of **@ilha/router** — a lightweight, isomorphic router for ilh
 - Adds exported types: `RouteRecord`, `RouteSnapshot`, `AppError`, `LayoutHandler`, `ErrorHandler`, `NavigateOptions`, `MountOptions`, `HydrateOptions`, `HydratableRenderOptions`, `RouterBuilder`
 
 ## `@ilha/store`
+
+### 0.2.1 - 2026-05-01
+
+- Updates Ilha dependency to 0.4.0
 
 ### 0.2.0 - 2026-04-28
 

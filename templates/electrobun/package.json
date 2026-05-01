@@ -1,6 +1,6 @@
 {
   "name": "electrobun",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "start": "vite build && electrobun dev",
@@ -10,14 +10,14 @@
     "build:canary": "vite build && electrobun build --env=canary"
   },
   "dependencies": {
-    "@ilha/router": "^0.2.3",
+    "@ilha/router": "^0.2.4",
     "electrobun": "1.16.0",
-    "ilha": "^0.3.1"
+    "ilha": "^0.4.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "concurrently": "^9.2.1",
     "typescript": "^6.0.3",
-    "vite": "^8.0.9"
+    "vite": "^8.0.10"
   }
 }
