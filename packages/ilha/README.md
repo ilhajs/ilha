@@ -251,10 +251,17 @@ The handler receives an `EffectContext`:
 ilha
   .state("userId", 1)
   .state("user", null)
-  .effect(async ({ state, signal }) => {
-    const res = await fetch(`/api/users/${state.userId()}`, { signal });
-    if (signal.aborted) return;
-    state.user(await res.json());
+  .effect(({ state, signal }) => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/users/${state.userId()}`, { signal });
+        if (signal.aborted) return;
+        state.user(await res.json());
+      } catch (err) {
+        if (err && (err as Error).name === "AbortError") return;
+        throw err;
+      }
+    })();
   })
   .render(({ state }) => html`<p>${state.user?.name ?? "Loading…"}</p>`);
 ```
@@ -598,7 +605,7 @@ count(5); // → sets to 5 (write)
 Reading the signal inside any reactive scope — `.render()`, `.derived()`, `.effect()` — automatically subscribes that scope, so when the signal changes, dependents re-run as if it were local state.
 
 ```ts
-import ilha, { signal } from "ilha";
+import ilha, { signal, html } from "ilha";
 
 const username = signal("anonymous");
 
@@ -662,7 +669,7 @@ batch(() => {
 Runs `fn` with reactive tracking suspended. Reading signals inside `fn` returns their current value without subscribing the surrounding scope. Use this in effects or deriveds when you want to peek at state without causing a re-run on its changes.
 
 ```ts
-import { signal, untrack } from "ilha";
+import ilha, { signal, untrack } from "ilha";
 
 const tracked = signal(0);
 const peeked = signal("hello");

@@ -972,16 +972,21 @@ function anySignal(signals: AbortSignal[]): AbortSignal {
     return (AbortSignal as unknown as { any: (s: AbortSignal[]) => AbortSignal }).any(signals);
   }
   const controller = new AbortController();
+  const cleanups: Array<() => void> = [];
   for (const s of signals) {
     if (s.aborted) {
       controller.abort((s as AbortSignal & { reason?: unknown }).reason);
+      cleanups.forEach((c) => c());
       return controller.signal;
     }
-    s.addEventListener(
-      "abort",
-      () => controller.abort((s as AbortSignal & { reason?: unknown }).reason),
-      { once: true },
-    );
+    const handler = () => controller.abort((s as AbortSignal & { reason?: unknown }).reason);
+    s.addEventListener("abort", handler, { once: true });
+    cleanups.push(() => s.removeEventListener("abort", handler));
+  }
+  if (!controller.signal.aborted) {
+    controller.signal.addEventListener("abort", () => {
+      cleanups.forEach((c) => c());
+    });
   }
   return controller.signal;
 }
@@ -1613,6 +1618,10 @@ class IlhaBuilder<
       };
       const listeners: ListenerEntry[] = [];
       const firedOnce = new Set<OnEntry<TInput, TStateMap, TDerivedMap>>();
+      const invocationControllers = new WeakMap<
+        OnEntry<TInput, TStateMap, TDerivedMap>,
+        Map<Element, AbortController>
+      >();
 
       function attachListeners() {
         for (const entry of ons) {
@@ -1628,12 +1637,6 @@ class IlhaBuilder<
           }
 
           targets.forEach((listenerTarget) => {
-            // Per-(entry, target) "current invocation" controller. Only used
-            // when entry.abortable is true; aborts the previous invocation's
-            // signal when this listener fires again on the same target so
-            // racy async handlers (search-as-you-type, etc.) bail out.
-            let currentInvocationController: AbortController | null = null;
-
             const listener = (event: Event) => {
               if (entry.options.once) {
                 firedOnce.add(entry);
@@ -1655,11 +1658,15 @@ class IlhaBuilder<
               // controller that we abort on the next fire.
               let handlerSignal: AbortSignal;
               if (entry.abortable) {
-                if (currentInvocationController) {
-                  currentInvocationController.abort();
+                let entryMap = invocationControllers.get(entry);
+                if (!entryMap) {
+                  entryMap = new Map();
+                  invocationControllers.set(entry, entryMap);
                 }
+                const prev = entryMap.get(listenerTarget);
+                if (prev) prev.abort();
                 const invocationController = new AbortController();
-                currentInvocationController = invocationController;
+                entryMap.set(listenerTarget, invocationController);
                 handlerSignal = anySignal([unmountController.signal, invocationController.signal]);
               } else {
                 handlerSignal = unmountController.signal;

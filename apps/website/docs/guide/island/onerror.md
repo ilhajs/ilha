@@ -135,7 +135,7 @@ const Search = ilha
 
 ## Catching effect errors
 
-`.onError()` catches synchronous throws from `.effect()` runs. Async work spawned inside an effect is not awaited by the runtime, so rejections from un-awaited promises are not caught — use `await` or `.catch()` inside the effect, or pass `signal` to abort-aware APIs:
+`.onError()` catches **synchronous** throws from `.effect()` runs. The runtime does not await async work spawned inside an effect, so passing `signal` to `fetch` only cancels the request — it does not prevent unhandled rejections. You must `await` the promise (if the effect callback is async) or attach `.catch()` inside the effect itself, and handle `AbortError` there. Do not rely on `.onError()` to catch rejected promises from async work inside `.effect()`:
 
 ```ts twoslash
 import ilha from "ilha";

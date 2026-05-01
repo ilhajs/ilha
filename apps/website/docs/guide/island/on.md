@@ -124,6 +124,7 @@ const Search = ilha
   .state("results", [])
   .on("input@input:abortable", async ({ state, event, signal }) => {
     const q = (event.target as HTMLInputElement).value;
+    state.query(q);
     const res = await fetch(`/search?q=${q}`, { signal });
     if (signal.aborted) return;
     state.results(await res.json());

@@ -64,6 +64,10 @@ const Island = ilha
       .then((data) => {
         if (signal.aborted) return;
         state.user(data as { name: string });
+      })
+      .catch((err) => {
+        if (err && err.name === "AbortError") return;
+        throw err;
       });
   })
   .render(({ state }) => html`<p>${state.user()?.name ?? "Loading…"}</p>`);
@@ -117,6 +121,8 @@ const Island = ilha
   .state("b", 0)
   .effect(({ state }) => {
     // These two writes produce a single re-render.
+    state.a(state.a() + 1);
+    state.b(state.b() + 1);
     console.log(state.a(), state.b());
   })
   .render(({ state }) => `<p>${state.a()} ${state.b()}</p>`);

@@ -276,6 +276,8 @@ const Hero = ilha.render(
     <section class="relative -mx-4 overflow-hidden lg:mx-0 lg:h-160 lg:rounded-4xl">
       <img
         src="/dither-1.jpg"
+        alt=""
+        aria-hidden="true"
         class="absolute inset-0 z-0 h-full w-full object-cover lg:rounded-4xl lg:rounded-br-[2.5rem]"
       />
       <div
