@@ -6,6 +6,7 @@
   "bind",
   "effect",
   "onmount",
+  "onerror",
   "transition",
   "css",
   "render",

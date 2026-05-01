@@ -45,6 +45,36 @@ const Island = ilha
 
 The cleanup runs before the effect re-runs with new values, and once more on unmount. This prevents stale timers, subscriptions, or event listeners from accumulating.
 
+## Cancelling async work with `ctx.signal`
+
+Unlike `.on()`, race-cancellation is the **default** behaviour for effects (no modifier needed). When a dependency changes, the previous run's signal aborts automatically. Pass `signal` to async work to bail out of stale invocations:
+
+```ts twoslash
+import ilha, { html } from "ilha";
+
+const Island = ilha
+  .state("userId", 1)
+  .state("user", null as { name: string } | null)
+  .effect(({ state, signal }) => {
+    fetch(`/api/users/${state.userId()}`, { signal })
+      .then((res) => {
+        if (signal.aborted) return;
+        return res.json();
+      })
+      .then((data) => {
+        if (signal.aborted) return;
+        state.user(data as { name: string });
+      })
+      .catch((err) => {
+        if (err && err.name === "AbortError") return;
+        throw err;
+      });
+  })
+  .render(({ state }) => html`<p>${state.user()?.name ?? "Loading…"}</p>`);
+```
+
+Both the user-supplied cleanup function (if any) and the signal abort fire when the effect re-runs, so you can mix patterns.
+
 ## Effect context
 
 The effect function receives an `EffectContext`:
@@ -54,6 +84,7 @@ The effect function receives an `EffectContext`:
   state: IslandState; // reactive state signals
   input: TInput; // resolved input props
   host: Element; // island root element
+  signal: AbortSignal; // aborts when the effect re-runs or the island unmounts
 }
 ```
 
@@ -76,6 +107,25 @@ const Island = ilha
     document.body.style.backgroundColor = state.color();
   })
   .render(({ state }) => `<p>${state.title()}</p>`);
+```
+
+## Implicit batching
+
+Multiple synchronous state writes inside an effect run propagate atomically — dependents see the final state and run once instead of once per write:
+
+```ts twoslash
+import ilha from "ilha";
+
+const Island = ilha
+  .state("a", 0)
+  .state("b", 0)
+  .effect(({ state }) => {
+    // These two writes produce a single re-render.
+    state.a(state.a() + 1);
+    state.b(state.b() + 1);
+    console.log(state.a(), state.b());
+  })
+  .render(({ state }) => `<p>${state.a()} ${state.b()}</p>`);
 ```
 
 ## Conditional reads

@@ -1,4 +1,4 @@
-import { signal, effect, setActiveSub } from "alien-signals";
+import { signal, effect, setActiveSub, startBatch, endBatch } from "alien-signals";
 
 // ---------------------------------------------
 // Standard Schema V1 (inlined, type-only)
@@ -480,6 +480,63 @@ function ilhaContext<T>(key: string, initial: T): ContextSignal<T> {
 }
 
 // ---------------------------------------------
+// Top-level reactive helpers
+// ---------------------------------------------
+
+/**
+ * Create a free-standing reactive signal that lives outside any island.
+ * Useful for sharing state across islands without prop drilling, or for
+ * binding form inputs to module-level state via `.bind(selector, signal)`.
+ *
+ * The returned accessor is a getter when called with no arguments and a
+ * setter when called with one. Reading it inside a `.derived()`, `.effect()`,
+ * or `.render()` automatically subscribes the surrounding reactive scope —
+ * so when the signal changes, dependents re-run as if it were local state.
+ */
+export function ilhaSignal<T>(initial: T): ExternalSignal<T> {
+  const s = signal(initial);
+  const accessor = (...args: unknown[]): unknown => {
+    if (args.length === 0) return s();
+    s(args[0] as T);
+  };
+  return accessor as ExternalSignal<T>;
+}
+
+/**
+ * Run `fn` with reactive tracking suspended. Reading signals inside `fn`
+ * returns their current value without subscribing the surrounding scope.
+ * Use this in effects/deriveds when you want to peek at state without
+ * causing a re-run on its changes.
+ */
+export function untrack<T>(fn: () => T): T {
+  const prev = setActiveSub(undefined);
+  try {
+    return fn();
+  } finally {
+    setActiveSub(prev);
+  }
+}
+
+/**
+ * Run `fn` as an atomic batch — multiple signal writes inside the callback
+ * produce a single propagation pass, so dependents (effects, deriveds,
+ * island re-renders) see the final state and run once instead of once per
+ * write. Returns whatever `fn` returns.
+ *
+ * Note: `.on()` handlers and `.effect()` runs are batched implicitly, so
+ * you only need this when triggering multiple writes from outside an
+ * island (e.g. from a top-level event listener or async callback).
+ */
+export function batch<T>(fn: () => T): T {
+  startBatch();
+  try {
+    return fn();
+  } finally {
+    endBatch();
+  }
+}
+
+// ---------------------------------------------
 // Derived
 // ---------------------------------------------
 
@@ -599,7 +656,7 @@ function buildDerivedSignals<
 // Bind
 // ---------------------------------------------
 
-type ExternalSignal<T = unknown> = { (): T; (value: T): void };
+export type ExternalSignal<T = unknown> = { (): T; (value: T): void };
 
 interface BindEntry<TStateMap extends Record<string, unknown>> {
   selector: string;
@@ -778,6 +835,13 @@ type EffectContext<TInput, TStateMap extends Record<string, unknown>> = {
   state: IslandState<TStateMap>;
   input: TInput;
   host: Element;
+  /**
+   * AbortSignal that aborts when the effect re-runs (because a dependency
+   * changed) or when the island unmounts. Pass to `fetch` or check
+   * `signal.aborted` after `await` boundaries to bail out of stale work
+   * without needing a manual cleanup function.
+   */
+  signal: AbortSignal;
 };
 
 export type OnMountContext<
@@ -803,6 +867,15 @@ export type HandlerContext<
   host: Element;
   target: Element;
   event: Event;
+  /**
+   * AbortSignal that fires when the island unmounts. If the handler's selector
+   * was registered with the `:abortable` modifier, the signal is also aborted
+   * when the same listener fires again on the same target (giving you free
+   * race-cancellation for things like search-as-you-type fetches). Pass this
+   * to `fetch`, `AbortController`-aware APIs, or check `signal.aborted`
+   * after `await` boundaries to bail out of stale work.
+   */
+  signal: AbortSignal;
 };
 
 // ---------------------------------------------
@@ -810,7 +883,7 @@ export type HandlerContext<
 // ---------------------------------------------
 
 type HTMLEventName = keyof HTMLElementEventMap & string;
-type Modifier = "once" | "capture" | "passive";
+type Modifier = "once" | "capture" | "passive" | "abortable";
 type WithModifiers<E extends string> =
   | E
   | `${E}:${Modifier}`
@@ -837,6 +910,12 @@ export type HandlerContextFor<
       : Element
     : Element;
   event: TEventName extends keyof HTMLElementEventMap ? HTMLElementEventMap[TEventName] : Event;
+  /**
+   * AbortSignal that fires when the island unmounts. If the handler's selector
+   * was registered with the `:abortable` modifier, the signal is also aborted
+   * when the same listener fires again on the same target.
+   */
+  signal: AbortSignal;
 };
 
 // ---------------------------------------------
@@ -858,6 +937,7 @@ interface ParsedOn {
   selector: string;
   eventType: string;
   options: AddEventListenerOptions;
+  abortable: boolean;
 }
 
 function parseOnArgs(selectorOrCombined: string): ParsedOn {
@@ -875,7 +955,40 @@ function parseOnArgs(selectorOrCombined: string): ParsedOn {
       capture: modifiers.has("capture"),
       passive: modifiers.has("passive"),
     },
+    abortable: modifiers.has("abortable"),
   };
+}
+
+/**
+ * Combine multiple AbortSignals into one that aborts when any input aborts.
+ * Uses native AbortSignal.any when available, falls back to a manual chain
+ * otherwise (for older runtimes).
+ */
+function anySignal(signals: AbortSignal[]): AbortSignal {
+  if (
+    typeof (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any ===
+    "function"
+  ) {
+    return (AbortSignal as unknown as { any: (s: AbortSignal[]) => AbortSignal }).any(signals);
+  }
+  const controller = new AbortController();
+  const cleanups: Array<() => void> = [];
+  for (const s of signals) {
+    if (s.aborted) {
+      controller.abort((s as AbortSignal & { reason?: unknown }).reason);
+      cleanups.forEach((c) => c());
+      return controller.signal;
+    }
+    const handler = () => controller.abort((s as AbortSignal & { reason?: unknown }).reason);
+    s.addEventListener("abort", handler, { once: true });
+    cleanups.push(() => s.removeEventListener("abort", handler));
+  }
+  if (!controller.signal.aborted) {
+    controller.signal.addEventListener("abort", () => {
+      cleanups.forEach((c) => c());
+    });
+  }
+  return controller.signal;
 }
 
 interface OnEntry<
@@ -886,11 +999,38 @@ interface OnEntry<
   selector: string;
   event: string;
   options: AddEventListenerOptions;
+  abortable: boolean;
   handler: (ctx: HandlerContext<TInput, TStateMap, TDerivedMap>) => void | Promise<void>;
 }
 
 interface EffectEntry<TInput, TStateMap extends Record<string, unknown>> {
   fn: (ctx: EffectContext<TInput, TStateMap>) => (() => void) | void;
+}
+
+/** Where the error originated. `"on"` covers sync throws and async rejections
+ *  from `.on()` handlers; `"effect"` covers sync throws from `.effect()` runs
+ *  (async work spawned inside an effect is not awaited by the runtime). */
+export type ErrorSource = "on" | "effect";
+
+export type ErrorContext<
+  TInput,
+  TStateMap extends Record<string, unknown>,
+  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+> = {
+  error: Error;
+  source: ErrorSource;
+  state: IslandState<TStateMap>;
+  derived: IslandDerived<TDerivedMap>;
+  input: TInput;
+  host: Element;
+};
+
+interface OnErrorEntry<
+  TInput,
+  TStateMap extends Record<string, unknown>,
+  TDerivedMap extends Record<string, unknown>,
+> {
+  fn: (ctx: ErrorContext<TInput, TStateMap, TDerivedMap>) => void;
 }
 
 interface OnMountEntry<
@@ -930,6 +1070,7 @@ interface BuilderConfig<
   ons: OnEntry<TInput, TStateMap, TDerivedMap>[];
   effects: EffectEntry<TInput, TStateMap>[];
   onMounts: OnMountEntry<TInput, TStateMap, TDerivedMap>[];
+  onErrors: OnErrorEntry<TInput, TStateMap, TDerivedMap>[];
   transition: TransitionOptions | null;
   binds: BindEntry<TStateMap>[];
   css: string | null;
@@ -976,6 +1117,7 @@ class IlhaBuilder<
       ons: [],
       effects: [],
       onMounts: [],
+      onErrors: [],
       transition: null,
       binds: [],
       css: null,
@@ -1049,6 +1191,7 @@ class IlhaBuilder<
           selector: parsed.selector,
           event: parsed.eventType,
           options: parsed.options,
+          abortable: parsed.abortable,
           handler: handler as (
             ctx: HandlerContext<TInput, TStateMap, TDerivedMap>,
           ) => void | Promise<void>,
@@ -1067,6 +1210,12 @@ class IlhaBuilder<
     fn: (ctx: OnMountContext<TInput, TStateMap, TDerivedMap>) => (() => void) | void,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
     return new IlhaBuilder({ ...this._cfg, onMounts: [...this._cfg.onMounts, { fn }] });
+  }
+
+  onError(
+    fn: (ctx: ErrorContext<TInput, TStateMap, TDerivedMap>) => void,
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
+    return new IlhaBuilder({ ...this._cfg, onErrors: [...this._cfg.onErrors, { fn }] });
   }
 
   transition(opts: TransitionOptions): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
@@ -1113,6 +1262,7 @@ class IlhaBuilder<
       ons,
       effects,
       onMounts,
+      onErrors,
       transition,
       binds,
       css: cssSource,
@@ -1347,6 +1497,11 @@ class IlhaBuilder<
       const state = buildSignalState(input, stateSnapshot);
       const cleanups: Array<() => void> = [];
 
+      // Per-island AbortController. Aborted on unmount so handler signals
+      // (and any downstream fetches/awaits) get cancelled cleanly.
+      const unmountController = new AbortController();
+      cleanups.push(() => unmountController.abort());
+
       if (transition?.enter) {
         const result = transition.enter(host);
         if (result instanceof Promise) result.catch(console.error);
@@ -1358,6 +1513,26 @@ class IlhaBuilder<
         TDerivedMap
       >(deriveds as DerivedEntry<TInput, TStateMap>[], state, input, derivedSnapshot);
       cleanups.push(stopDerived);
+
+      // Centralized error sink. Errors thrown by .on() handlers (sync or async)
+      // and .effect() runs are routed through here. If any .onError() handlers
+      // are registered, they run in declaration order; otherwise we fall back
+      // to console.error so errors are never silently swallowed. An error
+      // thrown by an onError handler itself is logged (we don't recurse).
+      function reportError(err: unknown, source: ErrorSource): void {
+        const error = err instanceof Error ? err : new Error(String(err));
+        if (onErrors.length === 0) {
+          console.error(error);
+          return;
+        }
+        for (const entry of onErrors) {
+          try {
+            entry.fn({ error, source, state, derived, input, host });
+          } catch (handlerErr) {
+            console.error(handlerErr);
+          }
+        }
+      }
 
       // Tracks slots currently mounted into the host: id -> { element, unmount }.
       // mountSlots reconciles this against the fresh slot map from each render.
@@ -1443,6 +1618,10 @@ class IlhaBuilder<
       };
       const listeners: ListenerEntry[] = [];
       const firedOnce = new Set<OnEntry<TInput, TStateMap, TDerivedMap>>();
+      const invocationControllers = new WeakMap<
+        OnEntry<TInput, TStateMap, TDerivedMap>,
+        WeakMap<Element, AbortController>
+      >();
 
       function attachListeners() {
         for (const entry of ons) {
@@ -1473,15 +1652,57 @@ class IlhaBuilder<
               const eventTarget = (
                 event.target instanceof Element ? event.target : listenerTarget
               ) as Element;
-              const result = entry.handler({
-                state,
-                derived,
-                input,
-                host,
-                target: eventTarget,
-                event,
-              });
-              if (result instanceof Promise) result.catch(console.error);
+
+              // Build the signal passed to the handler. Always linked to the
+              // unmount signal; if abortable, also linked to a per-invocation
+              // controller that we abort on the next fire.
+              let handlerSignal: AbortSignal;
+              if (entry.abortable) {
+                let entryMap = invocationControllers.get(entry);
+                if (!entryMap) {
+                  entryMap = new WeakMap();
+                  invocationControllers.set(entry, entryMap);
+                }
+                const prev = entryMap.get(listenerTarget);
+                if (prev) prev.abort();
+                const invocationController = new AbortController();
+                entryMap.set(listenerTarget, invocationController);
+                handlerSignal = anySignal([unmountController.signal, invocationController.signal]);
+              } else {
+                handlerSignal = unmountController.signal;
+              }
+
+              // Batch the synchronous portion of the handler so multiple
+              // state writes propagate as a single update. If the handler
+              // returns a promise, the batch ends after the sync portion;
+              // post-await writes batch themselves implicitly via signal
+              // semantics (or can be wrapped in batch() if needed).
+              let result: void | Promise<void>;
+              startBatch();
+              try {
+                result = entry.handler({
+                  state,
+                  derived,
+                  input,
+                  host,
+                  target: eventTarget,
+                  event,
+                  signal: handlerSignal,
+                });
+              } catch (err) {
+                reportError(err, "on");
+                endBatch();
+                return;
+              }
+              endBatch();
+              if (result instanceof Promise) {
+                result.catch((err) => {
+                  // AbortError is the expected outcome of cancellation —
+                  // don't surface it. Anything else is a real handler error.
+                  if (err && (err as { name?: string }).name === "AbortError") return;
+                  reportError(err, "on");
+                });
+              }
             };
             const opts = { ...entry.options, once: false };
             listenerTarget.addEventListener(entry.event, listener, opts);
@@ -1611,16 +1832,44 @@ class IlhaBuilder<
 
       for (const entry of effects) {
         let userCleanup: (() => void) | void;
+        let runController: AbortController | null = null;
         const stopEffect = effect(() => {
           if (userCleanup) {
-            userCleanup();
+            try {
+              userCleanup();
+            } catch (err) {
+              reportError(err, "effect");
+            }
             userCleanup = undefined;
           }
-          userCleanup = entry.fn({ state, input, host });
+          // Abort the previous run's signal so any in-flight async work bails
+          // before we kick off the next run. Race-cancel is the default for
+          // effects (unlike .on(), which requires :abortable opt-in) because
+          // dependency changes invariably make the previous run stale.
+          if (runController) runController.abort();
+          runController = new AbortController();
+          const runSignal = anySignal([unmountController.signal, runController.signal]);
+          // Batch writes inside the effect so multiple state mutations in a
+          // single run propagate atomically.
+          startBatch();
+          try {
+            userCleanup = entry.fn({ state, input, host, signal: runSignal });
+          } catch (err) {
+            reportError(err, "effect");
+          } finally {
+            endBatch();
+          }
         });
         cleanups.push(() => {
           stopEffect();
-          if (userCleanup) userCleanup();
+          if (userCleanup) {
+            try {
+              userCleanup();
+            } catch (err) {
+              reportError(err, "effect");
+            }
+          }
+          if (runController) runController.abort();
         });
       }
 
@@ -1850,6 +2099,7 @@ const EMPTY_CFG: BuilderConfig<
   ons: [],
   effects: [],
   onMounts: [],
+  onErrors: [],
   transition: null,
   binds: [],
   css: null,
@@ -1863,6 +2113,9 @@ const ilha = Object.assign(rootBuilder, {
   mount: mountAll,
   from: ilhaFrom,
   context: ilhaContext,
+  signal: ilhaSignal,
+  batch,
+  untrack,
 });
 
 export const html = ilhaHtml;
@@ -1871,4 +2124,5 @@ export const css = ilhaCss;
 export const mount = mountAll;
 export const from = ilhaFrom;
 export const context = ilhaContext;
+export { ilhaSignal as signal };
 export default ilha;

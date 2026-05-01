@@ -112,7 +112,7 @@ Children are preserved across parent re-renders. If a keyed list reorders, live 
 
 ## Accessing child state from the parent
 
-Child islands are self-contained — the parent cannot directly read or write the child's state. If you need to share values between parent and child, use [`context()`](/guide/helpers/context) to create a shared global signal that both islands can read and write:
+Child islands are self-contained — the parent cannot directly read or write the child's state. If you need to share values between parent and child, use [`context()`](/guide/helpers/signals) to create a shared global signal that both islands can read and write:
 
 ```ts twoslash
 import ilha, { html, context } from "ilha";
