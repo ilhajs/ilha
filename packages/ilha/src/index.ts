@@ -1620,7 +1620,7 @@ class IlhaBuilder<
       const firedOnce = new Set<OnEntry<TInput, TStateMap, TDerivedMap>>();
       const invocationControllers = new WeakMap<
         OnEntry<TInput, TStateMap, TDerivedMap>,
-        Map<Element, AbortController>
+        WeakMap<Element, AbortController>
       >();
 
       function attachListeners() {
@@ -1660,7 +1660,7 @@ class IlhaBuilder<
               if (entry.abortable) {
                 let entryMap = invocationControllers.get(entry);
                 if (!entryMap) {
-                  entryMap = new Map();
+                  entryMap = new WeakMap();
                   invocationControllers.set(entry, entryMap);
                 }
                 const prev = entryMap.get(listenerTarget);
