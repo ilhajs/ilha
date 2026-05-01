@@ -11,7 +11,7 @@ import { PackageManagerTabs } from "@rspress/core/theme";
 
 ## How it relates to ilha
 
-Every route in `@ilha/router` is just an ilha island. The router maps URL patterns to islands, runs their loaders, and manages which one is rendered or mounted at any given time. Route context signals (`routePath`, `routeParams`, etc.) are standard [`context()`](/guide/helpers/context) signals, so any island in your app can read the current route without any special wiring.
+Every route in `@ilha/router` is just an ilha island. The router maps URL patterns to islands, runs their loaders, and manages which one is rendered or mounted at any given time. Route context signals (`routePath`, `routeParams`, etc.) are standard [`context()`](/guide/helpers/signals) signals, so any island in your app can read the current route without any special wiring.
 
 ## Install
 

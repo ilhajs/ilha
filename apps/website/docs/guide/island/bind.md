@@ -84,7 +84,23 @@ This means you rarely need to parse or cast values manually in your handlers.
 
 ## Binding to an external signal
 
-Instead of a state key, you can pass a signal created with [`context()`](/guide/helpers/context). This is useful when multiple islands need to share the same form value:
+Instead of a state key, you can pass an external signal created with `signal()` or `context()`. Use `signal()` for one-off shared state you hold a reference to, and `context()` when you want a named global registry:
+
+```ts twoslash
+import ilha, { html, signal } from "ilha";
+
+const username = signal("");
+
+const LoginForm = ilha.bind("input", username).render(
+  () => html`
+    <form>
+      <input placeholder="Username" />
+    </form>
+  `,
+);
+```
+
+[`context()`](/guide/helpers/signals) works the same way but is looked up by string key, which is useful when the binding lives in a different module from the signal definition:
 
 ```ts twoslash
 import ilha, { html, context } from "ilha";

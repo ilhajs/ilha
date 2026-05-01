@@ -48,11 +48,12 @@ Omit the selector to target the island host element itself:
 
 Append modifiers after the event name with `:` as a separator:
 
-| Modifier  | Equivalent          | Description                                                |
-| --------- | ------------------- | ---------------------------------------------------------- |
-| `once`    | `{ once: true }`    | Listener fires only once, then removes itself              |
-| `capture` | `{ capture: true }` | Listens in the capture phase                               |
-| `passive` | `{ passive: true }` | Hints the browser this handler won't call `preventDefault` |
+| Modifier    | Equivalent          | Description                                                |
+| ----------- | ------------------- | ---------------------------------------------------------- |
+| `once`      | `{ once: true }`    | Listener fires only once, then removes itself              |
+| `capture`   | `{ capture: true }` | Listens in the capture phase                               |
+| `passive`   | `{ passive: true }` | Hints the browser this handler won't call `preventDefault` |
+| `abortable` | —                   | `ctx.signal` aborts when the same listener fires again     |
 
 ```ts
 .on("button@click:once", handler)
@@ -74,6 +75,7 @@ The handler receives a `HandlerContext` with everything needed to respond to the
   host: Element; // island root element
   target: Element; // element that fired the event
   event: Event; // the native DOM event
+  signal: AbortSignal; // aborts on unmount, and on next fire if :abortable
 }
 ```
 
@@ -90,20 +92,68 @@ const Island = ilha
   .render(({ state }) => `<input value="${state.value()}" />`);
 ```
 
-## Async handlers
+## Cancelling async work with `ctx.signal`
 
-Handlers can be async. Errors are not caught automatically, so handle them explicitly:
+Every handler receives an `AbortSignal` on `ctx.signal`. It aborts when the island unmounts, so you can pass it directly to `fetch` or any abort-aware API to cancel stale work automatically:
+
+```ts twoslash
+import ilha, { html } from "ilha";
+
+const Island = ilha
+  .state("results", [])
+  .on("button@click", async ({ state, signal }) => {
+    const res = await fetch("/api/data", { signal });
+    state.results(await res.json());
+  })
+  .render(
+    () =>
+      html`<button>Load</button>
+        <ul></ul>`,
+  );
+```
+
+## Race-cancellation with `:abortable`
+
+When the same listener fires again on the same target, the previous invocation's signal aborts. This is opt-in via the `:abortable` modifier:
+
+```ts twoslash
+import ilha, { html } from "ilha";
+
+const Search = ilha
+  .state("query", "")
+  .state("results", [])
+  .on("input@input:abortable", async ({ state, event, signal }) => {
+    const q = (event.target as HTMLInputElement).value;
+    const res = await fetch(`/search?q=${q}`, { signal });
+    if (signal.aborted) return;
+    state.results(await res.json());
+  })
+  .render(
+    ({ state }) => html`
+      <input value="${state.query()}" />
+      <ul>
+        ${state.results().map((r) => html`<li>${r}</li>`)}
+      </ul>
+    `,
+  );
+```
+
+Race-cancellation is scoped per-target — clicking button A does not cancel an in-flight handler on button B.
+
+## Async handlers and errors
+
+Async errors (and sync throws) are caught automatically and routed to [`.onError()`](/guide/island/onerror) handlers if any are registered. `AbortError` rejections from cancelled work are filtered out and do not reach `.onError()` or `console.error`.
 
 ```ts twoslash
 import ilha, { html } from "ilha";
 
 const Form = ilha
   .state("loading", false)
-  .on("form@submit", async ({ state, event }) => {
+  .on("form@submit", async ({ state, event, signal }) => {
     event.preventDefault();
     state.loading(true);
     try {
-      await fetch("/api/submit", { method: "POST" });
+      await fetch("/api/submit", { method: "POST", signal });
     } finally {
       state.loading(false);
     }
@@ -141,6 +191,18 @@ const Counter = ilha
       </div>
     `,
   );
+```
+
+## Implicit batching
+
+Multiple synchronous state writes inside a single handler produce one re-render, not one per write:
+
+```ts
+.on("@click", ({ state }) => {
+  state.a(1);
+  state.b(2);
+  state.c(3); // → one render, not three
+})
 ```
 
 ## Dev mode warnings

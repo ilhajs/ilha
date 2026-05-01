@@ -105,7 +105,7 @@ const Toggle = ilha
 
 ## Sharing state across islands
 
-State declared with `.state()` is local to one island. If you need to share a value across multiple islands, use [`context()`](/guide/helpers/context) instead, which creates a named global signal.
+State declared with `.state()` is local to one island. If you need to share a value across multiple islands, use [`context()`](/guide/helpers/signals) instead, which creates a named global signal.
 
 ## Notes
 

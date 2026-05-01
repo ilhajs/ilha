@@ -1,6 +1,6 @@
 {
   "name": "@ilha/store",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Typed store.",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
@@ -29,9 +29,9 @@
   },
   "dependencies": {
     "alien-signals": "3.1.2",
-    "ilha": "0.3.1"
+    "ilha": "0.4.0"
   },
   "devDependencies": {
-    "zod": "^4.3.6"
+    "zod": "^4.4.1"
   }
 }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 
 import { z } from "zod";
 
-import ilha, { html, raw, css, mount, from, context } from "./index";
+import ilha, { html, raw, css, mount, from, context, signal, batch, untrack } from "./index";
 
 // ---------------------------------------------
 // Helpers
@@ -13,6 +13,20 @@ function dedent(str: string | { value: string }): string {
   const lines = s.split("\n").filter((l) => l.trim() !== "");
   const indent = Math.min(...lines.map((l) => l.match(/^(\s*)/)![1]!.length));
   return lines.map((l) => l.slice(indent)).join("\n");
+}
+
+/**
+ * Normalize HTML whitespace for formatter-agnostic assertions.
+ * Collapses runs of whitespace into a single space, strips whitespace
+ * adjacent to tag boundaries, and trims. Use this when asserting on the
+ * *content* of html`` output, not the exact whitespace shape — because
+ * `oxfmt` (or any other formatter) may reflow the input template literal
+ * and change incidental whitespace in the output without changing what
+ * the test is actually verifying.
+ */
+function normalizeHtml(s: string | { value: string }): string {
+  const str = typeof s === "object" ? s.value : s;
+  return str.replace(/\s+/g, " ").replace(/>\s+/g, ">").replace(/\s+</g, "<").trim();
 }
 
 function makeEl(inner = ""): Element {
@@ -33,9 +47,11 @@ function cleanup(el: Element) {
 describe("html``", () => {
   it("renders static strings", () => {
     expect(
-      html`
-        <p>hello</p>
-      `.value,
+      normalizeHtml(
+        html`
+          <p>hello</p>
+        `,
+      ),
     ).toBe("<p>hello</p>");
   });
 
@@ -94,7 +110,7 @@ describe("html``", () => {
       <p>test</p>
     `;
     expect(typeof result).toBe("object");
-    expect(result.value).toBe("<p>test</p>");
+    expect(normalizeHtml(result)).toBe("<p>test</p>");
   });
 });
 
@@ -105,28 +121,56 @@ describe("html``", () => {
 describe("html`` array interpolation", () => {
   it("renders an array of strings as concatenated escaped HTML", () => {
     const items = ["foo", "bar", "baz"];
-    expect(html`<ul>${items}</ul>`.value).toBe("<ul>foobarbaz</ul>");
+    expect(
+      normalizeHtml(
+        html`<ul>
+          ${items}
+        </ul>`,
+      ),
+    ).toBe("<ul>foobarbaz</ul>");
   });
 
   it("escapes each string element in an array", () => {
     const items = ["<b>bold</b>", "<script>xss</script>"];
-    expect(html`<ul>${items}</ul>`.value).toBe(
-      "<ul>&lt;b&gt;bold&lt;/b&gt;&lt;script&gt;xss&lt;/script&gt;</ul>",
-    );
+    expect(
+      normalizeHtml(
+        html`<ul>
+          ${items}
+        </ul>`,
+      ),
+    ).toBe("<ul>&lt;b&gt;bold&lt;/b&gt;&lt;script&gt;xss&lt;/script&gt;</ul>");
   });
 
   it("renders an array of raw() items unescaped", () => {
     const items = [raw("<li>one</li>"), raw("<li>two</li>")];
-    expect(html`<ul>${items}</ul>`.value).toBe("<ul><li>one</li><li>two</li></ul>");
+    expect(
+      normalizeHtml(
+        html`<ul>
+          ${items}
+        </ul>`,
+      ),
+    ).toBe("<ul><li>one</li><li>two</li></ul>");
   });
 
   it("renders a mixed array of strings and raw() items correctly", () => {
     const items = ["<safe>", raw("<li>raw</li>")];
-    expect(html`<ul>${items}</ul>`.value).toBe("<ul>&lt;safe&gt;<li>raw</li></ul>");
+    expect(
+      normalizeHtml(
+        html`<ul>
+          ${items}
+        </ul>`,
+      ),
+    ).toBe("<ul>&lt;safe&gt;<li>raw</li></ul>");
   });
 
   it("renders an empty array as empty string", () => {
-    expect(html`<ul>${[]}</ul>`.value).toBe("<ul></ul>");
+    expect(
+      normalizeHtml(
+        html`<ul>
+          ${[]}
+        </ul>`,
+      ),
+    ).toBe("<ul></ul>");
   });
 
   it("renders an array of numbers", () => {
@@ -141,25 +185,37 @@ describe("html`` array interpolation", () => {
 
   it("renders an array of html`` results directly — the canonical list rendering pattern", () => {
     const fruits = ["apple", "banana", "cherry"];
-    const result = html`<ul>${fruits.map((f) => html`<li>${f}</li>`)}</ul>`;
-    expect(result.value).toBe("<ul><li>apple</li><li>banana</li><li>cherry</li></ul>");
+    const result = html`<ul>
+      ${fruits.map((f) => html`<li>${f}</li>`)}
+    </ul>`;
+    expect(normalizeHtml(result)).toBe("<ul><li>apple</li><li>banana</li><li>cherry</li></ul>");
   });
 
   it("renders an array produced by .map() with raw() — legacy pattern still works", () => {
     const fruits = ["apple", "banana", "cherry"];
-    const result = html`<ul>${fruits.map((f) => raw(`<li>${f}</li>`))}</ul>`;
-    expect(result.value).toBe("<ul><li>apple</li><li>banana</li><li>cherry</li></ul>");
+    const result = html`<ul>
+      ${fruits.map((f) => raw(`<li>${f}</li>`))}
+    </ul>`;
+    expect(normalizeHtml(result)).toBe("<ul><li>apple</li><li>banana</li><li>cherry</li></ul>");
   });
 
   it("renders a mapped array of html`` with XSS-safe escaping per item", () => {
     const items = ["<script>", "safe"];
-    const result = html`<ul>${items.map((i) => html`<li>${i}</li>`)}</ul>`;
-    expect(result.value).toBe("<ul><li>&lt;script&gt;</li><li>safe</li></ul>");
+    const result = html`<ul>
+      ${items.map((i) => html`<li>${i}</li>`)}
+    </ul>`;
+    expect(normalizeHtml(result)).toBe("<ul><li>&lt;script&gt;</li><li>safe</li></ul>");
   });
 
   it("renders nested arrays by flattening one level", () => {
     const rows = [[raw("<td>a</td>"), raw("<td>b</td>")]];
-    expect(html`<tr>${rows}</tr>`.value).toBe("<tr><td>a</td><td>b</td></tr>");
+    expect(
+      normalizeHtml(
+        html`<tr>
+          ${rows}
+        </tr>`,
+      ),
+    ).toBe("<tr><td>a</td><td>b</td></tr>");
   });
 
   it("passes array of html`` results directly into Parent html`` without .join()", () => {
@@ -172,9 +228,11 @@ describe("html`` array interpolation", () => {
 
   it("does NOT produce commas when array of html`` is interpolated", () => {
     const items = ["a", "b", "c"].map((x) => html`<li>${x}</li>`);
-    const result = html`<ul>${items}</ul>`;
+    const result = html`<ul>
+      ${items}
+    </ul>`;
     expect(result.value).not.toContain(",");
-    expect(result.value).toBe("<ul><li>a</li><li>b</li><li>c</li></ul>");
+    expect(normalizeHtml(result)).toBe("<ul><li>a</li><li>b</li><li>c</li></ul>");
   });
 });
 
@@ -251,9 +309,16 @@ describe("Island SSR", () => {
     const Island = ilha
       .input(z.object({}))
       .state("items", ["a", "b", "c"])
-      .render(({ state }) => html`<ul>${state.items().map((i) => html`<li>${i}</li>`)}</ul>`);
+      .render(
+        ({ state }) =>
+          html`<ul>
+            ${state.items().map((i) => html`<li>${i}</li>`)}
+          </ul>`,
+      );
 
-    expect(Island()).toBe("<ul><li>a</li><li>b</li><li>c</li></ul>");
+    const out = Island() as string;
+    expect(out).not.toContain(",");
+    expect(normalizeHtml(out)).toBe("<ul><li>a</li><li>b</li><li>c</li></ul>");
   });
 
   it("renders Plain state value without function init", () => {
@@ -448,6 +513,191 @@ describe("Island mount", () => {
     unmount();
     expect(log.some((l) => l.startsWith("cleanup:"))).toBe(true);
     cleanup(el);
+  });
+
+  describe(".effect() signal", () => {
+    it("provides ctx.signal to effects (not aborted during the run)", () => {
+      let captured: AbortSignal | undefined;
+
+      const Island = ilha
+        .state("x", 0)
+        .effect(({ signal }) => {
+          captured = signal;
+        })
+        .render(({ state }) => `<p>${state.x()}</p>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+
+      expect(captured).toBeInstanceOf(AbortSignal);
+      expect(captured!.aborted).toBe(false);
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("ctx.signal aborts when the island unmounts", () => {
+      let captured: AbortSignal | undefined;
+
+      const Island = ilha
+        .state("x", 0)
+        .effect(({ signal }) => {
+          captured = signal;
+        })
+        .render(({ state }) => `<p>${state.x()}</p>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+
+      expect(captured!.aborted).toBe(false);
+      unmount();
+      expect(captured!.aborted).toBe(true);
+
+      cleanup(el);
+    });
+
+    it("ctx.signal aborts when the effect re-runs (race-cancel by default)", () => {
+      const signals: AbortSignal[] = [];
+      let accessor!: (v?: number) => number | void;
+
+      const Island = ilha
+        .state("count", 0)
+        .effect(({ state, signal }) => {
+          accessor = state.count as typeof accessor;
+          state.count(); // track
+          signals.push(signal);
+        })
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+
+      expect(signals.length).toBe(1);
+      expect(signals[0]!.aborted).toBe(false);
+
+      accessor(1);
+      expect(signals.length).toBe(2);
+      // First run's signal aborted when the effect re-ran.
+      expect(signals[0]!.aborted).toBe(true);
+      expect(signals[1]!.aborted).toBe(false);
+
+      accessor(2);
+      expect(signals.length).toBe(3);
+      expect(signals[1]!.aborted).toBe(true);
+      expect(signals[2]!.aborted).toBe(false);
+
+      unmount();
+      // Latest signal also aborts on unmount.
+      expect(signals[2]!.aborted).toBe(true);
+
+      cleanup(el);
+    });
+
+    it("each effect run gets a fresh signal (signals are not reused)", () => {
+      const signals: AbortSignal[] = [];
+      let accessor!: (v?: number) => number | void;
+
+      const Island = ilha
+        .state("n", 0)
+        .effect(({ state, signal }) => {
+          accessor = state.n as typeof accessor;
+          state.n(); // track
+          signals.push(signal);
+        })
+        .render(({ state }) => `${state.n()}`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      accessor(1);
+      accessor(2);
+
+      // No two signals should be the same instance.
+      expect(new Set(signals).size).toBe(signals.length);
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("real-world: stale fetch is cancelled when effect re-runs", async () => {
+      const completed: number[] = [];
+      const aborted: number[] = [];
+      let accessor!: (v?: number) => number | void;
+
+      function fakeFetch(value: number, signal: AbortSignal): Promise<number> {
+        return new Promise((resolve, reject) => {
+          const t = setTimeout(() => resolve(value), 10);
+          signal.addEventListener("abort", () => {
+            clearTimeout(t);
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      }
+
+      const Island = ilha
+        .state("query", 0)
+        .effect(({ state, signal }) => {
+          accessor = state.query as typeof accessor;
+          const q = state.query();
+          (async () => {
+            try {
+              const result = await fakeFetch(q, signal);
+              completed.push(result);
+            } catch (err) {
+              if ((err as Error).name === "AbortError") aborted.push(q);
+              else throw err;
+            }
+          })();
+        })
+        .render(({ state }) => `${state.query()}`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+
+      // Trigger several re-runs in quick succession; only the last should complete.
+      accessor(1);
+      accessor(2);
+      accessor(3);
+
+      await new Promise((r) => setTimeout(r, 25));
+
+      expect(completed).toEqual([3]);
+      // Initial run (query=0) and intermediate runs (1, 2) all aborted.
+      expect(aborted).toEqual([0, 1, 2]);
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("user cleanup still runs alongside signal abort on re-run", () => {
+      const log: string[] = [];
+      let accessor!: (v?: number) => number | void;
+
+      const Island = ilha
+        .state("n", 0)
+        .effect(({ state, signal }) => {
+          accessor = state.n as typeof accessor;
+          const n = state.n();
+          log.push(`run:${n}`);
+          signal.addEventListener("abort", () => log.push(`abort:${n}`));
+          return () => log.push(`cleanup:${n}`);
+        })
+        .render(({ state }) => `${state.n()}`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+
+      accessor(1);
+
+      // Both user cleanup and signal abort fire when the effect re-runs.
+      expect(log).toContain("cleanup:0");
+      expect(log).toContain("abort:0");
+      expect(log).toContain("run:1");
+
+      unmount();
+      cleanup(el);
+    });
   });
 
   it("two mounted instances have independent state", () => {
@@ -891,6 +1141,272 @@ describe("Island mount", () => {
 
       expect(Island()).toBe("<p>0</p><button data-btn>go</button>");
       expect(calls.length).toBe(0);
+    });
+  });
+
+  describe(".on() :abortable + signal", () => {
+    it("provides ctx.signal to handlers (not aborted at fire time)", () => {
+      let captured: AbortSignal | undefined;
+
+      const Island = ilha
+        .on("@click", ({ signal }) => {
+          captured = signal;
+        })
+        .render(() => `<p>hi</p>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      (el as HTMLElement).click();
+
+      expect(captured).toBeInstanceOf(AbortSignal);
+      expect(captured!.aborted).toBe(false);
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("ctx.signal aborts when the island unmounts", () => {
+      let captured: AbortSignal | undefined;
+
+      const Island = ilha
+        .on("@click", ({ signal }) => {
+          captured = signal;
+        })
+        .render(() => `<p>hi</p>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      (el as HTMLElement).click();
+
+      expect(captured!.aborted).toBe(false);
+      unmount();
+      expect(captured!.aborted).toBe(true);
+
+      cleanup(el);
+    });
+
+    it("without :abortable, repeated fires on same target do NOT abort prior signals", () => {
+      const signals: AbortSignal[] = [];
+
+      const Island = ilha
+        .on("[data-btn]@click", ({ signal }) => {
+          signals.push(signal);
+        })
+        .render(() => `<button data-btn>go</button>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const btn = el.querySelector("[data-btn]") as HTMLButtonElement;
+      btn.click();
+      btn.click();
+      btn.click();
+
+      expect(signals.length).toBe(3);
+      expect(signals[0]!.aborted).toBe(false);
+      expect(signals[1]!.aborted).toBe(false);
+      expect(signals[2]!.aborted).toBe(false);
+
+      unmount();
+      cleanup(el);
+    });
+
+    it(":abortable aborts the prior invocation's signal when same target re-fires", () => {
+      const signals: AbortSignal[] = [];
+
+      const Island = ilha
+        .on("[data-btn]@click:abortable", ({ signal }) => {
+          signals.push(signal);
+        })
+        .render(() => `<button data-btn>go</button>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const btn = el.querySelector("[data-btn]") as HTMLButtonElement;
+
+      btn.click();
+      expect(signals[0]!.aborted).toBe(false);
+
+      btn.click();
+      expect(signals[0]!.aborted).toBe(true);
+      expect(signals[1]!.aborted).toBe(false);
+
+      btn.click();
+      expect(signals[1]!.aborted).toBe(true);
+      expect(signals[2]!.aborted).toBe(false);
+
+      unmount();
+      expect(signals[2]!.aborted).toBe(true);
+      cleanup(el);
+    });
+
+    it(":abortable scope is per-target — different elements don't cancel each other", () => {
+      const signalsByTarget = new Map<Element, AbortSignal[]>();
+
+      const Island = ilha
+        .on("[data-btn]@click:abortable", ({ signal, target }) => {
+          if (!signalsByTarget.has(target)) signalsByTarget.set(target, []);
+          signalsByTarget.get(target)!.push(signal);
+        })
+        .render(() => `<button data-btn id="a">a</button><button data-btn id="b">b</button>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const a = el.querySelector("#a") as HTMLButtonElement;
+      const b = el.querySelector("#b") as HTMLButtonElement;
+
+      a.click();
+      b.click();
+
+      const aSignals = signalsByTarget.get(a)!;
+      const bSignals = signalsByTarget.get(b)!;
+
+      // Clicking b should NOT abort the in-flight a signal — they're scoped per target.
+      expect(aSignals[0]!.aborted).toBe(false);
+      expect(bSignals[0]!.aborted).toBe(false);
+
+      // But clicking a again DOES abort the prior a signal.
+      a.click();
+      expect(aSignals[0]!.aborted).toBe(true);
+      expect(aSignals[1]!.aborted).toBe(false);
+      expect(bSignals[0]!.aborted).toBe(false);
+
+      unmount();
+      cleanup(el);
+    });
+
+    it(":abortable signals also abort on unmount", () => {
+      const signals: AbortSignal[] = [];
+
+      const Island = ilha
+        .on("[data-btn]@click:abortable", ({ signal }) => {
+          signals.push(signal);
+        })
+        .render(() => `<button data-btn>go</button>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      (el.querySelector("[data-btn]") as HTMLButtonElement).click();
+
+      expect(signals[0]!.aborted).toBe(false);
+      unmount();
+      expect(signals[0]!.aborted).toBe(true);
+      cleanup(el);
+    });
+
+    it("AbortError rejections from async handlers are not logged to console.error", async () => {
+      const errSpy = spyOn(console, "error").mockImplementation(() => {});
+
+      const Island = ilha
+        .on("[data-btn]@click", async ({ signal }) => {
+          await new Promise((resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => {
+                const err = new Error("aborted");
+                err.name = "AbortError";
+                reject(err);
+              },
+              { once: true },
+            );
+            // Never resolve naturally — only the abort path will fire.
+            void resolve;
+          });
+        })
+        .render(() => `<button data-btn>go</button>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      (el.querySelector("[data-btn]") as HTMLButtonElement).click();
+
+      // Trigger abort by unmounting — the handler's promise rejects with AbortError.
+      unmount();
+      // Let the rejection propagate.
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(errSpy).not.toHaveBeenCalled();
+
+      errSpy.mockRestore();
+      cleanup(el);
+    });
+
+    it("non-AbortError rejections from async handlers ARE logged", async () => {
+      const errSpy = spyOn(console, "error").mockImplementation(() => {});
+
+      const Island = ilha
+        .on("[data-btn]@click", async () => {
+          throw new Error("boom");
+        })
+        .render(() => `<button data-btn>go</button>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      (el.querySelector("[data-btn]") as HTMLButtonElement).click();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(errSpy).toHaveBeenCalled();
+
+      errSpy.mockRestore();
+      unmount();
+      cleanup(el);
+    });
+
+    it("real-world: stale fetch is cancelled by :abortable race-cancel", async () => {
+      const completed: string[] = [];
+      const aborted: string[] = [];
+
+      function fakeFetch(label: string, signal: AbortSignal): Promise<string> {
+        return new Promise((resolve, reject) => {
+          const t = setTimeout(() => resolve(label), 10);
+          signal.addEventListener("abort", () => {
+            clearTimeout(t);
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      }
+
+      const Island = ilha
+        .on("[data-btn]@click:abortable", async ({ signal, target }) => {
+          const label = (target as HTMLElement).dataset["label"]!;
+          try {
+            const result = await fakeFetch(label, signal);
+            completed.push(result);
+          } catch (err) {
+            if ((err as Error).name === "AbortError") aborted.push(label);
+            else throw err;
+          }
+        })
+        .render(
+          () =>
+            `<button data-btn data-label="first">1</button><button data-btn data-label="second">2</button>`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const [first, second] = Array.from(el.querySelectorAll("[data-btn]")) as HTMLButtonElement[];
+
+      // Click both — they target different elements, so both should complete (per-target scope).
+      first!.click();
+      second!.click();
+      await new Promise((r) => setTimeout(r, 25));
+
+      expect(completed).toContain("first");
+      expect(completed).toContain("second");
+      expect(aborted).toEqual([]);
+
+      // Now click first twice rapidly — second click should abort the first.
+      completed.length = 0;
+      aborted.length = 0;
+      first!.click();
+      first!.click();
+      await new Promise((r) => setTimeout(r, 25));
+
+      expect(aborted).toEqual(["first"]);
+      expect(completed).toEqual(["first"]);
+
+      unmount();
+      cleanup(el);
     });
   });
 
@@ -1694,7 +2210,11 @@ describe("child islands (render-time composition)", () => {
       .on("[data-inc]@click", ({ state }) => {
         state.count(state.count() + 1);
       })
-      .render(({ state }) => html`<p>${state.count()}</p><button data-inc>+</button>`);
+      .render(
+        ({ state }) =>
+          html`<p>${state.count()}</p>
+            <button data-inc>+</button>`,
+      );
 
     const Parent = ilha.render(() => html`<div class="Parent">${Child}</div>`);
 
@@ -1717,7 +2237,11 @@ describe("child islands (render-time composition)", () => {
       .on("[data-inc]@click", ({ state }) => {
         state.count(state.count() + 1);
       })
-      .render(({ state }) => html`<p>${state.count()}</p><button data-inc>+</button>`);
+      .render(
+        ({ state }) =>
+          html`<p>${state.count()}</p>
+            <button data-inc>+</button>`,
+      );
 
     let ParentAccessor!: (v?: number) => number | void;
 
@@ -1840,7 +2364,9 @@ describe("child islands (render-time composition)", () => {
 
       const List = ilha.state<string[]>("order", ["a", "b", "c"]).render(({ state }) => {
         setOrder = state.order as unknown as typeof setOrder;
-        return html`<ul>${state.order().map((k) => Item.key(k))}</ul>`;
+        return html`<ul>
+          ${state.order().map((k) => Item.key(k))}
+        </ul>`;
       });
 
       const el = makeEl();
@@ -2744,8 +3270,18 @@ describe(".bind", () => {
         .render(({ state }) => {
           accessor = state.plan as typeof accessor;
           return html`
-            <input type="radio" name="plan" value="free" ${state.plan() === "free" ? "checked" : ""}>
-            <input type="radio" name="plan" value="pro" ${state.plan() === "pro" ? "checked" : ""}>
+            <input
+              type="radio"
+              name="plan"
+              value="free"
+              ${state.plan() === "free" ? "checked" : ""}
+            />
+            <input
+              type="radio"
+              name="plan"
+              value="pro"
+              ${state.plan() === "pro" ? "checked" : ""}
+            />
           `;
         });
 
@@ -2767,11 +3303,10 @@ describe(".bind", () => {
         .state("level", 2)
         .bind("[name='level']", "level")
         .render(
-          ({ state }) =>
-            html`
-            <input type="radio" name="level" value="1" ${state.level() === 1 ? "checked" : ""}>
-            <input type="radio" name="level" value="2" ${state.level() === 2 ? "checked" : ""}>
-            <input type="radio" name="level" value="3" ${state.level() === 3 ? "checked" : ""}>
+          ({ state }) => html`
+            <input type="radio" name="level" value="1" ${state.level() === 1 ? "checked" : ""} />
+            <input type="radio" name="level" value="2" ${state.level() === 2 ? "checked" : ""} />
+            <input type="radio" name="level" value="3" ${state.level() === 3 ? "checked" : ""} />
             <p>${state.level()}</p>
           `,
         );
@@ -2916,6 +3451,503 @@ describe(".onMount", () => {
     const initialRenders = renders.length;
     accessor(99);
     expect(renders.length).toBe(initialRenders + 1);
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------
+// signal() — top-level external signals
+// ---------------------------------------------
+
+describe("signal()", () => {
+  it("returns a getter/setter accessor", () => {
+    const s = signal(42);
+    expect(s()).toBe(42);
+    s(100);
+    expect(s()).toBe(100);
+  });
+
+  it("can be read inside an island's .render() and reacts to changes", () => {
+    const count = signal(0);
+
+    const Island = ilha.render(() => `<p>${count()}</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(el.querySelector("p")!.textContent).toBe("0");
+
+    count(5);
+    expect(el.querySelector("p")!.textContent).toBe("5");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("can be read inside .derived() and triggers re-derivation", () => {
+    const base = signal(10);
+
+    const Island = ilha
+      .derived("doubled", () => base() * 2)
+      .render(({ derived }) => `<p>${derived.doubled.value}</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(el.querySelector("p")!.textContent).toBe("20");
+
+    base(7);
+    expect(el.querySelector("p")!.textContent).toBe("14");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("is shared across multiple island instances", () => {
+    const shared = signal("hello");
+
+    const A = ilha.render(() => `<p class="a">${shared()}</p>`);
+    const B = ilha.render(() => `<p class="b">${shared()}</p>`);
+
+    const elA = makeEl();
+    const elB = makeEl();
+    const unA = A.mount(elA);
+    const unB = B.mount(elB);
+
+    expect(elA.querySelector(".a")!.textContent).toBe("hello");
+    expect(elB.querySelector(".b")!.textContent).toBe("hello");
+
+    shared("world");
+
+    expect(elA.querySelector(".a")!.textContent).toBe("world");
+    expect(elB.querySelector(".b")!.textContent).toBe("world");
+
+    unA();
+    unB();
+    cleanup(elA);
+    cleanup(elB);
+  });
+
+  it("ilha.signal is the same export as the named signal()", () => {
+    expect(ilha.signal).toBe(signal);
+  });
+});
+
+// ---------------------------------------------
+// batch()
+// ---------------------------------------------
+
+describe("batch()", () => {
+  it("multiple writes inside batch produce a single effect run", () => {
+    const a = signal(1);
+    const b = signal(2);
+    const runs: number[] = [];
+
+    const Island = ilha
+      .effect(() => {
+        runs.push(a() + b());
+      })
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+
+    expect(runs).toEqual([3]); // initial run
+
+    batch(() => {
+      a(10);
+      b(20);
+    });
+
+    // One additional run, not two — both writes batched.
+    expect(runs).toEqual([3, 30]);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("returns the value returned by the callback", () => {
+    const result = batch(() => 42);
+    expect(result).toBe(42);
+  });
+
+  it("multiple writes outside batch produce one effect run per write (baseline)", () => {
+    const a = signal(1);
+    const b = signal(2);
+    const runs: number[] = [];
+
+    const Island = ilha
+      .effect(() => {
+        runs.push(a() + b());
+      })
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(runs.length).toBe(1);
+
+    a(10);
+    b(20);
+
+    // Without batch, each write triggers a propagation pass.
+    expect(runs.length).toBe(3);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it(".on() handlers are implicitly batched (sync portion)", () => {
+    const renders: number[] = [];
+    let accessorA!: (v?: number) => number | void;
+    let accessorB!: (v?: number) => number | void;
+
+    const Island = ilha
+      .state("a", 0)
+      .state("b", 0)
+      .on("@click", ({ state }) => {
+        accessorA = state.a as typeof accessorA;
+        accessorB = state.b as typeof accessorB;
+        // Three writes in one handler — should produce one render, not three.
+        state.a(state.a() + 1);
+        state.b(state.b() + 1);
+        state.a(state.a() + 1);
+      })
+      .render(({ state }) => {
+        renders.push(state.a() * 100 + state.b());
+        return `<p>${state.a()}-${state.b()}</p>`;
+      });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const baseline = renders.length;
+
+    (el as HTMLElement).click();
+
+    // Only one additional render despite three sync writes.
+    expect(renders.length).toBe(baseline + 1);
+    // Final values reflect all writes.
+    expect(accessorA()).toBe(2);
+    expect(accessorB()).toBe(1);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("nested batch() does not flush until the outermost ends", () => {
+    const a = signal(0);
+    const runs: number[] = [];
+
+    const Island = ilha
+      .effect(() => {
+        runs.push(a());
+      })
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(runs.length).toBe(1);
+
+    batch(() => {
+      a(1);
+      batch(() => {
+        a(2);
+        a(3);
+      });
+      a(4);
+    });
+
+    // All four writes inside the outer batch flush as a single run.
+    expect(runs.length).toBe(2);
+    expect(a()).toBe(4);
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------
+// untrack()
+// ---------------------------------------------
+
+describe("untrack()", () => {
+  it("reading a signal inside untrack does not subscribe the surrounding effect", () => {
+    const tracked = signal(0);
+    const ignored = signal(100);
+    const runs: number[] = [];
+
+    const Island = ilha
+      .effect(() => {
+        // Reading `ignored` inside untrack: read happens, but no subscription.
+        const peeked = untrack(() => ignored());
+        runs.push(tracked() + peeked);
+      })
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(runs).toEqual([100]);
+
+    // Changing the untracked signal should NOT re-run the effect.
+    ignored(999);
+    expect(runs).toEqual([100]);
+
+    // Changing the tracked signal DOES re-run; the new untracked read sees the latest value.
+    tracked(1);
+    expect(runs).toEqual([100, 1000]);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("returns the value returned by the callback", () => {
+    const s = signal("hello");
+    expect(untrack(() => s())).toBe("hello");
+    expect(untrack(() => 42)).toBe(42);
+  });
+
+  it("untrack inside .derived() prevents re-derivation on untracked signal", () => {
+    const tracked = signal(1);
+    const ignored = signal(10);
+
+    const Island = ilha
+      .derived("sum", () => tracked() + untrack(() => ignored()))
+      .render(({ derived }) => `<p>${derived.sum.value}</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(el.querySelector("p")!.textContent).toBe("11");
+
+    // Changing untracked signal should not update the derived value.
+    ignored(999);
+    expect(el.querySelector("p")!.textContent).toBe("11");
+
+    // Changing tracked signal does — and it picks up the latest untracked read.
+    tracked(2);
+    expect(el.querySelector("p")!.textContent).toBe("1001");
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------
+// .onError()
+// ---------------------------------------------
+
+describe(".onError()", () => {
+  it("catches synchronous throws from .on() handlers", () => {
+    const captured: { error: Error; source: string }[] = [];
+
+    const Island = ilha
+      .on("@click", () => {
+        throw new Error("boom-sync");
+      })
+      .onError(({ error, source }) => {
+        captured.push({ error, source });
+      })
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    (el as HTMLElement).click();
+
+    expect(captured.length).toBe(1);
+    expect(captured[0]!.error.message).toBe("boom-sync");
+    expect(captured[0]!.source).toBe("on");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("catches asynchronous rejections from .on() handlers", async () => {
+    const captured: { error: Error; source: string }[] = [];
+
+    const Island = ilha
+      .on("@click", async () => {
+        await Promise.resolve();
+        throw new Error("boom-async");
+      })
+      .onError(({ error, source }) => {
+        captured.push({ error, source });
+      })
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    (el as HTMLElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(captured.length).toBe(1);
+    expect(captured[0]!.error.message).toBe("boom-async");
+    expect(captured[0]!.source).toBe("on");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("does NOT receive AbortError rejections from .on() handlers", async () => {
+    const captured: { error: Error; source: string }[] = [];
+
+    const Island = ilha
+      .on("[data-btn]@click", async ({ signal }) => {
+        await new Promise((_, reject) => {
+          signal.addEventListener("abort", () => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      })
+      .onError(({ error, source }) => {
+        captured.push({ error, source });
+      })
+      .render(() => `<button data-btn>x</button>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    (el.querySelector("[data-btn]") as HTMLButtonElement).click();
+    unmount();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(captured.length).toBe(0);
+    cleanup(el);
+  });
+
+  it("catches synchronous throws from .effect() runs", () => {
+    const captured: { error: Error; source: string }[] = [];
+    let accessor!: (v?: number) => number | void;
+
+    const Island = ilha
+      .state("n", 0)
+      .effect(({ state }) => {
+        accessor = state.n as typeof accessor;
+        if (state.n() > 0) throw new Error(`effect-boom-${state.n()}`);
+      })
+      .onError(({ error, source }) => {
+        captured.push({ error, source });
+      })
+      .render(({ state }) => `<p>${state.n()}</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+
+    accessor(1);
+    expect(captured.length).toBe(1);
+    expect(captured[0]!.error.message).toBe("effect-boom-1");
+    expect(captured[0]!.source).toBe("effect");
+
+    accessor(2);
+    expect(captured.length).toBe(2);
+    expect(captured[1]!.error.message).toBe("effect-boom-2");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("falls back to console.error when no .onError() handler is registered", () => {
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+
+    const Island = ilha
+      .on("@click", () => {
+        throw new Error("unhandled");
+      })
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    (el as HTMLElement).click();
+
+    expect(errSpy).toHaveBeenCalled();
+    const err = errSpy.mock.calls[0]?.[0] as Error;
+    expect(err?.message).toBe("unhandled");
+
+    errSpy.mockRestore();
+    unmount();
+    cleanup(el);
+  });
+
+  it("multiple .onError() handlers all run, in declaration order", () => {
+    const order: string[] = [];
+
+    const Island = ilha
+      .on("@click", () => {
+        throw new Error("x");
+      })
+      .onError(() => order.push("first"))
+      .onError(() => order.push("second"))
+      .onError(() => order.push("third"))
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    (el as HTMLElement).click();
+
+    expect(order).toEqual(["first", "second", "third"]);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("an error thrown inside an onError handler does not break other onError handlers", () => {
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const captured: string[] = [];
+
+    const Island = ilha
+      .on("@click", () => {
+        throw new Error("original");
+      })
+      .onError(() => {
+        throw new Error("from-handler-1");
+      })
+      .onError(({ error }) => {
+        captured.push(error.message);
+      })
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    (el as HTMLElement).click();
+
+    // Second onError still ran with the original error.
+    expect(captured).toEqual(["original"]);
+    // The throw from the first onError was logged.
+    expect(errSpy).toHaveBeenCalled();
+
+    errSpy.mockRestore();
+    unmount();
+    cleanup(el);
+  });
+
+  it("error context exposes state, derived, input, and host", () => {
+    let captured: { hasState: boolean; hasDerived: boolean; hasHost: boolean; n: number } | null =
+      null;
+
+    const Island = ilha
+      .input(z.object({ x: z.number().default(7) }))
+      .state("n", 42)
+      .derived("doubled", ({ state }) => state.n() * 2)
+      .on("@click", () => {
+        throw new Error("ctx-test");
+      })
+      .onError(({ state, derived, input, host }) => {
+        captured = {
+          hasState: typeof state.n === "function",
+          hasDerived: derived.doubled.value === 84,
+          hasHost: host instanceof Element,
+          n: input.x,
+        };
+      })
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    (el as HTMLElement).click();
+
+    expect(captured).not.toBeNull();
+    expect(captured!.hasState).toBe(true);
+    expect(captured!.hasDerived).toBe(true);
+    expect(captured!.hasHost).toBe(true);
+    expect(captured!.n).toBe(7);
+
     unmount();
     cleanup(el);
   });
@@ -3200,7 +4232,9 @@ describe("diagnostic: derived + slot + whitespace", () => {
         childRenderCount++;
         childLastList = state.list();
         const opts = state.list().map((s) => html`<option>${s}</option>`);
-        return html`<select>${opts}</select>`;
+        return html`<select>
+          ${opts}
+        </select>`;
       });
 
     const Parent = ilha
@@ -3397,37 +4431,44 @@ describe(".css()", () => {
 
   describe("passthrough `css` tag export", () => {
     it("returns a string equal to what a Plain untagged template would produce", () => {
-      // Deliberately written so the formatter can break it across lines however
-      // it likes. The contract is: `css\`X\`` === the Plain template literal `X`.
+      // We construct the expected value at runtime via string concatenation
+      // so the formatter has no template literal to reflow. The contract under
+      // test: `css` is a passthrough — `css\`X\`` produces the same string as
+      // a plain untagged template literal would.
       const color = "red";
-      const tagged = css`button { color: ${color}; }`;
-      const Plain = `button { color: ${color}; }`;
-      expect(tagged).toBe(Plain);
+      const tagged = css`
+        button {
+          color: ${color};
+        }
+      `;
+      const expected = "button { color: " + color + "; }";
+      // Compare with whitespace collapsed so this is robust to any formatter
+      // that may pretty-print the css`` literal across multiple lines.
+      const collapse = (s: string) => s.replace(/\s+/g, " ").trim();
+      expect(collapse(tagged)).toBe(collapse(expected));
     });
 
     it("does not perform any dedenting or whitespace normalisation", () => {
-      // Whatever whitespace is in the source literal, the tag returns it verbatim.
-      // We compare against the untagged version of the same literal so this test
-      // is resilient to any formatter reflowing the template.
-      const tagged = css`
-        button {
-          color: red;
-        }
-      `;
-      const Plain = `
-        button {
-          color: red;
-        }
-      `;
-      expect(tagged).toBe(Plain);
+      // Use the string-call form of css() so neither side is a template
+      // literal the formatter can rewrite. The contract: whatever string you
+      // pass to css(), you get the same string back, byte-for-byte.
+      const input = "\n        button {\n          color: red;\n        }\n      ";
+      const tagged = (css as (v: string) => string)(input);
+      expect(tagged).toBe(input);
     });
 
     it("interpolates values as Plain string concatenation", () => {
       const color = "blue";
       const size = 12;
-      const tagged = css`p { color: ${color}; font-size: ${size}px; }`;
-      const Plain = `p { color: ${color}; font-size: ${size}px; }`;
-      expect(tagged).toBe(Plain);
+      const tagged = css`
+        p {
+          color: ${color};
+          font-size: ${size}px;
+        }
+      `;
+      const expected = "p { color: " + color + "; font-size: " + size + "px; }";
+      const collapse = (s: string) => s.replace(/\s+/g, " ").trim();
+      expect(collapse(tagged)).toBe(collapse(expected));
     });
 
     it("ilha.css is the builder method, not the passthrough tag", () => {

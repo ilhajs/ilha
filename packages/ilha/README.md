@@ -138,7 +138,7 @@ ilha
   .state("count", 0)
   .on("@click", ({ state }) => state.count(state.count() + 1)) // host click
   .on("button.inc@click", ({ state }) => state.count(state.count() + 1)) // child click
-  .on("input@input:debounce", ({ state, event }) => {
+  .on("input@input", ({ state, event }) => {
     state.query((event.target as HTMLInputElement).value);
   })
   .render(({ state }) => html`<div><button class="inc">+</button></div>`);
@@ -146,11 +146,12 @@ ilha
 
 **Event modifiers** — append after a `:` separator:
 
-| Modifier  | Description              |
-| --------- | ------------------------ |
-| `once`    | Listener fires only once |
-| `capture` | Capture phase            |
-| `passive` | `{ passive: true }`      |
+| Modifier    | Description                                                               |
+| ----------- | ------------------------------------------------------------------------- |
+| `once`      | Listener fires only once                                                  |
+| `capture`   | Capture phase                                                             |
+| `passive`   | `{ passive: true }`                                                       |
+| `abortable` | `ctx.signal` aborts when the same listener fires again on the same target |
 
 Multiple modifiers can be combined: `@click:once:capture`.
 
@@ -159,12 +160,61 @@ The handler receives a `HandlerContext`:
 ```ts
 {
   state: IslandState; // reactive state signals
+  derived: IslandDerived; // derived values
   input: TInput; // resolved input props
   host: Element; // island root element
   target: Element; // element that fired the event (typed per event name)
   event: Event; // the native event (typed per event name)
+  signal: AbortSignal; // aborts on unmount, and on next fire if `:abortable`
 }
 ```
+
+**Cancelling async work with `ctx.signal`** — pass it to `fetch` or any abort-aware API to cancel stale requests when the island unmounts:
+
+```ts
+ilha
+  .state("results", [])
+  .on("button@click", async ({ state, signal }) => {
+    const res = await fetch("/api/data", { signal });
+    state.results(await res.json());
+  })
+  .render(
+    () =>
+      html`<button>Load</button>
+        <ul></ul>`,
+  );
+```
+
+**Race-cancellation with `:abortable`** — when the same listener fires again on the same target, the previous invocation's signal aborts. Useful for search-as-you-type and other patterns where only the latest invocation should win:
+
+```ts
+ilha
+  .on("input@input:abortable", async ({ state, event, signal }) => {
+    const q = (event.target as HTMLInputElement).value;
+    const res = await fetch(`/search?q=${q}`, { signal }); // earlier requests cancelled
+    if (signal.aborted) return;
+    state.results(await res.json());
+  })
+  .render(
+    () =>
+      html`<input />
+        <ul></ul>`,
+  );
+```
+
+Race-cancellation is scoped per-target — clicking button A doesn't cancel an in-flight handler on button B.
+
+**Implicit batching** — multiple synchronous state writes in a single handler produce one re-render, not one per write:
+
+```ts
+.on("@click", ({ state }) => {
+  state.a(1);
+  state.b(2);
+  state.c(3); // → one render, not three
+})
+```
+
+`AbortError` rejections from cancelled async work are filtered out automatically — they do not reach `.onError()` or `console.error`.
 
 ---
 
@@ -184,6 +234,35 @@ ilha
   .render(({ state }) => `<p>${state.title()}</p>`);
 ```
 
+The handler receives an `EffectContext`:
+
+```ts
+{
+  state: IslandState;
+  input: TInput;
+  host: Element;
+  signal: AbortSignal; // aborts when the effect re-runs OR the island unmounts
+}
+```
+
+**Cancelling async work with `ctx.signal`** — unlike `.on()`, race-cancellation is the **default** behaviour for effects (no opt-in modifier needed) because dependency changes invariably make the previous run stale. Pass `signal` to async work to bail out of stale invocations without needing a manual cleanup function:
+
+```ts
+ilha
+  .state("userId", 1)
+  .state("user", null)
+  .effect(async ({ state, signal }) => {
+    const res = await fetch(`/api/users/${state.userId()}`, { signal });
+    if (signal.aborted) return;
+    state.user(await res.json());
+  })
+  .render(({ state }) => html`<p>${state.user?.name ?? "Loading…"}</p>`);
+```
+
+Both the user-supplied cleanup function (if any) and the signal abort fire when the effect re-runs, so you can mix patterns.
+
+**Implicit batching** — multiple synchronous state writes inside an effect run produce a single propagation pass.
+
 ---
 
 ### `.onMount(fn)`
@@ -200,6 +279,43 @@ ilha
 ```
 
 `.onMount()` is skipped when `snapshot.skipOnMount` is set via `.hydratable()`.
+
+---
+
+### `.onError(fn)`
+
+Registers an error handler that catches errors thrown by `.on()` handlers (sync throws and async rejections) and `.effect()` runs (sync throws). Multiple `.onError()` calls compose — all run in declaration order. If no `.onError()` is registered, errors fall back to `console.error` so they are never silently swallowed.
+
+```ts
+ilha
+  .state("count", 0)
+  .on("@click", ({ state }) => {
+    if (state.count() > 5) throw new Error("too many clicks");
+    state.count(state.count() + 1);
+  })
+  .onError(({ error, source }) => {
+    console.error(`[${source}] ${error.message}`);
+    Sentry.captureException(error);
+  })
+  .render(({ state }) => `<button>${state.count()}</button>`);
+```
+
+The handler receives an `ErrorContext`:
+
+```ts
+{
+  error: Error; // always wrapped to Error if a non-Error was thrown
+  source: "on" | "effect";
+  state: IslandState;
+  derived: IslandDerived;
+  input: TInput;
+  host: Element;
+}
+```
+
+`AbortError` rejections from `.on()` handlers are **not** routed to `.onError()` — they are the expected outcome of cancellation (via `:abortable` race-cancel or unmount) and would otherwise pollute error tracking.
+
+An error thrown inside an `.onError()` handler does not break other registered handlers; it is logged to `console.error` and execution continues with the next handler.
 
 ---
 
@@ -224,10 +340,15 @@ ilha
   );
 ```
 
-You can also bind to an external signal created with `context()`:
+You can also bind to an external signal — either a free-standing one created with `signal()` or a named global one created with `context()`:
 
 ```ts
-.bind("input", myContextSignal)
+import { signal, context } from "ilha";
+
+const username = signal("");
+const theme = context("app.theme", "light");
+
+ilha.bind("input.name", username).bind("select.theme", theme).render(/* … */);
 ```
 
 ---
@@ -461,9 +582,40 @@ const unmount = from("#hero", HeroIsland, { title: "Welcome" });
 
 ---
 
+### `signal(initial)`
+
+Creates a free-standing reactive signal that lives outside any island. Useful for sharing state across multiple islands without prop drilling, or for binding form inputs to module-level state.
+
+```ts
+import { signal } from "ilha";
+
+const count = signal(0);
+
+count(); // → 0  (read)
+count(5); // → sets to 5 (write)
+```
+
+Reading the signal inside any reactive scope — `.render()`, `.derived()`, `.effect()` — automatically subscribes that scope, so when the signal changes, dependents re-run as if it were local state.
+
+```ts
+import ilha, { signal } from "ilha";
+
+const username = signal("anonymous");
+
+const Header = ilha.render(() => html`<header>Hi, ${username()}!</header>`);
+const Footer = ilha.render(() => html`<footer>Logged in as ${username()}</footer>`);
+
+// Both islands re-render when `username` changes from anywhere.
+username("alice");
+```
+
+Pairs naturally with `.bind()` for two-way form bindings against module-level state.
+
+---
+
 ### `context(key, initial)`
 
-Creates a **global context signal** — a named reactive signal shared across all islands. Identical keys always return the same signal instance.
+Creates a **global context signal** — a named reactive signal shared across all islands. Identical keys always return the same signal instance, which makes it useful for app-wide singletons (theme, locale, current user) where you want the registry semantics.
 
 ```ts
 import { context } from "ilha";
@@ -475,6 +627,58 @@ theme("dark"); // → sets to "dark"
 ```
 
 Safe to call in both SSR and browser environments.
+
+> **`signal()` vs `context()`** — both return the same accessor shape and can be passed to `.bind()`. Use `signal()` for one-off shared state where you'd hold the reference yourself; use `context()` when you want a name-keyed registry so the same signal can be looked up from anywhere by string key.
+
+---
+
+### `batch(fn)`
+
+Runs `fn` as an atomic batch — multiple signal writes inside the callback produce a single propagation pass, so dependents see the final state and run once instead of once per write. Returns whatever `fn` returns.
+
+```ts
+import { signal, batch } from "ilha";
+
+const a = signal(0);
+const b = signal(0);
+
+// Without batch: each write triggers a propagation pass.
+a(1); // → effects re-run
+b(2); // → effects re-run
+
+// With batch: both writes flush together.
+batch(() => {
+  a(10);
+  b(20);
+}); // → effects re-run once
+```
+
+`.on()` handlers and `.effect()` runs are batched implicitly, so you only need `batch()` when triggering multiple writes from outside an island — e.g. from a top-level event listener, a `setTimeout` callback, or a WebSocket message handler. Nested `batch()` calls are safe and only flush when the outermost batch ends.
+
+---
+
+### `untrack(fn)`
+
+Runs `fn` with reactive tracking suspended. Reading signals inside `fn` returns their current value without subscribing the surrounding scope. Use this in effects or deriveds when you want to peek at state without causing a re-run on its changes.
+
+```ts
+import { signal, untrack } from "ilha";
+
+const tracked = signal(0);
+const peeked = signal("hello");
+
+ilha
+  .effect(() => {
+    // Re-runs when `tracked` changes, but NOT when `peeked` changes.
+    console.log(
+      tracked(),
+      untrack(() => peeked()),
+    );
+  })
+  .render(() => `<p>x</p>`);
+```
+
+Returns whatever `fn` returns.
 
 ---
 
@@ -615,6 +819,9 @@ import type {
   OnMountContext,
   HandlerContext,
   HandlerContextFor,
+  ErrorContext,
+  ErrorSource,
+  ExternalSignal,
   MountOptions,
   MountResult,
 } from "ilha";

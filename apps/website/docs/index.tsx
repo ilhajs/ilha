@@ -57,29 +57,45 @@ const Libraries = ilha
   })
   .render(
     ({ state, derived }) => html`
-      <section class="card mt-20 flex flex-col lg:flex-row gap-0 p-0 overflow-hidden rounded-4xl">
-        <div class="flex flex-1 flex-col justify-center gap-4 border-r py-8 px-4 lg:px-8">
-          <h2 class="text-xl lg:text-2xl font-semibold">Batteries included.</h2>
+      <section class="card mt-20 flex flex-col gap-0 overflow-hidden rounded-4xl p-0 lg:flex-row">
+        <div class="flex flex-1 flex-col justify-center gap-4 border-r px-4 py-8 lg:px-8">
+          <h2 class="text-xl font-semibold lg:text-2xl">Batteries included.</h2>
           <p class="text-foreground/60 text-sm lg:text-[1rem]">
             Ilha goes beyond UI templating. Get routing, typed form binding, and zustand-shaped
             state management out of the box — no extra setup required.
           </p>
-          <p class="text-sm text-foreground/80">Install with:</p>
-          <button data-action="copyCommand" class="btn-lg-outline rounded-full justify-start">
+          <p class="text-foreground/80 text-sm">Install with:</p>
+          <button data-action="copyCommand" class="btn-lg-outline justify-start rounded-full">
             <img src="/copy.svg" class="size-5" />
             <span>npm install @ilha/${state.library()}</span>
           </button>
         </div>
-        <div class="flex-1 p-2 overflow-x-auto bg-[#FBFBFB]" data-action="copy">
-            <div class="tabs w-full">
+        <div class="flex-1 overflow-x-auto bg-[#FBFBFB] p-2" data-action="copy">
+          <div class="tabs w-full">
             <nav role="tablist" aria-orientation="horizontal" class="w-full rounded-full">
-                <button type="button" role="tab" aria-selected="${state.library() === "router"}" tabindex="0" data-library="router" class="rounded-full">@ilha/router</button>
-                <button type="button" role="tab" aria-selected="${state.library() === "store"}" tabindex="0" data-library="store" class="rounded-full">@ilha/store</button>
-              </nav>
-            </div>
-          <div class="text-sm lg:text-[1rem]">
-            ${raw(derived.code.value ?? "")}
+              <button
+                type="button"
+                role="tab"
+                aria-selected="${state.library() === "router"}"
+                tabindex="0"
+                data-library="router"
+                class="rounded-full"
+              >
+                @ilha/router
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected="${state.library() === "store"}"
+                tabindex="0"
+                data-library="store"
+                class="rounded-full"
+              >
+                @ilha/store
+              </button>
+            </nav>
           </div>
+          <div class="text-sm lg:text-[1rem]">${raw(derived.code.value ?? "")}</div>
         </div>
       </section>
     `,
@@ -106,23 +122,19 @@ const Creator = ilha
   })
   .render(
     ({ derived }) => html`
-      <section class="relative mt-20 overflow-hidden lg:rounded-4xl -mx-4 lg:mx-0">
+      <section class="relative -mx-4 mt-20 overflow-hidden lg:mx-0 lg:rounded-4xl">
         <img src="/dither-3.jpg" class="h-160 w-full object-cover" />
         <div class="absolute inset-0 flex flex-col items-center justify-center p-4">
-          <div class="flex w-full max-w-180 flex-col gap-4 rounded-3xl bg-neutral-50 dark:bg-neutral-900 p-6 shadow-xl">
+          <div
+            class="flex w-full max-w-180 flex-col gap-4 rounded-3xl bg-neutral-50 p-6 shadow-xl dark:bg-neutral-900"
+          >
             <h2 class="text-lg font-semibold">Start a new Ilha project</h2>
             <label class="label">Project name</label>
             <input type="text" name="name" class="input rounded-full" placeholder="my-app" />
             <label class="label">Pick a template</label>
             <fieldset class="grid gap-4">
               <label class="label"
-                ><input
-                  type="radio"
-                  name="template"
-                  value="vite"
-                  class="input"
-                  checked
-                />
+                ><input type="radio" name="template" value="vite" class="input" checked />
                 <img src="/vite.svg" class="size-6" /><span>Vite</span>
               </label>
               <label class="label"
@@ -138,15 +150,23 @@ const Creator = ilha
               <input type="checkbox" name="useBun" role="switch" class="input" />
               Use Bun
             </label>
-            <div class="flex gap-2 items-center min-w-0">
-                <button class="flex-1 btn-outline rounded-full justify-start text-left overflow-hidden" data-action="copyCommand">
-                    <img src="/copy.svg" class="size-5 shrink-0" />
-                    <span class="truncate block">${derived.createCommand.value}</span>
-                </button>
-                <a href="${derived.sandboxUrl.value}" target="_blank" rel="noopener noreferrer" class="btn rounded-full bg-sky-900 dark:bg-sky-300">
-                    <img src="/stackblitz.svg" class="size-4" />
-                    <span>Open Sandbox</span>
-                </a>
+            <div class="flex min-w-0 items-center gap-2">
+              <button
+                class="btn-outline flex-1 justify-start overflow-hidden rounded-full text-left"
+                data-action="copyCommand"
+              >
+                <img src="/copy.svg" class="size-5 shrink-0" />
+                <span class="block truncate">${derived.createCommand.value}</span>
+              </button>
+              <a
+                href="${derived.sandboxUrl.value}"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn rounded-full bg-sky-900 dark:bg-sky-300"
+              >
+                <img src="/stackblitz.svg" class="size-4" />
+                <span>Open Sandbox</span>
+              </a>
             </div>
           </div>
         </div>
@@ -177,7 +197,7 @@ const AiPrompt = ilha
           >
             <h2 class="text-3xl font-semibold text-sky-950 lg:text-4xl">Small enough to think with.</h2>
             <p class="text-sky-950 lg:text-lg">
-              At under 1,800 lines of code, the entire source fits in a single AI context window, so your
+              At under 2,500 lines of code, the entire source fits in a single AI context window, so your
               assistant can reason about the whole framework, not just the docs.
             </p>
             <form
@@ -253,88 +273,132 @@ const WhyIlha = ilha.render(
 
 const Hero = ilha.render(
   () => html`
-    <section class="relative lg:rounded-4xl overflow-hidden lg:h-160 -mx-4 lg:mx-0">
-        <img src="/dither-1.jpg" class="absolute inset-0 w-full h-full object-cover lg:rounded-4xl lg:rounded-br-[2.5rem] z-0" />
-        <div class="relative h-full inset-0 flex flex-col lg:flex-row justify-between items-start lg:items-stretch gap-8 z-10">
-            <div class="flex-1 flex flex-col justify-center gap-4 px-8 lg:px-16 py-32">
-                <div class="badge-outline">Alpha is live</div>
-                <h1 class="text-3xl lg:text-5xl leading-normal font-semibold text-balance text-sky-950">
-                    Build modern UI, your way.
-                </h1>
-                <div class="flex gap-2">
-                    <a href="/guide/getting-started/introduction" class="btn-lg bg-sky-900 dark:bg-sky-300 lg:h-12 lg:text-lg rounded-full">Get Started</a>
-                    <a href="${NITRO_SANDBOX}" target="_blank" rel="noopener noreferrer" class="btn-lg-secondary bg-white dark:bg-neutral-800 lg:h-12 lg:text-lg rounded-full">
-                        <img src="/stackblitz.svg" alt="StackBlitz" class="size-4" />
-                        <span>Open Sandbox</span>
-                    </a>
-                </div>
-            </div>
-            <div class="flex-1 lg:flex flex-col justify-end hidden">
-                <div class="bg-[#FBFBFB] flex flex-col lg:rounded-tl-2xl shadow-2xl overflow-hidden text-xs lg:text-[1rem]">
-                    <div class="bg-[#FBFBFB] text-center py-1 font-mono text-neutral-500">main.ts</div>
-                    ${raw(highlightCode(COUNTER_CODE))}
-                </div>
-            </div>
+    <section class="relative -mx-4 overflow-hidden lg:mx-0 lg:h-160 lg:rounded-4xl">
+      <img
+        src="/dither-1.jpg"
+        class="absolute inset-0 z-0 h-full w-full object-cover lg:rounded-4xl lg:rounded-br-[2.5rem]"
+      />
+      <div
+        class="relative inset-0 z-10 flex h-full flex-col items-start justify-between gap-8 lg:flex-row lg:items-stretch"
+      >
+        <div class="flex flex-1 flex-col justify-center gap-4 px-8 py-32 lg:px-16">
+          <div class="badge-outline">Alpha is live</div>
+          <h1 class="text-3xl leading-normal font-semibold text-balance text-sky-950 lg:text-5xl">
+            Build modern UI, your way.
+          </h1>
+          <div class="flex gap-2">
+            <a
+              href="/guide/getting-started/introduction"
+              class="btn-lg rounded-full bg-sky-900 lg:h-12 lg:text-lg dark:bg-sky-300"
+              >Get Started</a
+            >
+            <a
+              href="${NITRO_SANDBOX}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn-lg-secondary rounded-full bg-white lg:h-12 lg:text-lg dark:bg-neutral-800"
+            >
+              <img src="/stackblitz.svg" alt="StackBlitz" class="size-4" />
+              <span>Open Sandbox</span>
+            </a>
+          </div>
         </div>
+        <div class="hidden flex-1 flex-col justify-end lg:flex">
+          <div
+            class="flex flex-col overflow-hidden bg-[#FBFBFB] text-xs shadow-2xl lg:rounded-tl-2xl lg:text-[1rem]"
+          >
+            <div class="bg-[#FBFBFB] py-1 text-center font-mono text-neutral-500">main.ts</div>
+            ${raw(highlightCode(COUNTER_CODE))}
+          </div>
+        </div>
+      </div>
     </section>
     <section class="mt-20">
-        <p class="text-xl lg:text-4xl leading-normal text-balance">
-        Ilha is a tiny island architecture library that renders to <b class="text-sky-700 dark:text-sky-300">plain HTML on the server</b>
-        and hydrates on the client with zero flicker. The core is <b class="text-sky-700 dark:text-sky-300">under 1,800 lines of code</b> —
-        small enough to paste into any AI prompt. And when you need more, the extras are included:
-        routing, typed forms, and shared state management.
-        </p>
+      <p class="text-xl leading-normal text-balance lg:text-4xl">
+        Ilha is a tiny island architecture library that renders to
+        <b class="text-sky-700 dark:text-sky-300">plain HTML on the server</b> and hydrates on the
+        client with zero flicker. The core is
+        <b class="text-sky-700 dark:text-sky-300">under 2,500 lines of code</b> — small enough to
+        paste into any AI prompt. And when you need more, the extras are included: routing, typed
+        forms, and shared state management.
+      </p>
     </section>
-`,
+  `,
 );
 
 const Footer = ilha.render(
   () => html`
-    <footer class="mt-20 py-16 p-4">
+    <footer class="mt-20 p-4 py-16">
       <h2 class="sr-only">Footer</h2>
-      <div class="grid gap-8 text-sm text-foreground/60 md:grid-cols-4 md:items-start">
+      <div class="text-foreground/60 grid gap-8 text-sm md:grid-cols-4 md:items-start">
         <nav aria-label="Open source">
-          <h3 class="font-semibold text-foreground/80">Open Source</h3>
+          <h3 class="text-foreground/80 font-semibold">Open Source</h3>
           <div class="mt-4 grid justify-items-start gap-2">
-            <a href="${URLS.GITHUB}" target="_blank" rel="noopener noreferrer" class="transition hover:text-foreground">Ilha</a>
-            <a href="${URLS.DOCSOME}" target="_blank" rel="noopener noreferrer" class="transition hover:text-foreground">Docsome</a>
+            <a
+              href="${URLS.GITHUB}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hover:text-foreground transition"
+              >Ilha</a
+            >
+            <a
+              href="${URLS.DOCSOME}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hover:text-foreground transition"
+              >Docsome</a
+            >
           </div>
         </nav>
         <nav aria-label="Legals">
-          <h3 class="font-semibold text-foreground/80">Legals</h3>
+          <h3 class="text-foreground/80 font-semibold">Legals</h3>
           <div class="mt-4 grid justify-items-start gap-2">
-            <a href="#" class="transition hover:text-foreground">Terms of Service</a>
-            <a href="#" class="transition hover:text-foreground">Privacy Policy</a>
+            <a href="#" class="hover:text-foreground transition">Terms of Service</a>
+            <a href="#" class="hover:text-foreground transition">Privacy Policy</a>
           </div>
         </nav>
         <div class="hidden md:block"></div>
         <nav aria-label="Socials" class="md:justify-self-end">
-          <h3 class="font-semibold text-foreground/80">Socials</h3>
+          <h3 class="text-foreground/80 font-semibold">Socials</h3>
           <div class="mt-4 grid justify-items-start gap-2">
-            <a href="${URLS.DISCORD}" target="_blank" rel="noopener noreferrer" class="transition hover:text-foreground">Discord</a>
-            <a href="${URLS.X_COM}" target="_blank" rel="noopener noreferrer" class="transition hover:text-foreground">X.com</a>
+            <a
+              href="${URLS.DISCORD}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hover:text-foreground transition"
+              >Discord</a
+            >
+            <a
+              href="${URLS.X_COM}"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hover:text-foreground transition"
+              >X.com</a
+            >
           </div>
         </nav>
       </div>
-      <div class="mt-12 border-t border-foreground/10 pt-8 text-sm text-foreground/50">
+      <div class="border-foreground/10 text-foreground/50 mt-12 border-t pt-8 text-sm">
         © ${new Date().getFullYear()} Ilha. All rights reserved.
       </div>
     </footer>
   `,
 );
 
-const Heading = ilha
-  .input<{ text: string }>()
-  .render(
-    ({ input }) =>
-      html`<h2 class="text-center text-3xl lg:text-4xl font-semibold mt-20 text-sky-700 dark:text-sky-300">${input.text}</h2>`,
-  );
+const Heading = ilha.input<{ text: string }>().render(
+  ({ input }) =>
+    html`<h2
+        class="mt-20 text-center text-3xl font-semibold text-sky-700 lg:text-4xl dark:text-sky-300"
+      >
+        ${input.text}
+      </h2>`,
+);
 
 export const frontmatter = {
   pageType: "custom",
   title: "Build Modern UI, Your Way",
   description:
-    "Ilha is a lightweight UI framework under 1,800 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
+    "Ilha is a lightweight UI framework under 2,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
 };
 
 const hero = await Hero.hydratable({}, { name: "Hero", snapshot: true });
@@ -354,7 +418,7 @@ export default () => {
       {
         name: "description",
         content:
-          "Ilha is a lightweight UI framework under 1,800 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
+          "Ilha is a lightweight UI framework under 2,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
       },
     ],
   });
