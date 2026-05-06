@@ -8,9 +8,9 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.1",
-    "@ilha/router": "^0.2.4",
+    "@ilha/router": "^0.2.5",
     "hono": "^4.12.16",
-    "ilha": "^0.4.0"
+    "ilha": "^0.4.1"
   },
   "devDependencies": {
     "@types/node": "^24",

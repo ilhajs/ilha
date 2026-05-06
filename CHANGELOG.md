@@ -2,6 +2,10 @@
 
 ## `ilha`
 
+### 0.4.1 - 2026-05-06
+
+- Fixes .derived() signal in child that caused unnecessary rerender of parent.
+
 ### 0.4.0 - 2026-05-01
 
 - added `:abortable` modifier for `.on()`.
@@ -86,6 +90,10 @@ Initial release of **@ilha/form** — a tiny, typed form binding library for ilh
 
 ## `@ilha/router`
 
+### 0.2.5 - 2026-05-06
+
+- Updates Ilha dependency to 0.4.1
+
 ### 0.2.4 - 2026-05-01
 
 - Updates Ilha dependency to 0.4.0
@@ -134,6 +142,10 @@ Initial release of **@ilha/router** — a lightweight, isomorphic router for ilh
 - Adds exported types: `RouteRecord`, `RouteSnapshot`, `AppError`, `LayoutHandler`, `ErrorHandler`, `NavigateOptions`, `MountOptions`, `HydrateOptions`, `HydratableRenderOptions`, `RouterBuilder`
 
 ## `@ilha/store`
+
+### 0.2.2 - 2026-05-06
+
+- Updates Ilha dependency to 0.4.1
 
 ### 0.2.1 - 2026-05-01
 

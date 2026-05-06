@@ -1878,6 +1878,161 @@ describe("Island mount", () => {
       });
     });
   });
+
+  describe("BUG: subscription leak via island.toString() inside parent render effect", () => {
+    it("CASE I (suspected bug): parent calls child.toString() in its render — child's derived leaks subscription to parent", () => {
+      // Mirrors what `RouterView` does in @ilha/router:
+      //   ilha.render(() => `<div>${island.toString()}</div>`)
+      //
+      // The child island has a .derived() that reads an external signal.
+      // When the parent's render effect runs island.toString(), the child's
+      // derived fn is invoked with the parent's render effect as the active
+      // subscriber → parent gets subscribed to the external signal.
+
+      const params = signal({ path: "/initial.md" });
+
+      let parentRenders = 0;
+      let childMounts = 0;
+
+      const Topbar = ilha
+        .derived("filename", () => {
+          const p = params();
+          return (p.path ?? "").split("/").pop() || "untitled.md";
+        })
+        .render(({ derived }) => html`<div data-tb>${derived.filename.value}</div>`);
+
+      // Mirror RouterView pattern: parent calls child.toString() (NOT interpolation).
+      const ParentView = ilha.render(() => {
+        parentRenders++;
+        // Note the .toString() call — this is what RouterView does.
+        return html`<section>${Topbar.toString() as unknown as { value: string }}</section>` as any;
+      });
+
+      // Hmm, .toString returns a string, but html`` would escape it. Use raw:
+      // Actually let's just use the same pattern as RouterView — concat strings.
+      const ParentView2 = ilha.render(() => {
+        parentRenders++;
+        return `<section>${Topbar.toString()}</section>`;
+      });
+
+      const el = makeEl();
+      const unmount = ParentView2.mount(el);
+      void Topbar; // silence unused
+      void ParentView; // silence unused
+      void childMounts; // silence unused
+
+      const p0 = parentRenders;
+      // Change params — should NOT re-render the parent if there's no leak.
+      params({ path: "/foo/bar.md" });
+
+      expect({
+        parentDelta: parentRenders - p0,
+      }).toEqual({
+        parentDelta: 0, // if this is 1, the leak is confirmed
+      });
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("CASE J (control): same as above but child uses .state + .effect — no leak", () => {
+      const params = signal({ path: "/initial.md" });
+
+      let parentRenders = 0;
+
+      const Topbar = ilha
+        .state("filename", "untitled.md")
+        .effect(({ state }) => {
+          const p = params();
+          state.filename((p.path ?? "").split("/").pop() || "untitled.md");
+        })
+        .render(({ state }) => html`<div data-tb>${state.filename()}</div>`);
+
+      const ParentView = ilha.render(() => {
+        parentRenders++;
+        return `<section>${Topbar.toString()}</section>`;
+      });
+
+      const el = makeEl();
+      const unmount = ParentView.mount(el);
+
+      const p0 = parentRenders;
+      params({ path: "/foo/bar.md" });
+
+      expect({
+        parentDelta: parentRenders - p0,
+      }).toEqual({
+        parentDelta: 0,
+      });
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("CASE K (direct repro of router shape): parent reads activeIsland(), calls activeIsland().toString()", () => {
+      // Even closer to RouterView's actual shape.
+      const params = signal({ path: "/initial.md" });
+
+      let parentRenders = 0;
+
+      const PageA = ilha
+        .derived("filename", () => {
+          const p = params();
+          return (p.path ?? "").split("/").pop() || "untitled.md";
+        })
+        .render(({ derived }) => html`<div data-page="A">${derived.filename.value}</div>`);
+
+      const activeIsland = signal<typeof PageA | null>(PageA);
+
+      const RouterView = ilha.render(() => {
+        parentRenders++;
+        const island = activeIsland();
+        if (!island) return `<div data-empty></div>`;
+        return `<div data-view>${island.toString()}</div>`;
+      });
+
+      const el = makeEl();
+      const unmount = RouterView.mount(el);
+
+      const p0 = parentRenders;
+      // Only change params — activeIsland stays the same.
+      // RouterView SHOULD NOT re-render. If it does, leak confirmed.
+      params({ path: "/foo/bar.md" });
+
+      expect({
+        parentDelta: parentRenders - p0,
+      }).toEqual({
+        parentDelta: 0,
+      });
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("CASE L: parent reads signal directly in child's .render() during toString from reactive scope", () => {
+      const params = signal({ path: "/initial.md" });
+      let parentRenders = 0;
+
+      const Page = ilha.render(() => {
+        // Reads params directly in render — no derived, no state
+        const p = params();
+        return html`<div>${(p.path ?? "").split("/").pop()}</div>`;
+      });
+
+      const RouterView = ilha.render(() => {
+        parentRenders++;
+        return `<div>${Page.toString()}</div>`;
+      });
+
+      const el = makeEl();
+      const unmount = RouterView.mount(el);
+      const p0 = parentRenders;
+      params({ path: "/foo/bar.md" });
+      expect(parentRenders - p0).toBe(0);
+      unmount();
+      cleanup(el);
+    });
+  });
 });
 
 // ---------------------------------------------
