@@ -9,8 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ilha/router": "^0.2.4",
-    "ilha": "^0.4.0"
+    "@ilha/router": "^0.2.5",
+    "ilha": "^0.4.1"
   },
   "devDependencies": {
     "typescript": "^6.0.3",

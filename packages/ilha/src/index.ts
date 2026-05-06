@@ -1369,6 +1369,7 @@ class IlhaBuilder<
       const state = buildPlainState(input);
 
       const results = deriveds.map((entry) => {
+        const prevSub = setActiveSub(undefined);
         try {
           return {
             key: entry.key,
@@ -1380,6 +1381,8 @@ class IlhaBuilder<
           };
         } catch (err) {
           return { key: entry.key, result: Promise.reject(err) };
+        } finally {
+          setActiveSub(prevSub);
         }
       });
 
@@ -1394,10 +1397,15 @@ class IlhaBuilder<
             derived[r.key] = { loading: false, value: r.result as unknown, error: undefined };
           }
         }
-        const { html } = renderWithCtx(() =>
-          fn({ state, derived: derived as IslandDerived<TDerivedMap>, input }),
-        );
-        return stylePrefix + html;
+        const prevSub = setActiveSub(undefined);
+        try {
+          const { html } = renderWithCtx(() =>
+            fn({ state, derived: derived as IslandDerived<TDerivedMap>, input }),
+          );
+          return stylePrefix + html;
+        } finally {
+          setActiveSub(prevSub);
+        }
       }
 
       return Promise.all(
@@ -1425,12 +1433,17 @@ class IlhaBuilder<
       ).then(async (resolved) => {
         const derived: Record<string, DerivedValue<unknown>> = {};
         for (const r of resolved) derived[r.key] = r.envelope;
-        const { html } = await renderWithCtx(
-          () => fn({ state, derived: derived as IslandDerived<TDerivedMap>, input }),
-          undefined,
-          true,
-        );
-        return stylePrefix + html;
+        const prevSub = setActiveSub(undefined);
+        try {
+          const { html } = await renderWithCtx(
+            () => fn({ state, derived: derived as IslandDerived<TDerivedMap>, input }),
+            undefined,
+            true,
+          );
+          return stylePrefix + html;
+        } finally {
+          setActiveSub(prevSub);
+        }
       });
     }
 
@@ -1972,14 +1985,34 @@ class IlhaBuilder<
         if (doDerived) {
           const derivedResults: Record<string, unknown> = {};
           for (const entry of deriveds) {
+            const prevSub = setActiveSub(undefined);
+            let resultPromise: unknown;
+            let syncError: unknown;
+            let threw = false;
             try {
-              const result = await Promise.resolve(
-                entry.fn({
-                  state: plainState as never,
-                  input,
-                  signal: new AbortController().signal,
-                }),
-              );
+              resultPromise = entry.fn({
+                state: plainState as never,
+                input,
+                signal: new AbortController().signal,
+              });
+            } catch (err) {
+              threw = true;
+              syncError = err;
+            } finally {
+              setActiveSub(prevSub);
+            }
+
+            if (threw) {
+              derivedResults[entry.key] = {
+                loading: false,
+                value: undefined,
+                error: syncError instanceof Error ? syncError.message : String(syncError),
+              };
+              continue;
+            }
+
+            try {
+              const result = await Promise.resolve(resultPromise);
               derivedResults[entry.key] = { loading: false, value: result, error: undefined };
             } catch (err) {
               derivedResults[entry.key] = {
