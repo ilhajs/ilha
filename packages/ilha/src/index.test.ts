@@ -1877,6 +1877,27 @@ describe("Island mount", () => {
         expect(() => mount({ Counter })).not.toThrow();
       });
     });
+
+    it("hydratable() records sync-throwing derived as error entry, doesn't reject", async () => {
+      const Island = ilha
+        .derived("bad", () => {
+          throw new Error("kaboom");
+        })
+        .render(() => `<p>x</p>`);
+
+      const html = await Island.hydratable({}, { name: "test", snapshot: true });
+      expect(html).toContain("data-ilha-state");
+      // Pull out and parse the snapshot
+      const match = html.match(/data-ilha-state='([^']+)'/);
+      expect(match).toBeTruthy();
+      const decoded = match![1]!.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      const snapshot = JSON.parse(decoded);
+      expect(snapshot._derived.bad).toEqual({
+        loading: false,
+        value: undefined,
+        error: "kaboom",
+      });
+    });
   });
 
   describe("BUG: subscription leak via island.toString() inside parent render effect", () => {

@@ -1987,15 +1987,30 @@ class IlhaBuilder<
           for (const entry of deriveds) {
             const prevSub = setActiveSub(undefined);
             let resultPromise: unknown;
+            let syncError: unknown;
+            let threw = false;
             try {
               resultPromise = entry.fn({
                 state: plainState as never,
                 input,
                 signal: new AbortController().signal,
               });
+            } catch (err) {
+              threw = true;
+              syncError = err;
             } finally {
               setActiveSub(prevSub);
             }
+
+            if (threw) {
+              derivedResults[entry.key] = {
+                loading: false,
+                value: undefined,
+                error: syncError instanceof Error ? syncError.message : String(syncError),
+              };
+              continue;
+            }
+
             try {
               const result = await Promise.resolve(resultPromise);
               derivedResults[entry.key] = { loading: false, value: result, error: undefined };
