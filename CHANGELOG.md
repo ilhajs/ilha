@@ -143,6 +143,10 @@ Initial release of **@ilha/router** — a lightweight, isomorphic router for ilh
 
 ## `@ilha/store`
 
+### 0.3.0 - 2026-05-07
+
+- Adds `select` method that projects a slice of state into a signal-shaped accessor.
+
 ### 0.2.2 - 2026-05-06
 
 - Updates Ilha dependency to 0.4.1

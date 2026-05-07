@@ -38,6 +38,8 @@ store.setState({ count: 1 });
 store.getState(); // → { count: 1 }
 ```
 
+For consuming a store inside an island, jump to [Usage with Ilha Islands](#usage-with-ilha-islands).
+
 ---
 
 ## API
@@ -87,7 +89,7 @@ store.setState((s) => ({ count: s.count + 1 }));
 
 ### `store.getState()`
 
-Returns the current state snapshot.
+Returns the current state snapshot. Non-reactive — use `select` for reactive reads inside an island.
 
 ```ts
 store.getState(); // → { count: 5 }
@@ -105,9 +107,32 @@ store.getInitialState(); // → { count: 0 }
 
 ---
 
+### `store.select(selector)` — reactive accessor
+
+Projects a slice of state into a **signal-shaped accessor**: a `() => S` function that reads the current value when called, and tracks reactivity automatically inside any ilha tracking scope (`.render()`, `.derived()`, `.effect()`).
+
+```ts
+const store = createStore({ count: 0, name: "Ada" });
+
+const count = store.select((s) => s.count);
+const name = store.select((s) => s.name);
+
+count(); // → 0    (read)
+store.setState({ count: 5 });
+count(); // → 5    (reflects the change)
+```
+
+The returned accessor has the same shape as `signal()` and `context()` from `ilha` core, so it composes naturally with `html\`\``interpolation and`.bind()`. See [Usage with Ilha Islands](#usage-with-ilha-islands) below for the full pattern.
+
+The slice is memoized — accessors only notify dependents when the selected value changes (compared with `Object.is`). Setting `count` to its current value, or mutating an unrelated field, does not trigger downstream re-runs.
+
+> **Hoist `select` calls out of render functions.** Each call allocates a fresh `computed`. Define selectors at module scope or inside an island's closure setup — not inside the `.render()` callback itself.
+
+---
+
 ### `store.subscribe(listener)`
 
-Subscribes to all state changes. The listener receives the next and previous state. Returns an unsubscribe function.
+Subscribes to all state changes. The listener receives the next and previous state. Returns an unsubscribe function. Use this for **imperative** subscriptions outside an island scope (e.g. a WebSocket handler, `localStorage` sync); inside an island, prefer `select`.
 
 ```ts
 const unsub = store.subscribe((state, prev) => {
@@ -161,13 +186,13 @@ store.bind(
 
 ## Usage with Ilha Islands
 
-The most common pattern is reading the store inside an island's `.effect()` and calling `store.subscribe()` to drive reactive re-renders:
+`select` returns the same `() => T` accessor shape as `signal()` and `context()` from `ilha` core. That means store-backed state composes with islands the same way context signals do — read it inside `html\`\``and the surrounding render scope subscribes automatically. No`.effect()`plumbing, no manual`subscribe` wiring.
 
 ```ts
 import { createStore } from "@ilha/store";
 import ilha, { html } from "ilha";
 
-export const cartStore = createStore({ items: [] as string[] }, (set, get) => ({
+const cartStore = createStore({ items: [] as string[] }, (set, get) => ({
   add(item: string) {
     set({ items: [...get().items, item] });
   },
@@ -176,22 +201,52 @@ export const cartStore = createStore({ items: [] as string[] }, (set, get) => ({
   },
 }));
 
-export const CartIsland = ilha
-  .state("items", cartStore.getState().items)
-  .effect(({ state }) => {
-    return cartStore.subscribe(
-      (s) => s.items,
-      (items) => state.items(items),
-    );
-  })
-  .render(
-    ({ state }) => html`
-      <ul>
-        ${state.items().map((item) => html`<li>${item}</li>`)}
-      </ul>
-    `,
-  );
+const items = cartStore.select((s) => s.items);
+const itemCount = cartStore.select((s) => s.items.length);
+
+export const CartBadge = ilha.render(() => html`<span>${itemCount()}</span>`);
+
+export const CartList = ilha.render(
+  () => html`
+    <ul>
+      ${items().map((item) => html`<li>${item}</li>`)}
+    </ul>
+  `,
+);
 ```
+
+Both islands stay in sync automatically. `CartBadge` only re-renders when `items.length` changes; `CartList` only re-renders when the array itself changes.
+
+### Inside `.derived()` and `.effect()`
+
+`select` accessors work in any tracking scope — the same dependency tracking that powers `.state()` reads applies:
+
+```ts
+const userStore = createStore({ id: 1, name: "Ada" });
+const userId = userStore.select((s) => s.id);
+
+const Profile = ilha
+  .derived("user", async ({ signal }) => {
+    const res = await fetch(`/api/users/${userId()}`, { signal });
+    return res.json();
+  })
+  .effect(() => {
+    document.title = `User: ${userStore.select((s) => s.name)()}`;
+    //                ^ inline is fine here — `.effect()` runs once per dep change,
+    //                  not on every render. For hot paths, hoist the `select`.
+  })
+  .render(({ derived }) => html`<p>${derived.user.value?.name ?? "…"}</p>`);
+```
+
+When `userId()` changes, the derived re-fetches automatically.
+
+### When to use `select` vs `subscribe`
+
+| Use `select`                                          | Use `subscribe`                                        |
+| ----------------------------------------------------- | ------------------------------------------------------ |
+| Reading store state inside an island                  | Imperative side effects outside an island              |
+| Driving `.derived()` or `.effect()` dependencies      | Syncing to `localStorage`, WebSockets, analytics       |
+| Anywhere you'd reach for `context()` from `ilha` core | Anywhere you'd reach for `effect()` from alien-signals |
 
 ---
 
@@ -271,37 +326,38 @@ const formStore = createStore({ errors: {} as FormErrors }, (set) => ({
   },
 }));
 
+const errors = formStore.select((s) => s.errors);
+
 export default ilha
   .on("form@submit", ({ event }) => {
     event.preventDefault();
     formStore.getState().submit(event);
   })
-  .render(() => {
-    const errors = formStore.getState().errors;
-    return html`
+  .render(
+    () => html`
       <form>
         <label>
           Name
           <input name="name" />
-          ${errors.name ? html`<p role="alert">${errors.name.join(", ")}</p>` : ""}
+          ${errors().name ? html`<p role="alert">${errors().name.join(", ")}</p>` : ""}
         </label>
         <label>
           Email
           <input name="email" type="email" />
-          ${errors.email ? html`<p role="alert">${errors.email.join(", ")}</p>` : ""}
+          ${errors().email ? html`<p role="alert">${errors().email.join(", ")}</p>` : ""}
         </label>
         <label>
           Message
           <textarea name="message"></textarea>
-          ${errors.message ? html`<p role="alert">${errors.message.join(", ")}</p>` : ""}
+          ${errors().message ? html`<p role="alert">${errors().message.join(", ")}</p>` : ""}
         </label>
         <button type="submit">Send</button>
       </form>
-    `;
-  });
+    `,
+  );
 ```
 
-The store holds errors, the schema drives types, and `extractFormData` + `validateWithSchema` + `issuesToErrors` form a straight pipeline from DOM to error state.
+The store holds errors, the schema drives types, and `extractFormData` + `validateWithSchema` + `issuesToErrors` form a straight pipeline from DOM to error state. The `errors` accessor is reactive — when `submit` writes new errors, the island re-renders automatically.
 
 ---
 
