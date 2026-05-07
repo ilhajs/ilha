@@ -30,6 +30,31 @@ export interface StoreApi<T extends object> {
   subscribe<S>(selector: (state: T) => S, listener: SliceListener<T, S>): Unsub;
   bind(el: Element, render: (state: T) => RenderResult): Unsub;
   bind<S>(el: Element, selector: (state: T) => S, render: (slice: S) => RenderResult): Unsub;
+  /**
+   * Project a reactive slice of state into a signal-shaped accessor.
+   *
+   * The returned function reads the current value when called. When called
+   * inside an ilha tracking scope (`.render()`, `.derived()`, `.effect()`)
+   * or any other alien-signals reactive context, that scope subscribes to
+   * the slice and re-runs whenever the selector's output changes.
+   *
+   * Hoist the call out of render functions — each `.select()` allocates
+   * a fresh `computed`, so calling it inside a render that re-runs leaks
+   * one per render until the scope is collected. Define selectors at
+   * module scope or in `.onMount()`/closure setup.
+   *
+   * @example
+   * const cartStore = createStore({ items: [] as Item[], total: 0 });
+   * const itemCount = cartStore.select(s => s.items.length);
+   *
+   * const Badge = ilha.render(() => html`<span>${itemCount()}</span>`);
+   *
+   * @example
+   * // Stable identity for downstream comparisons:
+   * const items = cartStore.select(s => s.items);
+   * cartStore.setState({ total: 99 }); // items() returns the same array
+   */
+  select<S>(selector: (state: T) => S): () => S;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +143,11 @@ export function createStore<TState extends object, TActions extends object = Rec
     });
   }
 
+  function select<S>(selector: (state: T) => S): () => S {
+    const sliceComputed = computed(() => selector(stateSignal()));
+    return () => sliceComputed();
+  }
+
   function bind(el: Element, render: (state: T) => RenderResult): Unsub;
   function bind<S>(
     el: Element,
@@ -134,9 +164,9 @@ export function createStore<TState extends object, TActions extends object = Rec
         el.innerHTML = unwrap((renderOrSelector as (state: T) => RenderResult)(stateSignal()));
       });
     }
-    const sliceComputed = computed(() => (renderOrSelector as (state: T) => S)(stateSignal()));
+    const slice = select(renderOrSelector as (state: T) => S);
     return effect(() => {
-      el.innerHTML = unwrap(maybeRender(sliceComputed()));
+      el.innerHTML = unwrap(maybeRender(slice()));
     });
   }
 
@@ -148,6 +178,7 @@ export function createStore<TState extends object, TActions extends object = Rec
     getInitialState: () => resolvedInitialState,
     subscribe,
     bind,
+    select,
   };
 
   const resolvedActions = actionsCreator

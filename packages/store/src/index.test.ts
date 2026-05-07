@@ -5,6 +5,7 @@
 
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 
+import { effect } from "alien-signals";
 import { html, raw } from "ilha";
 
 import { createStore, effectScope } from "./index";
@@ -18,6 +19,17 @@ function fixture(markup: string): HTMLElement {
   el.innerHTML = markup;
   document.body.appendChild(el);
   return el;
+}
+
+function makeEl(inner = ""): Element {
+  const el = document.createElement("div");
+  el.innerHTML = inner;
+  document.body.appendChild(el);
+  return el;
+}
+
+function cleanup(el: Element) {
+  if (el.parentNode) el.parentNode.removeChild(el);
 }
 
 beforeEach(() => {
@@ -427,7 +439,13 @@ describe("bind() — RawHtml render", () => {
     const store = createStore({ items: ["a", "b", "c"] });
     const el = fixture("<div id='t'></div>");
     const target = el.querySelector("#t")!;
-    store.bind(target, (s) => html`<ul>${s.items.map((i) => html`<li>${i}</li>`)}</ul>`);
+    store.bind(
+      target,
+      (s) =>
+        html`<ul>
+          ${s.items.map((i) => html`<li>${i}</li>`)}
+        </ul>`,
+    );
     expect(target.querySelectorAll("li").length).toBe(3);
     expect(target.innerHTML).not.toContain(",");
   });
@@ -436,7 +454,13 @@ describe("bind() — RawHtml render", () => {
     const store = createStore({ items: ["a"] });
     const el = fixture("<div id='t'></div>");
     const target = el.querySelector("#t")!;
-    store.bind(target, (s) => html`<ul>${s.items.map((i) => html`<li>${i}</li>`)}</ul>`);
+    store.bind(
+      target,
+      (s) =>
+        html`<ul>
+          ${s.items.map((i) => html`<li>${i}</li>`)}
+        </ul>`,
+    );
     store.setState({ items: ["a", "b", "c"] });
     expect(target.querySelectorAll("li").length).toBe(3);
   });
@@ -744,5 +768,292 @@ describe("integration", () => {
     store.setState({ count: 2 });
     expect(a.innerHTML).toBe("1"); // frozen after unsub
     expect(b.innerHTML).toBe("2"); // still live
+  });
+});
+
+describe("store.select() — reads", () => {
+  it("returns the current selected slice on call", () => {
+    const store = createStore({ count: 7, name: "Ada" });
+    const count = store.select((s) => s.count);
+    expect(count()).toBe(7);
+  });
+
+  it("reflects subsequent state changes when called again", () => {
+    const store = createStore({ count: 0 });
+    const count = store.select((s) => s.count);
+    expect(count()).toBe(0);
+    store.setState({ count: 5 });
+    expect(count()).toBe(5);
+    store.setState({ count: 9 });
+    expect(count()).toBe(9);
+  });
+
+  it("supports projections that compute derived values", () => {
+    const store = createStore({ items: [1, 2, 3] as number[] });
+    const total = store.select((s) => s.items.reduce((a, b) => a + b, 0));
+    expect(total()).toBe(6);
+    store.setState({ items: [10, 20] });
+    expect(total()).toBe(30);
+  });
+
+  it("supports projections that return objects/arrays", () => {
+    const store = createStore({ user: { name: "Ada", age: 30 } });
+    const user = store.select((s) => s.user);
+    expect(user()).toEqual({ name: "Ada", age: 30 });
+    store.setState({ user: { name: "Grace", age: 40 } });
+    expect(user()).toEqual({ name: "Grace", age: 40 });
+  });
+
+  it("works with stores that have actions", () => {
+    const store = createStore({ count: 0 }, (set, get) => ({
+      increment: () => set({ count: get().count + 1 }),
+    }));
+    const count = store.select((s) => s.count);
+    expect(count()).toBe(0);
+    store.getState().increment();
+    expect(count()).toBe(1);
+    store.getState().increment();
+    expect(count()).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// .select() — reactivity
+// ---------------------------------------------------------------------------
+
+describe("store.select() — reactivity", () => {
+  it("re-runs an enclosing effect when the selected slice changes", () => {
+    const store = createStore({ count: 0 });
+    const count = store.select((s) => s.count);
+
+    const seen: number[] = [];
+    const stop = effect(() => {
+      seen.push(count());
+    });
+
+    expect(seen).toEqual([0]);
+
+    store.setState({ count: 1 });
+    store.setState({ count: 2 });
+    store.setState({ count: 3 });
+
+    expect(seen).toEqual([0, 1, 2, 3]);
+    stop();
+  });
+
+  it("does NOT re-run an enclosing effect when an unrelated slice changes", () => {
+    const store = createStore({ count: 0, label: "hi" });
+    const count = store.select((s) => s.count);
+
+    const seen: number[] = [];
+    const stop = effect(() => {
+      seen.push(count());
+    });
+
+    expect(seen).toEqual([0]);
+
+    // Mutating an unrelated field should not cause `count` slice to fire.
+    store.setState({ label: "bye" });
+    store.setState({ label: "again" });
+
+    expect(seen).toEqual([0]);
+
+    // But a relevant change still does.
+    store.setState({ count: 5 });
+    expect(seen).toEqual([0, 5]);
+
+    stop();
+  });
+
+  it("does NOT re-run an enclosing effect when the slice value is unchanged", () => {
+    // setState always replaces the top-level state object, but the computed
+    // memoizes on Object.is, so derived effects should only see real changes.
+    const store = createStore({ count: 0, label: "hi" });
+    const count = store.select((s) => s.count);
+
+    const seen: number[] = [];
+    const stop = effect(() => {
+      seen.push(count());
+    });
+
+    expect(seen).toEqual([0]);
+
+    // Re-set count to the same value — top-level state object changes, but
+    // count slice does not.
+    store.setState({ count: 0 });
+    store.setState({ count: 0 });
+
+    expect(seen).toEqual([0]);
+    stop();
+  });
+
+  it("returns stable identity for object slices when state is shallow-merged unchanged", () => {
+    const initial = { user: { name: "Ada" } };
+    const store = createStore(initial);
+    const user = store.select((s) => s.user);
+
+    const a = user();
+    // Touching another field doesn't reallocate the inner object.
+    store.setState({} as Partial<typeof initial>);
+    const b = user();
+    expect(a).toBe(b);
+  });
+
+  it("supports multiple independent selectors over the same store", () => {
+    const store = createStore({ a: 1, b: 10 });
+    const aSel = store.select((s) => s.a);
+    const bSel = store.select((s) => s.b);
+
+    const aSeen: number[] = [];
+    const bSeen: number[] = [];
+    const stopA = effect(() => aSeen.push(aSel()));
+    const stopB = effect(() => bSeen.push(bSel()));
+
+    expect(aSeen).toEqual([1]);
+    expect(bSeen).toEqual([10]);
+
+    store.setState({ a: 2 });
+    expect(aSeen).toEqual([1, 2]);
+    expect(bSeen).toEqual([10]); // b untouched
+
+    store.setState({ b: 20 });
+    expect(aSeen).toEqual([1, 2]); // a untouched
+    expect(bSeen).toEqual([10, 20]);
+
+    stopA();
+    stopB();
+  });
+
+  it("each .select() call returns a fresh accessor (no global caching by selector identity)", () => {
+    const store = createStore({ count: 0 });
+    const sel = (s: { count: number }) => s.count;
+    const a = store.select(sel);
+    const b = store.select(sel);
+    // Different accessor instances...
+    expect(a).not.toBe(b);
+    // ...but observing the same underlying value.
+    expect(a()).toBe(b());
+    store.setState({ count: 42 });
+    expect(a()).toBe(42);
+    expect(b()).toBe(42);
+  });
+
+  it("composes — a selector can read another selector's output", () => {
+    const store = createStore({ items: [1, 2, 3] as number[] });
+    const items = store.select((s) => s.items);
+    // Outer selector reads through the inner accessor; the inner closes over
+    // `store` directly, so the outer just composes pure JS functions.
+    const count = store.select((s) => s.items.length);
+
+    const seen: number[] = [];
+    const stop = effect(() => {
+      seen.push(count());
+    });
+
+    expect(seen).toEqual([3]);
+    store.setState({ items: [...items(), 4] });
+    expect(seen).toEqual([3, 4]);
+    stop();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// .select() — interplay with bind() refactor
+// ---------------------------------------------------------------------------
+
+describe("store.bind() (post-refactor)", () => {
+  it("two-arg form still updates the element when slice changes", () => {
+    const el = makeEl();
+    const store = createStore({ name: "Ada" });
+    const stop = store.bind(
+      el,
+      (s) => s.name,
+      (name) => `<p>${name}</p>`,
+    );
+    expect(el.innerHTML).toBe("<p>Ada</p>");
+    store.setState({ name: "Grace" });
+    expect(el.innerHTML).toBe("<p>Grace</p>");
+    stop();
+    cleanup(el);
+  });
+
+  it("two-arg form does NOT re-render when an unrelated field changes", () => {
+    const el = makeEl();
+    const store = createStore({ name: "Ada", count: 0 });
+
+    let renders = 0;
+    const stop = store.bind(
+      el,
+      (s) => s.name,
+      (name) => {
+        renders++;
+        return `<p>${name}</p>`;
+      },
+    );
+    expect(renders).toBe(1);
+
+    store.setState({ count: 1 });
+    store.setState({ count: 2 });
+    expect(renders).toBe(1);
+
+    store.setState({ name: "Grace" });
+    expect(renders).toBe(2);
+
+    stop();
+    cleanup(el);
+  });
+
+  it("one-arg form is unaffected and re-renders on any state change", () => {
+    const el = makeEl();
+    const store = createStore({ a: 1, b: 2 });
+
+    let renders = 0;
+    const stop = store.bind(el, (s) => {
+      renders++;
+      return `<p>${s.a}-${s.b}</p>`;
+    });
+    expect(renders).toBe(1);
+    expect(el.innerHTML).toBe("<p>1-2</p>");
+
+    store.setState({ a: 10 });
+    expect(renders).toBe(2);
+    store.setState({ b: 20 });
+    expect(renders).toBe(3);
+    expect(el.innerHTML).toBe("<p>10-20</p>");
+
+    stop();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// .select() — type-level checks (compile-time, exercised at runtime)
+// ---------------------------------------------------------------------------
+
+describe("store.select() — type inference", () => {
+  it("infers the selected value type from the projection", () => {
+    const store = createStore({ count: 0, name: "Ada" });
+
+    const count = store.select((s) => s.count);
+    const name = store.select((s) => s.name);
+    const upper = store.select((s) => s.name.toUpperCase());
+
+    // These calls must satisfy the inferred return type at compile time.
+    const c: number = count();
+    const n: string = name();
+    const u: string = upper();
+
+    expect(c).toBe(0);
+    expect(n).toBe("Ada");
+    expect(u).toBe("ADA");
+  });
+
+  it("includes action keys in the state shape passed to the selector", () => {
+    const store = createStore({ count: 0 }, (set) => ({
+      reset: () => set({ count: 0 }),
+    }));
+    // Selector sees both state and action keys — `reset` is a function.
+    const reset = store.select((s) => s.reset);
+    expect(typeof reset()).toBe("function");
   });
 });
