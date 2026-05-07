@@ -75,6 +75,65 @@ pageRouter.hydrate(registry);
 
 ---
 
+## Hash mode
+
+By default, the router uses the HTML5 History API and treats `location.pathname` as the route. This requires either a server that serves the SPA shell at every URL, or a static host with a SPA fallback. When neither is available — the document is loaded over `file://`, embedded in a desktop wrapper like Electron or Electrobun, opened directly from disk, or served from a host that can't be configured for SPA fallbacks — switch to **hash mode**, which stores the route in `location.hash`:
+
+```ts
+import { setHistoryMode, router } from "@ilha/router";
+
+setHistoryMode("hash"); // ← call once, before mounting
+
+router().route("/", homePage).route("/about", aboutPage).route("/user/:id", userPage).mount("#app");
+```
+
+`setHistoryMode("hash")` must be called **before** `.mount()`, `.hydrate()`, or `prime()`. Once set, every navigation API in this package — `navigate()`, `RouterLink`, `enableLinkInterception()`, popstate handling — operates against `location.hash` instead of `location.pathname`.
+
+URLs in hash mode look like:
+
+```
+file:///path/to/index.html#/
+file:///path/to/index.html#/about
+file:///path/to/index.html#/user/42?tab=overview
+file:///path/to/index.html#/docs/intro#section
+```
+
+The portion after the `#` is parsed as if it were a real URL — the path comes first, followed by an optional query string and an optional in-page anchor. `routeHash()` returns the in-hash anchor (`#section`), so in-page anchor links keep working alongside hash routing.
+
+### Links
+
+Both forms work — pick whichever is easier in your code:
+
+```html
+<a href="/about">About</a>
+<!-- plain path — preferred for shared code -->
+<a href="#/about">About</a>
+<!-- explicit hash form — also intercepted -->
+```
+
+`<RouterLink>` automatically renders the hash form (`<a href="#/about">`) in hash mode, so right-click → copy link gives a working URL.
+
+In-page anchor links (`<a href="#section">`) are not intercepted — they behave as normal browser anchors. Only links beginning with `#/` (a slash after the hash) are treated as in-app navigations.
+
+### What's not supported in hash mode
+
+**SSR + hydration.** The hash is never sent to the server, so it cannot pre-render the active route. Calling `mount({ hydrate: true })` or `.hydrate(registry)` while in hash mode logs a warning. Use plain SPA mode for hash-mode apps:
+
+```ts
+setHistoryMode("hash");
+pageRouter.mount("#app"); // ← no { hydrate: true }
+```
+
+You can still register loaders, but they run on the client (via the loader endpoint or by calling `runLoader()` yourself) — there is no server-rendered initial state.
+
+**Per-router mode.** History mode is process-global, not per-builder. This is intentional: `navigate()`, `RouterLink`, and `prefetch()` are module-level and would otherwise need explicit instance threading. If your app needs both modes simultaneously, that's not a use case this router supports.
+
+### Switching modes
+
+`setHistoryMode()` can be called more than once, but listeners registered before a switch keep using their original adapter until the router is unmounted and remounted. In practice, set the mode once at app entry and leave it alone.
+
+---
+
 ## Core API
 
 ### `router()`
@@ -135,6 +194,8 @@ unmount();
 | `registry` | `Record<string, Island>` | `undefined` | Island registry for interactive hydration on navigation    |
 
 When `hydrate: true`, `.mount()` does **not** wipe existing SSR HTML. It instead mounts a hidden navigation handler that re-renders routes with hydration on subsequent navigations.
+
+> Combining `hydrate: true` with hash mode logs a warning — hash routes are never visible to the server, so SSR can't pre-render them. Use plain SPA mode (no `hydrate`) for hash-mode apps.
 
 No-op with a console warning when called outside a browser environment.
 
@@ -253,6 +314,8 @@ pageRouter.hydrate(registry, {
 
 Returns an `unmount` function that tears down all listeners and hydrated islands.
 
+> `.hydrate()` is for SSR + history-mode apps. In hash mode, use plain `.mount("#app")` instead — the server has no visibility into hash routes, so there's nothing to hydrate against.
+
 ---
 
 #### `.attachLoader(pattern, loader)` — runtime
@@ -262,6 +325,21 @@ Attaches or replaces a loader on an already-registered route pattern. No-op if t
 ```ts
 router().route("/user/:id", userPage).attachLoader("/user/:id", serverLoader);
 ```
+
+---
+
+### `setHistoryMode(mode)` · `getHistoryMode()`
+
+Selects the history strategy used by the router. Defaults to `"history"` (HTML5 History API, reads/writes `location.pathname`). Set to `"hash"` to store the route in `location.hash` instead — see the [Hash mode](#hash-mode) section above for when to use it.
+
+```ts
+import { setHistoryMode, getHistoryMode } from "@ilha/router";
+
+setHistoryMode("hash");
+getHistoryMode(); // → "hash"
+```
+
+The mode is process-global. Call `setHistoryMode()` once at app entry, before any `.mount()`, `.hydrate()`, or `prime()` call.
 
 ---
 
@@ -275,6 +353,8 @@ import { navigate } from "@ilha/router";
 navigate("/about");
 navigate("/about", { replace: true }); // replaces instead of pushing
 ```
+
+In hash mode, `navigate("/about")` writes `#/about` into `location.hash`. The argument is always the logical path — no need to prefix it with `#`.
 
 No-op on the server.
 
@@ -583,6 +663,8 @@ interface HydrateOptions {
   target?: string | Element;
 }
 
+type HistoryMode = "history" | "hash";
+
 // Helper — returns fn as-is with LayoutHandler type enforced
 function defineLayout(fn: LayoutHandler): LayoutHandler;
 
@@ -597,6 +679,10 @@ function error(status: number, message: string): never;
 
 // Merges loaders — later loaders win on key collision
 function composeLoaders<Ls extends readonly Loader<any>[]>(loaders: Ls): Loader<MergeLoaders<Ls>>;
+
+// Selects the history strategy. Default: "history". Call before .mount() / .hydrate().
+function setHistoryMode(mode: HistoryMode): void;
+function getHistoryMode(): HistoryMode;
 ```
 
 ---

@@ -3,6 +3,11 @@ import type { Island, HydratableOptions } from "ilha";
 import ilha, { html } from "ilha";
 import { createRouter, addRoute, findRoute } from "rou3";
 
+import { getAdapter, getHistoryMode } from "./hash";
+
+export { setHistoryMode, getHistoryMode } from "./hash";
+export type { HistoryMode } from "./hash";
+
 // ─────────────────────────────────────────────
 // Environment
 // ─────────────────────────────────────────────
@@ -511,14 +516,15 @@ function syncRouteFromURL(url: string | URL): void {
   activeIsland(match?.data?.island ?? null);
 }
 
-/** Client-only fast path — reads directly from `location` instead of parsing a URL. */
+/** Client-only fast path — reads directly from the history adapter (location in history mode, hash content in hash mode). */
 function syncRouteFromLocation(): void {
-  const match = findRoute(_rou3, "GET", location.pathname);
+  const loc = getAdapter().readLocation();
+  const match = findRoute(_rou3, "GET", loc.pathname);
 
-  routePath(location.pathname);
+  routePath(loc.pathname);
   routeParams(extractParams(match?.params as Record<string, string> | undefined));
-  routeSearch(location.search);
-  routeHash(location.hash);
+  routeSearch(loc.search);
+  routeHash(loc.hash);
   activeIsland(match?.data?.island ?? null);
 }
 
@@ -542,12 +548,17 @@ export function prime(): void {
 export function navigate(to: string, opts: NavigateOptions = {}): void {
   if (!isBrowser) return;
 
-  // Skip duplicate navigations — same URL means no history push, no re-render
-  const current = location.pathname + location.search + location.hash;
+  const adapter = getAdapter();
+
+  // Skip duplicate navigations — same logical URL means no history push, no re-render.
+  // We compare against the adapter's logical location, not window.location, so the
+  // dedup behaves identically in hash mode.
+  const cur = adapter.readLocation();
+  const current = cur.pathname + cur.search + cur.hash;
   if (to === current) return;
 
-  if (opts.replace) history.replaceState(null, "", to);
-  else history.pushState(null, "", to);
+  if (opts.replace) adapter.replace(to);
+  else adapter.push(to);
   syncRouteFromLocation();
 }
 
@@ -573,29 +584,29 @@ export function enableLinkInterception(
 
   const prefetchEnabled = options.prefetch !== false;
 
-  /** Determine whether this anchor is a same-origin in-app link we should handle. */
-  function eligibleLink(target: HTMLAnchorElement, e?: Event): boolean {
-    const href = target.getAttribute("href");
-    if (!href) return false;
-    const isAnchorOnly = href.startsWith("#");
+  /**
+   * Determine whether this anchor is a same-origin in-app link we should handle,
+   * and if so, the logical path to navigate to. Returns null when the link
+   * should be left to the browser (external, modifier held, target=_blank, etc).
+   */
+  function logicalPathFor(target: HTMLAnchorElement, e?: Event): string | null {
     const isBlank = target.getAttribute("target") === "_blank";
     const hasModifier =
       !!e && ((e as MouseEvent).ctrlKey || (e as MouseEvent).metaKey || (e as MouseEvent).shiftKey);
-    const isExternal =
-      !!target.hostname &&
-      (target.hostname !== location.hostname || target.protocol !== location.protocol);
     const hasNoIntercept = target.hasAttribute("data-no-intercept");
-    return !(isExternal || isAnchorOnly || isBlank || hasModifier || hasNoIntercept);
+    if (isBlank || hasModifier || hasNoIntercept) return null;
+    return getAdapter().extractLogicalPath(target);
   }
 
   const clickHandler = (e: Event) => {
     if (e.defaultPrevented) return;
     const target = (e.target as Element).closest("a") as HTMLAnchorElement | null;
     if (!target) return;
-    if (!eligibleLink(target, e)) return;
+    const path = logicalPathFor(target, e);
+    if (path === null) return;
 
     e.preventDefault();
-    navigate(target.pathname + target.search + target.hash);
+    navigate(path);
   };
 
   const hoverHandler = (e: Event) => {
@@ -604,8 +615,11 @@ export function enableLinkInterception(
     // Opt-in only: link must have `data-prefetch` (and not `data-prefetch="false"`)
     const flag = target.getAttribute("data-prefetch");
     if (flag === null || flag === "false") return;
-    if (!eligibleLink(target)) return;
-    prefetch(target.pathname + target.search);
+    const path = logicalPathFor(target);
+    if (path === null) return;
+    // Drop hash for prefetch — loaders are keyed on path+search.
+    const noHash = path.split("#")[0] ?? path;
+    prefetch(noHash);
   };
 
   root.addEventListener("click", clickHandler);
@@ -659,7 +673,12 @@ export const RouterLink = ilha
     }
     prefetch(href);
   })
-  .render(({ state }) => html`<a data-link data-prefetch href="${state.href}">${state.label}</a>`);
+  .render(
+    ({ state }) =>
+      html`<a data-link data-prefetch href="${() => getAdapter().toLinkHref(state.href())}"
+        >${state.label}</a
+      >`,
+  );
 
 // ─────────────────────────────────────────────
 // isActive()
@@ -722,7 +741,7 @@ export function router(): RouterBuilder {
   _islandToPattern = new Map();
   _patternToData = new Map();
 
-  let _popstateCleanup: (() => void) | null = null;
+  let _navChangeCleanup: (() => void) | null = null;
   let _linkCleanup: (() => void) | null = null;
 
   const builder: RouterBuilder = {
@@ -774,8 +793,7 @@ export function router(): RouterBuilder {
       syncRouteFromLocation();
 
       const popHandler = () => syncRouteFromLocation();
-      window.addEventListener("popstate", popHandler);
-      _popstateCleanup = () => window.removeEventListener("popstate", popHandler);
+      _navChangeCleanup = getAdapter().onChange(popHandler);
       _linkCleanup = enableLinkInterception(document);
 
       let unmountView: (() => void) | null = null;
@@ -784,6 +802,19 @@ export function router(): RouterBuilder {
       let navAbort: AbortController | null = null;
 
       if (hydrate) {
+        // Hash-mode + hydration is a footgun: the server only ever sees "/" because
+        // the hash isn't sent in the request, so the SSR HTML was rendered for "/"
+        // even when the user opened a deep link like "index.html#/about". On the
+        // client we'd then try to hydrate "/about" against HTML rendered for "/" —
+        // mismatch. Warn loudly so apps don't accidentally combine the two.
+        if (getHistoryMode() === "hash") {
+          console.warn(
+            "[ilha-router] mount({ hydrate: true }) was called in hash mode. " +
+              "SSR + hydration assumes the server can render the active route, but in " +
+              "hash mode the server only ever sees the document URL. Use plain SPA mode " +
+              "(`mount(target)` without `hydrate: true`) for hash-mode apps.",
+          );
+        }
         // SSR HTML is already in the DOM and ilha.mount() has already hydrated
         // [data-ilha] nodes with reactivity.  We must NOT mount RouterView now —
         // any morph (even with identical HTML) would replace the live DOM nodes,
@@ -808,10 +839,11 @@ export function router(): RouterBuilder {
               if (thisNav !== navVersion) return;
               unmountView?.();
               try {
+                const loc = getAdapter().readLocation();
                 unmountView = await mountRouteWithHydration(
                   current,
                   viewHost,
-                  location.pathname + location.search,
+                  loc.pathname + loc.search,
                   signal,
                   registry,
                   reverseRegistry,
@@ -837,9 +869,9 @@ export function router(): RouterBuilder {
           unmountNavHandler();
           navHost.remove();
           unmountView?.();
-          _popstateCleanup?.();
+          _navChangeCleanup?.();
           _linkCleanup?.();
-          _popstateCleanup = null;
+          _navChangeCleanup = null;
           _linkCleanup = null;
         };
       }
@@ -868,10 +900,12 @@ export function router(): RouterBuilder {
         if (!viewHost) return;
 
         // Fetch loader data only if the matched route has a loader registered.
-        const clientMatch = findRoute(_rou3, "GET", location.pathname);
+        const adapter = getAdapter();
+        const loc = adapter.readLocation();
+        const clientMatch = findRoute(_rou3, "GET", loc.pathname);
         const hasLoader = !!clientMatch?.data?.loader;
         const result: LoaderFetchResult = hasLoader
-          ? await fetchLoaderData(location.pathname + location.search, signal)
+          ? await fetchLoaderData(loc.pathname + loc.search, signal)
           : { kind: "data", data: {} };
         if (signal.aborted) return;
         if (result.kind === "redirect") {
@@ -919,9 +953,9 @@ export function router(): RouterBuilder {
         unmountNavHandler();
         navHost.remove();
         unmountView?.();
-        _popstateCleanup?.();
+        _navChangeCleanup?.();
         _linkCleanup?.();
-        _popstateCleanup = null;
+        _navChangeCleanup = null;
         _linkCleanup = null;
       };
     },
