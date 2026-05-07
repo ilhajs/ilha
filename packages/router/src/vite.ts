@@ -554,10 +554,17 @@ export function pages(options: IlhaPagesOptions = {}): Plugin {
     },
 
     load(id) {
-      if (id === RESOLVED_PAGES) return `export { pageRouter } from ${JSON.stringify(outFile)};`;
-      if (id === RESOLVED_REGISTRY) return `export { registry } from ${JSON.stringify(outFile)};`;
+      if (id === RESOLVED_PAGES) {
+        const spec = outFile.replace(/\.tsx?$/, "");
+        return `export { pageRouter } from ${JSON.stringify(spec)};`;
+      }
+      if (id === RESOLVED_REGISTRY) {
+        const spec = outFile.replace(/\.tsx?$/, "");
+        return `export { registry } from ${JSON.stringify(spec)};`;
+      }
       if (id === RESOLVED_LOADERS) {
-        return `import ${JSON.stringify(loadersFile)};`;
+        const spec = loadersFile.replace(/\.tsx?$/, "");
+        return `import ${JSON.stringify(spec)};`;
       }
 
       // `?client` virtual: re-export only `default` from the underlying file.

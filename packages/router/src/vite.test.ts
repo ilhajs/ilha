@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import ilha from "ilha";
 
@@ -869,7 +869,7 @@ describe("pages — Vite plugin", () => {
     const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
     plugin.configResolved({ root });
     const result = plugin.load("\0ilha:pages");
-    expect(result).toContain("routes.ts");
+    expect(result).toContain(outFile.replace(/\.ts$/, ""));
     expect(result).toContain("pageRouter");
     expect(result).toContain("export");
     // must NOT re-export default — named exports only
@@ -885,7 +885,7 @@ describe("pages — Vite plugin", () => {
     const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
     plugin.configResolved({ root });
     const result = plugin.load("\0ilha:registry");
-    expect(result).toContain("routes.ts");
+    expect(result).toContain(outFile.replace(/\.ts$/, ""));
     expect(result).toContain("registry");
     expect(result).toContain("export");
     expect(result).not.toContain("export default");
@@ -1351,7 +1351,8 @@ describe("pages — ilha:loaders virtual module", () => {
     const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
     plugin.configResolved({ root });
     const result = plugin.load("\0ilha:loaders");
-    expect(result).toContain("loaders.ts");
+    const loadersFile = join(dirname(outFile), "loaders.ts");
+    expect(result).toContain(loadersFile.replace(/\.ts$/, ""));
     // Must be a bare import (side-effect) not a named re-export
     expect(result).toMatch(/import\s+["']/);
     expect(result).not.toContain("export");
