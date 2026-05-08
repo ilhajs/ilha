@@ -121,10 +121,6 @@ function parseHash(rawHash: string): LogicalLocation {
   return { pathname: u.pathname, search: u.search, hash: u.hash };
 }
 
-function joinLogical(loc: LogicalLocation): string {
-  return loc.pathname + loc.search + loc.hash;
-}
-
 const hashAdapter: HistoryAdapter = {
   readLocation() {
     if (!isBrowser) return { pathname: "/", search: "", hash: "" };
@@ -132,11 +128,11 @@ const hashAdapter: HistoryAdapter = {
   },
   push(to) {
     if (!isBrowser) return;
-    history.pushState(null, "", "#" + to);
+    history.pushState(null, "", to.startsWith("#") ? to : "#" + to);
   },
   replace(to) {
     if (!isBrowser) return;
-    history.replaceState(null, "", "#" + to);
+    history.replaceState(null, "", to.startsWith("#") ? to : "#" + to);
   },
   onChange(handler) {
     if (!isBrowser) return () => {};
