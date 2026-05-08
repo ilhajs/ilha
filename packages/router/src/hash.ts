@@ -82,6 +82,8 @@ const historyAdapter: HistoryAdapter = {
   extractLogicalPath(anchor) {
     const href = anchor.getAttribute("href");
     if (!href) return null;
+    // Ignore non-HTTP(S) schemes (mailto:, tel:, javascript:, etc.)
+    if (anchor.protocol && !/^(http:|https:)$/.test(anchor.protocol)) return null;
     // Anchor-only links ("#section") are in-page, not navigations.
     if (href.startsWith("#")) return null;
     // Same-origin check — `hostname` is empty for relative hrefs, which is fine.
@@ -152,6 +154,8 @@ const hashAdapter: HistoryAdapter = {
   extractLogicalPath(anchor) {
     const href = anchor.getAttribute("href");
     if (!href) return null;
+    // Ignore non-HTTP(S) schemes (mailto:, tel:, javascript:, etc.)
+    if (anchor.protocol && !/^(http:|https:)$/.test(anchor.protocol)) return null;
 
     // Hash-form link: "#/about" or "#/users/42?x=1"
     if (href.startsWith("#")) {
