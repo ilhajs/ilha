@@ -2,6 +2,10 @@
 
 ## `ilha`
 
+### 0.4.2 - 2026-05-11
+
+- Fixes .input() reactivity so child components can rerender when parent updates passed propes programatically.
+
 ### 0.4.1 - 2026-05-06
 
 - Fixes .derived() signal in child that caused unnecessary rerender of parent.
@@ -60,35 +64,11 @@ Initial release of **ilha** — a tiny, isomorphic island framework for building
 - Adds helpers and utilities: `raw(value)` — marks a string as trusted raw HTML, bypassing escaping inside `html`
 - Adds helpers and utilities: `type(coerce?)` — lightweight Standard Schema validator for `.input()` without a full validation library
 
-## `@ilha/form`
-
-### 0.2.1 - 2026-04-28
-
-- Deprecated the library in favor for handling form management with `@ilha/store` using `@ilha/store/form` helpers.
-
-### 0.2.0 - 2026-04-21
-
-- Adds `defaultValues` property to set initial form state
-- Adds Programmatic `form.setValue` API
-
-### 0.1.0 — 2026-04-14
-
-Initial release of **@ilha/form** — a tiny, typed form binding library for ilha islands. Binds a Standard Schema validator to a native `<form>` element; wires up typed submission, per-field error tracking, and dirty state using native DOM events only. No virtual DOM. No external runtime dependencies. Async schema validation is not supported.
-
-- Adds `createForm(options)` — creates a form binding instance; does not attach any listeners until `.mount()` is called; accepts `el`, `schema`, `onSubmit`, `onError`, and `validateOn`
-- Adds `createForm` option `onSubmit(values, event)` — called with fully typed schema output on valid submission; not called if validation fails
-- Adds `createForm` option `onError(issues, event)` — called with structured `StandardSchemaV1.Issue[]` on invalid submission
-- Adds `createForm` option `validateOn` — controls when live validation runs against field changes: `"submit"` (default, submission only), `"change"` (after a field loses focus with a new value), or `"input"` (every keystroke)
-- Adds `form.mount()` — attaches event listeners to the form; returns a cleanup function equivalent to calling `form.unmount()`
-- Adds `form.unmount()` — removes all event listeners; idempotent, safe to call multiple times
-- Adds `form.values` — reads and validates current form values synchronously against the schema; returns a discriminated union `{ ok: true, data }` or `{ ok: false, issues }`; never throws; can be called before mount
-- Adds `form.errors` — returns the per-field error map from the last validation run as `Record<string, string[]>`; keys are dot-separated field paths (e.g. `user.email`); empty object before first validation; returns a copy — mutations do not affect internal state
-- Adds `form.isDirty` — `true` if any field value has changed since mount was called (detected via `change` events); stays `true` after unmount
-- Adds `form.submit()` — programmatically triggers the validate / `onSubmit` / `onError` cycle; dispatches a real `SubmitEvent` when mounted, runs validation directly when not mounted
-- Adds exported helper `issuesToErrors(issues)` — converts a `StandardSchemaV1.Issue[]` array into a `FormErrors` map; useful for wiring `onError` into island state
-- Adds exported types: `FormResult<T>`, `FormErrors`, `ValidateOn`, `Form<S>`, `CreateFormOptions<S>`
-
 ## `@ilha/router`
+
+### 0.3.1 - 2026-05-11
+
+- Updates Ilha dependency to 0.4.2
 
 ### 0.2.5 - 2026-05-06
 
@@ -142,6 +122,10 @@ Initial release of **@ilha/router** — a lightweight, isomorphic router for ilh
 - Adds exported types: `RouteRecord`, `RouteSnapshot`, `AppError`, `LayoutHandler`, `ErrorHandler`, `NavigateOptions`, `MountOptions`, `HydrateOptions`, `HydratableRenderOptions`, `RouterBuilder`
 
 ## `@ilha/store`
+
+### 0.3.1 - 2026-05-11
+
+- Updates Ilha dependency to 0.4.2
 
 ### 0.3.0 - 2026-05-07
 
