@@ -49,6 +49,26 @@ function warn(msg: string): void {
   if (__DEV__) console.warn(`[ilha] ${msg}`);
 }
 
+// Shallow equality on two resolved-input objects. Used to short-circuit
+// updateProps when a parent re-renders with the same props — avoids
+// unnecessary signal churn (and therefore unnecessary child re-renders).
+// Objects only; both arguments are always plain objects produced by
+// resolveInput. Uses Object.is so NaN compares equal to itself.
+function shallowEqualInput(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return false;
+  const ak = Object.keys(a as object);
+  const bk = Object.keys(b as object);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) {
+    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // ---------------------------------------------
 // Simplified morph engine
 // ---------------------------------------------
@@ -175,6 +195,10 @@ const RAW = Symbol("ilha.raw");
 const SIGNAL_ACCESSOR = Symbol("ilha.signalAccessor");
 const ISLAND = Symbol("ilha.island");
 const ISLAND_CALL = Symbol("ilha.islandCall");
+// Internal hook used by a parent's mountSlots to mount a child island and
+// retain a handle to push updated props into it on subsequent parent
+// re-renders. Not part of the public surface.
+const ISLAND_MOUNT_INTERNAL = Symbol("ilha.islandMountInternal");
 
 const SLOT_ATTR = "data-ilha-slot";
 const PROPS_ATTR = "data-ilha-props";
@@ -1447,7 +1471,24 @@ class IlhaBuilder<
       });
     }
 
+    type MountHandle = {
+      unmount: () => void;
+      // Push new props into an already-mounted island. Used by parent
+      // mountSlots when a parent re-render produces new props for an
+      // already-mounted child slot. The new props are resolved (and
+      // validated against the schema, if any) and written into the input
+      // signal — reactive scopes (render, derived, effect) that read input
+      // keys re-run automatically.
+      updateProps: (props?: Partial<TInput>) => void;
+    };
+
     function mountIsland(host: Element, props?: Partial<TInput>): () => void {
+      return mountIslandInternal(host, props).unmount;
+    }
+
+    function mountIslandInternal(host: Element, props?: Partial<TInput>): MountHandle {
+      const noop: MountHandle = { unmount: () => {}, updateProps: () => {} };
+
       if (__DEV__ && _mountedHosts) {
         if (_mountedHosts.has(host)) {
           warn(
@@ -1455,7 +1496,7 @@ class IlhaBuilder<
               `memory leaks and duplicate event listeners.\n` +
               `Element: ${host.outerHTML.slice(0, 120)}`,
           );
-          return () => {};
+          return noop;
         }
         _mountedHosts.add(host);
       }
@@ -1471,7 +1512,38 @@ class IlhaBuilder<
         }
       }
 
-      const input = resolveInput(props);
+      // Input is reactive: stored in a signal whose value is the resolved
+      // input object, and exposed to user code via a Proxy whose getters
+      // read the signal. This lets child islands re-render when a parent
+      // passes them updated state via `Child({ value: state.x() })` and
+      // the parent's render effect re-runs — see updateProps below.
+      const inputSignal = signal(resolveInput(props));
+      const input = new Proxy({} as TInput, {
+        get(_t, key) {
+          return (inputSignal() as Record<PropertyKey, unknown>)[key];
+        },
+        has(_t, key) {
+          return key in (inputSignal() as object);
+        },
+        ownKeys() {
+          // ownKeys is invoked outside a tracking scope (e.g. Object.keys);
+          // peek without subscribing to avoid surprises.
+          const prevSub = setActiveSub(undefined);
+          try {
+            return Reflect.ownKeys(inputSignal() as object);
+          } finally {
+            setActiveSub(prevSub);
+          }
+        },
+        getOwnPropertyDescriptor(_t, key) {
+          const prevSub = setActiveSub(undefined);
+          try {
+            return Reflect.getOwnPropertyDescriptor(inputSignal() as object, key);
+          } finally {
+            setActiveSub(prevSub);
+          }
+        },
+      });
 
       let snapshotRaw: Record<string, unknown> | undefined;
       const rawState = host.getAttribute(STATE_ATTR);
@@ -1547,12 +1619,17 @@ class IlhaBuilder<
         }
       }
 
-      // Tracks slots currently mounted into the host: id -> { element, unmount }.
+      // Tracks slots currently mounted into the host: id -> { element, unmount, updateProps }.
       // mountSlots reconciles this against the fresh slot map from each render.
       // Preservation of identity across re-renders happens in the render effect
-      // (detach-before-morph, rehome-after-morph). This function's job is
-      // purely: unmount removed slots, mount newly-added ones.
-      const mountedSlots = new Map<string, { el: Element; unmount: () => void }>();
+      // (detach-before-morph, rehome-after-morph). This function's job is:
+      // unmount removed slots, mount newly-added ones, and push fresh props
+      // into slots that were already mounted (so children re-render when the
+      // parent passes them updated state as input).
+      const mountedSlots = new Map<
+        string,
+        { el: Element; unmount: () => void; updateProps: (props?: Record<string, unknown>) => void }
+      >();
 
       function findSlot(id: string): Element | null {
         // Use CSS.escape when available (DOM environments always have it); fall
@@ -1582,9 +1659,17 @@ class IlhaBuilder<
           }
         }
 
-        // Mount new slot ids that aren't yet mounted.
+        // Mount new slot ids that aren't yet mounted; push updated props
+        // into slots that are.
         for (const [id, { island: childIsland, props }] of slotMap) {
-          if (mountedSlots.has(id)) continue;
+          const existing = mountedSlots.get(id);
+          if (existing) {
+            // Already mounted — propagate fresh props so the child can
+            // re-render. Short-circuit happens inside updateProps when the
+            // resolved input is shallow-equal to the previous one.
+            existing.updateProps(props);
+            continue;
+          }
 
           const slotEl = findSlot(id);
           if (!slotEl) continue;
@@ -1612,13 +1697,25 @@ class IlhaBuilder<
           // parent to child-internal state and preventing the child's own
           // render effect from receiving updates.
           const prevSub = setActiveSub(undefined);
-          let unmount: () => void;
+          let handle: { unmount: () => void; updateProps: (p?: Record<string, unknown>) => void };
           try {
-            unmount = childIsland.mount(slotEl, slotProps);
+            // Use the internal mount path so we get a handle that can push
+            // new props on subsequent parent re-renders, not just unmount.
+            const internal = (childIsland as unknown as Record<symbol, unknown>)[
+              ISLAND_MOUNT_INTERNAL
+            ] as
+              | ((
+                  host: Element,
+                  props?: Record<string, unknown>,
+                ) => { unmount: () => void; updateProps: (p?: Record<string, unknown>) => void })
+              | undefined;
+            handle = internal
+              ? internal(slotEl, slotProps)
+              : { unmount: childIsland.mount(slotEl, slotProps), updateProps: () => {} };
           } finally {
             setActiveSub(prevSub);
           }
-          mountedSlots.set(id, { el: slotEl, unmount });
+          mountedSlots.set(id, { el: slotEl, ...handle });
         }
       }
 
@@ -1770,6 +1867,12 @@ class IlhaBuilder<
       }
 
       let initialized = false;
+      // Track the rendered HTML from the initial sync render so the first
+      // effect pass can detect whether state writes during onMount or
+      // synchronous effect setup have produced a divergence that needs a
+      // re-paint. Without this, the DOM stays stuck on the initial-render
+      // value because the effect's first run short-circuits.
+      const initialRenderedHtml = initial.html;
       const stopRender = effect(() => {
         // Re-render produces empty stubs for every child island site (see
         // emitIslandSlot). The full strategy for preserving mounted children
@@ -1795,9 +1898,22 @@ class IlhaBuilder<
           host,
         );
         const html = stylePrefix + rendered;
+
         if (!initialized) {
           initialized = true;
-          return;
+          // Fast path: render output matches the eager initial render. DOM
+          // and slot map are already in sync — nothing more to do here. The
+          // typical case: no onMount has run yet, or onMount hasn't written
+          // any state.
+          if (rendered === initialRenderedHtml) {
+            return;
+          }
+          // Divergence: a state write between the eager initial render and
+          // the first effect pass (typically inside onMount) changed what
+          // the render fn produces. Fall through to do a full morph + slot
+          // reconcile so the DOM and mounted children catch up. The child
+          // islands that were already mounted by the eager mountSlots get
+          // their new props pushed via updateProps.
         }
 
         detachListeners();
@@ -1887,7 +2003,7 @@ class IlhaBuilder<
       }
 
       let tornDown = false;
-      return () => {
+      const unmount = (): void => {
         if (tornDown) return;
         tornDown = true;
         if (__DEV__ && _mountedHosts) _mountedHosts.delete(host);
@@ -1900,6 +2016,20 @@ class IlhaBuilder<
         }
         cleanups.forEach((c) => c());
       };
+
+      const updateProps = (nextProps?: Partial<TInput>): void => {
+        if (tornDown) return;
+        const next = resolveInput(nextProps);
+        const prev = inputSignal();
+        // Shallow-equal short-circuit: don't churn reactive subscribers when
+        // the resolved input hasn't actually changed. We compare own keys
+        // and values with Object.is. This keeps repeated parent re-renders
+        // with identical props free of work.
+        if (shallowEqualInput(prev, next)) return;
+        inputSignal(next);
+      };
+
+      return { unmount, updateProps };
     }
 
     /**
@@ -1929,6 +2059,14 @@ class IlhaBuilder<
 
     island.mount = (host: Element, props?: Partial<TInput>): (() => void) =>
       mountIsland(host, props);
+
+    // Internal hook for parent mountSlots — returns { unmount, updateProps }
+    // so parent re-renders can push new props into already-mounted child
+    // islands. Not exported as part of the public Island interface.
+    (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
+      host: Element,
+      props?: Partial<TInput>,
+    ): MountHandle => mountIslandInternal(host, props);
 
     // Create a keyed invocation for stable slot identity across re-renders
     // (useful in reorderable lists). Returns a callable that, when given

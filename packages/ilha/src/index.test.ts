@@ -4895,3 +4895,228 @@ describe(".css()", () => {
     });
   });
 });
+
+// ---------------------------------------------
+// Regression: Child re-renders when parent state passed as prop changes
+// ---------------------------------------------
+//
+// Scenario: a Parent island has a state signal and renders a Child island,
+// passing the current state value as a Child input prop. The Parent's
+// onMount writes a new value to its state. The Child should re-render with
+// the updated prop value.
+//
+// This exercises the path where parent re-render produces a fresh slot map
+// with new props for an already-mounted child. If mountSlots skips re-
+// applying props to existing slots, the child will stay stuck on its
+// initial prop value.
+
+describe("regression: child receives updated props when parent state changes", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("Child re-renders after Parent.onMount writes new state passed as Child prop", async () => {
+    const Child = ilha
+      .input(z.object({ value: z.string() }))
+      .render(({ input }) => html`<span class="child">${input.value}</span>`);
+
+    const Parent = ilha
+      .state("msg", "initial")
+      .onMount(({ state }) => {
+        state.msg("updated");
+      })
+      .render(({ state }) => html`<div>${Child({ value: state.msg() })}</div>`);
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+
+    // Let onMount's state write propagate. The write happens synchronously
+    // inside onMount, but the render effect that reacts to it may flush
+    // asynchronously — give it a microtask either way.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(el.querySelector(".child")!.textContent).toBe("updated");
+
+    unmount();
+    cleanup(el);
+  });
+
+  // The core "parent re-renders, child must follow" case. The previous
+  // test uses onMount to force the initial-effect-pass divergence path
+  // (state changed before the render effect was even registered). This
+  // test takes the *steady-state* path: parent is fully mounted, then
+  // a click fires that writes parent state, and we verify the child's
+  // DOM updates. If updateProps regresses to a no-op on the existing
+  // slot, this test will fail with "0" while the regression test above
+  // passes — they probe different code paths.
+  it("Child re-renders after click on Parent updates state passed as Child prop", () => {
+    const Child = ilha
+      .input(z.object({ count: z.number() }))
+      .render(({ input }) => html`<span class="child">${input.count}</span>`);
+
+    const Parent = ilha
+      .state("count", 0)
+      .on("button@click", ({ state }) => state.count(state.count() + 1))
+      .render(({ state }) => html`<div>${Child({ count: state.count() })}<button>+</button></div>`);
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+
+    expect(el.querySelector(".child")!.textContent).toBe("0");
+
+    el.querySelector<HTMLButtonElement>("button")!.click();
+    expect(el.querySelector(".child")!.textContent).toBe("1");
+
+    el.querySelector<HTMLButtonElement>("button")!.click();
+    el.querySelector<HTMLButtonElement>("button")!.click();
+    expect(el.querySelector(".child")!.textContent).toBe("3");
+
+    unmount();
+    cleanup(el);
+  });
+
+  // The mounted Child element identity must be preserved when its props
+  // change. We're propagating props by writing into the existing child's
+  // input signal, NOT by tearing down and remounting — so its host
+  // element, internal state, and onMount cleanup should all survive.
+  it("Child element identity and state are preserved across prop updates", () => {
+    let childMountCount = 0;
+    let childUnmountCount = 0;
+
+    const Child = ilha
+      .input(z.object({ label: z.string() }))
+      .state("clicks", 0)
+      .on("[data-c]@click", ({ state }) => state.clicks(state.clicks() + 1))
+      .onMount(() => {
+        childMountCount++;
+        return () => {
+          childUnmountCount++;
+        };
+      })
+      .render(
+        ({ state, input }) =>
+          html`<span class="child" data-c>${input.label}:${state.clicks()}</span>`,
+      );
+
+    const Parent = ilha
+      .state("label", "a")
+      .on("button@click", ({ state }) => state.label(state.label() + "+"))
+      .render(
+        ({ state }) => html`<div>${Child({ label: state.label() })}<button>edit</button></div>`,
+      );
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+
+    expect(childMountCount).toBe(1);
+    const childElBefore = el.querySelector(".child");
+
+    // Bump child internal state via a click on the child.
+    el.querySelector<HTMLSpanElement>(".child")!.click();
+    expect(el.querySelector(".child")!.textContent).toBe("a:1");
+
+    // Trigger a parent re-render that pushes new props to the child.
+    el.querySelector<HTMLButtonElement>("button")!.click();
+    expect(el.querySelector(".child")!.textContent).toBe("a+:1");
+
+    // Same DOM element — child was NOT remounted.
+    expect(el.querySelector(".child")).toBe(childElBefore);
+    expect(childMountCount).toBe(1);
+    expect(childUnmountCount).toBe(0);
+
+    // Child's internal state survived; another click still increments.
+    el.querySelector<HTMLSpanElement>(".child")!.click();
+    expect(el.querySelector(".child")!.textContent).toBe("a+:2");
+
+    unmount();
+    cleanup(el);
+  });
+
+  // Parent re-renders that don't change child props should not cause the
+  // child's render effect to run again. The shallowEqualInput short-circuit
+  // in updateProps is what guarantees this — without it, every parent
+  // re-render would churn the child's input signal and re-run its
+  // render/derived/effect scopes pointlessly.
+  it("Child does NOT re-render when parent re-renders with shallow-equal props", () => {
+    let childRenders = 0;
+
+    const Child = ilha.input(z.object({ value: z.string() })).render(({ input }) => {
+      childRenders++;
+      return html`<span class="child">${input.value}</span>`;
+    });
+
+    const Parent = ilha
+      .state("count", 0)
+      .state("label", "hello")
+      .on("button@click", ({ state }) => state.count(state.count() + 1))
+      .render(
+        ({ state }) =>
+          html`<div>
+            <p>${state.count()}</p>
+            ${Child({ value: state.label() })}
+            <button>+</button>
+          </div>`,
+      );
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+
+    const initialChildRenders = childRenders;
+
+    // Parent state changes drive parent re-renders, but child props
+    // (state.label) are unchanged, so child should not re-run.
+    el.querySelector<HTMLButtonElement>("button")!.click();
+    el.querySelector<HTMLButtonElement>("button")!.click();
+    el.querySelector<HTMLButtonElement>("button")!.click();
+
+    expect(el.querySelector("p")!.textContent).toBe("3");
+    expect(el.querySelector(".child")!.textContent).toBe("hello");
+    expect(childRenders).toBe(initialChildRenders);
+
+    unmount();
+    cleanup(el);
+  });
+
+  // Mixed: one prop changes, another stays the same. Because we use a
+  // single input signal per child, ANY prop change triggers a re-render
+  // (coarse-grained reactivity by design — granular per-key signals would
+  // be a much bigger change). Documenting this so the granularity choice
+  // is intentional and tested.
+  it("Child re-renders when ANY prop changes (whole-input granularity)", () => {
+    let childRenders = 0;
+
+    const Child = ilha.input(z.object({ a: z.string(), b: z.string() })).render(({ input }) => {
+      childRenders++;
+      return html`<span class="child">${input.a}-${input.b}</span>`;
+    });
+
+    const Parent = ilha
+      .state("a", "x")
+      .state("b", "y")
+      .on("[data-a]@click", ({ state }) => state.a(state.a() + "!"))
+      .on("[data-b]@click", ({ state }) => state.b(state.b() + "?"))
+      .render(
+        ({ state }) =>
+          html`<div>
+            ${Child({ a: state.a(), b: state.b() })}
+            <button data-a>A</button>
+            <button data-b>B</button>
+          </div>`,
+      );
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+    const baseline = childRenders;
+
+    el.querySelector<HTMLButtonElement>("[data-a]")!.click();
+    expect(el.querySelector(".child")!.textContent).toBe("x!-y");
+    expect(childRenders).toBe(baseline + 1);
+
+    el.querySelector<HTMLButtonElement>("[data-b]")!.click();
+    expect(el.querySelector(".child")!.textContent).toBe("x!-y?");
+    expect(childRenders).toBe(baseline + 2);
+
+    unmount();
+    cleanup(el);
+  });
+});
