@@ -2,6 +2,10 @@
 
 ## `ilha`
 
+### 0.4.3 - 2026-05-13
+
+- Fixes lifecycle scoping issues and adds more edge case test coverage.
+
 ### 0.4.2 - 2026-05-11
 
 - Fixes .input() reactivity so child components can rerender when parent updates passed propes programatically.
@@ -66,6 +70,10 @@ Initial release of **ilha** — a tiny, isomorphic island framework for building
 
 ## `@ilha/router`
 
+### 0.3.2 - 2026-05-13
+
+- Updates Ilha dependency to 0.4.3
+
 ### 0.3.1 - 2026-05-11
 
 - Updates Ilha dependency to 0.4.2
@@ -122,6 +130,10 @@ Initial release of **@ilha/router** — a lightweight, isomorphic router for ilh
 - Adds exported types: `RouteRecord`, `RouteSnapshot`, `AppError`, `LayoutHandler`, `ErrorHandler`, `NavigateOptions`, `MountOptions`, `HydrateOptions`, `HydratableRenderOptions`, `RouterBuilder`
 
 ## `@ilha/store`
+
+### 0.3.2 - 2026-05-13
+
+- Updates Ilha dependency to 0.4.3
 
 ### 0.3.1 - 2026-05-11
 
