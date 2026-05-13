@@ -5120,3 +5120,536 @@ describe("regression: child receives updated props when parent state changes", (
     cleanup(el);
   });
 });
+
+describe(".effect resets state – derived stays consistent", () => {
+  it("derived.doubled.value is 0 immediately after effect resets count, not stale", () => {
+    let accessCount!: (v?: number) => number | void;
+
+    const Counter = ilha
+      .state("count", 0)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .effect(({ state }) => {
+        if (state.count() > 3) {
+          state.count(0);
+        }
+      })
+      .render(({ state, derived }) => {
+        accessCount = state.count as typeof accessCount;
+        return html`
+          <p id="count">${state.count()}</p>
+          <p id="doubled">${derived.doubled.value}</p>
+        `;
+      });
+
+    const el = makeEl("");
+    const unmount = Counter.mount(el);
+
+    // Drive count to 4 — the effect resets it back to 0
+    accessCount(4);
+
+    // count must show 0 in the DOM
+    expect(el.querySelector("#count")!.textContent).toBe("0");
+    // derived.doubled must also show 0, not 8 (stale value of 4*2)
+    expect(el.querySelector("#doubled")!.textContent).toBe("0");
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------------------------
+// Edge case: effect ↔ derived ↔ render consistency
+// ---------------------------------------------------------------
+
+describe("effect ↔ derived ↔ render consistency", () => {
+  it("multiple derived values all stay consistent when effect resets state", () => {
+    let accessCount!: (v?: number) => number | void;
+
+    const Counter = ilha
+      .state("count", 0)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .derived("tripled", ({ state }) => state.count() * 3)
+      .derived("label", ({ state }) => `count is ${state.count()}`)
+      .effect(({ state }) => {
+        if (state.count() > 3) state.count(0);
+      })
+      .render(({ state, derived }) => {
+        accessCount = state.count as typeof accessCount;
+        return html`
+          <p id="count">${state.count()}</p>
+          <p id="doubled">${derived.doubled.value}</p>
+          <p id="tripled">${derived.tripled.value}</p>
+          <p id="label">${derived.label.value}</p>
+        `;
+      });
+
+    const el = makeEl("");
+    const unmount = Counter.mount(el);
+    accessCount(4);
+
+    expect(el.querySelector("#count")!.textContent).toBe("0");
+    expect(el.querySelector("#doubled")!.textContent).toBe("0");
+    expect(el.querySelector("#tripled")!.textContent).toBe("0");
+    expect(el.querySelector("#label")!.textContent).toBe("count is 0");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("effect clamping state never produces intermediate derived values in the DOM", () => {
+    const seen: number[] = [];
+    let accessCount!: (v?: number) => number | void;
+
+    const Counter = ilha
+      .state("count", 0)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .effect(({ state }) => {
+        if (state.count() > 10) state.count(10);
+      })
+      .render(({ state, derived }) => {
+        accessCount = state.count as typeof accessCount;
+        seen.push(derived.doubled.value as number);
+        return html`<p id="doubled">${derived.doubled.value}</p>`;
+      });
+
+    const el = makeEl("");
+    const unmount = Counter.mount(el);
+    accessCount(99);
+
+    // DOM must show 20 (10 * 2), never 198 (99 * 2)
+    expect(el.querySelector("#doubled")!.textContent).toBe("20");
+    expect(seen).not.toContain(198);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("derived stays consistent across multiple sequential effect resets", () => {
+    let accessCount!: (v?: number) => number | void;
+
+    const Counter = ilha
+      .state("count", 0)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .effect(({ state }) => {
+        if (state.count() > 3) state.count(0);
+      })
+      .render(({ state, derived }) => {
+        accessCount = state.count as typeof accessCount;
+        return html`
+          <p id="count">${state.count()}</p>
+          <p id="doubled">${derived.doubled.value}</p>
+        `;
+      });
+
+    const el = makeEl("");
+    const unmount = Counter.mount(el);
+
+    for (let i = 0; i < 5; i++) {
+      accessCount(4);
+      expect(el.querySelector("#count")!.textContent).toBe("0");
+      expect(el.querySelector("#doubled")!.textContent).toBe("0");
+    }
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("derived derived from two state signals stays consistent when effect writes both", () => {
+    let accessA!: (v?: number) => number | void;
+
+    const Island = ilha
+      .state("a", 1)
+      .state("b", 1)
+      .derived("product", ({ state }) => state.a() * state.b())
+      .effect(({ state }) => {
+        // When a > 5, clamp both to 1
+        if (state.a() > 5) {
+          state.a(1);
+          state.b(1);
+        }
+      })
+      .render(({ state, derived }) => {
+        accessA = state.a as typeof accessA;
+        return html` <p id="product">${derived.product.value}</p> `;
+      });
+
+    const el = makeEl("");
+    const unmount = Island.mount(el);
+
+    accessA(6);
+    // Both clamped to 1, product must be 1 — not 6 or any intermediate
+    expect(el.querySelector("#product")!.textContent).toBe("1");
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------------------------
+// Edge case: effect cleanup ordering
+// ---------------------------------------------------------------
+
+describe("effect cleanup ordering", () => {
+  it("previous cleanup runs before next effect body on re-run", () => {
+    const log: string[] = [];
+    let accessX!: (v?: number) => number | void;
+
+    const Island = ilha
+      .state("x", 0)
+      .effect(({ state }) => {
+        const v = state.x();
+        log.push(`run:${v}`);
+        return () => log.push(`cleanup:${v}`);
+      })
+      .render(({ state }) => {
+        accessX = state.x as typeof accessX;
+        return html`<p>${state.x()}</p>`;
+      });
+
+    const el = makeEl("");
+    const unmount = Island.mount(el);
+    // initial: run:0
+    accessX(1);
+    // cleanup:0 must precede run:1
+    accessX(2);
+    // cleanup:1 must precede run:2
+
+    expect(log).toEqual(["run:0", "cleanup:0", "run:1", "cleanup:1", "run:2"]);
+
+    unmount();
+    // cleanup:2 on unmount
+    expect(log).toEqual(["run:0", "cleanup:0", "run:1", "cleanup:1", "run:2", "cleanup:2"]);
+    cleanup(el);
+  });
+
+  it("multiple effects run cleanups in registration order on unmount", () => {
+    const log: string[] = [];
+
+    const Island = ilha
+      .effect(() => {
+        return () => log.push("cleanup:A");
+      })
+      .effect(() => {
+        return () => log.push("cleanup:B");
+      })
+      .effect(() => {
+        return () => log.push("cleanup:C");
+      })
+      .render(
+        () =>
+          html`
+            <p>x</p>
+          `,
+      );
+
+    const el = makeEl("");
+    const unmount = Island.mount(el);
+    unmount();
+
+    expect(log).toEqual(["cleanup:A", "cleanup:B", "cleanup:C"]);
+    cleanup(el);
+  });
+
+  it("effect cleanup is called even if the next run throws", () => {
+    let cleaned = false;
+    let accessX!: (v?: number) => number | void;
+    let throws = false;
+
+    const Island = ilha
+      .state("x", 0)
+      .effect(({ state }) => {
+        state.x();
+        if (throws) throw new Error("boom");
+        return () => {
+          cleaned = true;
+        };
+      })
+      .render(({ state }) => {
+        accessX = state.x as typeof accessX;
+        return html`<p>${state.x()}</p>`;
+      });
+
+    const el = makeEl("");
+    const unmount = Island.mount(el);
+    throws = true;
+    accessX(1); // triggers re-run which throws — cleanup of run:0 must still fire
+    expect(cleaned).toBe(true);
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------------------------
+// Edge case: derived during onMount
+// ---------------------------------------------------------------
+
+describe("derived availability in onMount", () => {
+  it("sync derived has a resolved value in onMount (not loading)", () => {
+    let seenLoading: boolean | undefined;
+    let seenValue: unknown;
+
+    const Island = ilha
+      .state("x", 5)
+      .derived("doubled", ({ state }) => state.x() * 2)
+      .onMount(({ derived }) => {
+        seenLoading = derived.doubled.loading;
+        seenValue = derived.doubled.value;
+      })
+      .render(({ state }) => html`<p>${state.x()}</p>`);
+
+    const el = makeEl("");
+    const unmount = Island.mount(el);
+
+    expect(seenLoading).toBe(false);
+    expect(seenValue).toBe(10);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("async derived starts as loading in onMount", async () => {
+    let seenLoading: boolean | undefined;
+    let resolve!: (v: number) => void;
+    const p = new Promise<number>((r) => (resolve = r));
+
+    const Island = ilha
+      .derived("val", async () => p)
+      .onMount(({ derived }) => {
+        seenLoading = derived.val.loading;
+      })
+      .render(
+        () =>
+          html`
+            <p>x</p>
+          `,
+      );
+
+    const el = makeEl("");
+    const unmount = Island.mount(el);
+
+    expect(seenLoading).toBe(true);
+    resolve(42);
+    await p;
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------------------------
+// Edge case: derived with state written inside onMount
+// ---------------------------------------------------------------
+
+describe("derived consistency when state written in onMount", () => {
+  it("derived reflects state written synchronously in onMount", () => {
+    const Island = ilha
+      .state("count", 0)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .onMount(({ state }) => {
+        state.count(7);
+      })
+      .render(
+        ({ state, derived }) => html`
+          <p id="count">${state.count()}</p>
+          <p id="doubled">${derived.doubled.value}</p>
+        `,
+      );
+
+    const el = makeEl("");
+    const unmount = Island.mount(el);
+
+    expect(el.querySelector("#count")!.textContent).toBe("7");
+    expect(el.querySelector("#doubled")!.textContent).toBe("14");
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------------------------
+// Edge case: multiple effects observing overlapping state
+// ---------------------------------------------------------------
+
+describe("multiple effects with overlapping state dependencies", () => {
+  it("both effects re-run when shared state changes", () => {
+    let countA = 0;
+    let countB = 0;
+    let accessX!: (v?: number) => number | void;
+
+    const Island = ilha
+      .state("x", 0)
+      .effect(({ state }) => {
+        state.x();
+        countA++;
+      })
+      .effect(({ state }) => {
+        state.x();
+        countB++;
+      })
+      .render(({ state }) => {
+        accessX = state.x as typeof accessX;
+        return html`<p>${state.x()}</p>`;
+      });
+
+    const el = makeEl("");
+    const unmount = Island.mount(el);
+    expect(countA).toBe(1);
+    expect(countB).toBe(1);
+
+    accessX(1);
+    expect(countA).toBe(2);
+    expect(countB).toBe(2);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("effect writing state only re-runs the effect that reads the written signal", () => {
+    let countB = 0;
+    let accessX!: (v?: number) => number | void;
+
+    const Island = ilha
+      .state("x", 0)
+      .state("y", 0)
+      // effect A reads x, writes y
+      .effect(({ state }) => {
+        state.y(state.x() * 2);
+      })
+      // effect B reads only y
+      .effect(({ state }) => {
+        state.y();
+        countB++;
+      })
+      .render(({ state }) => {
+        accessX = state.x as typeof accessX;
+        return html`<p>${state.y()}</p>`;
+      });
+
+    const el = makeEl("");
+    const unmount = Island.mount(el);
+    const initialB = countB;
+
+    accessX(5); // effect A runs → writes y=10 → effect B re-runs
+    expect(countB).toBe(initialB + 1);
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------------------------
+// Edge case: derived chain (derived reading derived via state)
+// ---------------------------------------------------------------
+
+describe("derived chain consistency", () => {
+  it("downstream derived is consistent when upstream state changes via effect", () => {
+    let accessX!: (v?: number) => number | void;
+
+    const Island = ilha
+      .state("x", 2)
+      // doubled reads x
+      .derived("doubled", ({ state }) => state.x() * 2)
+      // quadrupled reads x directly (not doubled — ilha deriveds are independent)
+      .derived("quadrupled", ({ state }) => state.x() * 4)
+      .effect(({ state }) => {
+        if (state.x() > 10) state.x(1);
+      })
+      .render(({ state, derived }) => {
+        accessX = state.x as typeof accessX;
+        return html`
+          <p id="doubled">${derived.doubled.value}</p>
+          <p id="quadrupled">${derived.quadrupled.value}</p>
+        `;
+      });
+
+    const el = makeEl("");
+    const unmount = Island.mount(el);
+
+    accessX(11); // effect clamps to 1
+
+    expect(el.querySelector("#doubled")!.textContent).toBe("2");
+    expect(el.querySelector("#quadrupled")!.textContent).toBe("4");
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------------------------
+// Edge case: render reads both raw state and derived
+// ---------------------------------------------------------------
+
+describe("render atomicity: state and derived always agree in the DOM", () => {
+  it("rendered state and derived are never out of sync across multiple writes", () => {
+    let accessCount!: (v?: number) => number | void;
+    const snapshots: Array<{ count: string; doubled: string }> = [];
+
+    const Counter = ilha
+      .state("count", 0)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .render(({ state, derived }) => {
+        accessCount = state.count as typeof accessCount;
+        // record every render to detect any mid-render inconsistency
+        snapshots.push({
+          count: String(state.count()),
+          doubled: String(derived.doubled.value),
+        });
+        return html`
+          <p id="count">${state.count()}</p>
+          <p id="doubled">${derived.doubled.value}</p>
+        `;
+      });
+
+    const el = makeEl("");
+    const unmount = Counter.mount(el);
+
+    for (let i = 1; i <= 6; i++) accessCount(i);
+
+    // Every snapshot must be internally consistent
+    for (const snap of snapshots) {
+      const count = Number(snap.count);
+      const doubled = Number(snap.doubled);
+      expect(doubled).toBe(count * 2);
+    }
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------------------------
+// Edge case: remounting after unmount
+// ---------------------------------------------------------------
+
+describe("remounting after unmount", () => {
+  it("island can be mounted again after unmounting and works correctly", () => {
+    let accessCount!: (v?: number) => number | void;
+
+    const Counter = ilha
+      .state("count", 0)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .render(({ state, derived }) => {
+        accessCount = state.count as typeof accessCount;
+        return html`
+          <p id="count">${state.count()}</p>
+          <p id="doubled">${derived.doubled.value}</p>
+        `;
+      });
+
+    const el = makeEl("");
+    let unmount = Counter.mount(el);
+    accessCount(3);
+    expect(el.querySelector("#count")!.textContent).toBe("3");
+    unmount();
+
+    // remount — fresh state
+    unmount = Counter.mount(el);
+    expect(el.querySelector("#count")!.textContent).toBe("0");
+    accessCount(2);
+    expect(el.querySelector("#count")!.textContent).toBe("2");
+    expect(el.querySelector("#doubled")!.textContent).toBe("4");
+
+    unmount();
+    cleanup(el);
+  });
+});

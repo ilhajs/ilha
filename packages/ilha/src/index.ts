@@ -589,7 +589,7 @@ export type IslandDerived<TDerivedMap extends Record<string, unknown>> = {
   readonly [K in keyof TDerivedMap]: DerivedValue<TDerivedMap[K]>;
 };
 
-function buildDerivedSignals<
+function createDerivedProxy<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown>,
@@ -598,71 +598,55 @@ function buildDerivedSignals<
   state: IslandState<TStateMap>,
   input: TInput,
   derivedSnapshot?: Record<string, DerivedValue<unknown>>,
-): { proxy: IslandDerived<TDerivedMap>; stop: () => void } {
+): { proxy: IslandDerived<TDerivedMap>; setup: () => () => void } {
   const envelopes = new Map<string, ReturnType<typeof signal<DerivedValue<unknown>>>>();
-  const stops: Array<() => void> = [];
 
   for (const entry of entries) {
-    const initialEnvelope: DerivedValue<unknown> = derivedSnapshot?.[entry.key] ?? {
-      loading: true,
-      value: undefined,
-      error: undefined,
-    };
-    const env = signal<DerivedValue<unknown>>(initialEnvelope);
-    envelopes.set(entry.key, env);
-    let ac = new AbortController();
+    let initialEnvelope: DerivedValue<unknown>;
 
-    let skipFirst = derivedSnapshot != null && entry.key in derivedSnapshot;
-
-    const stopEffect = effect(() => {
-      ac.abort();
-      ac = new AbortController();
-      const currentAc = ac;
-      const result = entry.fn({ state, input, signal: currentAc.signal });
-
-      if (skipFirst) {
-        skipFirst = false;
-        if (result instanceof Promise) {
-          result.catch(() => {
-            // Suppress unhandled rejection for the skipped initial run.
-            // The snapshot already provides the correct value; we only ran
-            // entry.fn to establish reactive subscriptions.
-          });
-        }
-        return;
-      }
-
-      if (!(result instanceof Promise)) {
-        const prevSub = setActiveSub(undefined);
-        env({ loading: false, value: result as unknown, error: undefined });
-        setActiveSub(prevSub);
-        return;
-      }
-
-      const prevSub = setActiveSub(undefined);
-      const prevVal = env();
-      env({ loading: true, value: prevVal.value, error: undefined });
-      setActiveSub(prevSub);
-
-      result
-        .then((value) => {
-          if (currentAc.signal.aborted) return;
-          env({ loading: false, value, error: undefined });
-        })
-        .catch((err: unknown) => {
-          if (currentAc.signal.aborted) return;
-          env({
+    if (derivedSnapshot != null && entry.key in derivedSnapshot) {
+      initialEnvelope = { ...(derivedSnapshot[entry.key] as DerivedValue<unknown>) };
+    } else {
+      // Probe the derived function to compute an initial value for onMount.
+      // Skip async functions to avoid triggering their side effects twice
+      // (once here, once in the reactive effect). The heuristic checks the
+      // constructor name, which works for native async functions; transpiled
+      // async fns fall back to not eagerly computing (safe — the effect
+      // handles them).
+      // Note: the probe calls entry.fn once synchronously. If the derived fn
+      // has observable side effects (beyond reading signals), those effects
+      // fire twice on mount — once here and once in setup(). Pure computed
+      // functions are fine.
+      const looksAsync =
+        entry.fn.constructor.name === "AsyncFunction" ||
+        entry.fn.constructor.name === "AsyncGeneratorFunction";
+      if (!looksAsync) {
+        const ac = new AbortController();
+        try {
+          const result = entry.fn({ state, input, signal: ac.signal });
+          if (!(result instanceof Promise)) {
+            initialEnvelope = { loading: false, value: result as unknown, error: undefined };
+          } else {
+            // Sync function that returns a Promise — treat as async
+            initialEnvelope = { loading: true, value: undefined, error: undefined };
+            result.catch(() => {});
+          }
+        } catch (err) {
+          initialEnvelope = {
             loading: false,
             value: undefined,
             error: err instanceof Error ? err : new Error(String(err)),
-          });
-        });
-    });
+          };
+        } finally {
+          ac.abort();
+        }
+      } else {
+        initialEnvelope = { loading: true, value: undefined, error: undefined };
+      }
+    }
 
-    stops.push(() => {
-      stopEffect();
-      ac.abort();
-    });
+    const env = signal<DerivedValue<unknown>>(initialEnvelope);
+    envelopes.set(entry.key, env);
   }
 
   const proxy = new Proxy({} as IslandDerived<TDerivedMap>, {
@@ -673,7 +657,83 @@ function buildDerivedSignals<
     },
   });
 
-  return { proxy, stop: () => stops.forEach((s) => s()) };
+  const setup = () => {
+    const stops: Array<() => void> = [];
+
+    for (const entry of entries) {
+      const env = envelopes.get(entry.key)!;
+      let ac = new AbortController();
+
+      let skipFirst = derivedSnapshot != null && entry.key in derivedSnapshot;
+
+      const stopEffect = effect(() => {
+        ac.abort();
+        ac = new AbortController();
+        const currentAc = ac;
+
+        let result: unknown;
+        try {
+          result = entry.fn({ state, input, signal: currentAc.signal });
+        } catch (err) {
+          if (skipFirst) {
+            skipFirst = false;
+            return;
+          }
+          const prevSub = setActiveSub(undefined);
+          env({
+            loading: false,
+            value: undefined,
+            error: err instanceof Error ? err : new Error(String(err)),
+          });
+          setActiveSub(prevSub);
+          return;
+        }
+
+        if (skipFirst) {
+          skipFirst = false;
+          if (result instanceof Promise) {
+            (result as Promise<unknown>).catch(() => {});
+          }
+          return;
+        }
+
+        if (!(result instanceof Promise)) {
+          const prevSub = setActiveSub(undefined);
+          env({ loading: false, value: result as unknown, error: undefined });
+          setActiveSub(prevSub);
+          return;
+        }
+
+        const prevSub = setActiveSub(undefined);
+        const prevVal = env();
+        env({ loading: true, value: prevVal.value, error: undefined });
+        setActiveSub(prevSub);
+
+        (result as Promise<unknown>)
+          .then((value) => {
+            if (currentAc.signal.aborted) return;
+            env({ loading: false, value, error: undefined });
+          })
+          .catch((err: unknown) => {
+            if (currentAc.signal.aborted) return;
+            env({
+              loading: false,
+              value: undefined,
+              error: err instanceof Error ? err : new Error(String(err)),
+            });
+          });
+      });
+
+      stops.push(() => {
+        stopEffect();
+        ac.abort();
+      });
+    }
+
+    return () => stops.forEach((s) => s());
+  };
+
+  return { proxy, setup };
 }
 
 // ---------------------------------------------
@@ -1592,12 +1652,13 @@ class IlhaBuilder<
         if (result instanceof Promise) result.catch(console.error);
       }
 
-      const { proxy: derived, stop: stopDerived } = buildDerivedSignals<
+      // Create derived proxy early (envelopes with initial values)
+      const { proxy: derived, setup: setupDerived } = createDerivedProxy<
         TInput,
         TStateMap,
         TDerivedMap
       >(deriveds as DerivedEntry<TInput, TStateMap>[], state, input, derivedSnapshot);
-      cleanups.push(stopDerived);
+      let stopDerived: () => void = () => {};
 
       // Centralized error sink. Errors thrown by .on() handlers (sync or async)
       // and .effect() runs are routed through here. If any .onError() handlers
@@ -1866,6 +1927,55 @@ class IlhaBuilder<
         }
       }
 
+      for (const entry of effects) {
+        let userCleanup: (() => void) | void;
+        let runController: AbortController | null = null;
+        const stopEffect = effect(() => {
+          if (userCleanup) {
+            try {
+              userCleanup();
+            } catch (err) {
+              reportError(err, "effect");
+            }
+            userCleanup = undefined;
+          }
+          // Abort the previous run's signal so any in-flight async work bails
+          // before we kick off the next run. Race-cancel is the default for
+          // effects (unlike .on(), which requires :abortable opt-in) because
+          // dependency changes invariably make the previous run stale.
+          if (runController) runController.abort();
+          runController = new AbortController();
+          const runSignal = anySignal([unmountController.signal, runController.signal]);
+          // Batch writes inside the effect so multiple state mutations in a
+          // single run propagate atomically.
+          startBatch();
+          try {
+            userCleanup = entry.fn({ state, input, host, signal: runSignal });
+          } catch (err) {
+            reportError(err, "effect");
+          } finally {
+            endBatch();
+          }
+        });
+        cleanups.push(() => {
+          stopEffect();
+          if (userCleanup) {
+            try {
+              userCleanup();
+            } catch (err) {
+              reportError(err, "effect");
+            }
+          }
+          if (runController) runController.abort();
+        });
+      }
+
+      // Register derived effects after user effects so that when state
+      // changes, the user effect runs first (potentially resetting state)
+      // and the derived effect sees the final state.
+      stopDerived = setupDerived();
+      cleanups.push(stopDerived);
+
       let initialized = false;
       // Track the rendered HTML from the initial sync render so the first
       // effect pass can detect whether state writes during onMount or
@@ -1958,49 +2068,6 @@ class IlhaBuilder<
       });
       cleanups.push(stopRender);
       cleanups.push(detachListeners);
-
-      for (const entry of effects) {
-        let userCleanup: (() => void) | void;
-        let runController: AbortController | null = null;
-        const stopEffect = effect(() => {
-          if (userCleanup) {
-            try {
-              userCleanup();
-            } catch (err) {
-              reportError(err, "effect");
-            }
-            userCleanup = undefined;
-          }
-          // Abort the previous run's signal so any in-flight async work bails
-          // before we kick off the next run. Race-cancel is the default for
-          // effects (unlike .on(), which requires :abortable opt-in) because
-          // dependency changes invariably make the previous run stale.
-          if (runController) runController.abort();
-          runController = new AbortController();
-          const runSignal = anySignal([unmountController.signal, runController.signal]);
-          // Batch writes inside the effect so multiple state mutations in a
-          // single run propagate atomically.
-          startBatch();
-          try {
-            userCleanup = entry.fn({ state, input, host, signal: runSignal });
-          } catch (err) {
-            reportError(err, "effect");
-          } finally {
-            endBatch();
-          }
-        });
-        cleanups.push(() => {
-          stopEffect();
-          if (userCleanup) {
-            try {
-              userCleanup();
-            } catch (err) {
-              reportError(err, "effect");
-            }
-          }
-          if (runController) runController.abort();
-        });
-      }
 
       let tornDown = false;
       const unmount = (): void => {
