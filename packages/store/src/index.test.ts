@@ -906,8 +906,12 @@ describe("store.select() — reactivity", () => {
 
     const aSeen: number[] = [];
     const bSeen: number[] = [];
-    const stopA = effect(() => aSeen.push(aSel()));
-    const stopB = effect(() => bSeen.push(bSel()));
+    const stopA = effect(() => {
+      aSeen.push(aSel());
+    });
+    const stopB = effect(() => {
+      bSeen.push(bSel());
+    });
 
     expect(aSeen).toEqual([1]);
     expect(bSeen).toEqual([10]);
