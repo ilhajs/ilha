@@ -195,10 +195,10 @@ const RAW = Symbol("ilha.raw");
 const SIGNAL_ACCESSOR = Symbol("ilha.signalAccessor");
 const ISLAND = Symbol("ilha.island");
 const ISLAND_CALL = Symbol("ilha.islandCall");
-// Internal hook used by a parent's mountSlots to mount a child island and
-// retain a handle to push updated props into it on subsequent parent
-// re-renders. Not part of the public surface.
-const ISLAND_MOUNT_INTERNAL = Symbol("ilha.islandMountInternal");
+/** @internal Internal hook used by a parent's mountSlots to mount a child island and
+ * retain a handle to push updated props into it on subsequent parent
+ * re-renders. Not part of the public surface. */
+export const ISLAND_MOUNT_INTERNAL = Symbol("ilha.islandMountInternal");
 
 const SLOT_ATTR = "data-ilha-slot";
 const PROPS_ATTR = "data-ilha-props";

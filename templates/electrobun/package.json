@@ -10,7 +10,7 @@
     "build:canary": "vite build && electrobun build --env=canary"
   },
   "dependencies": {
-    "@ilha/router": "^0.3.2",
+    "@ilha/router": "^0.3.3",
     "electrobun": "1.18.1",
     "ilha": "^0.4.3"
   },

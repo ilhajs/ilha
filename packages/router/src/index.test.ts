@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 
-import ilha from "ilha";
+import ilha, { ISLAND_MOUNT_INTERNAL } from "ilha";
 
 import {
   router,
@@ -13,6 +13,7 @@ import {
   routeParams,
   routeSearch,
   defineLayout,
+  wrapError,
   loader,
   redirect,
   Redirect,
@@ -1605,5 +1606,154 @@ describe("RouterLink", () => {
     const html = RouterLink.toString();
     expect(html).toContain("data-prefetch");
     expect(html).toContain("data-link");
+  });
+});
+
+// ─────────────────────────────────────────────
+// wrapError / wrapLayout — hydration interactivity
+// ─────────────────────────────────────────────
+
+describe("wrapError / wrapLayout hydration", () => {
+  let el: Element;
+
+  afterEach(() => {
+    if (el && el.parentNode) cleanup(el);
+  });
+
+  /** Flush microtasks so reactive signal propagation completes. Two ticks
+   *  are needed: first tick propagates the signal change, second tick runs
+   *  the render effect that updates the DOM. */
+  function flushEffects() {
+    return Promise.resolve().then(() => Promise.resolve());
+  }
+
+  it("wrapError preserves interactivity — state updates work on direct mount", async () => {
+    const Counter = ilha
+      .state("count", 0)
+      .on("[data-inc]@click", ({ state }) => {
+        state.count(state.count() + 1);
+      })
+      .render(({ state }) => `<button data-inc>count:${state.count()}</button>`);
+
+    const ErrorPage = ilha.render(() => `<p>error</p>`);
+    const Wrapped = wrapError((_err, _route) => ErrorPage, Counter);
+
+    // SSR the wrapped island
+    const ssrHtml = Wrapped.toString();
+    expect(ssrHtml).toContain("count:0");
+
+    el = makeEl(ssrHtml);
+
+    // Mount directly — wrapError's custom .mount should forward to Counter
+    const unmount = Wrapped.mount(el);
+
+    // Click the button — state should update (interactivity check)
+    const btn = el.querySelector("[data-inc]");
+    expect(btn).not.toBeNull();
+    btn!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    await flushEffects();
+
+    expect(el.innerHTML).toContain("count:1");
+    unmount();
+  });
+
+  it("wrapError preserves interactivity after hydration via ilha.mount", async () => {
+    const Counter = ilha
+      .state("count", 0)
+      .on("[data-inc]@click", ({ state }) => {
+        state.count(state.count() + 1);
+      })
+      .render(({ state }) => `<button data-inc>count:${state.count()}</button>`);
+
+    const ErrorPage = ilha.render(() => `<p>error</p>`);
+    const Wrapped = wrapError((_err, _route) => ErrorPage, Counter);
+
+    const reg: Record<string, typeof Counter> = { Counter: Wrapped };
+
+    // Use hydratable to produce SSR HTML with state snapshot
+    const ssrHtml = await Wrapped.hydratable({}, { name: "Counter", snapshot: true });
+    expect(ssrHtml).toContain("count:0");
+
+    setLocation("/");
+    el = makeEl(ssrHtml);
+
+    // ilha.mount discovers and activates [data-ilha] elements
+    const { unmount } = ilha.mount(reg, { root: el });
+
+    // Click the button — state should update (interactivity check)
+    const btn = el.querySelector("[data-inc]");
+    expect(btn).not.toBeNull();
+    btn!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    await flushEffects();
+
+    expect(el.innerHTML).toContain("count:1");
+    unmount();
+  });
+
+  it("wrapError ISLAND_MOUNT_INTERNAL forwards updateProps to inner page", () => {
+    const Greeter = ilha
+      .input<{ name: string }>()
+      .render(({ input }) => `<p>hello ${input.name}</p>`);
+
+    const ErrorPage = ilha.render(() => `<p>error</p>`);
+    const Wrapped = wrapError((_err, _route) => ErrorPage, Greeter);
+
+    el = makeEl(Wrapped.toString());
+
+    // Mount via ISLAND_MOUNT_INTERNAL (simulates slot-based child mounting)
+    const internal = (Wrapped as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
+      | ((
+          host: Element,
+          props?: Record<string, unknown>,
+        ) => {
+          unmount: () => void;
+          updateProps: (props?: Record<string, unknown>) => void;
+        })
+      | undefined;
+    expect(internal).toBeDefined();
+
+    const handle = internal!(el, { name: "alice" });
+    expect(el.innerHTML).toContain("hello alice");
+
+    // Push new props — should re-render the inner page
+    handle.updateProps({ name: "bob" });
+    expect(el.innerHTML).toContain("hello bob");
+
+    handle.unmount();
+  });
+
+  it("wrapError ISLAND_MOUNT_INTERNAL falls back to errorIsland when page.mount throws", () => {
+    const Broken = ilha.render(() => `<p>broken</p>`);
+    // Break the internal mount to force the catch branch
+    (Broken as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = () => {
+      throw new Error("mount failed");
+    };
+
+    const ErrorPage = ilha.render(() => `<p>error-fallback</p>`);
+    const Wrapped = wrapError((_err, _route) => ErrorPage, Broken);
+
+    el = makeEl(Wrapped.toString());
+
+    const internal = (Wrapped as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
+      | ((
+          host: Element,
+          props?: Record<string, unknown>,
+        ) => {
+          unmount: () => void;
+          updateProps: () => void;
+        })
+      | undefined;
+
+    // Should not throw — should render error island instead
+    const handle = internal!(el);
+    expect(el.innerHTML).toContain("error-fallback");
+
+    // updateProps is a no-op for error islands (by design)
+    handle.updateProps();
+    expect(el.innerHTML).toContain("error-fallback");
+
+    handle.unmount();
   });
 });

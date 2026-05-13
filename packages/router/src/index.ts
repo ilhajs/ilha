@@ -1,4 +1,4 @@
-import { context, mount } from "ilha";
+import { context, mount, ISLAND_MOUNT_INTERNAL } from "ilha";
 import type { Island, HydratableOptions } from "ilha";
 import ilha, { html } from "ilha";
 import { createRouter, addRoute, findRoute } from "rou3";
@@ -181,6 +181,38 @@ export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island
       const errorIsland = handler({ message: e.message, status: e.status, stack: e.stack }, route);
       host.innerHTML = errorIsland.toString();
       return errorIsland.mount(host, props);
+    }
+  };
+
+  // Also override ISLAND_MOUNT_INTERNAL so that when the wrapper is used as a
+  // child slot (e.g. inside a layout), mountSlots forwards to the page's
+  // internal mount instead of re-rendering page.toString() and losing
+  // interactivity. These two paths (.mount and ISLAND_MOUNT_INTERNAL) are
+  // mutually exclusive by design: .mount is for top-level activation,
+  // ISLAND_MOUNT_INTERNAL is for slot-based child mounting.
+  (Wrapper as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
+    host: Element,
+    props?: Record<string, unknown>,
+  ) => {
+    try {
+      // Forward to page's internal mount for full handle (unmount + updateProps)
+      const pageInternal = (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL];
+      if (typeof pageInternal === "function") {
+        return pageInternal(host, props);
+      }
+      return { unmount: page.mount(host, props), updateProps: () => {} };
+    } catch (e: any) {
+      const route: RouteSnapshot = {
+        path: routePath(),
+        params: routeParams(),
+        search: routeSearch(),
+        hash: routeHash(),
+      };
+      const errorIsland = handler({ message: e.message, status: e.status, stack: e.stack }, route);
+      host.innerHTML = errorIsland.toString();
+      // Error islands don't participate in prop updates — the parent
+      // would need to re-navigate to recover from an error state.
+      return { unmount: errorIsland.mount(host, props), updateProps: () => {} };
     }
   };
 
