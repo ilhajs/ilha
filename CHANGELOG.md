@@ -2,6 +2,10 @@
 
 ## `ilha`
 
+### 0.4.4 - 2026-05-13
+
+- SSR Router reactivity hotfix
+
 ### 0.4.3 - 2026-05-13
 
 - Fixes lifecycle scoping issues and adds more edge case test coverage.
@@ -70,6 +74,10 @@ Initial release of **ilha** — a tiny, isomorphic island framework for building
 
 ## `@ilha/router`
 
+### 0.3.4 - 2026-05-13
+
+- Updates Ilha dependency to 0.4.3
+
 ### 0.3.2 - 2026-05-13
 
 - Updates Ilha dependency to 0.4.3
@@ -130,6 +138,10 @@ Initial release of **@ilha/router** — a lightweight, isomorphic router for ilh
 - Adds exported types: `RouteRecord`, `RouteSnapshot`, `AppError`, `LayoutHandler`, `ErrorHandler`, `NavigateOptions`, `MountOptions`, `HydrateOptions`, `HydratableRenderOptions`, `RouterBuilder`
 
 ## `@ilha/store`
+
+### 0.3.3 - 2026-05-13
+
+- Updates Ilha dependency to 0.4.4
 
 ### 0.3.2 - 2026-05-13
 
