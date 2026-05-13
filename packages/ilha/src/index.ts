@@ -670,12 +670,29 @@ function createDerivedProxy<
         ac.abort();
         ac = new AbortController();
         const currentAc = ac;
-        const result = entry.fn({ state, input, signal: currentAc.signal });
+
+        let result: unknown;
+        try {
+          result = entry.fn({ state, input, signal: currentAc.signal });
+        } catch (err) {
+          if (skipFirst) {
+            skipFirst = false;
+            return;
+          }
+          const prevSub = setActiveSub(undefined);
+          env({
+            loading: false,
+            value: undefined,
+            error: err instanceof Error ? err : new Error(String(err)),
+          });
+          setActiveSub(prevSub);
+          return;
+        }
 
         if (skipFirst) {
           skipFirst = false;
           if (result instanceof Promise) {
-            result.catch(() => {});
+            (result as Promise<unknown>).catch(() => {});
           }
           return;
         }
@@ -692,7 +709,7 @@ function createDerivedProxy<
         env({ loading: true, value: prevVal.value, error: undefined });
         setActiveSub(prevSub);
 
-        result
+        (result as Promise<unknown>)
           .then((value) => {
             if (currentAc.signal.aborted) return;
             env({ loading: false, value, error: undefined });
