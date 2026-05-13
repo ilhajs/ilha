@@ -54,7 +54,7 @@
     },
     "packages/router": {
       "name": "@ilha/router",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "ilha": "0.4.3",
         "rou3": "0.8.1",

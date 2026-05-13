@@ -13,6 +13,7 @@ import {
   routeParams,
   routeSearch,
   defineLayout,
+  wrapError,
   loader,
   redirect,
   Redirect,
@@ -1605,5 +1606,84 @@ describe("RouterLink", () => {
     const html = RouterLink.toString();
     expect(html).toContain("data-prefetch");
     expect(html).toContain("data-link");
+  });
+});
+
+// ─────────────────────────────────────────────
+// wrapError / wrapLayout — hydration interactivity
+// ─────────────────────────────────────────────
+
+describe("wrapError / wrapLayout hydration", () => {
+  let el: Element;
+
+  afterEach(() => {
+    if (el && el.parentNode) cleanup(el);
+  });
+
+  it("wrapError preserves interactivity — state updates work on direct mount", async () => {
+    const Counter = ilha
+      .state("count", 0)
+      .on("[data-inc]@click", ({ state }) => {
+        state.count(state.count() + 1);
+      })
+      .render(({ state }) => `<button data-inc>count:${state.count()}</button>`);
+
+    const ErrorPage = ilha.render(() => `<p>error</p>`);
+    const Wrapped = wrapError((_err, _route) => ErrorPage, Counter);
+
+    // SSR the wrapped island
+    const ssrHtml = Wrapped.toString();
+    expect(ssrHtml).toContain("count:0");
+
+    el = makeEl(ssrHtml);
+
+    // Mount directly — wrapError's custom .mount should forward to Counter
+    const unmount = Wrapped.mount(el);
+
+    // Click the button — state should update (interactivity check)
+    const btn = el.querySelector("[data-inc]");
+    expect(btn).not.toBeNull();
+    btn!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(el.innerHTML).toContain("count:1");
+    unmount();
+  });
+
+  it("wrapError preserves interactivity after hydration via ilha.mount", async () => {
+    const Counter = ilha
+      .state("count", 0)
+      .on("[data-inc]@click", ({ state }) => {
+        state.count(state.count() + 1);
+      })
+      .render(({ state }) => `<button data-inc>count:${state.count()}</button>`);
+
+    const ErrorPage = ilha.render(() => `<p>error</p>`);
+    const Wrapped = wrapError((_err, _route) => ErrorPage, Counter);
+
+    const reg: Record<string, typeof Counter> = { Counter: Wrapped };
+
+    // Use hydratable to produce SSR HTML with state snapshot
+    const ssrHtml = await Wrapped.hydratable({}, { name: "Counter", snapshot: true });
+    expect(ssrHtml).toContain("count:0");
+
+    setLocation("/");
+    el = makeEl(ssrHtml);
+
+    // ilha.mount discovers and activates [data-ilha] elements
+    const { unmount } = ilha.mount(reg, { root: el });
+
+    // Click the button — state should update (interactivity check)
+    const btn = el.querySelector("[data-inc]");
+    expect(btn).not.toBeNull();
+    btn!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(el.innerHTML).toContain("count:1");
+    unmount();
   });
 });

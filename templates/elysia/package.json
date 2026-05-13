@@ -11,7 +11,7 @@
   "dependencies": {
     "@elysiajs/html": "^1.4.2",
     "@elysiajs/static": "^1.4.10",
-    "@ilha/router": "^0.3.2",
+    "@ilha/router": "^0.3.3",
     "elysia": "^1.4.28",
     "ilha": "^0.4.3"
   },

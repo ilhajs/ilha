@@ -1,6 +1,6 @@
 {
   "name": "@ilha/router",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "A tiny SPA router for Ilha",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
