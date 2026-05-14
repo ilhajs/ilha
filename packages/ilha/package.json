@@ -18,6 +18,9 @@
       "import": "./dist/index.js"
     }
   },
+  "browser": {
+    "process": false,
+  },
   "scripts": {
     "build": "tsc && tsdown",
     "test": "bun test"
