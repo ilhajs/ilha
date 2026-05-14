@@ -12,14 +12,14 @@
     "dist"
   ],
   "type": "module",
+  "browser": {
+    "process": false
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
-  },
-  "browser": {
-    "process": false,
   },
   "scripts": {
     "build": "tsc && tsdown",
