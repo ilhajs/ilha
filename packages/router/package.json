@@ -12,6 +12,9 @@
     "dist"
   ],
   "type": "module",
+  "browser": {
+    "process": false
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
