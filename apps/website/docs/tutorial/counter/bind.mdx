@@ -1,8 +1,8 @@
 ---
 pageType: doc-wide
 outline: false
-title: .bind()
-description: Tutorial — two-way bind form elements to state with the .bind() builder method.
+title: "bind:"
+description: "Tutorial — two-way bind form elements to state with the bind: template syntax."
 ---
 
 import dedent from "dedent";
@@ -18,13 +18,12 @@ export const script = dedent`
       .on("[data-action=increase]@click", ({ state }) => {
         state.count(state.count() + 1)
       })
-      .bind("#count", 'count')
       .render(
         ({ state, derived }) => html\`
           <p>Count: \${state.count()}</p>
           <p>Doubled: \${derived.doubled.value}</p>
           <label for="count">Current count</label>
-          <input id="count" type="number" />
+          <input id="count" type="number" bind:value=\${state.count} />
           <button data-action="increase">Increase</button>
         \`
       );
@@ -34,27 +33,17 @@ export const script = dedent`
 `;
 export const template = `<div data-ilha="Counter"></div>`;
 
-# Bind
+# bind:
 
-Use the `.bind()` method to create a two-way connection between a state property
-and a form element. When the state changes, the input updates. When the user types,
-the state updates — no event listener boilerplate required.
+Use the `bind:` template syntax inside `html\`\`` to create a two-way connection between a state signal and a form element. When the state changes, the input updates. When the user types, the state updates — no event listener boilerplate required.
 
 ```ts
-.bind("selector", "propertyName")
+html`<input bind:value=${state.count} />`;
 ```
 
-The selector targets an element in your rendered output, just like `.on()` — scoped
-to your component so there are no conflicts with the rest of the page. The second
-argument is the name of the state property to sync with.
+The `bind:` prefix goes on the attribute, and the value is a signal accessor — either a local `.state()` accessor or an external `signal()`. Ilha infers the correct value property automatically: `value` for text and number inputs, `checked` for checkboxes.
 
-`.bind()` works with any standard form element — `input`, `select`, `textarea`.
-Ilha infers the correct value property automatically: `value` for text and number
-inputs, `checked` for checkboxes.
-
-Because binding is just another builder method, it composes naturally with `.on()`,
-`.derived()`, and `.render()`. In the example above, the input and the button both
-control the same `count` state — either can update it, and both stay in sync.
+Because binding is declared directly in the template, it lives right next to the element it controls. In the example above, the input and the button both control the same `count` state — either can update it, and both stay in sync.
 
 <Sandbox script={script} template={template} />
 

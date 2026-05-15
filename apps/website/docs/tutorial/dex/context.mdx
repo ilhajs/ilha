@@ -31,7 +31,6 @@ export const script = dedent`
         };
         fetchList();
       })
-      .bind('#pokemon', pokemon)
       .render(({ state }) => {
         const currentPokemon = pokemon();
         const options = state.pokemonList().map(
@@ -43,7 +42,7 @@ export const script = dedent`
         );
         return html\`
           <label for="pokemon">Pick a Pokemon</label>
-          <select id="pokemon">
+          <select id="pokemon" bind:value=\${pokemon}>
             \${options}
           </select>
         \`;
@@ -131,7 +130,7 @@ component tree.
 Context is the right tool when the same piece of state needs to be consumed by
 components that don't share a direct parent-child relationship, or when threading
 it through `.input()` would create unnecessary coupling. In the
-example above, `PokemonPicker` writes to the context via `.bind()`, and
+example above, `PokemonPicker` writes to the context via `bind:value=`, and
 `PokemonCard` reads it in `.derived()` — the two components stay fully decoupled.
 
 Because context values are reactive, any `.derived()` or `.effect()` that reads

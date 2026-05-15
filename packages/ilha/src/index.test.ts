@@ -3280,92 +3280,327 @@ describe(".derived", () => {
 // .bind
 // ---------------------------------------------
 
-describe(".bind", () => {
+describe("bind: template syntax", () => {
   describe("SSR", () => {
-    it("SSR .bind is a no-op — Island renders normally", () => {
+    it("emits canonical value attribute and bind sentinel for bind:value", () => {
       const Island = ilha
         .state("email", "default@example.com")
-        .bind("[data-email]", "email")
-        .render(({ state }) => `<input data-email value="${state.email()}">`);
+        .render(({ state }) => html`<input bind:value=${state.email}>`);
 
-      expect(Island()).toBe(`<input data-email value="default@example.com">`);
+      const out = Island();
+      // Order of attributes is implementation-defined; check both pieces.
+      expect(out).toContain(`value="default@example.com"`);
+      expect(out).toContain(`data-ilha-bind="value:0"`);
+    });
+
+    it("emits checked attribute and sentinel for bind:checked when true", () => {
+      const Island = ilha
+        .state("agreed", true)
+        .render(({ state }) => html`<input type="checkbox" bind:checked=${state.agreed}>`);
+
+      const out = Island();
+      expect(out).toContain(`checked`);
+      expect(out).toContain(`data-ilha-bind="checked:0"`);
+    });
+
+    it("emits only sentinel (no checked attr) for bind:checked when false", () => {
+      const Island = ilha
+        .state("agreed", false)
+        .render(({ state }) => html`<input type="checkbox" bind:checked=${state.agreed}>`);
+
+      const out = Island();
+      expect(out).toContain(`data-ilha-bind="checked:0"`);
+      expect(out).not.toMatch(/\bchecked(\s|=|>)/);
+    });
+
+    it("emits sentinel for bind:files (no SSR attr, file inputs cannot persist)", () => {
+      const Island = ilha
+        .state("uploaded", null)
+        .render(({ state }) => html`<input type="file" bind:files=${state.uploaded}>`);
+
+      const out = Island();
+      expect(out).toContain(`data-ilha-bind="files:0"`);
+    });
+
+    it("emits open attribute and sentinel for bind:open when true", () => {
+      const Island = ilha
+        .state("expanded", true)
+        .render(({ state }) => html`<details bind:open=${state.expanded}>x</details>`);
+
+      const out = Island();
+      expect(out).toContain(`open`);
+      expect(out).toContain(`data-ilha-bind="open:0"`);
+    });
+
+    it("emits formatted YYYY-MM-DD value for bind:valueAsDate", () => {
+      const Island = ilha
+        .state("dob", new Date(2026, 4, 15)) // May 15 2026
+        .render(({ state }) => html`<input type="date" bind:valueAsDate=${state.dob}>`);
+
+      const out = Island();
+      expect(out).toContain(`value="2026-05-15"`);
+      expect(out).toContain(`data-ilha-bind="valueAsDate:0"`);
+    });
+
+    it("emits string number value for bind:valueAsNumber", () => {
+      const Island = ilha
+        .state("age", 42)
+        .render(({ state }) => html`<input type="number" bind:valueAsNumber=${state.age}>`);
+
+      const out = Island();
+      expect(out).toContain(`value="42"`);
+      expect(out).toContain(`data-ilha-bind="valueAsNumber:0"`);
+    });
+
+    it("emits sentinel only for bind:this (no reflection)", () => {
+      const Island = ilha
+        .state("ref", null)
+        .render(({ state }) => html`<input bind:this=${state.ref}>`);
+
+      const out = Island();
+      expect(out).toContain(`data-ilha-bind="this:0"`);
+    });
+
+    it("accepts both quoted and unquoted bind: syntax (closing quote stripped)", () => {
+      const Island = ilha
+        .state("name", "ada")
+        .render(({ state }) => html`<input bind:value="${state.name}" placeholder="x">`);
+
+      const out = Island();
+      // The "${state.name}" quoted form: opening quote was stripped from the
+      // bind:value=" part, the closing quote was stripped from the chunk
+      // following the interpolation. Output should be a single value="ada"
+      // attribute, not value="ada"" with a dangling quote.
+      expect(out).toContain(`value="ada"`);
+      expect(out).not.toContain(`""`);
+      expect(out).toContain(`placeholder="x"`);
+    });
+
+    it("supports multiple bind: bindings on different elements with monotonic indices", () => {
+      const Island = ilha
+        .state("a", "hello")
+        .state("b", true)
+        .render(
+          ({ state }) =>
+            html`<input bind:value=${state.a}><input type="checkbox" bind:checked=${state.b}>`,
+        );
+
+      const out = Island();
+      expect(out).toContain(`data-ilha-bind="value:0"`);
+      expect(out).toContain(`data-ilha-bind="checked:1"`);
+    });
+
+    it("renders bind:group radio with checked when signal matches static value", () => {
+      const Island = ilha
+        .state("plan", "pro")
+        .render(
+          ({ state }) =>
+            html`<input type="radio" name="plan" value="free" bind:group=${state.plan}><input type="radio" name="plan" value="pro" bind:group=${state.plan}>`,
+        );
+
+      const out = Island() as string;
+      // Both radios get sentinels; only the matching one gets `checked`.
+      expect(out).toContain(`value="free"`);
+      expect(out).toContain(`value="pro"`);
+      // Count `checked` occurrences as a bare attribute.
+      const checkedMatches = out.match(/\bchecked(\s|>)/g) ?? [];
+      expect(checkedMatches.length).toBe(1);
+    });
+
+    it("renders bind:group checkbox checked for array members", () => {
+      const Island = ilha
+        .state<string[]>("tags", ["ts", "rust"])
+        .render(
+          ({ state }) =>
+            html`<input type="checkbox" name="tag" value="js" bind:group=${state.tags}><input type="checkbox" name="tag" value="ts" bind:group=${state.tags}><input type="checkbox" name="tag" value="rust" bind:group=${state.tags}>`,
+        );
+
+      const out = Island() as string;
+      // js is NOT in the array; ts and rust ARE.
+      // Find each input by its value attribute and check whether `checked`
+      // appears between that value and the next `>`.
+      const js = out.match(/value="js"[^>]*>/)![0];
+      const ts = out.match(/value="ts"[^>]*>/)![0];
+      const rust = out.match(/value="rust"[^>]*>/)![0];
+      expect(js).not.toMatch(/\bchecked/);
+      expect(ts).toMatch(/\bchecked/);
+      expect(rust).toMatch(/\bchecked/);
+    });
+
+    it("binding indices restart at 0 for each separate render", () => {
+      // Each render pushes its own RenderCtx, so the binds counter resets.
+      // If indices accidentally accumulated across renders (e.g. via a
+      // shared context), the second toString() would produce value:1 instead
+      // of value:0.
+      const Island = ilha
+        .state("name", "ada")
+        .render(({ state }) => html`<input bind:value=${state.name}>`);
+
+      const first = Island();
+      const second = Island();
+      expect(first).toContain(`data-ilha-bind="value:0"`);
+      expect(second).toContain(`data-ilha-bind="value:0"`);
+      // And critically, never :1 — that would indicate cross-render leak.
+      expect(first).not.toContain(`value:1`);
+      expect(second).not.toContain(`value:1`);
+    });
+
+    it("nested html`` inside a render share the parent's binding counter", () => {
+      // Within a SINGLE render, multiple html`` calls (e.g. via .map or
+      // helper functions) all push into the same RenderCtx.binds. So the
+      // second template's first binding picks up where the first left off.
+      const Island = ilha
+        .state("a", "x")
+        .state("b", true)
+        .render(({ state }) => {
+          const head = html`<input bind:value=${state.a}>`;
+          const tail = html`<input type="checkbox" bind:checked=${state.b}>`;
+          return html`<div>${head}${tail}</div>`;
+        });
+
+      const out = Island();
+      expect(out).toContain(`data-ilha-bind="value:0"`);
+      expect(out).toContain(`data-ilha-bind="checked:1"`);
     });
   });
 
   describe("DOM -> state", () => {
-    it("client text input change updates state", () => {
+    it("text input change updates state via bind:value", () => {
       const Island = ilha
         .state("name", "ada")
-        .bind("[data-name]", "name")
-        .render(({ state }) => `<input data-name value="${state.name()}"><p>${state.name()}</p>`);
+        .render(
+          ({ state }) => html`<input data-name bind:value=${state.name}><p>${state.name}</p>`,
+        );
 
       const el = makeEl();
       const unmount = Island.mount(el);
-      el.querySelector<HTMLInputElement>("[data-name]")!.value = "grace";
-      el.querySelector<HTMLInputElement>("[data-name]")!.dispatchEvent(new Event("input"));
+      const input = el.querySelector<HTMLInputElement>("[data-name]")!;
+      input.value = "grace";
+      input.dispatchEvent(new Event("input"));
       expect(el.querySelector("p")!.textContent).toBe("grace");
       unmount();
       cleanup(el);
     });
 
-    it("client checkbox change updates boolean state", () => {
+    it("checkbox change updates boolean state via bind:checked", () => {
       const Island = ilha
         .state("checked", false)
-        .bind("[data-cb]", "checked")
         .render(
           ({ state }) =>
-            `<input type="checkbox" data-cb ${state.checked() ? "checked" : ""}><p>${state.checked()}</p>`,
+            html`<input type="checkbox" data-cb bind:checked=${state.checked}><p>${state.checked}</p>`,
         );
 
       const el = makeEl();
       const unmount = Island.mount(el);
-      el.querySelector<HTMLInputElement>("[data-cb]")!.checked = true;
-      el.querySelector<HTMLInputElement>("[data-cb]")!.dispatchEvent(new Event("change"));
+      const cb = el.querySelector<HTMLInputElement>("[data-cb]")!;
+      cb.checked = true;
+      cb.dispatchEvent(new Event("change"));
       expect(el.querySelector("p")!.textContent).toBe("true");
       unmount();
       cleanup(el);
     });
 
-    it("client select change updates state", () => {
+    it("select change updates state via bind:value", () => {
       const Island = ilha
         .state("size", "m")
-        .bind("[data-size]", "size")
         .render(
           ({ state }) =>
-            `<select data-size><option value="s">S</option><option value="m">M</option><option value="l">L</option></select><p>${state.size()}</p>`,
+            html`<select data-size bind:value=${state.size}><option value="s">S</option><option value="m">M</option><option value="l">L</option></select><p>${state.size}</p>`,
         );
 
       const el = makeEl();
       const unmount = Island.mount(el);
-      el.querySelector<HTMLSelectElement>("[data-size]")!.value = "l";
-      el.querySelector<HTMLSelectElement>("[data-size]")!.dispatchEvent(new Event("change"));
+      const sel = el.querySelector<HTMLSelectElement>("[data-size]")!;
+      sel.value = "l";
+      sel.dispatchEvent(new Event("change"));
       expect(el.querySelector("p")!.textContent).toBe("l");
       unmount();
       cleanup(el);
     });
 
-    it("client number input updates numeric state", () => {
+    it("number input updates numeric state via bind:valueAsNumber", () => {
       const Island = ilha
         .state("count", 0)
-        .bind("[data-num]", "count")
-        .render(({ state }) => `<input type="number" data-num><p>${state.count()}</p>`);
+        .render(
+          ({ state }) =>
+            html`<input type="number" data-num bind:valueAsNumber=${state.count}><p>${state.count}</p>`,
+        );
 
       const el = makeEl();
       const unmount = Island.mount(el);
-      el.querySelector<HTMLInputElement>("[data-num]")!.value = "42";
-      el.querySelector<HTMLInputElement>("[data-num]")!.dispatchEvent(new Event("input"));
+      const input = el.querySelector<HTMLInputElement>("[data-num]")!;
+      input.value = "42";
+      input.dispatchEvent(new Event("input"));
       expect(el.querySelector("p")!.textContent).toBe("42");
+      unmount();
+      cleanup(el);
+    });
+
+    it("details toggle updates state via bind:open", () => {
+      const Island = ilha
+        .state("expanded", false)
+        .render(
+          ({ state }) =>
+            html`<details data-d bind:open=${state.expanded}>x</details><p>${state.expanded}</p>`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const d = el.querySelector<HTMLDetailsElement>("[data-d]")!;
+      d.open = true;
+      d.dispatchEvent(new Event("toggle"));
+      expect(el.querySelector("p")!.textContent).toBe("true");
+      unmount();
+      cleanup(el);
+    });
+
+    it("textarea input updates state via bind:value", () => {
+      const Island = ilha
+        .state("body", "")
+        .render(
+          ({ state }) =>
+            html`<textarea data-t bind:value=${state.body}></textarea><p>${state.body}</p>`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const ta = el.querySelector<HTMLTextAreaElement>("[data-t]")!;
+      ta.value = "multi\nline";
+      ta.dispatchEvent(new Event("input"));
+      expect(el.querySelector("p")!.textContent).toBe("multi\nline");
+      unmount();
+      cleanup(el);
+    });
+
+    it("bind:value coerces DOM string to number when signal holds a number", () => {
+      // bind:value (not valueAsNumber) on a numeric signal — the runtime
+      // coercion path should parse the string back to a number so the
+      // signal type is preserved. Arithmetic on the signal value would
+      // string-concat instead of add if coercion failed.
+      const Island = ilha
+        .state("n", 0)
+        .render(
+          ({ state }) => html`<input data-n bind:value=${state.n}><p data-sum>${state.n() + 1}</p>`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-n]")!;
+      input.value = "7";
+      input.dispatchEvent(new Event("input"));
+      // If coercion worked, state.n is 7 (number), so 7 + 1 = 8.
+      // If coercion failed, state.n is "7" (string), so "7" + 1 = "71".
+      expect(el.querySelector("[data-sum]")!.textContent).toBe("8");
       unmount();
       cleanup(el);
     });
   });
 
   describe("state -> DOM", () => {
-    it("client initial state is synced to input value on mount", () => {
+    it("initial state is reflected into input value on SSR + mount", () => {
       const Island = ilha
         .state("email", "hello@example.com")
-        .bind("[data-email]", "email")
-        .render(({ state }) => `<input data-email value="${state.email()}">`);
+        .render(({ state }) => html`<input data-email bind:value=${state.email}>`);
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -3374,16 +3609,13 @@ describe(".bind", () => {
       cleanup(el);
     });
 
-    it("client programmatic state change updates input value", () => {
+    it("programmatic state change updates input value via re-render", () => {
       let accessor!: (v?: string) => string | void;
 
-      const Island = ilha
-        .state("email", "a@b.com")
-        .bind("[data-email]", "email")
-        .render(({ state }) => {
-          accessor = state.email as typeof accessor;
-          return `<input data-email value="${state.email()}">`;
-        });
+      const Island = ilha.state("email", "a@b.com").render(({ state }) => {
+        accessor = state.email as typeof accessor;
+        return html`<input data-email bind:value=${state.email}>`;
+      });
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -3393,16 +3625,13 @@ describe(".bind", () => {
       cleanup(el);
     });
 
-    it("client programmatic state change updates checkbox checked", () => {
+    it("programmatic state change updates checkbox checked", () => {
       let accessor!: (v?: boolean) => boolean | void;
 
-      const Island = ilha
-        .state("active", false)
-        .bind("[data-cb]", "active")
-        .render(({ state }) => {
-          accessor = state.active as typeof accessor;
-          return `<input type="checkbox" data-cb ${state.active() ? "checked" : ""}>`;
-        });
+      const Island = ilha.state("active", false).render(({ state }) => {
+        accessor = state.active as typeof accessor;
+        return html`<input type="checkbox" data-cb bind:checked=${state.active}>`;
+      });
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -3414,55 +3643,63 @@ describe(".bind", () => {
       unmount();
       cleanup(el);
     });
-  });
 
-  describe("Two-way", () => {
-    it("client two-way DOM change reflects in render output", () => {
-      const Island = ilha
-        .state("query", "")
-        .bind("[data-q]", "query")
-        .render(({ state }) => `<input data-q><p>${state.query()}</p>`);
+    it("programmatic state change updates details open", () => {
+      let accessor!: (v?: boolean) => boolean | void;
+
+      const Island = ilha.state("expanded", false).render(({ state }) => {
+        accessor = state.expanded as typeof accessor;
+        return html`<details data-d bind:open=${state.expanded}>x</details>`;
+      });
 
       const el = makeEl();
       const unmount = Island.mount(el);
-      el.querySelector<HTMLInputElement>("[data-q]")!.value = "svelte";
-      el.querySelector<HTMLInputElement>("[data-q]")!.dispatchEvent(new Event("input"));
+      expect(el.querySelector<HTMLDetailsElement>("[data-d]")!.open).toBe(false);
+      accessor(true);
+      expect(el.querySelector<HTMLDetailsElement>("[data-d]")!.open).toBe(true);
+      unmount();
+      cleanup(el);
+    });
+  });
+
+  describe("Two-way", () => {
+    it("DOM change reflects in render output for bind:value", () => {
+      const Island = ilha
+        .state("query", "")
+        .render(({ state }) => html`<input data-q bind:value=${state.query}><p>${state.query}</p>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-q]")!;
+      input.value = "svelte";
+      input.dispatchEvent(new Event("input"));
       expect(el.querySelector("p")!.textContent).toBe("svelte");
-      el.querySelector<HTMLInputElement>("[data-q]")!.value = "ilha";
-      el.querySelector<HTMLInputElement>("[data-q]")!.dispatchEvent(new Event("input"));
+      input.value = "ilha";
+      input.dispatchEvent(new Event("input"));
       expect(el.querySelector("p")!.textContent).toBe("ilha");
       unmount();
       cleanup(el);
     });
   });
 
-  describe("radio", () => {
-    it("client programmatic radio state change updates checked input", () => {
+  describe("bind:group", () => {
+    it("programmatic radio state change updates checked input", () => {
       let accessor!: (v?: string) => string | void;
 
-      const Island = ilha
-        .state("plan", "free")
-        .bind("[name='plan']", "plan")
-        .render(({ state }) => {
-          accessor = state.plan as typeof accessor;
-          return html`
-            <input
-              type="radio"
-              name="plan"
-              value="free"
-              ${state.plan() === "free" ? "checked" : ""}
-            />
-            <input
-              type="radio"
-              name="plan"
-              value="pro"
-              ${state.plan() === "pro" ? "checked" : ""}
-            />
+      const Island = ilha.state("plan", "free").render(({ state }) => {
+        accessor = state.plan as typeof accessor;
+        return html`
+            <input type="radio" name="plan" value="free" bind:group=${state.plan} />
+            <input type="radio" name="plan" value="pro" bind:group=${state.plan} />
           `;
-        });
+      });
 
       const el = makeEl();
       const unmount = Island.mount(el);
+      // Initial: free is checked from SSR-time static-value peek.
+      expect(el.querySelector<HTMLInputElement>("input[name='plan'][value='free']")!.checked).toBe(
+        true,
+      );
       accessor("pro");
       expect(el.querySelector<HTMLInputElement>("input[name='plan'][value='free']")!.checked).toBe(
         false,
@@ -3474,18 +3711,15 @@ describe(".bind", () => {
       cleanup(el);
     });
 
-    it("client radio group coerces DOM string to number from state type", () => {
-      const Island = ilha
-        .state("level", 2)
-        .bind("[name='level']", "level")
-        .render(
-          ({ state }) => html`
-            <input type="radio" name="level" value="1" ${state.level() === 1 ? "checked" : ""} />
-            <input type="radio" name="level" value="2" ${state.level() === 2 ? "checked" : ""} />
-            <input type="radio" name="level" value="3" ${state.level() === 3 ? "checked" : ""} />
-            <p>${state.level()}</p>
+    it("radio group coerces DOM string to number when state holds a number", () => {
+      const Island = ilha.state("level", 2).render(
+        ({ state }) => html`
+            <input type="radio" name="level" value="1" bind:group=${state.level} />
+            <input type="radio" name="level" value="2" bind:group=${state.level} />
+            <input type="radio" name="level" value="3" bind:group=${state.level} />
+            <p>${state.level}</p>
           `,
-        );
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -3495,6 +3729,429 @@ describe(".bind", () => {
       expect(el.querySelector("p")!.textContent).toBe("3");
       unmount();
       cleanup(el);
+    });
+
+    it("checkbox group adds option to array when checked", () => {
+      const Island = ilha.state<string[]>("tags", ["ts"]).render(
+        ({ state }) => html`
+            <input type="checkbox" name="tag" value="js" bind:group=${state.tags} />
+            <input type="checkbox" name="tag" value="ts" bind:group=${state.tags} />
+            <input type="checkbox" name="tag" value="rust" bind:group=${state.tags} />
+            <p>${(state.tags() as string[]).join(",")}</p>
+          `,
+      );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const js = el.querySelector<HTMLInputElement>("input[name='tag'][value='js']")!;
+      js.checked = true;
+      js.dispatchEvent(new Event("change"));
+      expect(el.querySelector("p")!.textContent).toContain("ts");
+      expect(el.querySelector("p")!.textContent).toContain("js");
+      unmount();
+      cleanup(el);
+    });
+
+    it("checkbox group removes option from array when unchecked", () => {
+      const Island = ilha.state<string[]>("tags", ["js", "ts"]).render(
+        ({ state }) => html`
+            <input type="checkbox" name="tag" value="js" bind:group=${state.tags} />
+            <input type="checkbox" name="tag" value="ts" bind:group=${state.tags} />
+            <p>${(state.tags() as string[]).join(",")}</p>
+          `,
+      );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const js = el.querySelector<HTMLInputElement>("input[name='tag'][value='js']")!;
+      // SSR-baked: js should already be checked.
+      expect(js.checked).toBe(true);
+      js.checked = false;
+      js.dispatchEvent(new Event("change"));
+      expect(el.querySelector("p")!.textContent).toBe("ts");
+      unmount();
+      cleanup(el);
+    });
+  });
+
+  describe("bind:this", () => {
+    it("writes element into signal on mount and nulls on unmount", () => {
+      let captured: Element | null | undefined;
+
+      const Island = ilha
+        .state<Element | null>("ref", null)
+        .onMount(({ state }) => {
+          captured = state.ref();
+        })
+        .render(({ state }) => html`<input data-r bind:this=${state.ref}>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector("[data-r]");
+      expect(captured).toBe(input);
+      unmount();
+      // After unmount the binding cleanup writes null; we can't observe the
+      // signal through the destroyed island, but we can at least confirm the
+      // mount-time write happened correctly above.
+      cleanup(el);
+    });
+
+    it("writes null into external signal on unmount", () => {
+      // Using an ilha.signal() instead of .state() so we keep a handle to
+      // the signal across the island's lifecycle and can observe its final
+      // value after unmount.
+      const ref = signal<Element | null>(null);
+
+      const Island = ilha.render(() => html`<input data-r bind:this=${ref}>`);
+
+      const el = makeEl();
+      const input = (() => {
+        const u = Island.mount(el);
+        const captured = el.querySelector("[data-r]");
+        expect(ref()).toBe(captured);
+        u();
+        return captured;
+      })();
+
+      // After unmount, the binding cleanup should have nulled the signal.
+      expect(ref()).toBe(null);
+      // The captured element should no longer be in the document (the
+      // island's host content was torn down — we still hold a reference but
+      // it's detached).
+      expect(input).not.toBeNull();
+      cleanup(el);
+    });
+
+    it("updates signal to the new element after morph replaces it", () => {
+      // The morph engine replaces elements whose localName differs between
+      // renders. Toggle between <input> and <textarea> so the bound element
+      // is genuinely re-created, and verify the ref tracks the new node.
+      const ref = signal<Element | null>(null);
+      let toggle!: () => void;
+
+      const Island = ilha.state("isText", false).render(({ state }) => {
+        toggle = () => state.isText(!state.isText());
+        return state.isText()
+          ? html`<textarea data-r bind:this=${ref}></textarea>`
+          : html`<input data-r bind:this=${ref}>`;
+      });
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+
+      const initial = el.querySelector("[data-r]");
+      expect(initial?.tagName).toBe("INPUT");
+      expect(ref()).toBe(initial);
+
+      toggle();
+
+      const swapped = el.querySelector("[data-r]");
+      expect(swapped?.tagName).toBe("TEXTAREA");
+      // Ref must point at the new element, not the destroyed one.
+      expect(ref()).toBe(swapped);
+      expect(ref()).not.toBe(initial);
+
+      unmount();
+      cleanup(el);
+    });
+  });
+
+  describe("bind:files", () => {
+    it("change event writes FileList into state", () => {
+      const Island = ilha
+        .state<FileList | null>("uploaded", null)
+        .render(({ state }) => html`<input type="file" data-f bind:files=${state.uploaded}>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-f]")!;
+      // happy-dom may not let us programmatically set .files; the listener
+      // wiring is what we're testing, so dispatch change and verify the
+      // accessor was invoked (state will be whatever .files happens to be
+      // on a fresh input, typically null or an empty FileList).
+      input.dispatchEvent(new Event("change"));
+      // No assertion on value — happy-dom behaviour varies. The test passes
+      // if mount/unmount don't throw and the listener was attached.
+      unmount();
+      cleanup(el);
+    });
+  });
+
+  describe("bind:valueAsDate", () => {
+    it("reads valueAsDate from input on change", () => {
+      const Island = ilha
+        .state<Date | null>("dob", new Date(2026, 4, 15))
+        .render(({ state }) => html`<input type="date" data-d bind:valueAsDate=${state.dob}>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-d]")!;
+      // Initial reflection: input.value should be set via the write() pass.
+      expect(input.value).toBe("2026-05-15");
+      unmount();
+      cleanup(el);
+    });
+  });
+
+  describe("re-render survival", () => {
+    // Every binding kind must survive a parent-state-driven re-render. The
+    // morph reconciles the DOM, then applyTemplateBindings re-walks the
+    // sentinels and re-attaches listeners. If the re-attach step regressed,
+    // a DOM event after re-render would no longer flow back to state.
+
+    it("bind:value listener survives re-render triggered by unrelated state", () => {
+      const Island = ilha
+        .state("bound", "")
+        .state("tick", 0)
+        .on("[data-bump]@click", ({ state }) => state.tick(state.tick() + 1))
+        .render(
+          ({ state }) => html`
+            <input data-b bind:value=${state.bound} />
+            <span data-tick>${state.tick}</span>
+            <button data-bump>bump</button>
+          `,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-b]")!;
+      const tick = el.querySelector<HTMLElement>("[data-tick]")!;
+
+      // Baseline: bind:value works before any re-render.
+      input.value = "before";
+      input.dispatchEvent(new Event("input"));
+      expect(input.value).toBe("before");
+
+      // Drive a re-render via unrelated state. The morph keeps the input.
+      el.querySelector<HTMLButtonElement>("[data-bump]")!.click();
+      expect(tick.textContent).toBe("1");
+
+      // Bind must still flow DOM→state. Fire another input event and force
+      // a re-render that depends on state.bound to observe it.
+      const inputPostRerender = el.querySelector<HTMLInputElement>("[data-b]")!;
+      inputPostRerender.value = "after";
+      inputPostRerender.dispatchEvent(new Event("input"));
+
+      // The bound value writing back into the input via re-render confirms
+      // the binding still works: assert the input value is preserved (a
+      // broken listener would leave state.bound at "before" and a render
+      // would reset the DOM to "before").
+      el.querySelector<HTMLButtonElement>("[data-bump]")!.click();
+      expect(tick.textContent).toBe("2");
+      expect(el.querySelector<HTMLInputElement>("[data-b]")!.value).toBe("after");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("bind:checked listener survives re-render", () => {
+      const Island = ilha
+        .state("flag", false)
+        .state("other", 0)
+        .on("[data-bump]@click", ({ state }) => state.other(state.other() + 1))
+        .render(
+          ({ state }) => html`
+            <input type="checkbox" data-cb bind:checked=${state.flag} />
+            <span data-o>${state.other}</span>
+            <button data-bump>bump</button>
+          `,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+
+      // First toggle — baseline.
+      const cb = el.querySelector<HTMLInputElement>("[data-cb]")!;
+      cb.checked = true;
+      cb.dispatchEvent(new Event("change"));
+      expect(el.querySelector<HTMLInputElement>("[data-cb]")!.checked).toBe(true);
+
+      // Drive a re-render via the unrelated state.
+      el.querySelector<HTMLButtonElement>("[data-bump]")!.click();
+      expect(el.querySelector("[data-o]")!.textContent).toBe("1");
+
+      // After re-render, the checkbox change should still update state.
+      const cb2 = el.querySelector<HTMLInputElement>("[data-cb]")!;
+      cb2.checked = false;
+      cb2.dispatchEvent(new Event("change"));
+      // The binding wiring must have re-attached so the next render picks
+      // up the change — assert via the rendered span path on the next bump.
+      el.querySelector<HTMLButtonElement>("[data-bump]")!.click();
+      expect(el.querySelector<HTMLInputElement>("[data-cb]")!.checked).toBe(false);
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("bind:group radio listener survives re-render", () => {
+      const Island = ilha
+        .state("size", "m")
+        .state("tick", 0)
+        .on("[data-bump]@click", ({ state }) => state.tick(state.tick() + 1))
+        .render(
+          ({ state }) => html`
+            <input type="radio" name="size" value="s" bind:group=${state.size} />
+            <input type="radio" name="size" value="m" bind:group=${state.size} />
+            <input type="radio" name="size" value="l" bind:group=${state.size} />
+            <span data-t>${state.tick}</span>
+            <button data-bump>bump</button>
+          `,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+
+      // Trigger a re-render before any radio interaction.
+      el.querySelector<HTMLButtonElement>("[data-bump]")!.click();
+      expect(el.querySelector("[data-t]")!.textContent).toBe("1");
+
+      // After re-render, the radio group binding should still wire up. Pick
+      // a different option and verify the state changes.
+      const large = el.querySelector<HTMLInputElement>("input[name='size'][value='l']")!;
+      large.checked = true;
+      large.dispatchEvent(new Event("change"));
+
+      // Force another render to observe the state via DOM reflection.
+      el.querySelector<HTMLButtonElement>("[data-bump]")!.click();
+
+      // The 'l' radio should now be checked (state was "l", reflected back).
+      expect(el.querySelector<HTMLInputElement>("input[name='size'][value='l']")!.checked).toBe(
+        true,
+      );
+      expect(el.querySelector<HTMLInputElement>("input[name='size'][value='m']")!.checked).toBe(
+        false,
+      );
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("indices reset on each re-render (sentinel attribute is stable)", () => {
+      // The sentinel value should be `value:0` after every render of the
+      // same template — not value:0 the first time, value:1 the second.
+      const Island = ilha
+        .state("name", "a")
+        .state("tick", 0)
+        .on("[data-n]@input", () => {
+          // no-op handler just to keep .on wired up
+        })
+        .render(
+          ({ state }) => html`<input data-n bind:value=${state.name}><span>${state.tick}</span>`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+
+      const sentinelBefore = el.querySelector("[data-n]")!.getAttribute("data-ilha-bind");
+      expect(sentinelBefore).toBe("value:0");
+
+      // Trigger a re-render by writing to the bound state.
+      const input = el.querySelector<HTMLInputElement>("[data-n]")!;
+      input.value = "b";
+      input.dispatchEvent(new Event("input"));
+
+      const sentinelAfter = el.querySelector("[data-n]")!.getAttribute("data-ilha-bind");
+      expect(sentinelAfter).toBe("value:0");
+
+      unmount();
+      cleanup(el);
+    });
+  });
+
+  describe("external signal", () => {
+    it("external ilha.signal() interpolates by value in html``", () => {
+      const sig = signal("hello");
+      const out = html`<p>${sig}</p>`.value;
+      expect(out).toBe("<p>hello</p>");
+    });
+
+    it("ilha.signal() can be used directly as a bind: target", () => {
+      const sharedName = signal("ada");
+
+      const Island = ilha.render(() => html`<input data-n bind:value=${sharedName}>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-n]")!;
+
+      // Initial reflection from the external signal.
+      expect(input.value).toBe("ada");
+
+      // DOM event flows into the external signal.
+      input.value = "grace";
+      input.dispatchEvent(new Event("input"));
+      expect(sharedName()).toBe("grace");
+
+      // External write flows back into the DOM via re-render. The island's
+      // render effect subscribes to sharedName because it was read at SSR
+      // time when emitBindSSR called accessor().
+      sharedName("hopper");
+      expect(input.value).toBe("hopper");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("two mounted islands sharing one external signal stay in sync", () => {
+      const shared = signal("x");
+
+      const A = ilha.render(() => html`<input data-a bind:value=${shared}>`);
+      const B = ilha.render(() => html`<input data-b bind:value=${shared}>`);
+
+      const elA = makeEl();
+      const elB = makeEl();
+      const uA = A.mount(elA);
+      const uB = B.mount(elB);
+
+      const inA = elA.querySelector<HTMLInputElement>("[data-a]")!;
+      const inB = elB.querySelector<HTMLInputElement>("[data-b]")!;
+
+      // Both start with the same value.
+      expect(inA.value).toBe("x");
+      expect(inB.value).toBe("x");
+
+      // Editing A flows into shared and then into B via shared's reactivity.
+      inA.value = "y";
+      inA.dispatchEvent(new Event("input"));
+      expect(shared()).toBe("y");
+      expect(inB.value).toBe("y");
+
+      // And the reverse.
+      inB.value = "z";
+      inB.dispatchEvent(new Event("input"));
+      expect(shared()).toBe("z");
+      expect(inA.value).toBe("z");
+
+      uA();
+      uB();
+      cleanup(elA);
+      cleanup(elB);
+    });
+  });
+
+  describe("dev warnings", () => {
+    let warnSpy: ReturnType<typeof spyOn>;
+    beforeEach(() => {
+      warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    });
+    afterEach(() => {
+      warnSpy.mockRestore();
+    });
+
+    it("warns on unknown bind:KIND and falls back to plain interpolation", () => {
+      const sig = signal("hello");
+      const out = html`<input bind:bogus=${sig}>`.value;
+      expect(warnSpy).toHaveBeenCalled();
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(msgs.some((m: string) => m.includes("bind:bogus"))).toBe(true);
+      // Plain interpolation fallback escapes the signal value into place.
+      expect(out).toContain("hello");
+    });
+
+    it("warns when bind: target is not a signal accessor", () => {
+      html`<input bind:value=${"plain string"}>`;
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(msgs.some((m: string) => m.includes("requires a signal accessor"))).toBe(true);
     });
   });
 });

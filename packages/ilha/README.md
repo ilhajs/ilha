@@ -326,40 +326,6 @@ An error thrown inside an `.onError()` handler does not break other registered h
 
 ---
 
-### `.bind(selector, stateKey | externalSignal)`
-
-Two-way binds a form element to a state key or an external signal. Handles `input`, `select`, `textarea`, `checkbox`, `radio`, and `number` inputs automatically.
-
-```ts
-ilha
-  .state("name", "")
-  .state("agreed", false)
-  .bind("input.name", "name")
-  .bind("input[type=checkbox]", "agreed")
-  .render(
-    ({ state }) => html`
-      <form>
-        <input class="name" value="${state.name}" />
-        <input type="checkbox" />
-        <p>Hello, ${state.name}! Agreed: ${state.agreed}</p>
-      </form>
-    `,
-  );
-```
-
-You can also bind to an external signal — either a free-standing one created with `signal()` or a named global one created with `context()`:
-
-```ts
-import { signal, context } from "ilha";
-
-const username = signal("");
-const theme = context("app.theme", "light");
-
-ilha.bind("input.name", username).bind("select.theme", theme).render(/* … */);
-```
-
----
-
 ### `.css(strings, ...values)`
 
 Attaches scoped styles to the island. Accepts a tagged template literal or a plain string. The CSS is automatically wrapped in a `@scope` rule bounded to the island host, so styles are contained within the island and do not leak into child islands.
@@ -616,7 +582,7 @@ const Footer = ilha.render(() => html`<footer>Logged in as ${username()}</footer
 username("alice");
 ```
 
-Pairs naturally with `.bind()` for two-way form bindings against module-level state.
+Works naturally with `bind:` template syntax for two-way form bindings against module-level state.
 
 ---
 
@@ -635,7 +601,7 @@ theme("dark"); // → sets to "dark"
 
 Safe to call in both SSR and browser environments.
 
-> **`signal()` vs `context()`** — both return the same accessor shape and can be passed to `.bind()`. Use `signal()` for one-off shared state where you'd hold the reference yourself; use `context()` when you want a name-keyed registry so the same signal can be looked up from anywhere by string key.
+> **`signal()` vs `context()`** — both return the same accessor shape and can be used with `bind:` template syntax. Use `signal()` for one-off shared state where you'd hold the reference yourself; use `context()` when you want a name-keyed registry so the same signal can be looked up from anywhere by string key.
 
 ---
 
@@ -712,6 +678,32 @@ Interpolation rules:
 | Signal accessor      | Called and escaped                          |
 | Island / Island call | Emitted as `data-ilha-slot` host element    |
 | Array                | Each item processed recursively (no commas) |
+
+**Template bindings** — use `bind:property=${signal}` inside `html\`\`` to create two-way bindings between form elements and signals:
+
+```ts
+ilha.state("name", "").render(
+  ({ state }) => html`
+    <input bind:value=${state.name} />
+    <p>Hello, ${state.name()}!</p>
+  `,
+);
+```
+
+Supported bindings:
+
+| Binding              | Element                                           | Bound property      | Trigger event |
+| -------------------- | ------------------------------------------------- | ------------------- | ------------- |
+| `bind:value`         | `<input>`, `<textarea>`, `<select>`               | `value`             | `input`       |
+| `bind:valueAsNumber` | `<input type="number">`                           | `valueAsNumber`     | `input`       |
+| `bind:valueAsDate`   | `<input type="date">`                             | `valueAsDate`       | `input`       |
+| `bind:checked`       | `<input type="checkbox">`                         | `checked`           | `change`      |
+| `bind:group`         | `<input type="radio">`, `<input type="checkbox">` | `checked` / `value` | `change`      |
+| `bind:open`          | `<details>`                                       | `open`              | `toggle`      |
+| `bind:files`         | `<input type="file">`                             | `files`             | `change`      |
+| `bind:this`          | Any element                                       | element reference   | —             |
+
+`bind:group` connects multiple inputs to a single signal — radio buttons hold the selected `value`, checkboxes hold an array of checked values. `bind:this` writes the DOM element into a signal on mount and `null` on unmount. External signals from `signal()` or `context()` work as binding targets too, enabling shared state across islands.
 
 **List rendering pattern:**
 

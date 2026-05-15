@@ -1,6 +1,6 @@
 {
   "name": "@ilha/store",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Typed store.",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
@@ -31,8 +31,8 @@
     "cleanup": "rimraf dist node_modules"
   },
   "dependencies": {
-    "alien-signals": "3.2.0",
-    "ilha": "0.4.4"
+    "alien-signals": "3.2.1",
+    "ilha": "0.5.0"
   },
   "devDependencies": {
     "zod": "^4.4.3"

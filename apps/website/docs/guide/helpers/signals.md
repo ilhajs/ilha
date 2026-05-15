@@ -53,22 +53,23 @@ const CartBadge = ilha
 
 Both islands share the same `cartCount` signal. Clicking the button in `CartButton` updates the badge in `CartBadge` without any wiring between them.
 
-### Using signals in [`.bind()`](/guide/island/bind)
+### Using signals in `bind:` bindings
 
-Pass a signal directly to `.bind()` to sync a form element across islands:
+Pass a signal directly into a `bind:` attribute to sync a form element with module-level state:
 
 ```ts twoslash
 import ilha, { html, signal } from "ilha";
 
 const query = signal("");
 
-const SearchInput = ilha
-  // [!code highlight]
-  .bind("input", query)
-  .render(() => html`<input type="search" />`);
+const SearchInput = ilha.render(
+  () => html`<input type="search" bind:value=${query} />`, // [!code highlight]
+);
 
 const SearchResults = ilha.render(() => html`<p>Results for: ${query()}</p>`);
 ```
+
+When the user types, `query` updates and `SearchResults` re-renders automatically — no wiring between islands needed.
 
 ---
 
@@ -87,7 +88,7 @@ theme("dark"); // → sets to "dark"
 
 ### `signal()` vs `context()`
 
-Both return the same accessor shape and can be passed to `.bind()`. Reach for `signal()` when you hold the reference yourself and import it where needed. Reach for `context()` when you want a name-keyed registry so the same signal can be looked up from anywhere by string key — for example, when the consumer lives in a different package or module from where the signal is defined.
+Both return the same accessor shape and can be used with `bind:` template syntax. Reach for `signal()` when you hold the reference yourself and import it where needed. Reach for `context()` when you want a name-keyed registry so the same signal can be looked up from anywhere by string key — for example, when the consumer lives in a different package or module from where the signal is defined.
 
 ### Sharing state between islands
 
@@ -107,19 +108,18 @@ const CartBadge = ilha
   .render(() => html`<span>${cartCount()}</span>`);
 ```
 
-### Using context in [`.bind()`](/guide/island/bind)
+### Using context in `bind:` bindings
 
-Pass a context signal directly to `.bind()` to sync a form element across islands:
+Pass a context signal directly into a `bind:` attribute to sync a form element across islands:
 
 ```ts twoslash
 import ilha, { html, context } from "ilha";
 
 const query = context("search.query", "");
 
-const SearchInput = ilha
-  // [!code highlight]
-  .bind("input", query)
-  .render(() => html`<input type="search" />`);
+const SearchInput = ilha.render(
+  () => html`<input type="search" bind:value=${query} />`, // [!code highlight]
+);
 
 const SearchResults = ilha.render(() => html`<p>Results for: ${query()}</p>`);
 ```
@@ -263,7 +263,7 @@ const value = untrack(() => s()); // → 42, no subscription created
 
 ## Notes
 
-- `signal()` vs `context()` — both return the same accessor shape and can be passed to `.bind()`. Use `signal()` for one-off shared state where you hold the reference; use `context()` when you want a name-keyed registry.
+- `signal()` vs `context()` — both return the same accessor shape and can be used with `bind:` template syntax. Use `signal()` for one-off shared state where you hold the reference; use `context()` when you want a name-keyed registry.
 - Keys are global strings. Use namespaced keys like `"app.theme"` or `"cart.count"` to avoid accidental collisions across different parts of your app.
 - There is no way to delete or reset a context signal once created short of reloading the module.
 - Context signals are not included in [`.hydratable()`](/guide/island/hydratable) snapshots. If you need server-rendered context values on the client, pass them as island props via [`.input()`](/guide/island/input) and initialize the context signal inside [`.onMount()`](/guide/island/onmount).

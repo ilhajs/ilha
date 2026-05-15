@@ -51,7 +51,6 @@ A typical island might include:
 - [`.state()`](/guide/island/state) for local reactive state.
 - [`.derived()`](/guide/island/derived) for computed or async values.
 - [`.on()`](/guide/island/on) for event handlers.
-- [`.bind()`](/guide/island/bind) for form binding.
 - [`.effect()`](/guide/island/effect) and [`.onMount()`](/guide/island/onmount) for side effects.
 - [`.css()`](/guide/island/css) for scoped styles.
 - [`.render()`](/guide/island/render) to produce the final island.
