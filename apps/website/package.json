@@ -13,7 +13,7 @@
     "basecoat-css": "^0.3.11",
     "dedent": "^1.7.2",
     "ilha": "workspace:*",
-    "react": "^19.2.5",
+    "react": "^19.2.6",
     "shiki": "^4.0.2"
   },
   "devDependencies": {
