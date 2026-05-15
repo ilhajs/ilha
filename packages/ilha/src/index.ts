@@ -1003,7 +1003,10 @@ function createDerivedProxy<
 // Bind
 // ---------------------------------------------
 
-export type ExternalSignal<T = unknown> = { (): T; (value: T): void };
+export interface ExternalSignal<T = unknown> {
+  (): T;
+  (value: T): void;
+}
 
 const BIND_SENTINEL_ATTR = "data-ilha-bind";
 
@@ -1275,9 +1278,11 @@ function applyTemplateBindings(host: Element, binds: BindRecord[]): () => void {
 
 export type SignalAccessor<T> = MarkedSignalAccessor<T>;
 
-type MergeState<TStateMap extends Record<string, unknown>, K extends string, V> = {
-  [P in keyof TStateMap as P extends K ? never : P]-?: TStateMap[P];
-} & Record<K, V>;
+type MergeState<TStateMap extends Record<string, unknown>, K extends string, V> = Omit<
+  TStateMap,
+  K
+> &
+  Record<K, V>;
 
 export type IslandState<TStateMap extends Record<string, unknown>> = {
   readonly [K in keyof TStateMap]-?: SignalAccessor<TStateMap[K]>;
@@ -1353,7 +1358,7 @@ type EffectContext<TInput, TStateMap extends Record<string, unknown>> = {
 export type OnMountContext<
   TInput,
   TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
@@ -1365,7 +1370,7 @@ export type OnMountContext<
 export type HandlerContext<
   TInput,
   TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
@@ -1385,37 +1390,31 @@ export type HandlerContext<
 };
 
 // ---------------------------------------------
-// .on() event autocomplete types
+// Event type resolution helpers (cached at module level)
 // ---------------------------------------------
 
-type HTMLEventName = keyof HTMLElementEventMap & string;
-type Modifier = "once" | "capture" | "passive" | "abortable";
-type WithModifiers<E extends string> =
-  | E
-  | `${E}:${Modifier}`
-  | `${E}:${Modifier}:${Modifier}`
-  | `${E}:${Modifier}:${Modifier}:${Modifier}`;
+type HTMLEventFor<E extends string> = E extends keyof HTMLElementEventMap
+  ? HTMLElementEventMap[E]
+  : Event;
 
-type OnSelectorString =
-  | `@${WithModifiers<HTMLEventName>}`
-  | `${string}@${WithModifiers<HTMLEventName>}`;
+type HTMLTargetFor<E extends string> = E extends keyof HTMLElementEventMap
+  ? NonNullable<HTMLElementEventMap[E]["target"]> extends Element
+    ? NonNullable<HTMLElementEventMap[E]["target"]>
+    : Element
+  : Element;
 
 export type HandlerContextFor<
   TInput,
   TStateMap extends Record<string, unknown>,
   TEventName extends string,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
   input: TInput;
   host: Element;
-  target: TEventName extends keyof HTMLElementEventMap
-    ? HTMLElementEventMap[TEventName]["target"] extends Element | null
-      ? NonNullable<HTMLElementEventMap[TEventName]["target"]>
-      : Element
-    : Element;
-  event: TEventName extends keyof HTMLElementEventMap ? HTMLElementEventMap[TEventName] : Event;
+  target: HTMLTargetFor<TEventName>;
+  event: HTMLEventFor<TEventName>;
   /**
    * AbortSignal that fires when the island unmounts. If the handler's selector
    * was registered with the `:abortable` modifier, the signal is also aborted
@@ -1500,7 +1499,7 @@ function anySignal(signals: AbortSignal[]): AbortSignal {
 interface OnEntry<
   TInput,
   TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > {
   selector: string;
   event: string;
@@ -1521,7 +1520,7 @@ export type ErrorSource = "on" | "effect";
 export type ErrorContext<
   TInput,
   TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > = {
   error: Error;
   source: ErrorSource;
@@ -1594,7 +1593,7 @@ const _mountedHosts = __DEV__ ? new WeakSet<Element>() : null;
 class IlhaBuilder<
   TInput extends Record<string, unknown>,
   TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > {
   readonly _cfg: BuilderConfig<TInput, TStateMap, TDerivedMap>;
 
@@ -1604,17 +1603,17 @@ class IlhaBuilder<
 
   input<T extends Record<string, unknown>>(): IlhaBuilder<
     T,
-    Record<string, never>,
-    Record<string, never>
+    Record<never, never>,
+    Record<never, never>
   >;
   input<S extends StandardSchemaV1>(
     schema: S,
   ): IlhaBuilder<
     StandardSchemaV1.InferOutput<S> & Record<string, unknown>,
-    Record<string, never>,
-    Record<string, never>
+    Record<never, never>,
+    Record<never, never>
   >;
-  input(schema?: StandardSchemaV1): IlhaBuilder<Record<string, unknown>, Record<string, never>> {
+  input(schema?: StandardSchemaV1): IlhaBuilder<Record<string, unknown>, Record<never, never>> {
     return new IlhaBuilder({
       schema: schema ?? null,
       states: [],
@@ -1650,7 +1649,7 @@ class IlhaBuilder<
     } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap & Record<K, V>>);
   }
 
-  on<S extends OnSelectorString>(
+  on<S extends string>(
     selectorOrCombined: S,
     handler: (
       ctx: S extends `${string}@${infer E}:${string}`
@@ -1659,14 +1658,6 @@ class IlhaBuilder<
           ? HandlerContextFor<TInput, TStateMap, E, TDerivedMap>
           : HandlerContext<TInput, TStateMap, TDerivedMap>,
     ) => void | Promise<void>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap>;
-  on(
-    selectorOrCombined: string,
-    handler: (ctx: HandlerContext<TInput, TStateMap, TDerivedMap>) => void | Promise<void>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap>;
-  on(
-    selectorOrCombined: string,
-    handler: (ctx: HandlerContext<TInput, TStateMap, TDerivedMap>) => void | Promise<void>,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
     const parsed = parseOnArgs(selectorOrCombined);
     return new IlhaBuilder({
@@ -2740,8 +2731,8 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
 
 const EMPTY_CFG: BuilderConfig<
   Record<string, unknown>,
-  Record<string, never>,
-  Record<string, never>
+  Record<never, never>,
+  Record<never, never>
 > = {
   schema: null,
   states: [],
