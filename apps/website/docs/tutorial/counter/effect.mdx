@@ -18,7 +18,6 @@ export const script = dedent`
       .on("[data-action=increase]@click", ({ state }) => {
         state.count(state.count() + 1)
       })
-      .bind("#count", 'count')
       .effect(({ state }) => {
         if (state.count() > 3) {
           state.count(0);
@@ -29,7 +28,7 @@ export const script = dedent`
           <p>Count: \${state.count()}</p>
           <p>Doubled: \${derived.doubled.value}</p>
           <label for="count">Current count</label>
-          <input id="count" type="number" />
+          <input id="count" type="number" bind:value=\${state.count} />
           <button data-action="increase">Increase</button>
         \`
       );

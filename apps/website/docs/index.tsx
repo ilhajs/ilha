@@ -113,15 +113,12 @@ const Creator = ilha
   .derived("sandboxUrl", ({ state }) => {
     return URLS.SANDBOX.replace("{template}", state.template());
   })
-  .bind("[name=name]", "name")
-  .bind("[name=useBun]", "useBun")
-  .bind("[name=template]", "template")
   .on("[data-action=copyCommand]@click", async ({ derived }) => {
     await navigator.clipboard.writeText(derived.createCommand.value!);
     return toast("Copied to clipboard");
   })
   .render(
-    ({ derived }) => html`
+    ({ state, derived }) => html`
       <section class="relative -mx-4 mt-20 overflow-hidden lg:mx-0 lg:rounded-4xl">
         <img src="/dither-3.jpg" class="h-160 w-full object-cover" />
         <div class="absolute inset-0 flex flex-col items-center justify-center p-4">
@@ -130,24 +127,24 @@ const Creator = ilha
           >
             <h2 class="text-lg font-semibold">Start a new Ilha project</h2>
             <label class="label">Project name</label>
-            <input type="text" name="name" class="input rounded-full" placeholder="my-app" />
+            <input type="text" name="name" class="input rounded-full" placeholder="my-app" bind:value=${state.name} />
             <label class="label">Pick a template</label>
             <fieldset class="grid gap-4">
               <label class="label"
-                ><input type="radio" name="template" value="vite" class="input" checked />
+                ><input type="radio" name="template" value="vite" class="input" bind:group=${state.template} />
                 <img src="/vite.svg" class="size-6" /><span>Vite</span>
               </label>
               <label class="label"
-                ><input type="radio" name="template" value="nitro" class="input" />
+                ><input type="radio" name="template" value="nitro" class="input" bind:group=${state.template} />
                 <img src="/nitro.svg" class="size-6" /><span>Nitro</span>
               </label>
               <label class="label"
-                ><input type="radio" name="template" value="hono" class="input" />
+                ><input type="radio" name="template" value="hono" class="input" bind:group=${state.template} />
                 <img src="/hono.svg" class="size-6" /><span>Hono</span>
               </label>
             </fieldset>
             <label class="label">
-              <input type="checkbox" name="useBun" role="switch" class="input" />
+              <input type="checkbox" name="useBun" role="switch" class="input" bind:checked=${state.useBun} />
               Use Bun
             </label>
             <div class="flex min-w-0 items-center gap-2">
@@ -176,7 +173,6 @@ const Creator = ilha
 
 const AiPrompt = ilha
   .state("provider", "claude")
-  .bind("[data-provider]", "provider")
   .on('[data-form="ai"]@submit', ({ event, target, state }) => {
     if (!(target instanceof HTMLFormElement)) return;
     event.preventDefault();
@@ -188,7 +184,7 @@ const AiPrompt = ilha
     window.open(url, "_blank");
   })
   .render(
-    () => html`
+    ({ state }) => html`
       <section class="relative -mx-4 mt-20 overflow-hidden lg:mx-0 lg:rounded-4xl">
         <img src="/dither-2.jpg" class="h-120 w-full object-cover lg:h-160" />
         <div class="absolute inset-0 flex flex-col items-center justify-center p-4">
@@ -211,7 +207,7 @@ const AiPrompt = ilha
                 placeholder="Ask AI to build a landing page..."
               />
               <div class="flex items-center justify-between">
-                <select class="select rounded-full" data-provider>
+                <select class="select rounded-full" bind:value=${state.provider}>
                   <option value="claude" selected>Claude</option>
                   <option value="chatgpt">ChatGPT</option>
                   <option value="perplexity">Perplexity</option>

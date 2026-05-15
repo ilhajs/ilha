@@ -269,6 +269,26 @@ interface IslandRenderCtx {
   // islands with async derived() can be properly awaited instead of emitting
   // loading markup.
   pending: Map<string, Promise<string>> | undefined;
+  // Template-emitted bindings (bind:value=${signal}, etc). Each interpolation
+  // site that matched a bind: prefix records its accessor and binding kind
+  // here, and emits a data-ilha-bind sentinel attribute referencing the
+  // entry by index. Mount-time wiring reads these back out.
+  binds: BindRecord[];
+}
+
+type BindKind =
+  | "value"
+  | "checked"
+  | "valueAsNumber"
+  | "valueAsDate"
+  | "files"
+  | "open"
+  | "group"
+  | "this";
+
+interface BindRecord {
+  kind: BindKind;
+  accessor: ExternalSignal;
 }
 
 const renderCtxStack: IslandRenderCtx[] = [];
@@ -279,6 +299,7 @@ function pushRenderCtx(liveHost?: Element, asyncChildren?: boolean): IslandRende
     positional: 0,
     liveHost,
     pending: asyncChildren ? new Map() : undefined,
+    binds: [],
   };
   renderCtxStack.push(ctx);
   return ctx;
@@ -468,14 +489,255 @@ function interpolateValue(v: unknown): string {
   return escapeHtml(v);
 }
 
+// ---------------------------------------------
+// bind: template syntax
+// ---------------------------------------------
+//
+// `<input bind:value=${state.name}>` and similar are detected during
+// template assembly by ilhaHtml. The regex below scans the trailing static
+// chunk for `bind:NAME=` (optionally with an opening quote) immediately
+// before an interpolation. When matched:
+//
+//   1. The matched portion is stripped from the static chunk.
+//   2. If a closing quote follows the interpolation in the next static
+//      chunk, it's stripped too.
+//   3. The interpolated signal accessor is recorded in the active render
+//      context's `binds` array; the index is the binding's id.
+//   4. The canonical SSR output for the kind is emitted (e.g. `value="V"`,
+//      `checked`, `open`), plus a `data-ilha-bind="KIND:INDEX"` sentinel
+//      that mount-time wiring reads to attach the listener and reflection.
+//
+// Mount-time wiring lives in applyTemplateBindings — it walks the host for
+// `[data-ilha-bind]` and uses resolveBindOps for the canonical
+// property/event mapping per kind.
+const BIND_VALID_KINDS = new Set<BindKind>([
+  "value",
+  "checked",
+  "valueAsNumber",
+  "valueAsDate",
+  "files",
+  "open",
+  "group",
+  "this",
+]);
+
+// Matches a `bind:NAME=` (with optional opening `"` or `'`) at the end of a
+// static chunk. The trailing chunk position is enforced by the `$` anchor.
+const BIND_PREFIX_RE = /\bbind:([a-zA-Z]+)\s*=\s*("|')?$/;
+
+// Format a Date for an <input type=date|datetime-local|time|month|week>.
+// We pick `date` semantics by default; users wanting datetime-local should
+// pre-format the string themselves on the value side.
+function formatDateForInput(d: unknown): string {
+  if (d instanceof Date && !isNaN(d.getTime())) {
+    // YYYY-MM-DD
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  return "";
+}
+
+// Try to extract the element's static `value="..."` attribute from the
+// trailing prefix of the current open tag. Used for SSR reflection of
+// bind:group on radio/checkbox inputs, where the runtime needs the
+// element's option-value to decide whether to emit `checked`. Returns
+// null when no static value is found in the prefix — the most common
+// cause is the value is itself interpolated, in which case SSR
+// reflection is skipped and hydration covers it.
+function extractElementStaticValue(prefix: string): string | null {
+  // Walk backwards from the end of the prefix until we find the opening
+  // '<' of the current tag. Anything past that is a different element.
+  const lastOpen = prefix.lastIndexOf("<");
+  if (lastOpen === -1) return null;
+  const tagPrefix = prefix.slice(lastOpen);
+  // Skip if a '>' appears between lastOpen and end — that would mean the
+  // tag already closed and bind:group is somehow stray text.
+  if (tagPrefix.includes(">")) return null;
+  const m = tagPrefix.match(/\bvalue\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/);
+  if (!m) return null;
+  return m[2] ?? m[3] ?? m[4] ?? null;
+}
+
+// Emit the canonical SSR attribute(s) for a binding, plus the sentinel.
+// Returns [valueAttrs, specFragment] — valueAttrs are HTML attributes to
+// inject into the element (may be empty for ref/file bindings), and
+// specFragment is the sentinel token for the combined data-ilha-bind attr.
+function emitBindSSR(
+  kind: BindKind,
+  index: number,
+  accessor: ExternalSignal,
+  prefixForStaticPeek: string,
+): [string, string] {
+  const spec = `${kind}:${index}`;
+  // Reflect current value into output attributes. The morph engine will
+  // pick this up on subsequent renders. For boolean attributes we emit
+  // the bare attribute name without a value (HTML spec compliant).
+  let v: unknown;
+  try {
+    v = accessor();
+  } catch {
+    v = undefined;
+  }
+  switch (kind) {
+    case "value":
+      return [` value="${escapeHtml(v ?? "")}"`, spec];
+    case "valueAsNumber":
+      return [` value="${escapeHtml(v == null ? "" : String(v))}"`, spec];
+    case "valueAsDate":
+      return [` value="${escapeHtml(formatDateForInput(v))}"`, spec];
+    case "checked":
+      return [v ? ` checked` : ``, spec];
+    case "open":
+      return [v ? ` open` : ``, spec];
+    case "files":
+      // File inputs cannot carry their selected files in HTML output;
+      // mount-time wiring is read-only-into-state for this kind.
+      // No attribute reflection — sentinel only.
+      return [``, spec];
+    case "this":
+      // Pure ref binding — no observable, no reflection.
+      // No attribute reflection — sentinel only.
+      return [``, spec];
+    case "group": {
+      // Try to determine this element's option value from the static
+      // prefix. If the signal value (or array, for checkbox groups)
+      // matches, emit `checked`.
+      const optionValue = extractElementStaticValue(prefixForStaticPeek);
+      if (optionValue == null) return [``, spec];
+      const isMatched = Array.isArray(v)
+        ? v.map(String).includes(optionValue)
+        : v != null && String(v) === optionValue;
+      return [isMatched ? ` checked` : ``, spec];
+    }
+  }
+}
+
 // html`` now returns RawHtml instead of string so that arrays of html`` results
 // (e.g. from .map()) can be passed directly as interpolated values in a parent
 // html`` without triggering JS's default Array.toString() comma-joining.
+//
+// Also scans static chunks for the `bind:NAME=${signal}` template syntax,
+// stripping the prefix and registering the binding with the active render
+// context. The output carries a `data-ilha-bind="kind:index"` sentinel that
+// mount-time wiring reads back to attach listeners and reflect updates.
 function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml {
   let result = "";
+  // We may need to strip a closing quote from the *next* static chunk when
+  // the current interpolation matched a quoted bind: prefix. Track that
+  // pending strip with this flag.
+  let stripLeadingQuote: '"' | "'" | null = null;
+  // Accumulate bind specs for the current open tag and emit as a single
+  // data-ilha-bind attribute before the closing `>`.
+  let pendingBindSpecs = "";
+  const ctx = currentRenderCtx();
+
   for (let i = 0; i < strings.length; i++) {
-    result += strings[i];
-    if (i < values.length) result += interpolateValue(values[i]);
+    let chunk = strings[i]!;
+    if (stripLeadingQuote !== null) {
+      // Eat one leading quote of the matching kind, if present.
+      if (chunk.startsWith(stripLeadingQuote)) {
+        chunk = chunk.slice(1);
+      }
+      stripLeadingQuote = null;
+    }
+
+    // If the chunk contains a closing `>`, emit any pending bind specs
+    // right before the first `>` so they land inside the open tag.
+    if (pendingBindSpecs !== "") {
+      const gtIdx = chunk.indexOf(">");
+      if (gtIdx !== -1) {
+        chunk =
+          chunk.slice(0, gtIdx) + ` data-ilha-bind="${pendingBindSpecs}">` + chunk.slice(gtIdx + 1);
+        pendingBindSpecs = "";
+      }
+    }
+
+    if (i >= values.length) {
+      result += chunk;
+      continue;
+    }
+
+    const value = values[i];
+    const m = chunk.match(BIND_PREFIX_RE);
+
+    if (m && isSignalAccessor(value)) {
+      const name = m[1]!;
+      const openQuote = (m[2] ?? null) as '"' | "'" | null;
+
+      if (!BIND_VALID_KINDS.has(name as BindKind)) {
+        if (__DEV__) {
+          warn(
+            `Unknown bind:${name} — supported bindings are ` +
+              `${[...BIND_VALID_KINDS].map((k) => `bind:${k}`).join(", ")}.`,
+          );
+        }
+        // Fall through to default interpolation.
+        result += chunk + interpolateValue(value);
+        continue;
+      }
+
+      if (!ctx) {
+        // No active render context (e.g. html`` invoked at module top
+        // level outside an island render). Bindings only work inside a
+        // .render() body; emit plain reflection without sentinel so the
+        // output still has the signal's current value, and warn in dev.
+        if (__DEV__) {
+          warn(
+            `bind:${name} used outside an island render — bindings only ` +
+              `work in .render(). The value is reflected once but not wired.`,
+          );
+        }
+        const stripped = chunk.slice(0, chunk.length - m[0]!.length);
+        // Emit the canonical attribute (name=value) without the sentinel so
+        // the output is valid HTML even outside a render context.
+        // interpolateValue already HTML-escapes primitives; RawHtml values
+        // pass through unescaped (author's responsibility).
+        const quote = openQuote ?? '"';
+        result += stripped + name + "=" + quote + interpolateValue(value) + quote;
+        if (openQuote) stripLeadingQuote = openQuote;
+        continue;
+      }
+
+      // Strip the matched `bind:NAME=` plus optional opening quote from
+      // the chunk; the leading whitespace before `bind:` is preserved by
+      // the regex (it's not in the match), but the match starts at the
+      // word boundary `bind`. Note that there's typically a space before
+      // bind: (between attributes), which we leave alone — the emitted
+      // sentinel starts with its own leading space.
+      const matchStart = chunk.length - m[0]!.length;
+      const prefixBeforeBind = chunk.slice(0, matchStart);
+      // Trim trailing whitespace before bind: because emitBindSSR's output
+      // starts with its own space.
+      const cleanPrefix = prefixBeforeBind.replace(/\s+$/, "");
+
+      const index = ctx.binds.length;
+      ctx.binds.push({ kind: name as BindKind, accessor: value as ExternalSignal });
+
+      const [valueAttrs, spec] = emitBindSSR(
+        name as BindKind,
+        index,
+        value as ExternalSignal,
+        cleanPrefix,
+      );
+      result += cleanPrefix + valueAttrs;
+      pendingBindSpecs += (pendingBindSpecs ? "," : "") + spec;
+
+      if (openQuote) stripLeadingQuote = openQuote;
+      continue;
+    }
+
+    if (m && __DEV__) {
+      warn(
+        `bind:${m[1]} requires a signal accessor — got ${typeof value}. ` +
+          `Use ilha.signal() or a .state() accessor.`,
+      );
+    }
+
+    result += chunk + interpolateValue(value);
+  }
+  // Emit any remaining pending bind specs (e.g. if the last chunk had no `>`).
+  if (pendingBindSpecs !== "") {
+    result += ` data-ilha-bind="${pendingBindSpecs}"`;
   }
   return { [RAW]: true, value: dedentString(result) };
 }
@@ -510,7 +772,8 @@ function ilhaContext<T>(key: string, initial: T): ContextSignal<T> {
 /**
  * Create a free-standing reactive signal that lives outside any island.
  * Useful for sharing state across islands without prop drilling, or for
- * binding form inputs to module-level state via `.bind(selector, signal)`.
+ * binding form inputs to module-level state via the `bind:value=${signal}`
+ * template syntax.
  *
  * The returned accessor is a getter when called with no arguments and a
  * setter when called with one. Reading it inside a `.derived()`, `.effect()`,
@@ -519,11 +782,11 @@ function ilhaContext<T>(key: string, initial: T): ContextSignal<T> {
  */
 export function ilhaSignal<T>(initial: T): ExternalSignal<T> {
   const s = signal(initial);
-  const accessor = (...args: unknown[]): unknown => {
+  const accessor = markSignalAccessor((...args: unknown[]): unknown => {
     if (args.length === 0) return s();
     s(args[0] as T);
-  };
-  return accessor as ExternalSignal<T>;
+  });
+  return accessor as unknown as ExternalSignal<T>;
 }
 
 /**
@@ -740,110 +1003,272 @@ function createDerivedProxy<
 // Bind
 // ---------------------------------------------
 
-export type ExternalSignal<T = unknown> = { (): T; (value: T): void };
-
-interface BindEntry<TStateMap extends Record<string, unknown>> {
-  selector: string;
-  target: (keyof TStateMap & string) | ExternalSignal;
+export interface ExternalSignal<T = unknown> {
+  (): T;
+  (value: T): void;
 }
 
-function resolveBindConfig(el: Element): {
-  prop: "value" | "checked" | "valueAsNumber";
-  event: string;
+const BIND_SENTINEL_ATTR = "data-ilha-bind";
+
+// Per-element binding spec parsed from a `data-ilha-bind` sentinel. The
+// sentinel value is a comma-separated list of `kind:index` pairs so that
+// rare cases of multiple bindings on one element work without extra
+// attributes — but the common case is a single pair.
+interface BindSpec {
+  kind: BindKind;
+  index: number;
+}
+
+function parseBindSentinel(value: string): BindSpec[] {
+  const out: BindSpec[] = [];
+  for (const part of value.split(",")) {
+    const [kind, idx] = part.split(":");
+    if (!kind || !idx) continue;
+    const i = Number(idx);
+    if (!Number.isInteger(i) || i < 0) continue;
+    out.push({ kind: kind as BindKind, index: i });
+  }
+  return out;
+}
+
+// Resolve the per-element bind operations (read DOM, write DOM, event)
+// for a particular binding kind. Centralised here so the template-time
+// SSR reflection and runtime wiring share the same understanding of
+// each kind's semantics.
+function resolveBindOps(
+  el: Element,
+  kind: BindKind,
+): {
+  // Event name to listen on, or null for one-shot bindings (e.g. `this`,
+  // and SSR-only `valueAsDate` when reflection is the only effect).
+  event: string | null;
+  // Read the current DOM value back into something writable to the
+  // signal. May return undefined to signal "skip this update" (e.g.
+  // unchecked radio firing change).
   read: (el: Element) => unknown;
-  write: (el: Element, value: unknown) => void;
+  // Write the signal's current value into the DOM. For boolean
+  // properties this toggles them; for `value` properties this sets the
+  // string representation.
+  write: (el: Element, v: unknown) => void;
 } {
-  const tag = el.tagName.toLowerCase();
-  const type = (el as HTMLInputElement).type?.toLowerCase() ?? "";
-
-  if (tag === "input" && type === "checkbox") {
-    return {
-      prop: "checked",
-      event: "change",
-      read: (el) => (el as HTMLInputElement).checked,
-      write: (el, v) => ((el as HTMLInputElement).checked = Boolean(v)),
-    };
+  const input = el as HTMLInputElement;
+  switch (kind) {
+    case "value":
+      return {
+        event: el.tagName === "SELECT" ? "change" : "input",
+        read: (el) => (el as HTMLInputElement).value,
+        write: (el, v) => ((el as HTMLInputElement).value = v == null ? "" : String(v)),
+      };
+    case "valueAsNumber":
+      return {
+        event: "input",
+        read: (el) => {
+          const n = (el as HTMLInputElement).valueAsNumber;
+          return Number.isNaN(n) ? null : n;
+        },
+        write: (el, v) =>
+          ((el as HTMLInputElement).value =
+            v == null || Number.isNaN(v as number) ? "" : String(v)),
+      };
+    case "valueAsDate":
+      return {
+        event: "input",
+        read: (el) => (el as HTMLInputElement).valueAsDate,
+        write: (el, v) => {
+          (el as HTMLInputElement).value = formatDateForInput(v);
+        },
+      };
+    case "checked":
+      return {
+        event: "change",
+        read: (el) => (el as HTMLInputElement).checked,
+        write: (el, v) => ((el as HTMLInputElement).checked = Boolean(v)),
+      };
+    case "files":
+      return {
+        event: "change",
+        // Read-only-into-state: the FileList cannot be assigned back into a
+        // file input (browser security), so write() is intentionally a no-op.
+        read: (el) => (el as HTMLInputElement).files,
+        write: () => {},
+      };
+    case "open":
+      return {
+        event: "toggle",
+        read: (el) => (el as HTMLDetailsElement).open,
+        write: (el, v) => ((el as HTMLDetailsElement).open = Boolean(v)),
+      };
+    case "this":
+      return {
+        event: null,
+        read: () => undefined,
+        write: () => {},
+      };
+    case "group": {
+      const isCheckbox = input.type === "checkbox";
+      return {
+        event: "change",
+        read: (el) => {
+          const i = el as HTMLInputElement;
+          if (isCheckbox) {
+            // Array semantics — toggled membership of this option-value.
+            return { __ilhaGroup: true, value: i.value, checked: i.checked };
+          }
+          // Radio semantics — only the now-checked element reports a value.
+          return i.checked ? i.value : undefined;
+        },
+        write: (el, v) => {
+          const i = el as HTMLInputElement;
+          if (isCheckbox) {
+            const arr = Array.isArray(v) ? (v as unknown[]).map(String) : [];
+            i.checked = arr.includes(i.value);
+          } else {
+            i.checked = v != null && String(v) === i.value;
+          }
+        },
+      };
+    }
   }
-  if (tag === "input" && type === "radio") {
-    return {
-      prop: "checked",
-      event: "change",
-      read: (el) => {
-        const input = el as HTMLInputElement;
-        return input.checked ? input.value : undefined;
-      },
-      write: (el, v) => {
-        (el as HTMLInputElement).checked = String(v ?? "") === (el as HTMLInputElement).value;
-      },
-    };
-  }
-  if (tag === "input" && type === "number") {
-    return {
-      prop: "valueAsNumber",
-      event: "input",
-      read: (el) => (el as HTMLInputElement).valueAsNumber,
-      write: (el, v) => ((el as HTMLInputElement).value = String(v ?? "")),
-    };
-  }
-  return {
-    prop: "value",
-    event: tag === "select" ? "change" : "input",
-    read: (el) => (el as HTMLInputElement).value,
-    write: (el, v) => ((el as HTMLInputElement).value = String(v ?? "")),
-  };
 }
 
-function applyBindings<TStateMap extends Record<string, unknown>>(
-  host: Element,
-  bindings: BindEntry<TStateMap>[],
-  state: IslandState<TStateMap>,
-): () => void {
+// Walk the host's DOM for `[data-ilha-bind]` sentinels and wire each one
+// to its corresponding binding record. Called on initial mount and on
+// every re-render after morph (mirroring how event listeners are
+// reattached). Returns a teardown function that removes every listener
+// it added.
+function applyTemplateBindings(host: Element, binds: BindRecord[]): () => void {
+  if (binds.length === 0) return () => {};
+
   const cleanups: Array<() => void> = [];
-  for (const binding of bindings) {
-    const accessor: ExternalSignal =
-      typeof binding.target === "function"
-        ? binding.target
-        : (state[binding.target as keyof TStateMap] as ExternalSignal);
 
-    const targets =
-      binding.selector === ""
-        ? [host]
-        : Array.from(host.querySelectorAll<Element>(binding.selector));
+  // Include the host itself in the walk so `<div data-ilha=… data-ilha-bind=…>`
+  // (binding the host) works. NodeList from querySelectorAll excludes the
+  // root; checking the host explicitly is cheap.
+  const elements: Element[] = [];
+  if (host.hasAttribute(BIND_SENTINEL_ATTR)) elements.push(host);
+  for (const el of host.querySelectorAll<Element>(`[${BIND_SENTINEL_ATTR}]`)) {
+    elements.push(el);
+  }
 
-    if (__DEV__ && binding.selector !== "" && targets.length === 0) {
-      warn(
-        `bind(): selector "${binding.selector}" matched no elements inside the island host. ` +
-          `Check that the element exists in your render output.`,
-      );
-    }
+  for (const el of elements) {
+    const sentinel = el.getAttribute(BIND_SENTINEL_ATTR)!;
+    const specs = parseBindSentinel(sentinel);
 
-    for (const target of targets) {
-      const { event, read, write } = resolveBindConfig(target);
-      const isRadio =
-        (target as HTMLInputElement).tagName.toLowerCase() === "input" &&
-        (target as HTMLInputElement).type?.toLowerCase() === "radio";
-      write(target, accessor());
+    for (const spec of specs) {
+      const record = binds[spec.index];
+      if (!record) {
+        if (__DEV__) {
+          warn(
+            `bind:${spec.kind} index ${spec.index} not found in render — ` +
+              `the data-ilha-bind sentinel may have been hand-edited or ` +
+              `survived a stale render.`,
+          );
+        }
+        continue;
+      }
+      if (record.kind !== spec.kind) {
+        if (__DEV__) {
+          warn(
+            `bind:${spec.kind} sentinel points at a binding registered as ` +
+              `bind:${record.kind}. Sentinel may be stale.`,
+          );
+        }
+        continue;
+      }
+
+      const { event, read, write } = resolveBindOps(el, spec.kind);
+      const accessor = record.accessor;
+
+      if (spec.kind === "this") {
+        // Ref binding: write the element into the signal on attach,
+        // null it on cleanup. No event listener.
+        (accessor as (v: unknown) => void)(el);
+        cleanups.push(() => (accessor as (v: unknown) => void)(null));
+        continue;
+      }
+
+      // Reflect current signal value into the DOM property. The morph
+      // already syncs attributes, but for properties that diverge from
+      // attributes (input.value after user typing, details.open after
+      // click, checkbox.checked) we need to write the property here.
+      try {
+        write(el, accessor());
+      } catch (err) {
+        if (__DEV__) console.error(`[ilha] bind:${spec.kind} write failed:`, err);
+      }
+
+      if (event === null) continue;
 
       const listener = () => {
-        const raw = read(target);
-        if (isRadio && raw === undefined) return;
+        const raw = read(el);
+        if (spec.kind === "group") {
+          const groupRead = raw as
+            | { __ilhaGroup: true; value: string; checked: boolean }
+            | string
+            | undefined;
+          if (groupRead === undefined) return; // unchecked radio firing
+          if (typeof groupRead === "object" && groupRead.__ilhaGroup) {
+            // Checkbox group: toggle membership in the array.
+            const currentArr = accessor();
+            const arr = Array.isArray(currentArr) ? [...(currentArr as unknown[])] : [];
+            const idx = arr.findIndex((x) => String(x) === groupRead.value);
+            if (groupRead.checked && idx === -1) {
+              // Coerce to match the signal's current element type, using the
+              // first existing element as a template. If the array is currently
+              // empty, no type template is available and the raw string is
+              // pushed as-is — coercion only applies when at least one existing
+              // element provides a type to mirror.
+              let coercedVal: unknown = groupRead.value;
+              const templateVal =
+                Array.isArray(currentArr) && currentArr.length > 0 ? currentArr[0] : undefined;
+              if (templateVal !== undefined) {
+                if (typeof templateVal === "number") {
+                  const n = Number(coercedVal);
+                  coercedVal = Number.isNaN(n) ? coercedVal : n;
+                } else if (typeof templateVal === "boolean") {
+                  coercedVal = Boolean(coercedVal);
+                }
+              }
+              arr.push(coercedVal);
+            } else if (!groupRead.checked && idx !== -1) {
+              arr.splice(idx, 1);
+            }
+            (accessor as (v: unknown) => void)(arr);
+            return;
+          }
+          // Radio group: write the now-checked value, coerced to match the
+          // signal's existing type (mirrors the non-group path below).
+          const currentVal = accessor();
+          let coerced: unknown = groupRead;
+          if (typeof currentVal === "number" && typeof groupRead === "string") {
+            const n = Number(groupRead);
+            coerced = Number.isNaN(n) ? 0 : n;
+          } else if (typeof currentVal === "boolean") {
+            coerced = Boolean(groupRead);
+          }
+          (accessor as (v: unknown) => void)(coerced);
+          return;
+        }
+
+        // Coerce to the signal's existing type when sensible. This
+        // mirrors the previous .bind() behaviour: a signal holding a
+        // number gets a number back even if read returned a string.
         const currentVal = accessor();
-        let value: unknown;
-        if (typeof currentVal === "number") {
+        let value: unknown = raw;
+        if (typeof currentVal === "number" && typeof raw === "string") {
           const n = Number(raw);
-          value = isNaN(n) ? 0 : n;
+          value = Number.isNaN(n) ? 0 : n;
         } else if (typeof currentVal === "boolean") {
           value = Boolean(raw);
-        } else {
-          value = raw;
         }
         (accessor as (v: unknown) => void)(value);
       };
 
-      target.addEventListener(event, listener);
-      cleanups.push(() => target.removeEventListener(event, listener));
+      el.addEventListener(event, listener);
+      cleanups.push(() => el.removeEventListener(event, listener));
     }
   }
+
   return () => cleanups.forEach((c) => c());
 }
 
@@ -853,9 +1278,11 @@ function applyBindings<TStateMap extends Record<string, unknown>>(
 
 export type SignalAccessor<T> = MarkedSignalAccessor<T>;
 
-type MergeState<TStateMap extends Record<string, unknown>, K extends string, V> = {
-  [P in keyof TStateMap as P extends K ? never : P]-?: TStateMap[P];
-} & Record<K, V>;
+type MergeState<TStateMap extends Record<string, unknown>, K extends string, V> = Omit<
+  TStateMap,
+  K
+> &
+  Record<K, V>;
 
 export type IslandState<TStateMap extends Record<string, unknown>> = {
   readonly [K in keyof TStateMap]-?: SignalAccessor<TStateMap[K]>;
@@ -931,7 +1358,7 @@ type EffectContext<TInput, TStateMap extends Record<string, unknown>> = {
 export type OnMountContext<
   TInput,
   TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
@@ -943,7 +1370,7 @@ export type OnMountContext<
 export type HandlerContext<
   TInput,
   TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
@@ -963,37 +1390,31 @@ export type HandlerContext<
 };
 
 // ---------------------------------------------
-// .on() event autocomplete types
+// Event type resolution helpers (cached at module level)
 // ---------------------------------------------
 
-type HTMLEventName = keyof HTMLElementEventMap & string;
-type Modifier = "once" | "capture" | "passive" | "abortable";
-type WithModifiers<E extends string> =
-  | E
-  | `${E}:${Modifier}`
-  | `${E}:${Modifier}:${Modifier}`
-  | `${E}:${Modifier}:${Modifier}:${Modifier}`;
+type HTMLEventFor<E extends string> = E extends keyof HTMLElementEventMap
+  ? HTMLElementEventMap[E]
+  : Event;
 
-type OnSelectorString =
-  | `@${WithModifiers<HTMLEventName>}`
-  | `${string}@${WithModifiers<HTMLEventName>}`;
+type HTMLTargetFor<E extends string> = E extends keyof HTMLElementEventMap
+  ? NonNullable<HTMLElementEventMap[E]["target"]> extends Element
+    ? NonNullable<HTMLElementEventMap[E]["target"]>
+    : Element
+  : Element;
 
 export type HandlerContextFor<
   TInput,
   TStateMap extends Record<string, unknown>,
   TEventName extends string,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
   input: TInput;
   host: Element;
-  target: TEventName extends keyof HTMLElementEventMap
-    ? HTMLElementEventMap[TEventName]["target"] extends Element | null
-      ? NonNullable<HTMLElementEventMap[TEventName]["target"]>
-      : Element
-    : Element;
-  event: TEventName extends keyof HTMLElementEventMap ? HTMLElementEventMap[TEventName] : Event;
+  target: HTMLTargetFor<TEventName>;
+  event: HTMLEventFor<TEventName>;
   /**
    * AbortSignal that fires when the island unmounts. If the handler's selector
    * was registered with the `:abortable` modifier, the signal is also aborted
@@ -1078,7 +1499,7 @@ function anySignal(signals: AbortSignal[]): AbortSignal {
 interface OnEntry<
   TInput,
   TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > {
   selector: string;
   event: string;
@@ -1099,7 +1520,7 @@ export type ErrorSource = "on" | "effect";
 export type ErrorContext<
   TInput,
   TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > = {
   error: Error;
   source: ErrorSource;
@@ -1156,7 +1577,6 @@ interface BuilderConfig<
   onMounts: OnMountEntry<TInput, TStateMap, TDerivedMap>[];
   onErrors: OnErrorEntry<TInput, TStateMap, TDerivedMap>[];
   transition: TransitionOptions | null;
-  binds: BindEntry<TStateMap>[];
   css: string | null;
 }
 
@@ -1173,7 +1593,7 @@ const _mountedHosts = __DEV__ ? new WeakSet<Element>() : null;
 class IlhaBuilder<
   TInput extends Record<string, unknown>,
   TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<string, never>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
 > {
   readonly _cfg: BuilderConfig<TInput, TStateMap, TDerivedMap>;
 
@@ -1183,17 +1603,17 @@ class IlhaBuilder<
 
   input<T extends Record<string, unknown>>(): IlhaBuilder<
     T,
-    Record<string, never>,
-    Record<string, never>
+    Record<never, never>,
+    Record<never, never>
   >;
   input<S extends StandardSchemaV1>(
     schema: S,
   ): IlhaBuilder<
     StandardSchemaV1.InferOutput<S> & Record<string, unknown>,
-    Record<string, never>,
-    Record<string, never>
+    Record<never, never>,
+    Record<never, never>
   >;
-  input(schema?: StandardSchemaV1): IlhaBuilder<Record<string, unknown>, Record<string, never>> {
+  input(schema?: StandardSchemaV1): IlhaBuilder<Record<string, unknown>, Record<never, never>> {
     return new IlhaBuilder({
       schema: schema ?? null,
       states: [],
@@ -1203,7 +1623,6 @@ class IlhaBuilder<
       onMounts: [],
       onErrors: [],
       transition: null,
-      binds: [],
       css: null,
     });
   }
@@ -1230,25 +1649,7 @@ class IlhaBuilder<
     } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap & Record<K, V>>);
   }
 
-  bind(
-    selector: string,
-    stateKey: keyof TStateMap & string,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap>;
-  bind<T>(
-    selector: string,
-    externalSignal: ExternalSignal<T>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap>;
-  bind(
-    selector: string,
-    target: (keyof TStateMap & string) | ExternalSignal,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
-    return new IlhaBuilder({
-      ...this._cfg,
-      binds: [...this._cfg.binds, { selector, target }],
-    });
-  }
-
-  on<S extends OnSelectorString>(
+  on<S extends string>(
     selectorOrCombined: S,
     handler: (
       ctx: S extends `${string}@${infer E}:${string}`
@@ -1257,14 +1658,6 @@ class IlhaBuilder<
           ? HandlerContextFor<TInput, TStateMap, E, TDerivedMap>
           : HandlerContext<TInput, TStateMap, TDerivedMap>,
     ) => void | Promise<void>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap>;
-  on(
-    selectorOrCombined: string,
-    handler: (ctx: HandlerContext<TInput, TStateMap, TDerivedMap>) => void | Promise<void>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap>;
-  on(
-    selectorOrCombined: string,
-    handler: (ctx: HandlerContext<TInput, TStateMap, TDerivedMap>) => void | Promise<void>,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
     const parsed = parseOnArgs(selectorOrCombined);
     return new IlhaBuilder({
@@ -1348,7 +1741,6 @@ class IlhaBuilder<
       onMounts,
       onErrors,
       transition,
-      binds,
       css: cssSource,
     } = this._cfg;
 
@@ -1361,29 +1753,30 @@ class IlhaBuilder<
     }
 
     // Run fn inside a fresh render context so any interpolated ${Island}
-    // records itself into ctx.slots. Returns the rendered HTML plus the
-    // collected slot map. When liveHost is supplied (client re-render path),
-    // already-mounted child subtrees are reused as-is instead of re-SSR'd.
+    // records itself into ctx.slots. Returns the rendered HTML, the
+    // collected slot map, and any bind: bindings emitted by the template.
+    // When liveHost is supplied (client re-render path), already-mounted
+    // child subtrees are reused as-is instead of re-SSR'd.
     //
     // When asyncChildren is true and any child island has async derived(),
     // the returned value is a Promise that resolves once all children have
     // been awaited and their resolved HTML substituted into the parent output.
-    function renderWithCtx(
-      fn: () => string | RawHtml,
-      liveHost?: Element,
-    ): { html: string; slots: IslandRenderCtx["slots"] };
+    type RenderOut = {
+      html: string;
+      slots: IslandRenderCtx["slots"];
+      binds: BindRecord[];
+    };
+    function renderWithCtx(fn: () => string | RawHtml, liveHost?: Element): RenderOut;
     function renderWithCtx(
       fn: () => string | RawHtml,
       liveHost: Element | undefined,
       asyncChildren: true,
-    ): Promise<{ html: string; slots: IslandRenderCtx["slots"] }>;
+    ): Promise<RenderOut>;
     function renderWithCtx(
       fn: () => string | RawHtml,
       liveHost?: Element,
       asyncChildren?: boolean,
-    ):
-      | { html: string; slots: IslandRenderCtx["slots"] }
-      | Promise<{ html: string; slots: IslandRenderCtx["slots"] }> {
+    ): RenderOut | Promise<RenderOut> {
       const ctx = pushRenderCtx(liveHost, asyncChildren);
       let isAsync = false;
       try {
@@ -1396,14 +1789,14 @@ class IlhaBuilder<
           return (async () => {
             try {
               const resolvedHtml = await resolveAsyncChildren(html, ctx);
-              return { html: resolvedHtml, slots: ctx.slots };
+              return { html: resolvedHtml, slots: ctx.slots, binds: ctx.binds };
             } finally {
               popRenderCtx();
             }
           })();
         }
 
-        return { html, slots: ctx.slots };
+        return { html, slots: ctx.slots, binds: ctx.binds };
       } finally {
         if (!isAsync) {
           popRenderCtx();
@@ -1908,7 +2301,7 @@ class IlhaBuilder<
       }
       attachListeners();
 
-      let stopBindings = applyBindings(host, binds as BindEntry<TStateMap>[], state);
+      let stopBindings = applyTemplateBindings(host, initial.binds);
       cleanups.push(() => stopBindings());
 
       mountSlots(initial.slots);
@@ -2003,10 +2396,11 @@ class IlhaBuilder<
         //
         // Brand-new slot ids (added in this render) stay as stubs after morph;
         // mountSlots mounts their islands onto them.
-        const { html: rendered, slots: newSlotMap } = renderWithCtx(
-          () => fn({ state, derived, input }),
-          host,
-        );
+        const {
+          html: rendered,
+          slots: newSlotMap,
+          binds: newBinds,
+        } = renderWithCtx(() => fn({ state, derived, input }), host);
         const html = stylePrefix + rendered;
 
         if (!initialized) {
@@ -2063,25 +2457,34 @@ class IlhaBuilder<
         }
 
         attachListeners();
-        stopBindings = applyBindings(host, binds as BindEntry<TStateMap>[], state);
+        stopBindings = applyTemplateBindings(host, newBinds);
         mountSlots(newSlotMap);
       });
-      cleanups.push(stopRender);
-      cleanups.push(detachListeners);
 
       let tornDown = false;
+      // Teardown order matters:
+      //   1. stopRender — prevent re-render loops triggered by step 3.
+      //   2. detachListeners — stop new DOM events from firing.
+      //   3. cleanups (includes stopBindings which writes null into bind:this
+      //      refs; these writes must NOT trigger renders, hence step 1).
       const unmount = (): void => {
         if (tornDown) return;
         tornDown = true;
         if (__DEV__ && _mountedHosts) _mountedHosts.delete(host);
+        stopRender();
+        detachListeners();
         if (transition?.leave) {
           const result = transition.leave(host);
           if (result instanceof Promise) {
-            result.then(() => cleanups.forEach((c) => c())).catch(console.error);
+            result
+              .then(() => {
+                for (const c of cleanups) c();
+              })
+              .catch(console.error);
             return;
           }
         }
-        cleanups.forEach((c) => c());
+        for (const c of cleanups) c();
       };
 
       const updateProps = (nextProps?: Partial<TInput>): void => {
@@ -2328,8 +2731,8 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
 
 const EMPTY_CFG: BuilderConfig<
   Record<string, unknown>,
-  Record<string, never>,
-  Record<string, never>
+  Record<never, never>,
+  Record<never, never>
 > = {
   schema: null,
   states: [],
@@ -2339,7 +2742,6 @@ const EMPTY_CFG: BuilderConfig<
   onMounts: [],
   onErrors: [],
   transition: null,
-  binds: [],
   css: null,
 };
 

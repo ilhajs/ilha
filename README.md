@@ -17,7 +17,6 @@
 - **SSR + hydration** — render on the server, restore state on the client with zero flicker
 - **File-system routing** — optional Vite plugin for automatic, convention-based routing
 - **Shared global state** — zustand-shaped store backed by the same signal engine as the core
-- **Typed forms** — schema-driven form binding with per-field error tracking and dirty state
 - **Backend agnostic** — integrates with any backend; first-class Nitro and Hono support
 - **Prompt-sized source** — small enough to fit the entire codebase into an AI context window
 - **Type-safe by default** — first-class TypeScript support throughout

@@ -3,7 +3,6 @@
   "state",
   "derived",
   "on",
-  "bind",
   "effect",
   "onmount",
   "onerror",

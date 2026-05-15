@@ -90,6 +90,115 @@ const List = ilha.state("fruits", ["apple", "banana", "cherry"]).render(
 );
 ```
 
+## Template bindings
+
+Inside an `html\`\``template, use`bind:property=${signal}` to create two-way bindings between form elements and signals. When the signal changes, the element updates. When the user interacts with the element, the signal updates.
+
+```ts twoslash
+import ilha, { html } from "ilha";
+
+const Form = ilha.state("name", "").render(
+  ({ state }) => html`
+    <input bind:value=${state.name} />
+    <p>Hello, ${state.name()}!</p>
+  `,
+);
+```
+
+### Supported bindings
+
+| Binding              | Element                                           | Bound property      | Trigger event |
+| -------------------- | ------------------------------------------------- | ------------------- | ------------- |
+| `bind:value`         | `<input>`, `<textarea>`, `<select>`               | `value`             | `input`       |
+| `bind:valueAsNumber` | `<input type="number">`                           | `valueAsNumber`     | `input`       |
+| `bind:valueAsDate`   | `<input type="date">`                             | `valueAsDate`       | `input`       |
+| `bind:checked`       | `<input type="checkbox">`                         | `checked`           | `change`      |
+| `bind:group`         | `<input type="radio">`, `<input type="checkbox">` | `checked` / `value` | `change`      |
+| `bind:open`          | `<details>`                                       | `open`              | `toggle`      |
+| `bind:files`         | `<input type="file">`                             | `files`             | `change`      |
+| `bind:this`          | Any element                                       | element reference   | —             |
+
+The element type is detected at runtime — no configuration needed.
+
+### Type coercion
+
+The binding reads the current signal value to determine the expected type and coerces the element's raw output accordingly. This signal-type coercion applies to `bind:value` and `bind:group`; the other bindings (`bind:checked`, `bind:open`, `bind:valueAsNumber`, `bind:valueAsDate`) always read their native DOM property directly — the DOM property itself already returns the correct type.
+
+- A `number` signal receives `valueAsNumber`, with `NaN` falling back to `0`.
+- A `boolean` signal receives a boolean coercion.
+- Everything else is treated as a string.
+
+### Radio and checkbox groups
+
+`bind:group` connects multiple inputs to a single signal. For radio buttons, the signal holds the selected `value`. For checkboxes, the signal holds an array of checked values:
+
+```ts twoslash
+import ilha, { html } from "ilha";
+
+// Radio group — single value
+const Plan = ilha.state("plan", "pro").render(
+  ({ state }) => html`
+    <input type="radio" name="plan" value="free" bind:group=${state.plan} />
+    <input type="radio" name="plan" value="pro" bind:group=${state.plan} />
+  `,
+);
+
+// Checkbox group — array of values
+const Tags = ilha.state<string[]>("tags", ["ts"]).render(
+  ({ state }) => html`
+    <input type="checkbox" name="tag" value="js" bind:group=${state.tags} />
+    <input type="checkbox" name="tag" value="ts" bind:group=${state.tags} />
+    <input type="checkbox" name="tag" value="rust" bind:group=${state.tags} />
+  `,
+);
+```
+
+### Element references
+
+`bind:this` writes the DOM element into a signal on mount and `null` on unmount. Useful for imperative access to elements:
+
+```ts twoslash
+import ilha, { html } from "ilha";
+
+const Focus = ilha
+  .state("ref", null as HTMLInputElement | null)
+  .render(({ state }) => html`<input bind:this=${state.ref} />`);
+```
+
+### External signals
+
+Any signal created with [`signal()`](/guide/helpers/signals) works as a binding target. This is useful for sharing state across multiple islands:
+
+```ts twoslash
+import ilha, { html, signal } from "ilha";
+
+const username = signal("");
+
+const LoginForm = ilha.render(() => html`<input bind:value=${username} placeholder="Username" />`);
+```
+
+### Combining with [`.on()`](/guide/island/on)
+
+`bind:` handles value synchronization. If you also need to react to the same change — for example to trigger validation — combine it with `.on()`:
+
+```ts twoslash
+import ilha, { html } from "ilha";
+
+const EmailForm = ilha
+  .state("email", "")
+  .state("error", "")
+  .on("input@input", ({ state }) => {
+    const valid = state.email().includes("@");
+    state.error(valid ? "" : "Enter a valid email");
+  })
+  .render(
+    ({ state }) => html`
+      <input bind:value=${state.email} type="email" />
+      ${state.error() ? html`<p>${state.error}</p>` : ""}
+    `,
+  );
+```
+
 ## Async rendering
 
 If the island uses async [`.derived()`](/guide/island/derived) values, calling the island as a function awaits all of them before rendering:

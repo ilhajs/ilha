@@ -46,7 +46,6 @@ export const script = dedent`
         fetchPokemon();
         return () => controller.abort();
       })
-      .bind('#pokemon', 'pokemon')
       .render(({ state }) => {
         const currentPokemon = state.pokemon();
         const options = state.pokemonList().map(
@@ -66,7 +65,7 @@ export const script = dedent`
 
         return html\`
           <label for="pokemon">Pick a Pokemon</label>
-          <select id="pokemon">
+          <select id="pokemon" bind:value=\${state.pokemon}>
             \${options}
           </select>
           \${card}

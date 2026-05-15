@@ -2,6 +2,12 @@
 
 ## `ilha`
 
+### 0.5.0 - 2026-05-15
+
+- Introduces refactored state to element binding with bind: template syntax.
+- Introduces element ref with bind:this.
+- Retires .bind() method.
+
 ### 0.4.4 - 2026-05-13
 
 - SSR Router reactivity hotfix
