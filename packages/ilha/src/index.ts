@@ -559,13 +559,16 @@ function extractElementStaticValue(prefix: string): string | null {
 }
 
 // Emit the canonical SSR attribute(s) for a binding, plus the sentinel.
+// Returns [valueAttrs, specFragment] — valueAttrs are HTML attributes to
+// inject into the element (may be empty for ref/file bindings), and
+// specFragment is the sentinel token for the combined data-ilha-bind attr.
 function emitBindSSR(
   kind: BindKind,
   index: number,
   accessor: ExternalSignal,
   prefixForStaticPeek: string,
-): string {
-  const sentinel = ` data-ilha-bind="${kind}:${index}"`;
+): [string, string] {
+  const spec = `${kind}:${index}`;
   // Reflect current value into output attributes. The morph engine will
   // pick this up on subsequent renders. For boolean attributes we emit
   // the bare attribute name without a value (HTML spec compliant).
@@ -577,32 +580,34 @@ function emitBindSSR(
   }
   switch (kind) {
     case "value":
-      return ` value="${escapeHtml(v ?? "")}"${sentinel}`;
+      return [` value="${escapeHtml(v ?? "")}"`, spec];
     case "valueAsNumber":
-      return ` value="${escapeHtml(v == null ? "" : String(v))}"${sentinel}`;
+      return [` value="${escapeHtml(v == null ? "" : String(v))}"`, spec];
     case "valueAsDate":
-      return ` value="${escapeHtml(formatDateForInput(v))}"${sentinel}`;
+      return [` value="${escapeHtml(formatDateForInput(v))}"`, spec];
     case "checked":
-      return v ? ` checked${sentinel}` : sentinel;
+      return [v ? ` checked` : ``, spec];
     case "open":
-      return v ? ` open${sentinel}` : sentinel;
+      return [v ? ` open` : ``, spec];
     case "files":
-      // file inputs cannot carry their selected files in HTML output;
+      // File inputs cannot carry their selected files in HTML output;
       // mount-time wiring is read-only-into-state for this kind.
-      return sentinel;
+      // No attribute reflection — sentinel only.
+      return [``, spec];
     case "this":
       // Pure ref binding — no observable, no reflection.
-      return sentinel;
+      // No attribute reflection — sentinel only.
+      return [``, spec];
     case "group": {
       // Try to determine this element's option value from the static
       // prefix. If the signal value (or array, for checkbox groups)
       // matches, emit `checked`.
       const optionValue = extractElementStaticValue(prefixForStaticPeek);
-      if (optionValue == null) return sentinel;
+      if (optionValue == null) return [``, spec];
       const isMatched = Array.isArray(v)
         ? v.map(String).includes(optionValue)
         : v != null && String(v) === optionValue;
-      return isMatched ? ` checked${sentinel}` : sentinel;
+      return [isMatched ? ` checked` : ``, spec];
     }
   }
 }
@@ -621,6 +626,9 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
   // the current interpolation matched a quoted bind: prefix. Track that
   // pending strip with this flag.
   let stripLeadingQuote: '"' | "'" | null = null;
+  // Accumulate bind specs for the current open tag and emit as a single
+  // data-ilha-bind attribute before the closing `>`.
+  let pendingBindSpecs = "";
   const ctx = currentRenderCtx();
 
   for (let i = 0; i < strings.length; i++) {
@@ -631,6 +639,17 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
         chunk = chunk.slice(1);
       }
       stripLeadingQuote = null;
+    }
+
+    // If the chunk contains a closing `>`, emit any pending bind specs
+    // right before the first `>` so they land inside the open tag.
+    if (pendingBindSpecs !== "") {
+      const gtIdx = chunk.indexOf(">");
+      if (gtIdx !== -1) {
+        chunk =
+          chunk.slice(0, gtIdx) + ` data-ilha-bind="${pendingBindSpecs}">` + chunk.slice(gtIdx + 1);
+        pendingBindSpecs = "";
+      }
     }
 
     if (i >= values.length) {
@@ -669,7 +688,12 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
           );
         }
         const stripped = chunk.slice(0, chunk.length - m[0]!.length);
-        result += stripped + interpolateValue(value);
+        // Emit the canonical attribute (name=value) without the sentinel so
+        // the output is valid HTML even outside a render context.
+        // interpolateValue already HTML-escapes primitives; RawHtml values
+        // pass through unescaped (author's responsibility).
+        const quote = openQuote ?? '"';
+        result += stripped + name + "=" + quote + interpolateValue(value) + quote;
         if (openQuote) stripLeadingQuote = openQuote;
         continue;
       }
@@ -689,8 +713,14 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
       const index = ctx.binds.length;
       ctx.binds.push({ kind: name as BindKind, accessor: value as ExternalSignal });
 
-      result +=
-        cleanPrefix + emitBindSSR(name as BindKind, index, value as ExternalSignal, cleanPrefix);
+      const [valueAttrs, spec] = emitBindSSR(
+        name as BindKind,
+        index,
+        value as ExternalSignal,
+        cleanPrefix,
+      );
+      result += cleanPrefix + valueAttrs;
+      pendingBindSpecs += (pendingBindSpecs ? "," : "") + spec;
 
       if (openQuote) stripLeadingQuote = openQuote;
       continue;
@@ -704,6 +734,10 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
     }
 
     result += chunk + interpolateValue(value);
+  }
+  // Emit any remaining pending bind specs (e.g. if the last chunk had no `>`).
+  if (pendingBindSpecs !== "") {
+    result += ` data-ilha-bind="${pendingBindSpecs}"`;
   }
   return { [RAW]: true, value: dedentString(result) };
 }
@@ -1172,16 +1206,44 @@ function applyTemplateBindings(host: Element, binds: BindRecord[]): () => void {
           if (groupRead === undefined) return; // unchecked radio firing
           if (typeof groupRead === "object" && groupRead.__ilhaGroup) {
             // Checkbox group: toggle membership in the array.
-            const current = accessor();
-            const arr = Array.isArray(current) ? [...(current as unknown[])] : [];
+            const currentArr = accessor();
+            const arr = Array.isArray(currentArr) ? [...(currentArr as unknown[])] : [];
             const idx = arr.findIndex((x) => String(x) === groupRead.value);
-            if (groupRead.checked && idx === -1) arr.push(groupRead.value);
-            else if (!groupRead.checked && idx !== -1) arr.splice(idx, 1);
+            if (groupRead.checked && idx === -1) {
+              // Coerce to match the signal's current element type, using the
+              // first existing element as a template. If the array is currently
+              // empty, no type template is available and the raw string is
+              // pushed as-is — coercion only applies when at least one existing
+              // element provides a type to mirror.
+              let coercedVal: unknown = groupRead.value;
+              const templateVal =
+                Array.isArray(currentArr) && currentArr.length > 0 ? currentArr[0] : undefined;
+              if (templateVal !== undefined) {
+                if (typeof templateVal === "number") {
+                  const n = Number(coercedVal);
+                  coercedVal = Number.isNaN(n) ? coercedVal : n;
+                } else if (typeof templateVal === "boolean") {
+                  coercedVal = Boolean(coercedVal);
+                }
+              }
+              arr.push(coercedVal);
+            } else if (!groupRead.checked && idx !== -1) {
+              arr.splice(idx, 1);
+            }
             (accessor as (v: unknown) => void)(arr);
             return;
           }
-          // Radio group: write the now-checked value.
-          (accessor as (v: unknown) => void)(groupRead);
+          // Radio group: write the now-checked value, coerced to match the
+          // signal's existing type (mirrors the non-group path below).
+          const currentVal = accessor();
+          let coerced: unknown = groupRead;
+          if (typeof currentVal === "number" && typeof groupRead === "string") {
+            const n = Number(groupRead);
+            coerced = Number.isNaN(n) ? 0 : n;
+          } else if (typeof currentVal === "boolean") {
+            coerced = Boolean(groupRead);
+          }
+          (accessor as (v: unknown) => void)(coerced);
           return;
         }
 

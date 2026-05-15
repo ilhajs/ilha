@@ -122,7 +122,7 @@ The element type is detected at runtime — no configuration needed.
 
 ### Type coercion
 
-The binding reads the current signal value to determine the expected type and coerces the element's raw output accordingly:
+The binding reads the current signal value to determine the expected type and coerces the element's raw output accordingly. This signal-type coercion applies to `bind:value` and `bind:group`; the other bindings (`bind:checked`, `bind:open`, `bind:valueAsNumber`, `bind:valueAsDate`) always read their native DOM property directly — the DOM property itself already returns the correct type.
 
 - A `number` signal receives `valueAsNumber`, with `NaN` falling back to `0`.
 - A `boolean` signal receives a boolean coercion.

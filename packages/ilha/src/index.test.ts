@@ -3299,7 +3299,8 @@ describe("bind: template syntax", () => {
         .render(({ state }) => html`<input type="checkbox" bind:checked=${state.agreed}>`);
 
       const out = Island();
-      expect(out).toContain(`checked`);
+      // Verify the bare attribute token appears in the tag, not just in the sentinel value.
+      expect(out).toMatch(/<[^>]+\schecked(?:\s|>)/);
       expect(out).toContain(`data-ilha-bind="checked:0"`);
     });
 
@@ -3328,7 +3329,7 @@ describe("bind: template syntax", () => {
         .render(({ state }) => html`<details bind:open=${state.expanded}>x</details>`);
 
       const out = Island();
-      expect(out).toContain(`open`);
+      expect(out).toMatch(/<[^>]+\sopen(?:\s|>)/);
       expect(out).toContain(`data-ilha-bind="open:0"`);
     });
 
@@ -3769,6 +3770,26 @@ describe("bind: template syntax", () => {
       js.checked = false;
       js.dispatchEvent(new Event("change"));
       expect(el.querySelector("p")!.textContent).toBe("ts");
+      unmount();
+      cleanup(el);
+    });
+
+    it("checkbox group coerces DOM string to number when array holds numbers", () => {
+      const Island = ilha.state<number[]>("levels", [2]).render(
+        ({ state }) => html`
+            <input type="checkbox" name="level" value="1" bind:group=${state.levels} />
+            <input type="checkbox" name="level" value="3" bind:group=${state.levels} />
+            <p>${(state.levels() as number[]).reduce((a, b) => a + b, 0)}</p>
+          `,
+      );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const three = el.querySelector<HTMLInputElement>("input[name='level'][value='3']")!;
+      three.checked = true;
+      three.dispatchEvent(new Event("change"));
+      // If coercion failed, sum would be "23" (string concat); correct: 2+3=5.
+      expect(el.querySelector("p")!.textContent).toBe("5");
       unmount();
       cleanup(el);
     });

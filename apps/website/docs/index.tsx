@@ -131,7 +131,7 @@ const Creator = ilha
             <label class="label">Pick a template</label>
             <fieldset class="grid gap-4">
               <label class="label"
-                ><input type="radio" name="template" value="vite" class="input" checked bind:group=${state.template} />
+                ><input type="radio" name="template" value="vite" class="input" bind:group=${state.template} />
                 <img src="/vite.svg" class="size-6" /><span>Vite</span>
               </label>
               <label class="label"
@@ -207,7 +207,7 @@ const AiPrompt = ilha
                 placeholder="Ask AI to build a landing page..."
               />
               <div class="flex items-center justify-between">
-                <select class="select rounded-full" data-provider bind:value=${state.provider}>
+                <select class="select rounded-full" bind:value=${state.provider}>
                   <option value="claude" selected>Claude</option>
                   <option value="chatgpt">ChatGPT</option>
                   <option value="perplexity">Perplexity</option>
