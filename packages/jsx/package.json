@@ -34,7 +34,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "ilha": "0.6.0"
+    "ilha": "0.5.0"
   },
   "devDependencies": {
     "zod": "^4.4.3"

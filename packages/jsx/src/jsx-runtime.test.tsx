@@ -71,6 +71,30 @@ describe("@ilha/jsx runtime", () => {
     expect(normalizeHtml(result)).toBe("<p>test</p>");
   });
 
+  it("passes an empty object to function components without props", () => {
+    function Comp({ a }: { a?: string }) {
+      return <p>{a ?? "fallback"}</p>;
+    }
+
+    expect((<Comp />).value).toBe("<p>fallback</p>");
+  });
+
+  it("does not treat arbitrary value-shaped objects as RawHtml", () => {
+    expect((<p>{{ value: "<b>x</b>" }}</p>).value).toBe("<p>[object Object]</p>");
+  });
+
+  it("drops invalid attribute names from spread props", () => {
+    const props = {
+      id: "ok",
+      "bad name": "x",
+      'x="y" onclick="alert(1)': "x",
+      "bind:bad-name": "x",
+      "bind:value:extra": "x",
+    };
+
+    expect((<input {...props} />).value).toBe('<input id="ok">');
+  });
+
   it("renders an array of strings as concatenated escaped HTML", () => {
     const items = ["foo", "bar", "baz"];
 
@@ -292,7 +316,7 @@ describe("@ilha/jsx runtime", () => {
     ));
 
     expect(normalizeHtml(Parent.toString())).toBe(
-      '<section><h1>Parent</h1><div data-ilha-slot="p:0"><button>0</button></div></section>',
+      "<section><h1>Parent</h1><div data-ilha-slot=\"p:0\" data-ilha-props='{}'><button>0</button></div></section>",
     );
   });
 

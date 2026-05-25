@@ -4,6 +4,10 @@ type JsxChild = unknown;
 type JsxProps = Record<string, unknown> | null | undefined;
 type JsxType = string | ((props: Record<string, unknown>) => unknown);
 
+const RAW = Object.getOwnPropertySymbols(raw(""))[0]!;
+const SAFE_NAME_RE = /^[A-Za-z_:][A-Za-z0-9:._-]*$/;
+const SAFE_BIND_LOCAL_RE = /^[A-Za-z][A-Za-z0-9]*$/;
+
 const VOID_ELEMENTS = new Set([
   "area",
   "base",
@@ -41,24 +45,33 @@ function normalizeJsxChildren(props: JsxProps, children: JsxChild[]): JsxChild[]
 function pushAttr(chunks: string[], values: unknown[], name: string, value: unknown): void {
   if (value == null || value === false || name === "children" || name === "key") return;
 
-  if (name === "className") name = "class";
-  if (name === "htmlFor") name = "for";
-  if (typeof value === "function" && /^on[A-Z]/.test(name)) return;
-  if (name === "class") value = normalizeClass(value);
-
   if (name.startsWith("bind:")) {
-    chunks[chunks.length - 1] += ` ${name}=`;
+    const [prefix, localName, ...rest] = name.split(":");
+    if (prefix !== "bind" || rest.length > 0 || !localName || !SAFE_BIND_LOCAL_RE.test(localName)) {
+      return;
+    }
+
+    const safeName = `${prefix}:${localName}`;
+    chunks[chunks.length - 1] += ` ${safeName}=`;
     values.push(value);
     chunks.push("");
     return;
   }
 
+  if (!SAFE_NAME_RE.test(name)) return;
+
+  let safeName = name;
+  if (safeName === "className") safeName = "class";
+  if (safeName === "htmlFor") safeName = "for";
+  if (typeof value === "function" && /^on[A-Z]/.test(safeName)) return;
+  if (safeName === "class") value = normalizeClass(value);
+
   if (value === true) {
-    chunks[chunks.length - 1] += ` ${name}`;
+    chunks[chunks.length - 1] += ` ${safeName}`;
     return;
   }
 
-  chunks[chunks.length - 1] += ` ${name}="`;
+  chunks[chunks.length - 1] += ` ${safeName}="`;
   values.push(value);
   chunks.push('"');
 }
@@ -92,9 +105,9 @@ export function jsx(type: JsxType, props: JsxProps, ...children: JsxChild[]): Ra
       ...(props ?? {}),
       ...(normalizedChildren.length > 0 ? { children: normalizedChildren } : {}),
     };
-    const out = type(Object.keys(componentProps).length === 0 ? undefined! : componentProps);
+    const out = type(Object.keys(componentProps).length ? componentProps : {});
     if (typeof out === "string") return raw(out);
-    if (out && typeof out === "object" && "value" in out) return out as RawHtml;
+    if (out && typeof out === "object" && RAW in out) return out as RawHtml;
     return html`${out}`;
   }
 
