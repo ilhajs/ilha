@@ -468,6 +468,132 @@ function ilhaCss(strings: TemplateStringsArray | string, ...values: (string | nu
   return result;
 }
 
+// ---------------------------------------------
+// JSX runtime
+// ---------------------------------------------
+
+type JsxChild = unknown;
+type JsxProps = Record<string, unknown> | null | undefined;
+type JsxType = string | ((props: Record<string, unknown>) => unknown);
+
+const SAFE_NAME_RE = /^[A-Za-z_:][A-Za-z0-9:._-]*$/;
+const SAFE_BIND_LOCAL_RE = /^[A-Za-z][A-Za-z0-9]*$/;
+const VOID_ELEMENTS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
+
+function normalizeClass(value: unknown): string {
+  if (Array.isArray(value)) return value.filter(Boolean).join(" ");
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([, enabled]) => Boolean(enabled))
+      .map(([name]) => name)
+      .join(" ");
+  }
+  return String(value);
+}
+
+function normalizeJsxChildren(props: JsxProps, children: JsxChild[]): JsxChild[] {
+  const propChildren = props && "children" in props ? props.children : undefined;
+  const all = children.length > 0 ? children : propChildren === undefined ? [] : [propChildren];
+  return all.flat(Infinity);
+}
+
+function pushJsxAttr(chunks: string[], values: unknown[], name: string, value: unknown): void {
+  if (value == null || value === false || name === "children" || name === "key") return;
+
+  if (name.startsWith("bind:")) {
+    const [prefix, localName, ...rest] = name.split(":");
+    if (prefix !== "bind" || rest.length > 0 || !localName || !SAFE_BIND_LOCAL_RE.test(localName)) {
+      return;
+    }
+
+    const safeName = `${prefix}:${localName}`;
+    chunks[chunks.length - 1] += ` ${safeName}=`;
+    values.push(value);
+    chunks.push("");
+    return;
+  }
+
+  if (!SAFE_NAME_RE.test(name)) return;
+
+  let safeName = name;
+  if (safeName === "className") safeName = "class";
+  if (safeName === "htmlFor") safeName = "for";
+  if (typeof value === "function" && /^on[A-Z]/.test(safeName)) return;
+  if (safeName === "class") value = normalizeClass(value);
+
+  if (value === true) {
+    chunks[chunks.length - 1] += ` ${safeName}`;
+    return;
+  }
+
+  chunks[chunks.length - 1] += ` ${safeName}="`;
+  values.push(value);
+  chunks.push('"');
+}
+
+function renderJsxElement(type: string, props: JsxProps, children: JsxChild[]): RawHtml {
+  const chunks = [`<${type}`];
+  const values: unknown[] = [];
+
+  if (props) {
+    for (const [name, value] of Object.entries(props)) pushJsxAttr(chunks, values, name, value);
+  }
+
+  chunks[chunks.length - 1] += ">";
+
+  if (!VOID_ELEMENTS.has(type)) {
+    for (const child of children) {
+      values.push(child);
+      chunks.push("");
+    }
+    chunks[chunks.length - 1] += `</${type}>`;
+  }
+
+  return ilhaHtml(chunks as unknown as TemplateStringsArray, ...values);
+}
+
+function ilhaJsx(type: JsxType, props: JsxProps, ...children: JsxChild[]): RawHtml {
+  const normalizedChildren = normalizeJsxChildren(props, children);
+
+  if (typeof type === "function") {
+    const componentProps = {
+      ...(props ?? {}),
+      ...(normalizedChildren.length > 0 ? { children: normalizedChildren } : {}),
+    };
+    const out = type(Object.keys(componentProps).length ? componentProps : {});
+    if (typeof out === "string") return ilhaRaw(out);
+    if (out && typeof out === "object" && RAW in out) return out as RawHtml;
+    return ilhaHtml`${out}`;
+  }
+
+  return renderJsxElement(type, props, normalizedChildren);
+}
+
+function ilhaFragment(props: { children?: JsxChild } | null, ...children: JsxChild[]): RawHtml {
+  const normalizedChildren = normalizeJsxChildren(props, children);
+  const chunks = ["", ...normalizedChildren.map(() => "")];
+  return ilhaHtml(chunks as unknown as TemplateStringsArray, ...normalizedChildren);
+}
+
+function ilhaJsxDEV(type: JsxType, props: JsxProps): RawHtml {
+  return ilhaJsx(type, props);
+}
+
 // Resolves any interpolated value to an HTML string.
 // Arrays are joined with "" — each item is recursively resolved.
 // This means string[] is escaped per-item, RawHtml[] is passed through raw,
@@ -2750,6 +2876,10 @@ const rootBuilder = new IlhaBuilder(EMPTY_CFG);
 const ilha = Object.assign(rootBuilder, {
   html: ilhaHtml,
   raw: ilhaRaw,
+  jsx: ilhaJsx,
+  jsxs: ilhaJsx,
+  jsxDEV: ilhaJsxDEV,
+  Fragment: ilhaFragment,
   mount: mountAll,
   from: ilhaFrom,
   context: ilhaContext,
@@ -2760,6 +2890,10 @@ const ilha = Object.assign(rootBuilder, {
 
 export const html = ilhaHtml;
 export const raw = ilhaRaw;
+export const jsx = ilhaJsx;
+export const jsxs = ilhaJsx;
+export const jsxDEV = ilhaJsxDEV;
+export const Fragment = ilhaFragment;
 export const css = ilhaCss;
 export const mount = mountAll;
 export const from = ilhaFrom;

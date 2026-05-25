@@ -14,15 +14,5 @@ export default defineConfig({
         rollupOptions: { input: "./src/entry-client.ts" },
       },
     },
-    ssr: {
-      build: {
-        rollupOptions: { input: "./src/entry-server.ts" },
-      },
-    },
-  },
-  server: {
-    watch: {
-      usePolling: true,
-    },
   },
 });

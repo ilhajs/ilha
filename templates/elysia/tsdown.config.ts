@@ -2,14 +2,14 @@ import { defineConfig } from "tsdown";
 
 export default defineConfig([
   {
-    entry: ["src/server.ts"],
+    entry: ["src/server.tsx"],
     platform: "node",
   },
   {
     entry: ["src/client.ts"],
     platform: "browser",
     deps: {
-      alwaysBundle: ["ilha", "@ilha/router"],
+      alwaysBundle: ["ilha", "@ilha/router", "ilha/jsx-runtime"],
     },
     copy: [
       { from: "public/*", to: "dist" },

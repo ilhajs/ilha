@@ -1,8 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "ilha",
     "paths": {
-      "ilha": ["./src/index.ts"]
+      "ilha": ["./src/index.ts"],
+      "ilha/jsx-runtime": ["./src/jsx-runtime.ts"],
+      "ilha/jsx-dev-runtime": ["./src/jsx-dev-runtime.ts"]
     }
   },
   "include": ["src/**/*"],

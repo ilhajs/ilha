@@ -246,6 +246,14 @@ describe("codegen — generated file", () => {
     expect(code).toContain("+layout.ts");
   });
 
+  it("imports root +layout.tsx and wraps Page", async () => {
+    await writePage(pagesDir, "index.tsx", `export default null;`);
+    await writePage(pagesDir, "+layout.tsx", `export default null;`);
+    const code = await runCodegen();
+    expect(code).toContain("wrapLayout(");
+    expect(code).toContain("+layout.tsx");
+  });
+
   it("imports root +error.ts and wraps Page", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await writePage(pagesDir, "+error.ts", `export default null;`);
@@ -363,6 +371,14 @@ describe("codegen — generated file", () => {
     const code = await runCodegen();
     expect(code).toContain("wrapLayout(");
     expect(code).toContain("+layout.ts");
+  });
+
+  it("route group +layout.tsx is picked up by chainForFile for pages inside it", async () => {
+    await writePage(pagesDir, "(auth)/sign-in.tsx", `export default null;`);
+    await writePage(pagesDir, "(auth)/+layout.tsx", `export default null;`);
+    const code = await runCodegen();
+    expect(code).toContain("wrapLayout(");
+    expect(code).toContain("+layout.tsx");
   });
 
   it("root +layout.ts also wraps pages inside a route group", async () => {
