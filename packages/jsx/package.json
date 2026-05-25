@@ -1,7 +1,7 @@
 {
-  "name": "@ilha/router",
-  "version": "0.3.6",
-  "description": "A tiny SPA router for Ilha",
+  "name": "@ilha/jsx",
+  "version": "0.5.0",
+  "description": "Tiny JSX runtime for Ilha",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
   "repository": {
@@ -20,9 +20,13 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./vite": {
-      "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "import": "./dist/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-dev-runtime.d.ts",
+      "import": "./dist/jsx-dev-runtime.js"
     }
   },
   "scripts": {
@@ -30,10 +34,9 @@
     "test": "bun test"
   },
   "dependencies": {
-    "ilha": "0.6.0",
-    "rou3": "0.8.1"
+    "ilha": "0.6.0"
   },
   "devDependencies": {
-    "vite": "^8.0.12"
+    "zod": "^4.4.3"
   }
 }
