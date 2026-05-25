@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "@ilha/jsx",
+    "paths": {
+      "ilha": ["../ilha/src/index.ts"],
+      "@ilha/jsx": ["./src/index.ts"],
+      "@ilha/jsx/jsx-runtime": ["./src/jsx-runtime.ts"],
+      "@ilha/jsx/jsx-dev-runtime": ["./src/jsx-dev-runtime.ts"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["happydom.ts", "dist", "node_modules"]
+}
