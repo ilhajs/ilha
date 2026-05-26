@@ -7,7 +7,7 @@ export default ilha.render(() => {
     <section>
       <h1>404</h1>
       <p>
-        No page found for <code>${path()}</code>.
+        No page found for <code>{path()}</code>.
       </p>
       <a href="/">Go home</a>
     </section>

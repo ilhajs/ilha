@@ -59,9 +59,11 @@ ilha can produce HTML on the server and activate the same component in the brows
 
 State is handled with signals, so updates are targeted and local. You do not need to rerender an entire application tree just to change one value.
 
-### HTML-first authoring
+### JSX-first authoring
 
-ilha uses tagged templates and direct HTML interpolation, which keeps markup readable and easy to scan. It also means the API feels familiar if you already think in terms of HTML and DOM.
+ilha is designed to work naturally with JSX/TSX. The DOM-like syntax is familiar to most developers, and you get full TypeScript support, IDE autocompletion, and standard tooling out of the box.
+
+If you prefer a lower-level option or need to avoid a build step, the [`html`` `](/guide/helpers/html) tagged-template API is also available. It uses the same runtime and reactivity model, so you can mix both styles or migrate incrementally.
 
 ### Builder-based composition
 

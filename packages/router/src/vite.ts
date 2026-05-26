@@ -141,11 +141,14 @@ function chainForFile(
   const relDir = relative(pagesDir, dirname(file));
   const parts = relDir === "" ? [] : relDir.split("/");
   const dirs = [pagesDir, ...parts.map((_, i) => join(pagesDir, ...parts.slice(0, i + 1)))];
-  const candidatesFor = (dir: string) => [
-    `${join(dir, sentinel)}.ts`,
-    `${join(dir, sentinel)}.tsx`,
-  ];
-  return dirs.flatMap(candidatesFor).filter((candidate) => all.has(candidate));
+  const candidatesFor = (dir: string) => {
+    const tsx = `${join(dir, sentinel)}.tsx`;
+    if (all.has(tsx)) return [tsx];
+    const ts = `${join(dir, sentinel)}.ts`;
+    if (all.has(ts)) return [ts];
+    return [];
+  };
+  return dirs.flatMap(candidatesFor);
 }
 
 // ─────────────────────────────────────────────

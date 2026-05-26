@@ -16,8 +16,8 @@ export namespace JSX {
 
   export type IntrinsicElementProps = {
     children?: Child;
-    class?: string | string[] | Record<string, boolean>;
-    className?: string | string[] | Record<string, boolean>;
+    class?: string | unknown[] | Record<string, boolean>;
+    className?: string | unknown[] | Record<string, boolean>;
     htmlFor?: string;
     [name: string]: unknown;
   };

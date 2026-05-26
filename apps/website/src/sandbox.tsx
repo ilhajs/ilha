@@ -51,7 +51,7 @@ export function Sandbox({ script }: { script: string }) {
                 "es6",
                 "dom"
               ],
-              "rootDir": "src",
+              "rootDir": ".",
               "moduleResolution": "node"
             }
           }

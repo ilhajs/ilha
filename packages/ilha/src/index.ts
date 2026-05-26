@@ -499,7 +499,8 @@ const VOID_ELEMENTS = new Set([
 const SAFE_CSS_PROP_RE = /^(-{2}[a-zA-Z][a-zA-Z0-9-]*|-?[a-zA-Z][a-zA-Z0-9-]*)$/;
 
 const URL_ATTRS = new Set(["href", "src", "action", "formaction", "cite", "data", "poster"]);
-const SAFE_URL_RE = /^(?!javascript:|data:text\/html|data:image\/svg|vbscript:)/i;
+const SAFE_URL_RE =
+  /^(?!javascript:|data:text\/html|data:text\/xml|data:application\/xhtml\+xml|data:image\/svg|vbscript:)/i;
 
 function normalizeClass(value: unknown): string {
   if (Array.isArray(value)) return value.filter(Boolean).join(" ");
@@ -515,7 +516,7 @@ function normalizeClass(value: unknown): string {
 function normalizeJsxChildren(props: JsxProps, children: JsxChild[]): JsxChild[] {
   const propChildren = props && "children" in props ? props.children : undefined;
   const all = children.length > 0 ? children : propChildren === undefined ? [] : [propChildren];
-  return all.flat(Infinity);
+  return all.flat(1);
 }
 
 function serializeStyle(value: Record<string, unknown>): string {
@@ -562,7 +563,11 @@ function pushJsxAttr(chunks: string[], values: unknown[], name: string, value: u
   if (safeName === "style" && value && typeof value === "object") {
     value = serializeStyle(value as Record<string, unknown>);
   }
-  if (URL_ATTRS.has(safeName) && typeof value === "string" && !SAFE_URL_RE.test(value.trim())) {
+  if (
+    (URL_ATTRS.has(safeName) || /:(href|src|action|formaction|cite|data|poster)$/.test(safeName)) &&
+    typeof value === "string" &&
+    !SAFE_URL_RE.test(value.trim())
+  ) {
     return;
   }
 
@@ -609,7 +614,7 @@ function ilhaJsx(type: JsxType, props: JsxProps, ...children: JsxChild[]): RawHt
     };
     delete (componentProps as Record<string, unknown>)["key"];
     const out = type(Object.keys(componentProps).length ? componentProps : {});
-    if (typeof out === "string") return ilhaRaw(out);
+    if (typeof out === "string") return ilhaHtml`${out}`;
     if (out && typeof out === "object" && RAW in out) return out as RawHtml;
     return ilhaHtml`${out}`;
   }
@@ -688,7 +693,12 @@ const BIND_PREFIX_RE = /\bbind:([a-zA-Z]+)\s*=\s*("|')?$/;
 // We pick `date` semantics by default; users wanting datetime-local should
 // pre-format the string themselves on the value side.
 function formatDateForInput(d: unknown): string {
-  if (d instanceof Date && !isNaN(d.getTime())) {
+  if (d instanceof Date) {
+    if (isNaN(d.getTime())) {
+      if (__DEV__)
+        warn("bind:valueAsDate received an invalid Date object — value attribute will be empty.");
+      return "";
+    }
     // YYYY-MM-DD
     const pad = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

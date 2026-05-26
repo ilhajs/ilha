@@ -53,7 +53,7 @@ export const script = dedent`
 
         const card = state.pokemonData()
           ? <>
-              <img src={state.pokemonData().sprites.front_default} />
+              <img src={state.pokemonData().sprites.front_default} alt={state.pokemonData().name} />
               <h2>{state.pokemonData().name}</h2>
             </>
           : <p>Loading...</p>;

@@ -26,7 +26,7 @@ const Card = ilha.render(() => (
 
 ## Passing props to a child
 
-Call the child island with a props object to forward data:
+Pass props as JSX attributes (or call with a props object in non-JSX usage):
 
 ```tsx twoslash
 /** @jsxImportSource ilha */

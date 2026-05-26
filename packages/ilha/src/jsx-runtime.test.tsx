@@ -387,7 +387,8 @@ describe("ilha JSX runtime", () => {
   });
 
   it("explicit children prop is overridden by JSX children", () => {
-    const result = <p children="from prop">from slot</p>;
+    // Use jsx() directly because TSX forbids both children prop and slot children
+    const result = ilha.jsx("p", { children: "from prop" }, "from slot");
     expect(result.value).toBe("<p>from slot</p>");
   });
 
@@ -585,7 +586,8 @@ describe("ilha JSX runtime", () => {
       received = { ...props };
       return <span />;
     };
-    const _result = <C key="abc" id="x" />;
+    const r = <C key="abc" id="x" />;
+    expect(r.value).toBe("<span></span>");
     expect(received).not.toHaveProperty("key");
     expect(received).toHaveProperty("id", "x");
   });
@@ -605,7 +607,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("jsxs produces the same output as jsx with multiple children", () => {
-    const { jsx, jsxs, Fragment } = ilha;
+    const { jsx, jsxs } = ilha;
     const viaJsx = jsx("div", {
       children: [jsx("span", { children: "a" }), jsx("span", { children: "b" })],
     });
@@ -712,13 +714,16 @@ describe("ilha JSX runtime", () => {
     const warnings: string[] = [];
     console.warn = (msg: string) => warnings.push(msg);
 
-    // Force a fresh render context by calling html`` directly
-    const result = html`<input bind:value=${ilha.signal("x")} />`;
-    expect(result).toBeDefined();
+    try {
+      // Force a fresh render context by calling html`` directly
+      const result = html`<input bind:value=${ilha.signal("x")} />`;
+      expect(result).toBeDefined();
 
-    console.warn = originalWarn;
-    // Should have emitted at least one warning about missing context
-    expect(warnings.some((w) => w.includes("bind") || w.includes("context"))).toBe(true);
+      // Should have emitted at least one warning about missing context
+      expect(warnings.some((w) => w.includes("bind") || w.includes("context"))).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 
   it("warns in DEV for unknown bind: kind", () => {
@@ -726,10 +731,13 @@ describe("ilha JSX runtime", () => {
     const warnings: string[] = [];
     console.warn = (msg: string) => warnings.push(msg);
 
-    const Island = ilha.render(() => <input bind:foobar={ilha.signal("x")} />);
-    Island();
+    try {
+      const Island = ilha.render(() => <input bind:foobar={ilha.signal("x")} />);
+      Island();
 
-    console.warn = originalWarn;
-    expect(warnings.some((w) => w.includes("Unknown") || w.includes("foobar"))).toBe(true);
+      expect(warnings.some((w) => w.includes("Unknown") || w.includes("foobar"))).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 });

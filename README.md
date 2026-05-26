@@ -43,12 +43,12 @@ bun add ilha
 
 Scaffold a project in seconds with one of the official starters:
 
-| Template                                                                   | Command                                            | Sandbox                                                                     |
-| -------------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
-| [Vite](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite) | `npx giget@latest gh:ilhajs/ilha/templates/vite`   | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  |
-| [Hono](https://github.com/ilhajs/ilha/tree/main/templates/hono)            | `npx giget@latest gh:ilhajs/ilha/templates/hono`   | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/hono)  |
-| [Nitro](https://github.com/ilhajs/ilha/tree/main/templates/nitro)          | `npx giget@latest gh:ilhajs/ilha/templates/nitro`  | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro) |
-| [Elysia](https://github.com/ilhajs/ilha/tree/main/templates/elysia)        | `npx giget@latest gh:ilhajs/ilha/templates/elysia` |                                                                             |
+| Template                                                            | Command                                            | Sandbox                                                                     |
+| ------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
+| [Vite](https://github.com/ilhajs/ilha/tree/main/templates/vite)     | `npx giget@latest gh:ilhajs/ilha/templates/vite`   | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  |
+| [Hono](https://github.com/ilhajs/ilha/tree/main/templates/hono)     | `npx giget@latest gh:ilhajs/ilha/templates/hono`   | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/hono)  |
+| [Nitro](https://github.com/ilhajs/ilha/tree/main/templates/nitro)   | `npx giget@latest gh:ilhajs/ilha/templates/nitro`  | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro) |
+| [Elysia](https://github.com/ilhajs/ilha/tree/main/templates/elysia) | `npx giget@latest gh:ilhajs/ilha/templates/elysia` |                                                                             |
 
 ---
 
