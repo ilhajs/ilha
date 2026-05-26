@@ -495,6 +495,12 @@ const VOID_ELEMENTS = new Set([
   "wbr",
 ]);
 
+// Allows standard CSS properties and CSS custom properties (--*)
+const SAFE_CSS_PROP_RE = /^(-{2}[a-zA-Z][a-zA-Z0-9-]*|-?[a-zA-Z][a-zA-Z0-9-]*)$/;
+
+const URL_ATTRS = new Set(["href", "src", "action", "formaction", "cite", "data", "poster"]);
+const SAFE_URL_RE = /^(?!javascript:|data:text\/html|data:image\/svg|vbscript:)/i;
+
 function normalizeClass(value: unknown): string {
   if (Array.isArray(value)) return value.filter(Boolean).join(" ");
   if (value && typeof value === "object") {
@@ -512,14 +518,32 @@ function normalizeJsxChildren(props: JsxProps, children: JsxChild[]): JsxChild[]
   return all.flat(Infinity);
 }
 
+function serializeStyle(value: Record<string, unknown>): string {
+  return Object.entries(value)
+    .map(([k, v]) => {
+      if (!SAFE_CSS_PROP_RE.test(k)) return "";
+      const prop = k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
+      let safeV = String(v).replace(/["<>{};]/g, "");
+      // Block IE expression() and javascript: URLs in style values
+      if (/expression\(/i.test(safeV) || /^javascript:/i.test(safeV)) {
+        return "";
+      }
+      return `${prop}:${safeV}`;
+    })
+    .filter(Boolean)
+    .join(";");
+}
+
 function pushJsxAttr(chunks: string[], values: unknown[], name: string, value: unknown): void {
   if (value == null || value === false || name === "children" || name === "key") return;
+  if (name === "__proto__" || name === "constructor" || name === "prototype") return;
 
   if (name.startsWith("bind:")) {
     const [prefix, localName, ...rest] = name.split(":");
     if (prefix !== "bind" || rest.length > 0 || !localName || !SAFE_BIND_LOCAL_RE.test(localName)) {
       return;
     }
+    if (!isSignalAccessor(value)) return;
 
     const safeName = `${prefix}:${localName}`;
     chunks[chunks.length - 1] += ` ${safeName}=`;
@@ -533,8 +557,14 @@ function pushJsxAttr(chunks: string[], values: unknown[], name: string, value: u
   let safeName = name;
   if (safeName === "className") safeName = "class";
   if (safeName === "htmlFor") safeName = "for";
-  if (typeof value === "function" && /^on[A-Z]/.test(safeName)) return;
+  if (safeName.startsWith("on")) return;
   if (safeName === "class") value = normalizeClass(value);
+  if (safeName === "style" && value && typeof value === "object") {
+    value = serializeStyle(value as Record<string, unknown>);
+  }
+  if (URL_ATTRS.has(safeName) && typeof value === "string" && !SAFE_URL_RE.test(value.trim())) {
+    return;
+  }
 
   if (value === true) {
     chunks[chunks.length - 1] += ` ${safeName}`;
@@ -562,6 +592,8 @@ function renderJsxElement(type: string, props: JsxProps, children: JsxChild[]): 
       chunks.push("");
     }
     chunks[chunks.length - 1] += `</${type}>`;
+  } else if (children.length > 0 && __DEV__) {
+    warn(`Void element <${type}> should not have children. They will be ignored.`);
   }
 
   return ilhaHtml(chunks as unknown as TemplateStringsArray, ...values);
@@ -571,10 +603,11 @@ function ilhaJsx(type: JsxType, props: JsxProps, ...children: JsxChild[]): RawHt
   const normalizedChildren = normalizeJsxChildren(props, children);
 
   if (typeof type === "function") {
-    const componentProps = {
+    const componentProps: Record<string, unknown> = {
       ...(props ?? {}),
       ...(normalizedChildren.length > 0 ? { children: normalizedChildren } : {}),
     };
+    delete (componentProps as Record<string, unknown>)["key"];
     const out = type(Object.keys(componentProps).length ? componentProps : {});
     if (typeof out === "string") return ilhaRaw(out);
     if (out && typeof out === "object" && RAW in out) return out as RawHtml;
@@ -599,7 +632,7 @@ function ilhaJsxDEV(type: JsxType, props: JsxProps): RawHtml {
 // This means string[] is escaped per-item, RawHtml[] is passed through raw,
 // and mixed arrays work correctly. No comma-joining ever occurs.
 function interpolateValue(v: unknown): string {
-  if (v == null) return "";
+  if (v == null || v === true || v === false) return "";
   if (Array.isArray(v)) return v.map(interpolateValue).join("");
   if (typeof v === "object" && RAW in (v as object)) return (v as RawHtml).value;
   if (isIslandCall(v)) {

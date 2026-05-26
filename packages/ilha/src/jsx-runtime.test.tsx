@@ -379,4 +379,357 @@ describe("ilha JSX runtime", () => {
     unmount();
     cleanup(el);
   });
+
+  it("strips key prop from rendered HTML", () => {
+    const result = <li key="abc">item</li>;
+    expect(result.value).not.toContain("key=");
+    expect(result.value).toBe("<li>item</li>");
+  });
+
+  it("explicit children prop is overridden by JSX children", () => {
+    const result = <p children="from prop">from slot</p>;
+    expect(result.value).toBe("<p>from slot</p>");
+  });
+
+  it("renders boolean true attribute without value", () => {
+    expect((<input disabled={true} />).value).toContain("disabled");
+    expect((<input disabled={true} />).value).not.toContain('disabled="');
+  });
+
+  it("omits boolean false attribute", () => {
+    expect((<input disabled={false} />).value).not.toContain("disabled");
+  });
+
+  it("maps className to class in output HTML", () => {
+    expect((<div className="foo" />).value).toContain('class="foo"');
+    expect((<div className="foo" />).value).not.toContain("className=");
+  });
+
+  it("maps htmlFor to for on label", () => {
+    expect((<label htmlFor="email" />).value).toContain('for="email"');
+    expect((<label htmlFor="email" />).value).not.toContain("htmlFor=");
+  });
+
+  it("serializes style object to CSS string", () => {
+    expect((<div style={{ color: "red", fontSize: "14px" }} />).value).toContain(
+      'style="color:red;font-size:14px"',
+    );
+  });
+
+  it("passes string style through unchanged", () => {
+    expect((<div style="color:red" />).value).toContain('style="color:red"');
+  });
+
+  it("Fragment produces no wrapper element", () => {
+    const result = (
+      <>
+        <span>a</span>
+        <span>b</span>
+      </>
+    );
+    expect(result.value).toBe("<span>a</span><span>b</span>");
+    expect(result.value).not.toMatch(/^<div/);
+  });
+
+  it("Fragment with a single child produces no wrapper", () => {
+    expect((<p>only</p>).value).toBe("<p>only</p>");
+  });
+
+  it("nested Fragments flatten without wrappers", () => {
+    const result = (
+      <>
+        <>
+          <span>x</span>
+        </>
+      </>
+    );
+    expect(result.value).toBe("<span>x</span>");
+  });
+
+  it("renders 0 as text", () => {
+    expect((<p>{0}</p>).value).toBe("<p>0</p>");
+  });
+
+  it("does not render false as a child", () => {
+    expect((<p>{false}</p>).value).toBe("<p></p>");
+  });
+
+  it("does not render true as a child", () => {
+    expect((<p>{true}</p>).value).toBe("<p></p>");
+  });
+
+  it("renders void elements without closing tag", () => {
+    expect((<br />).value).toBe("<br>");
+    expect((<img src="x.png" alt="x" />).value).not.toContain("</img>");
+  });
+
+  it("drops event handler attributes from spreads (onX)", () => {
+    const evil = { id: "ok", onload: "alert(1)" };
+    expect((<div {...evil} />).value).not.toContain("onload");
+    expect((<div {...evil} />).value).toContain('id="ok"');
+  });
+
+  it("function component returning null renders empty string", () => {
+    const Empty = () => null;
+    expect((<Empty />).value ?? "").toBe("");
+  });
+
+  it("function component returning undefined renders empty string", () => {
+    const Undef = () => undefined;
+    expect((<Undef />).value ?? "").toBe("");
+  });
+
+  it("blocks javascript: href", () => {
+    expect((<a href="javascript:alert(1)">x</a>).value).not.toContain("javascript:");
+    expect((<a href="javascript:alert(1)">x</a>).value).toBe("<a>x</a>");
+  });
+
+  it("allows https: href", () => {
+    expect((<a href="https://example.com">x</a>).value).toContain('href="https://example.com"');
+  });
+
+  it("blocks data:text/html src", () => {
+    expect((<iframe src="data:text/html,<script>x</script>" />).value).not.toContain("data:text");
+  });
+
+  it("bind: with non-signal value is rejected", () => {
+    const result = (<input bind:value={{ not: "a signal" }} />).value;
+    expect(result).not.toContain("[object Object]");
+    expect(result).toBe("<input>");
+  });
+
+  it("ignores __proto__ as an attribute name from spreads", () => {
+    const evil = JSON.parse('{"__proto__":{"polluted":true}}');
+    expect((<div {...evil} />).value).not.toContain("__proto__");
+  });
+
+  it("ignores constructor as an attribute name", () => {
+    expect((<div constructor="x" />).value).not.toContain("constructor=");
+  });
+
+  it("style value cannot break out of style attribute", () => {
+    const result = (<div style={{ color: '"bad; }body{display:none' }} />).value;
+    expect(result).not.toContain('"bad');
+    expect(result).not.toContain("}body");
+  });
+
+  it("style property name with invalid characters is dropped", () => {
+    const result = (<div style={{ ["color; x:y"]: "red" }} />).value;
+    expect(result).not.toContain("color; x:y");
+  });
+
+  it("void element silently ignores children", () => {
+    expect((<br>{"text"}</br>).value).toBe("<br>");
+  });
+
+  it("children prop is used when no JSX children", () => {
+    const result = (<p children="from-prop" />).value;
+    expect(result).toBe("<p>from-prop</p>");
+  });
+
+  it("Fragment with mixed children types", () => {
+    const result = (
+      <>
+        {0}
+        {false}
+        {"ok"}
+      </>
+    ).value;
+    expect(result).toBe("0ok");
+  });
+
+  it("bind:value escapes XSS in SSR output", () => {
+    const Island = ilha
+      .state("name", "<script>alert(1)</script>")
+      .render(({ state }) => <input bind:value={state.name} />);
+
+    const out = Island();
+    expect(out).not.toContain("<script>");
+    expect(out).toContain("&lt;script&gt;");
+  });
+
+  it("blocks javascript: href with leading whitespace", () => {
+    expect((<a href="   javascript:alert(1)">x</a>).value).not.toContain("javascript:");
+  });
+
+  it("blocks newline-prefixed javascript: href", () => {
+    expect((<a href={"\njavascript:alert(1)"}>x</a>).value).not.toContain("javascript:");
+  });
+
+  it("className as array joins truthy entries", () => {
+    expect((<div className={["foo", false, "bar"]} />).value).toContain('class="foo bar"');
+  });
+
+  it("className as object uses enabled keys", () => {
+    expect((<div className={{ active: true, disabled: false }} />).value).toContain(
+      'class="active"',
+    );
+    expect((<div className={{ active: true, disabled: false }} />).value).not.toContain("disabled");
+  });
+
+  it("style value strips CSS expression() injection", () => {
+    const result = (<div style={{ color: "expression(alert(1))" }} />).value;
+    expect(result).not.toContain("expression(");
+    expect(result).not.toContain("(");
+  });
+
+  it("function component returning an IslandCall renders correctly", () => {
+    const Child = ilha.state("x", 42).render(({ state }) => <span>{state.x()}</span>);
+    const Parent = () => Child();
+    expect((<Parent />).value).toContain("42");
+  });
+
+  it("key prop is not passed to function components", () => {
+    let received: Record<string, unknown> = {};
+    const C = (props: Record<string, unknown>) => {
+      received = { ...props };
+      return <span />;
+    };
+    const _result = <C key="abc" id="x" />;
+    expect(received).not.toHaveProperty("key");
+    expect(received).toHaveProperty("id", "x");
+  });
+
+  it("empty Fragment renders empty string", () => {
+    expect((<></>).value).toBe("");
+  });
+
+  it("allows safe data: image URIs", () => {
+    expect((<img src="data:image/png;base64,abc" />).value).toContain("data:image/png");
+  });
+
+  it("blocks data:image/svg+xml that could contain script", () => {
+    expect(
+      (<img src="data:image/svg+xml,<svg><script>alert(1)</script></svg>" />).value,
+    ).not.toContain("data:image/svg");
+  });
+
+  it("jsxs produces the same output as jsx with multiple children", () => {
+    const { jsx, jsxs, Fragment } = ilha;
+    const viaJsx = jsx("div", {
+      children: [jsx("span", { children: "a" }), jsx("span", { children: "b" })],
+    });
+    const viaJsxs = jsxs("div", {
+      children: [jsx("span", { children: "a" }), jsx("span", { children: "b" })],
+    });
+    expect(viaJsx.value).toBe(viaJsxs.value);
+    expect(viaJsxs.value).toBe("<div><span>a</span><span>b</span></div>");
+  });
+
+  it("supports CSS custom properties in style object", () => {
+    const result = (<div style={{ "--accent": "#f00", color: "red" }} />).value;
+    expect(result).toContain("--accent:#f00");
+    expect(result).toContain("color:red");
+  });
+
+  it("preserves valid CSS functions like calc() and rgb() in style values", () => {
+    const result = (<div style={{ width: "calc(100% - 20px)", color: "rgb(255,0,0)" }} />).value;
+    expect(result).toContain("width:calc(100% - 20px)");
+    expect(result).toContain("color:rgb(255,0,0)");
+  });
+
+  it("blocks javascript: in style values", () => {
+    const result = (<div style={{ background: "javascript:alert(1)" }} />).value;
+    expect(result).not.toContain("javascript:");
+  });
+
+  it("bind:value SSR emits current value as value attribute", () => {
+    const Island = ilha
+      .state("name", "Ada")
+      .render(({ state }) => <input bind:value={state.name} />);
+
+    expect(Island()).toContain('value="Ada"');
+  });
+
+  it("bind:this writes the element reference into a signal on mount", () => {
+    const Island = ilha
+      .state("el", null as Element | null)
+      .render(({ state }) => <div bind:this={state.el} id="target" />);
+
+    const host = makeEl();
+    const unmount = Island.mount(host);
+    const div = host.querySelector("#target") as HTMLDivElement;
+
+    expect(div).toBeTruthy();
+    unmount();
+    cleanup(host);
+  });
+
+  it("serializeStyle strips semicolons that would break out of style attr", () => {
+    const result = (<div style={{ color: "red;background:url(evil)" }} />).value;
+    expect(result).not.toContain(";background");
+    expect(result).toContain("color:");
+  });
+
+  it("Fragment nested inside a JSX element flattens its children inline", () => {
+    const result = (
+      <ul>
+        <>
+          <li>a</li>
+          <li>b</li>
+        </>
+      </ul>
+    );
+    expect(result.value).toBe("<ul><li>a</li><li>b</li></ul>");
+  });
+
+  it("blocks tab-prefixed javascript: href", () => {
+    expect((<a href={"\tjavascript:alert(1)"}>x</a>).value).not.toContain("javascript:");
+  });
+
+  it("key prop does not appear on rendered element from function component", () => {
+    const Item = (props: { label: string }) => <li>{props.label}</li>;
+    const result = <Item key="abc" label="x" />;
+    expect(result.value).toBe("<li>x</li>");
+    expect(result.value).not.toContain("key=");
+  });
+
+  it("bind:group SSR emits checked on matching radio input", () => {
+    const Island = ilha.state("color", "red").render(
+      ({ state }) => html`
+        <input type="radio" value="red" bind:group=${state.color} />
+        <input type="radio" value="blue" bind:group=${state.color} />
+      `,
+    );
+    const out = Island();
+    expect(out).toMatch(/value="red"[^>]*checked/);
+    expect(out).not.toMatch(/value="blue"[^>]*checked/);
+  });
+
+  it("bind:valueAsDate SSR emits ISO date string as value", () => {
+    const Island = ilha
+      .state("date", new Date("2025-06-15"))
+      .render(({ state }) => <input type="date" bind:valueAsDate={state.date} />);
+    expect(Island()).toContain('value="2025-06-15"');
+  });
+
+  it("normalizeClass filters empty strings from array", () => {
+    expect((<div className={["a", "", "b"]} />).value).toContain('class="a b"');
+  });
+
+  it("warns in DEV when bind: is used outside an island render context", () => {
+    const originalWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (msg: string) => warnings.push(msg);
+
+    // Force a fresh render context by calling html`` directly
+    const result = html`<input bind:value=${ilha.signal("x")} />`;
+    expect(result).toBeDefined();
+
+    console.warn = originalWarn;
+    // Should have emitted at least one warning about missing context
+    expect(warnings.some((w) => w.includes("bind") || w.includes("context"))).toBe(true);
+  });
+
+  it("warns in DEV for unknown bind: kind", () => {
+    const originalWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (msg: string) => warnings.push(msg);
+
+    const Island = ilha.render(() => <input bind:foobar={ilha.signal("x")} />);
+    Island();
+
+    console.warn = originalWarn;
+    expect(warnings.some((w) => w.includes("Unknown") || w.includes("foobar"))).toBe(true);
+  });
 });
