@@ -22,7 +22,7 @@ export function Sandbox({ script }: { script: string }) {
           code: dedent`
             import "./styles.css";
             import { mount } from "ilha";
-            import Example from "./example"
+            import { Example } from "./example"
 
             mount({ Example });
           `,
