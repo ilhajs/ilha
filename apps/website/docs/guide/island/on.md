@@ -11,20 +11,20 @@ Attaches a DOM event listener to the island host or any descendant element. List
 
 ## Basic usage
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1)) // [!code highlight]
-  .render(
-    ({ state }) => html`
-      <div>
-        <p>Count: ${state.count()}</p>
-        <button>Increment</button>
-      </div>
-    `,
-  );
+  .render(({ state }) => (
+    <div>
+      <p>Count: {state.count()}</p>
+      <button>Increment</button>
+    </div>
+  ));
 ```
 
 ## Selector syntax
@@ -81,7 +81,9 @@ The handler receives a `HandlerContext` with everything needed to respond to the
 
 Both `target` and `event` are typed when the event name is a known HTML event:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -89,15 +91,17 @@ const Island = ilha
   .on("input@input", ({ state, event }) => {
     state.value((event.target as HTMLInputElement).value);
   })
-  .render(({ state }) => `<input value="${state.value()}" />`);
+  .render(({ state }) => <input value={state.value()} />);
 ```
 
 ## Cancelling async work with `ctx.signal`
 
 Every handler receives an `AbortSignal` on `ctx.signal`. It aborts when the island unmounts, so you can pass it directly to `fetch` or any abort-aware API to cancel stale work automatically:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Island = ilha
   .state("results", [])
@@ -105,19 +109,22 @@ const Island = ilha
     const res = await fetch("/api/data", { signal });
     state.results(await res.json());
   })
-  .render(
-    () =>
-      html`<button>Load</button>
-        <ul></ul>`,
-  );
+  .render(() => (
+    <>
+      <button>Load</button>
+      <ul></ul>
+    </>
+  ));
 ```
 
 ## Race-cancellation with `:abortable`
 
 When the same listener fires again on the same target, the previous invocation's signal aborts. This is opt-in via the `:abortable` modifier:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Search = ilha
   .state("query", "")
@@ -129,14 +136,16 @@ const Search = ilha
     if (signal.aborted) return;
     state.results(await res.json());
   })
-  .render(
-    ({ state }) => html`
-      <input value="${state.query()}" />
+  .render(({ state }) => (
+    <>
+      <input value={state.query()} />
       <ul>
-        ${state.results().map((r) => html`<li>${r}</li>`)}
+        {state.results().map((r) => (
+          <li>{r}</li>
+        ))}
       </ul>
-    `,
-  );
+    </>
+  ));
 ```
 
 Race-cancellation is scoped per-target — clicking button A does not cancel an in-flight handler on button B.
@@ -145,8 +154,10 @@ Race-cancellation is scoped per-target — clicking button A does not cancel an 
 
 Async errors (and sync throws) are caught automatically and routed to [`.onError()`](/guide/island/onerror) handlers if any are registered. `AbortError` rejections from cancelled work are filtered out and do not reach `.onError()` or `console.error`.
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Form = ilha
   .state("loading", false)
@@ -159,39 +170,37 @@ const Form = ilha
       state.loading(false);
     }
   })
-  .render(
-    ({ state }) => html`
-      <form>
-        <button type="submit" disabled="${state.loading()}">
-          ${state.loading() ? "Submitting…" : "Submit"}
-        </button>
-      </form>
-    `,
-  );
+  .render(({ state }) => (
+    <form>
+      <button type="submit" disabled={state.loading()}>
+        {state.loading() ? "Submitting…" : "Submit"}
+      </button>
+    </form>
+  ));
 ```
 
 ## Multiple listeners
 
 Chain `.on()` as many times as needed. Each call adds an independent listener:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Counter = ilha
   .state("count", 0)
   .on("[data-action=increment]@click", ({ state }) => state.count(state.count() + 1))
   .on("[data-action=decrement]@click", ({ state }) => state.count(state.count() - 1))
   .on("[data-action=reset]@click", ({ state }) => state.count(0))
-  .render(
-    ({ state }) => html`
-      <div>
-        <p>${state.count()}</p>
-        <button data-action="increment">+</button>
-        <button data-action="decrement">−</button>
-        <button data-action="reset">Reset</button>
-      </div>
-    `,
-  );
+  .render(({ state }) => (
+    <div>
+      <p>{state.count()}</p>
+      <button data-action="increment">+</button>
+      <button data-action="decrement">−</button>
+      <button data-action="reset">Reset</button>
+    </div>
+  ));
 ```
 
 ## Implicit batching

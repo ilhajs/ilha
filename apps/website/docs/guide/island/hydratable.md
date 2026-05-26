@@ -11,10 +11,12 @@ Use this method in your SSR handler whenever you want the island to become inter
 
 ## Basic usage
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
-const MyIsland = ilha.state("count", 0).render(({ state }) => `<p>${state.count()}</p>`);
+const MyIsland = ilha.state("count", 0).render(({ state }) => <p>{state.count()}</p>);
 
 const html = await MyIsland
   // [!code highlight]
@@ -46,12 +48,14 @@ interface HydratableOptions {
 
 The name must match the key used when registering the island in your client-side `mount()` or `hydrate()` call:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 // server
 import ilha from "ilha";
 import { mount } from "ilha";
 
-const Counter = ilha.state("count", 0).render(({ state }) => `<p>${state.count()}</p>`);
+const Counter = ilha.state("count", 0).render(({ state }) => <p>{state.count()}</p>);
 
 const html = await Counter.hydratable({}, { name: "Counter" });
 
@@ -65,10 +69,12 @@ If the name has no match in the registry, `mount()` skips the element silently.
 
 Snapshots embed current signal values into `data-ilha-state` so the client can restore them on mount without re-computing or re-fetching.
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
-const Counter = ilha.state("count", 0).render(({ state }) => `<p>${state.count()}</p>`);
+const Counter = ilha.state("count", 0).render(({ state }) => <p>{state.count()}</p>);
 
 // Snapshot state only
 await Counter.hydratable({ count: 5 }, { name: "Counter", snapshot: true });
@@ -97,14 +103,16 @@ When no snapshot is set, the island mounts fresh on the client — state initial
 
 When restoring from a snapshot, you often do not want [`.onMount()`](/guide/island/onmount) to run — the DOM is already correct and setup work would be redundant. Set `skipOnMount: true` to suppress all [`.onMount()`](/guide/island/onmount) callbacks during hydration:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
   .onMount(() => {
     console.log("this is skipped on hydration");
   })
-  .render(() => `<div>hello</div>`);
+  .render(() => <div>hello</div>);
 
 await Island.hydratable(
   {},
@@ -122,10 +130,12 @@ Note that `skipOnMount` only suppresses [`.onMount()`](/guide/island/onmount) �
 
 The wrapper element tag defaults to `"div"`. Change it when the surrounding HTML requires a specific element — for example inside a `<ul>` where a `<div>` would be invalid:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
-const Item = ilha.render(() => `<li>item</li>`);
+const Item = ilha.render(() => <li>item</li>);
 
 await Item.hydratable({}, { name: "item", as: "li" });
 // → '<li data-ilha="item">…</li>'
@@ -180,22 +190,21 @@ For manual setups without the router, call `.hydratable()` directly in your SSR 
 
 ## Full SSR + hydration example
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 // server.ts
-import ilha, { html } from "ilha";
-import { mount } from "ilha";
+import ilha, { mount } from "ilha";
 
 const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1))
-  .render(
-    ({ state }) => html`
-      <div>
-        <p>Count: ${state.count()}</p>
-        <button>Increment</button>
-      </div>
-    `,
-  );
+  .render(({ state }) => (
+    <div>
+      <p>Count: {state.count()}</p>
+      <button>Increment</button>
+    </div>
+  ));
 
 // Server — render with snapshot
 const body = await Counter.hydratable(

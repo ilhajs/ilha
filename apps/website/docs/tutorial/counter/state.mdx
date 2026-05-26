@@ -9,21 +9,15 @@ import dedent from "dedent";
 import { Sandbox } from "$src/sandbox";
 
 export const script = dedent`
-    import "./styles.css";
-    import ilha, { html, mount } from "ilha";
+    import ilha from "ilha";
 
-    const Counter = ilha
+    export const Example = ilha
         .state("count", 0)
         .render(
-            ({ state }) => html\`
-                <p>Count: \${state.count()}</p>
-            \`
+            ({ state }) => <p>Count: {state.count()}</p>
         );
 
-    mount({ Counter });
-
 `;
-export const template = `<div data-ilha="Counter"></div>`;
 
 # State
 
@@ -32,7 +26,7 @@ to define state - any property declared here will automatically trigger UI updat
 Pass the property name and its initial value. All state properties are then available
 inside `.render()` via the `state` property.
 
-<Sandbox script={script} template={template} />
+<Sandbox script={script} />
 
 ## Similar concepts
 

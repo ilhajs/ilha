@@ -9,8 +9,10 @@ Attaches scoped styles to the island. Styles are automatically wrapped in a `@sc
 
 ## Basic usage
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Card = ilha.css`
     // [!code highlight:7]
@@ -21,33 +23,33 @@ const Card = ilha.css`
         background: teal;
         color: white;
     }
-  `.render(
-  () => html`
-    <div>
-      <p class="title">Hello</p>
-      <button>Click me</button>
-    </div>
-  `,
-);
+  `.render(() => (
+  <div>
+    <p class="title">Hello</p>
+    <button>Click me</button>
+  </div>
+));
 ```
 
 ## Plain string form
 
 `.css()` also accepts a plain string, which is useful when importing styles from an external file:
 
-```ts
+```tsx
 import ilha from "ilha";
 import styles from "./card.css?raw";
 
-const Card = ilha.css(styles).render(() => `<div class="card">…</div>`);
+const Card = ilha.css(styles).render(() => <div class="card">…</div>);
 ```
 
 ## Interpolations
 
 When using the tagged template form, interpolations work as normal string concatenation:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const accent = "coral"; // [!code highlight]
 
@@ -56,15 +58,17 @@ const Button = ilha.css`
       background: ${accent}; // [!code highlight]
       color: white;
     }
-  `.render(() => html`<button>Go</button>`);
+  `.render(() => <button>Go</button>);
 ```
 
 ## Using the `css` tagged template
 
 ilha ships a named `css` export that works as a passthrough tag for editor tooling. It enables LSP syntax highlighting and Prettier formatting for CSS strings without any runtime transformation. Use it to author styles outside the builder chain and pass the result in:
 
-```ts twoslash
-import ilha, { css, html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha, { css } from "ilha";
 
 const styles = css`
   .label {
@@ -75,14 +79,12 @@ const styles = css`
   }
 `;
 
-const Card = ilha.css(styles).render(
-  () => html`
-    <div>
-      <p class="label">Title</p>
-      <button>Action</button>
-    </div>
-  `,
-);
+const Card = ilha.css(styles).render(() => (
+  <div>
+    <p class="label">Title</p>
+    <button>Action</button>
+  </div>
+));
 ```
 
 > `css` (named export) is a plain passthrough tag for tooling. `.css()` (builder method) is what actually attaches styles to the island. They are intentionally separate.

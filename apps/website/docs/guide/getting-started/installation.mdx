@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Install ilha and start building with official templates for Vite, Hono, Nitro, Elysia, and Electrobun.
+description: Install ilha and start building with official templates for Vite, Hono, Nitro, and Elysia.
 ---
 
 # Installation
@@ -17,13 +17,12 @@ ilha can be installed with your package manager of choice.
 
 If you want to start from a ready-made project instead of wiring everything manually, use one of the official templates.
 
-| Template                                                                    | Command                                                | Sandbox                                                                     |
-| --------------------------------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------- |
-| [Vite](https://github.com/ilhajs/ilha/tree/main/templates/vite)             | `npx giget@latest gh:ilhajs/ilha/templates/vite`       | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  |
-| [Hono](https://github.com/ilhajs/ilha/tree/main/templates/hono)             | `npx giget@latest gh:ilhajs/ilha/templates/hono`       | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/hono)  |
-| [Nitro](https://github.com/ilhajs/ilha/tree/main/templates/nitro)           | `npx giget@latest gh:ilhajs/ilha/templates/nitro`      | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro) |
-| [Elysia](https://github.com/ilhajs/ilha/tree/main/templates/elysia)         | `npx giget@latest gh:ilhajs/ilha/templates/elysia`     | —                                                                           |
-| [Electrobun](https://github.com/ilhajs/ilha/tree/main/templates/electrobun) | `npx giget@latest gh:ilhajs/ilha/templates/electrobun` | —                                                                           |
+| Template                                                            | Command                                            | Sandbox                                                                     |
+| ------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
+| [Vite](https://github.com/ilhajs/ilha/tree/main/templates/vite)     | `npx giget@latest gh:ilhajs/ilha/templates/vite`   | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite)  |
+| [Hono](https://github.com/ilhajs/ilha/tree/main/templates/hono)     | `npx giget@latest gh:ilhajs/ilha/templates/hono`   | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/hono)  |
+| [Nitro](https://github.com/ilhajs/ilha/tree/main/templates/nitro)   | `npx giget@latest gh:ilhajs/ilha/templates/nitro`  | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro) |
+| [Elysia](https://github.com/ilhajs/ilha/tree/main/templates/elysia) | `npx giget@latest gh:ilhajs/ilha/templates/elysia` | —                                                                           |
 
 Templates are the fastest way to get a working project structure for SSR, routing, and deployment targets without setting everything up from scratch.
 
@@ -45,60 +44,60 @@ Use the default export for the builder chain, and named exports for helpers such
 
 ## Minimal example
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1))
-  .render(
-    ({ state }) => html`
-      <div>
-        <p>Count: ${state.count()}</p>
-        <button>Increment</button>
-      </div>
-    `,
-  );
+  .render(({ state }) => (
+    <div>
+      <p>Count: {state.count()}</p>
+      <button>Increment</button>
+    </div>
+  ));
 ```
 
 ## Server-side rendering
 
 Render the island to an HTML string with `toString()`:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1))
-  .render(
-    ({ state }) => html`
-      <div>
-        <p>Count: ${state.count()}</p>
-        <button>Increment</button>
-      </div>
-    `,
-  );
+  .render(({ state }) => (
+    <div>
+      <p>Count: {state.count()}</p>
+      <button>Increment</button>
+    </div>
+  ));
 // ---cut---
 const htmlOutput = Counter.toString();
 ```
 
 If your island uses async derived values, you can also await the island itself:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1))
-  .render(
-    ({ state }) => html`
-      <div>
-        <p>Count: ${state.count()}</p>
-        <button>Increment</button>
-      </div>
-    `,
-  );
+  .render(({ state }) => (
+    <div>
+      <p>Count: {state.count()}</p>
+      <button>Increment</button>
+    </div>
+  ));
 // ---cut---
 const htmlOutput = await Counter();
 ```
@@ -107,20 +106,20 @@ const htmlOutput = await Counter();
 
 Mount the island into a DOM element:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1))
-  .render(
-    ({ state }) => html`
-      <div>
-        <p>Count: ${state.count()}</p>
-        <button>Increment</button>
-      </div>
-    `,
-  );
+  .render(({ state }) => (
+    <div>
+      <p>Count: {state.count()}</p>
+      <button>Increment</button>
+    </div>
+  ));
 // ---cut---
 const root = document.getElementById("app");
 if (root) {

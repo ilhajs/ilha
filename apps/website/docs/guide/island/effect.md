@@ -11,7 +11,9 @@ Registers a reactive side effect that runs after the island mounts and re-runs a
 
 ## Basic usage
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -20,7 +22,7 @@ const Island = ilha
   .effect(({ state }) => {
     document.title = state.title();
   })
-  .render(({ state }) => `<input value="${state.title()}" />`);
+  .render(({ state }) => <input value={state.title()} />);
 ```
 
 Every time `state.title` changes, the effect re-runs and updates `document.title`.
@@ -29,7 +31,9 @@ Every time `state.title` changes, the effect re-runs and updates `document.title
 
 Return a function from the effect to clean up before the next run or on unmount:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -40,7 +44,7 @@ const Island = ilha
     }, state.delay());
     return () => clearInterval(id); // [!code highlight]
   })
-  .render(({ state }) => `<p>Interval: ${state.delay()}ms</p>`);
+  .render(({ state }) => <p>Interval: {state.delay()}ms</p>);
 ```
 
 The cleanup runs before the effect re-runs with new values, and once more on unmount. This prevents stale timers, subscriptions, or event listeners from accumulating.
@@ -49,8 +53,10 @@ The cleanup runs before the effect re-runs with new values, and once more on unm
 
 Unlike `.on()`, race-cancellation is the **default** behaviour for effects (no modifier needed). When a dependency changes, the previous run's signal aborts automatically. Pass `signal` to async work to bail out of stale invocations:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Island = ilha
   .state("userId", 1)
@@ -70,7 +76,7 @@ const Island = ilha
         throw err;
       });
   })
-  .render(({ state }) => html`<p>${state.user()?.name ?? "Loading…"}</p>`);
+  .render(({ state }) => <p>{state.user()?.name ?? "Loading…"}</p>);
 ```
 
 Both the user-supplied cleanup function (if any) and the signal abort fire when the effect re-runs, so you can mix patterns.
@@ -94,7 +100,9 @@ Note that `derived` is not available in effects. If you need a derived value ins
 
 Chain `.effect()` as many times as needed. Each runs independently with its own dependency tracking:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -106,14 +114,16 @@ const Island = ilha
   .effect(({ state }) => {
     document.body.style.backgroundColor = state.color();
   })
-  .render(({ state }) => `<p>${state.title()}</p>`);
+  .render(({ state }) => <p>{state.title()}</p>);
 ```
 
 ## Implicit batching
 
 Multiple synchronous state writes inside an effect run propagate atomically — dependents see the final state and run once instead of once per write:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -125,14 +135,20 @@ const Island = ilha
     state.b(state.b() + 1);
     console.log(state.a(), state.b());
   })
-  .render(({ state }) => `<p>${state.a()} ${state.b()}</p>`);
+  .render(({ state }) => (
+    <p>
+      {state.a()} {state.b()}
+    </p>
+  ));
 ```
 
 ## Conditional reads
 
 Dependencies are tracked based on which signals are actually read during a run. Signals inside a branch that does not execute are not tracked:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -142,7 +158,7 @@ const Island = ilha
     if (!state.enabled()) return; // if false, state.value is never read
     console.log(state.value()); // only tracked when enabled is true
   })
-  .render(({ state }) => `<p>${state.value()}</p>`);
+  .render(({ state }) => <p>{state.value()}</p>);
 ```
 
 This means the effect only re-runs when `state.value` changes if `state.enabled` was `true` during the last run.

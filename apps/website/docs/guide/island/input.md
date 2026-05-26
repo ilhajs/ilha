@@ -11,25 +11,29 @@ Declares the island's external props and their types. Two forms are supported: a
 
 **Type-only** — TypeScript inference, no runtime validation:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Greeting = ilha
   .input<{ name: string }>() // [!code highlight]
-  .render(({ input }) => `<p>Hello, ${input.name}!</p>`);
+  .render(({ input }) => <p>Hello, {input.name}!</p>);
 
 Greeting.toString({ name: "ilha" }); // → <p>Hello, ilha!</p>
 ```
 
 **With a schema** — inference plus runtime validation and coercion:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 import { z } from "zod";
 
 const Greeting = ilha
   .input(z.object({ name: z.string().default("World") })) // [!code highlight]
-  .render(({ input }) => `<p>Hello, ${input.name}!</p>`);
+  .render(({ input }) => <p>Hello, {input.name}!</p>);
 
 Greeting.toString({ name: "ilha" }); // → <p>Hello, ilha!</p>
 Greeting.toString(); // → <p>Hello, World!</p>
@@ -58,7 +62,9 @@ Use `.input<T>()` for simple islands where you control the call sites and don't 
 
 Defaults are defined in the schema, not in ilha. Any Standard Schema validator that supports defaults will apply them automatically when a prop is omitted.
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 import { z } from "zod";
 
@@ -69,21 +75,23 @@ const Card = ilha
       accent: z.string().default("teal"),
     }),
   )
-  .render(({ input }) => `<div style="color:${input.accent}">${input.title}</div>`);
+  .render(({ input }) => <div style={`color:${input.accent}`}>{input.title}</div>);
 ```
 
 ## State initialized from input
 
 Once you have typed input, you can use it to initialize state:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 import { z } from "zod";
 
 const Counter = ilha
   .input(z.object({ start: z.number().default(0) }))
   .state("count", ({ start }) => start) // [!code highlight]
-  .render(({ state }) => `<p>${state.count()}</p>`);
+  .render(({ state }) => <p>{state.count()}</p>);
 ```
 
 The initializer function receives the resolved input object, so state stays in sync with whatever props were passed in. This works identically with both forms.

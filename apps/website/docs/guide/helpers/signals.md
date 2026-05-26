@@ -37,18 +37,20 @@ Reading the signal inside any reactive scope — `.render()`, `.derived()`, `.ef
 
 Because `signal()` returns a plain accessor, you can import it into any island. When one island writes to it, all others that read it re-render automatically:
 
-```ts twoslash
-import ilha, { html, signal } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha, { signal } from "ilha";
 
 const cartCount = signal(0);
 
 const CartButton = ilha
   .on("button@click", () => cartCount(cartCount() + 1)) // [!code highlight]
-  .render(() => html` <button>Add to cart</button> `);
+  .render(() => <button>Add to cart</button>);
 
 const CartBadge = ilha
   // [!code highlight]
-  .render(() => html`<span>${cartCount()}</span>`);
+  .render(() => <span>{cartCount()}</span>);
 ```
 
 Both islands share the same `cartCount` signal. Clicking the button in `CartButton` updates the badge in `CartBadge` without any wiring between them.
@@ -57,16 +59,18 @@ Both islands share the same `cartCount` signal. Clicking the button in `CartButt
 
 Pass a signal directly into a `bind:` attribute to sync a form element with module-level state:
 
-```ts twoslash
-import ilha, { html, signal } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha, { signal } from "ilha";
 
 const query = signal("");
 
 const SearchInput = ilha.render(
-  () => html`<input type="search" bind:value=${query} />`, // [!code highlight]
+  () => <input type="search" bind:value={query} />, // [!code highlight]
 );
 
-const SearchResults = ilha.render(() => html`<p>Results for: ${query()}</p>`);
+const SearchResults = ilha.render(() => <p>Results for: {query()}</p>);
 ```
 
 When the user types, `query` updates and `SearchResults` re-renders automatically — no wiring between islands needed.
@@ -94,41 +98,47 @@ Both return the same accessor shape and can be used with `bind:` template syntax
 
 Any island that calls `context()` with the same key gets the same signal. When one island writes to it, all others that read it re-render automatically:
 
-```ts twoslash
-import ilha, { html, context } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha, { context } from "ilha";
 
 const cartCount = context("cart.count", 0);
 
 const CartButton = ilha
   .on("button@click", () => cartCount(cartCount() + 1)) // [!code highlight]
-  .render(() => html` <button>Add to cart</button> `);
+  .render(() => <button>Add to cart</button>);
 
 const CartBadge = ilha
   // [!code highlight]
-  .render(() => html`<span>${cartCount()}</span>`);
+  .render(() => <span>{cartCount()}</span>);
 ```
 
 ### Using context in `bind:` bindings
 
 Pass a context signal directly into a `bind:` attribute to sync a form element across islands:
 
-```ts twoslash
-import ilha, { html, context } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha, { context } from "ilha";
 
 const query = context("search.query", "");
 
 const SearchInput = ilha.render(
-  () => html`<input type="search" bind:value=${query} />`, // [!code highlight]
+  () => <input type="search" bind:value={query} />, // [!code highlight]
 );
 
-const SearchResults = ilha.render(() => html`<p>Results for: ${query()}</p>`);
+const SearchResults = ilha.render(() => <p>Results for: {query()}</p>);
 ```
 
 ### Initializing with a type
 
 The second argument sets the initial value and infers the signal type. The type is fixed at first call — subsequent calls with the same key return the existing signal regardless of what initial value is passed:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import { context } from "ilha";
 
 const count = context("ui.count", 0); // creates signal<number>
@@ -150,7 +160,9 @@ export const sidebar = context("ui.sidebar", true);
 
 Context signals are reactive — reading them inside [`.effect()`](/guide/island/effect) or [`.derived()`](/guide/island/derived) creates a dependency just like reading local state:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha, { context } from "ilha";
 
 const theme = context("app.theme", "light");
@@ -159,7 +171,7 @@ const Island = ilha
   .effect(() => {
     document.documentElement.dataset["theme"] = theme();
   })
-  .render(() => `<div>content</div>`);
+  .render(() => <div>content</div>);
 ```
 
 Whenever `theme` is updated anywhere in the app, this effect re-runs.
@@ -233,7 +245,9 @@ Runs `fn` with reactive tracking suspended. Reading signals inside `fn` returns 
 
 The canonical pattern: an effect should re-run when `tracked` changes, but read `peeked` only as a one-off value:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha, { signal, untrack } from "ilha";
 
 const tracked = signal(0);
@@ -247,7 +261,7 @@ const Island = ilha
       untrack(() => peeked()),
     );
   })
-  .render(() => `<p>x</p>`);
+  .render(() => <p>x</p>);
 ```
 
 `untrack()` returns whatever `fn` returns, so it also works for peeking at derived values or any other reactive read:

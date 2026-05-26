@@ -11,8 +11,10 @@ Declares a computed value that depends on state or input. Derived values can be 
 
 ## Basic usage
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const UserCard = ilha
   .state("userId", 1)
@@ -22,9 +24,9 @@ const UserCard = ilha
     return res.json();
   })
   .render(({ derived }) => {
-    if (derived.user.loading) return `<p>Loading…</p>`;
-    if (derived.user.error) return `<p>Error: ${derived.user.error.message}</p>`;
-    return `<p>${derived.user.value.name}</p>`;
+    if (derived.user.loading) return <p>Loading…</p>;
+    if (derived.user.error) return <p>Error: {derived.user.error.message}</p>;
+    return <p>{derived.user.value.name}</p>;
   });
 ```
 
@@ -44,22 +46,26 @@ Always check `loading` and `error` before reading `value`. On first render, `loa
 
 The function does not have to be async. If it returns a plain value, the envelope resolves immediately with `loading: false`:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
   .state("price", 100)
   .state("qty", 3)
   .derived("total", ({ state }) => state.price() * state.qty())
-  .render(({ derived }) => `<p>Total: ${derived.total.value}</p>`);
+  .render(({ derived }) => <p>Total: {derived.total.value}</p>);
 ```
 
 ## Reactive dependencies
 
 The derived function re-runs whenever any signal it reads changes. Dependencies are tracked automatically — you do not need to declare them manually.
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Search = ilha
   .state("query", "")
@@ -67,23 +73,29 @@ const Search = ilha
     const res = await fetch(`/api/search?q=${state.query()}`, { signal });
     return res.json() as Promise<string[]>;
   })
-  .render(
-    ({ state, derived }) => html`
-      <input value="${state.query}" />
-      ${derived.results.loading
-        ? html`<p>Searching…</p>`
-        : html`<ul>
-            ${derived.results.value?.map((r) => html`<li>${r}</li>`)}
-          </ul>`}
-    `,
-  );
+  .render(({ state, derived }) => (
+    <>
+      <input value={state.query()} />
+      {derived.results.loading ? (
+        <p>Searching…</p>
+      ) : (
+        <ul>
+          {derived.results.value?.map((r) => (
+            <li>{r}</li>
+          ))}
+        </ul>
+      )}
+    </>
+  ));
 ```
 
 ## Abort signal
 
 Every async derived function receives an `AbortSignal` that aborts when the function is about to re-run. Pass it to `fetch` or any other cancellable API to avoid stale responses:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -92,7 +104,7 @@ const Island = ilha
     const res = await fetch(`/api/items/${state.id()}`, { signal });
     return res.json();
   })
-  .render(({ derived }) => `<p>${derived.data.value?.name ?? "…"}</p>`);
+  .render(({ derived }) => <p>{derived.data.value?.name ?? "…"}</p>);
 ```
 
 If the signal was already aborted before your async work completes, the result is discarded silently.
@@ -101,8 +113,10 @@ If the signal was already aborted before your async work completes, the result i
 
 When a derived function re-runs, `loading` becomes `true` but `value` retains the previous result until the new one resolves. This lets you avoid layout shifts by showing stale content while refreshing:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Island = ilha
   .state("page", 1)
@@ -110,14 +124,16 @@ const Island = ilha
     const res = await fetch(`/api/items?page=${state.page()}`, { signal });
     return res.json() as Promise<string[]>;
   })
-  .render(
-    ({ state, derived }) => html`
-      <ul style="opacity: ${derived.items.loading ? "0.5" : "1"}">
-        ${derived.items.value?.map((i) => html`<li>${i}</li>`)}
+  .render(({ derived }) => (
+    <>
+      <ul style={`opacity: ${derived.items.loading ? "0.5" : "1"}`}>
+        {derived.items.value?.map((i) => (
+          <li>{i}</li>
+        ))}
       </ul>
       <button>Next page</button>
-    `,
-  );
+    </>
+  ));
 ```
 
 ## SSR behavior

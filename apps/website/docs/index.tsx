@@ -26,12 +26,12 @@ const NITRO_SANDBOX = URLS.SANDBOX.replace("{template}", "nitro") + "?file=src%2
 
 const highlighter = await createHighlighter({
   themes: ["night-owl-light", "night-owl"],
-  langs: ["typescript"],
+  langs: ["tsx"],
 });
 
 function highlightCode(code: string): string {
   return highlighter.codeToHtml(code, {
-    lang: "typescript",
+    lang: "tsx",
     themes: { light: "night-owl-light", dark: "night-owl" },
   });
 }
@@ -282,7 +282,7 @@ const Hero = ilha.render(
         <div class="flex flex-1 flex-col justify-center gap-4 px-8 py-32 lg:px-16">
           <div class="badge-outline">Alpha is live</div>
           <h1 class="text-3xl leading-normal font-semibold text-balance text-sky-950 lg:text-5xl">
-            Build modern UI, your way.
+            The most versatile web UI library.
           </h1>
           <div class="flex gap-2">
             <a
@@ -305,7 +305,7 @@ const Hero = ilha.render(
           <div
             class="flex flex-col overflow-hidden bg-[#FBFBFB] text-xs shadow-2xl lg:rounded-tl-2xl lg:text-[1rem]"
           >
-            <div class="bg-[#FBFBFB] py-1 text-center font-mono text-neutral-500">main.ts</div>
+            <div class="bg-[#FBFBFB] py-1 text-center font-mono text-neutral-500">main.tsx</div>
             ${raw(highlightCode(COUNTER_CODE))}
           </div>
         </div>

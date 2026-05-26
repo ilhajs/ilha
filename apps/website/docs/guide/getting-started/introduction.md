@@ -31,20 +31,20 @@ This makes ilha a good fit when you want:
 
 A typical island reads a lot like a small HTML-aware module:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Counter = ilha
   .state("count", 0)
   .on("button@click", ({ state }) => state.count(state.count() + 1))
-  .render(
-    ({ state }) => html`
-      <div>
-        <p>Count: ${state.count()}</p>
-        <button>Increment</button>
-      </div>
-    `,
-  );
+  .render(({ state }) => (
+    <div>
+      <p>Count: {state.count()}</p>
+      <button>Increment</button>
+    </div>
+  ));
 ```
 
 The same component can render to a string on the server and mount into the DOM on the client. That keeps the component logic in one place instead of splitting it across separate templates and client scripts.

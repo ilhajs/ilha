@@ -243,13 +243,15 @@ These signals reflect the current route and are safe to read inside any island o
 
 Returns reactive accessors for the current route state as a convenience object:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 import { useRoute } from "@ilha/router";
 
 const MyPage = ilha.render(() => {
   const { path, params, search, hash } = useRoute();
-  return `<p>User: ${params().id}</p>`;
+  return <p>User: {params().id}</p>;
 });
 ```
 
@@ -318,33 +320,33 @@ Add `.ilha/` to `.gitignore`.
 
 ```
 src/pages/
-  +layout.ts              ← root layout (wraps all pages)
-  +error.ts               ← root error boundary
-  index.ts                → /
-  about.ts                → /about
+  +layout.tsx             ← root layout (wraps all pages)
+  +error.tsx              ← root error boundary
+  index.tsx               → /
+  about.tsx               → /about
   (auth)/                 ← route group — invisible in the URL
-    +layout.ts            ← layout scoped to (auth) pages only
-    sign-in.ts            → /sign-in
-    sign-up.ts            → /sign-up
+    +layout.tsx           ← layout scoped to (auth) pages only
+    sign-in.tsx           → /sign-in
+    sign-up.tsx           → /sign-up
   user/
-    +layout.ts            ← nested layout (wraps user/* only)
-    +error.ts             ← nested error boundary
-    [id].ts               → /user/:id
+    +layout.tsx           ← nested layout (wraps user/* only)
+    +error.tsx            ← nested error boundary
+    [id].tsx              → /user/:id
     [id]/
-      settings.ts         → /user/:id/settings
-  [...slug].ts            → /**:slug
+      settings.tsx        → /user/:id/settings
+  [...slug].tsx            → /**:slug
 ```
 
 ### Filename → pattern mapping
 
-| File                | Pattern     |
-| ------------------- | ----------- |
-| `index.ts`          | `/`         |
-| `about.ts`          | `/about`    |
-| `[id].ts`           | `/:id`      |
-| `user/[id].ts`      | `/user/:id` |
-| `[...slug].ts`      | `/**:slug`  |
-| `(auth)/sign-in.ts` | `/sign-in`  |
+| File                 | Pattern     |
+| -------------------- | ----------- |
+| `index.tsx`          | `/`         |
+| `about.tsx`          | `/about`    |
+| `[id].tsx`           | `/:id`      |
+| `user/[id].tsx`      | `/user/:id` |
+| `[...slug].tsx`      | `/**:slug`  |
+| `(auth)/sign-in.tsx` | `/sign-in`  |
 
 ### Route groups
 
@@ -352,23 +354,27 @@ Folders wrapped in parentheses — `(name)` — organise files without contribut
 
 ### Layouts
 
-A `+layout.ts` wraps every page in its directory and all subdirectories. Layouts compose inside-out — nearest layout is innermost.
+A `+layout.tsx` wraps every page in its directory and all subdirectories. Layouts compose inside-out — nearest layout is innermost. (`.ts` is also supported if you do not need JSX.)
 
-```ts twoslash
-// src/pages/+layout.ts
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+// src/pages/+layout.tsx
 import { defineLayout } from "@ilha/router";
-import ilha, { html } from "ilha";
+import ilha from "ilha";
 
-export default defineLayout((children) =>
-  ilha.render(
-    () => html`
+export default defineLayout((Children) =>
+  ilha.render(() => (
+    <>
       <nav>
         <a href="/">Home</a>
         <a href="/about">About</a>
       </nav>
-      <main>${children}</main>
-    `,
-  ),
+      <main>
+        <Children />
+      </main>
+    </>
+  )),
 );
 ```
 
@@ -376,8 +382,10 @@ export default defineLayout((children) =>
 
 Export a `load` function from any page file. The Vite plugin detects it automatically, composes it with any layout loaders, and wires it into the router at SSR time.
 
-```ts
-// src/pages/user/[id].ts
+```tsx
+/** @jsxImportSource ilha */
+// ---cut---
+// src/pages/user/[id].tsx
 import { loader } from "@ilha/router";
 import ilha from "ilha";
 
@@ -388,27 +396,27 @@ export const load = loader(async ({ params }) => {
   return { user };
 });
 
-export default ilha.input<{ user: User }>().render(({ input }) => `<h1>${input.user.name}</h1>`);
+export default ilha.input<{ user: User }>().render(({ input }) => <h1>{input.user.name}</h1>);
 ```
 
 ### Error boundaries
 
-A `+error.ts` catches rendering errors for pages in its directory. The nearest boundary wins. If it re-throws, the next outer boundary takes over.
+A `+error.tsx` catches rendering errors for pages in its directory. The nearest boundary wins. If it re-throws, the next outer boundary takes over. (`.ts` is also supported if you do not need JSX.)
 
-```ts twoslash
-// src/pages/+error.ts
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+// src/pages/+error.tsx
 import type { ErrorHandler } from "@ilha/router/vite";
 import ilha from "ilha";
 
 export default ((err, route) =>
-  ilha.render(
-    () => `
+  ilha.render(() => (
     <div class="error">
-      <h1>${err.status ?? 500}</h1>
-      <p>${err.message}</p>
+      <h1>{err.status ?? 500}</h1>
+      <p>{err.message}</p>
     </div>
-  `,
-  )) satisfies ErrorHandler;
+  ))) satisfies ErrorHandler;
 ```
 
 ### Virtual modules
