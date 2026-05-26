@@ -1,6 +1,6 @@
 {
   "name": "ilha",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A tiny, framework-free island architecture library",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
@@ -19,6 +19,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "import": "./dist/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-dev-runtime.d.ts",
+      "import": "./dist/jsx-dev-runtime.js"
     }
   },
   "scripts": {

@@ -11,20 +11,20 @@ Declares a reactive signal local to the island. State is the primary way to stor
 
 ## Basic usage
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Counter = ilha
   .state("count", 0) // [!code highlight]
   .on("button@click", ({ state }) => state.count(state.count() + 1))
-  .render(
-    ({ state }) => html`
-      <div>
-        <p>Count: ${state.count()}</p>
-        <button>Increment</button>
-      </div>
-    `,
-  );
+  .render(({ state }) => (
+    <div>
+      <p>Count: {state.count()}</p>
+      <button>Increment</button>
+    </div>
+  ));
 ```
 
 ## Reading and writing
@@ -42,14 +42,16 @@ When a signal is written, the island re-renders automatically. Only the affected
 
 The initial value can be a static value or a function that receives the resolved input:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 import { z } from "zod";
 
 const Counter = ilha
   .input(z.object({ start: z.number().default(0) }))
   .state("count", ({ start }) => start) // [!code highlight]
-  .render(({ state }) => `<p>${state.count()}</p>`);
+  .render(({ state }) => <p>{state.count()}</p>);
 ```
 
 This is evaluated once at mount time. The initializer is not reactive — it only runs when the island is first created.
@@ -58,49 +60,55 @@ This is evaluated once at mount time. The initializer is not reactive — it onl
 
 Chain `.state()` as many times as needed. Each key becomes a typed accessor on the `state` object:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Form = ilha
   .state("name", "")
   .state("submitted", false)
   .state("count", 0)
-  .render(({ state }) => `<p>${state.name()} — ${state.count()}</p>`);
+  .render(({ state }) => (
+    <p>
+      {state.name()} — {state.count()}
+    </p>
+  ));
 ```
 
-## Inside [html&grave;&grave;](/guide/helpers/html)
+## Inside JSX
 
-Signal accessors can be interpolated directly into [`html`](/guide/helpers/html) without calling them. ilha detects signal accessors and calls them automatically, and applies HTML escaping:
+Signal accessors can be rendered directly in JSX without calling them. ilha detects signal accessors and calls them automatically, and applies HTML escaping:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
-const Island = ilha
-  .state("label", "<b>hello</b>")
-  .render(({ state }) => html`<p>${state.label}</p>`);
-//                                 ^^^^^^^^^^^ no () needed, value is escaped
+const Island = ilha.state("label", "<b>hello</b>").render(({ state }) => <p>{state.label}</p>);
+//                          ^^^^^^^^^^^^^
 ```
 
-If you call `state.label()` explicitly it works the same way — both forms are equivalent inside [`html`](/guide/helpers/html)`\`\``.
+If you call `state.label()` explicitly it works the same way — both forms are equivalent inside JSX.
 
 ## Updating state from events
 
 State accessors are plain functions, so they work directly as setters inside event handlers:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Toggle = ilha
   .state("open", false)
   .on("button@click", ({ state }) => state.open(!state.open())) // [!code highlight]
-  .render(
-    ({ state }) => html`
-      <div>
-        ${state.open() ? html`<p>Content</p>` : ""}
-        <button>${state.open() ? "Close" : "Open"}</button>
-      </div>
-    `,
-  );
+  .render(({ state }) => (
+    <div>
+      {state.open() ? <p>Content</p> : ""}
+      <button>{state.open() ? "Close" : "Open"}</button>
+    </div>
+  ));
 ```
 
 ## Sharing state across islands

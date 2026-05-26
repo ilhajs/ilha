@@ -5,7 +5,11 @@ description: An XSS-safe tagged template for building HTML strings with automati
 
 # HTML
 
-An XSS-safe tagged template for building HTML strings. Interpolated values are HTML-escaped by default, making the safe path the default and explicit opt-in required for raw markup.
+An XSS-safe tagged template for building HTML strings. This is ilha's low-level templating API: you can use it directly, but JSX is the preferred authoring style for most apps.
+
+Because `html`` ` is plain TypeScript/JavaScript, it does not require JSX syntax, a JSX runtime import, or a build transform. That makes it a great fit for no-build apps, small scripts, server-only rendering, or any place where you want ilha's escaping and composition rules without JSX tooling.
+
+Interpolated values are HTML-escaped by default, making the safe path the default and explicit opt-in required for raw markup.
 
 ## Basic usage
 

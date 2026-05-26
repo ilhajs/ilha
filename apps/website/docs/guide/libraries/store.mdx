@@ -147,15 +147,14 @@ const unsub = store.subscribe(
 
 ### `store.bind(el, render)`
 
-Reactively renders a store-driven HTML string into a DOM element whenever state changes. The render function may return a plain string or an `html\`\`` tagged template. Runs immediately on call to set initial content.
+Reactively renders store-driven markup into a DOM element whenever state changes. The render function may return JSX, a plain string, or any `RawHtml` value. Runs immediately on call to set initial content.
 
-```ts
-import { html } from "ilha";
-
-const unsub = store.bind(
-  document.getElementById("counter")!,
-  (state) => html`<p>Count: ${state.count}</p>`,
-);
+```tsx
+/** @jsxImportSource ilha */
+// ---cut---
+const unsub = store.bind(document.getElementById("counter")!, (state) => (
+  <p>Count: {state.count}</p>
+));
 
 unsub(); // detach
 ```
@@ -164,11 +163,13 @@ unsub(); // detach
 
 Only re-renders when the selected slice changes.
 
-```ts
+```tsx
+/** @jsxImportSource ilha */
+// ---cut---
 store.bind(
   document.getElementById("badge")!,
   (s) => s.count,
-  (count) => html`<span>${count}</span>`,
+  (count) => <span>{count}</span>,
 );
 ```
 
@@ -199,9 +200,11 @@ stop();
 
 The standard pattern is subscribing to a store slice inside an island's `.effect()` and driving a local signal from it. The `.effect()` cleanup return keeps things tidy on unmount.
 
-```ts
+```tsx
+/** @jsxImportSource ilha */
+// ---cut---
 import { createStore } from "@ilha/store";
-import ilha, { html } from "ilha";
+import ilha from "ilha";
 
 export const cartStore = createStore({ items: [] as string[] }, (set, get) => ({
   add(item: string) {
@@ -220,13 +223,13 @@ export const CartIsland = ilha
       (items) => state.items(items),
     );
   })
-  .render(
-    ({ state }) => html`
-      <ul>
-        ${state.items().map((item) => html`<li>${item}</li>`)}
-      </ul>
-    `,
-  );
+  .render(({ state }) => (
+    <ul>
+      {state.items().map((item) => (
+        <li>{item}</li>
+      ))}
+    </ul>
+  ));
 ```
 
 When the store updates, the slice subscription fires, the island signal updates, and ilha re-renders only the affected DOM — no manual wiring needed.
@@ -281,11 +284,13 @@ issuesToErrors([
 
 These three helpers form a straight pipeline from DOM event → typed data → error state. The store holds errors; the schema drives types.
 
-```ts
+```tsx
+/** @jsxImportSource ilha */
+// ---cut---
 import { createStore } from "@ilha/store";
 import { extractFormData, validateWithSchema, issuesToErrors } from "@ilha/store/form";
 import type { FormErrors } from "@ilha/store/form";
-import ilha, { html } from "ilha";
+import ilha from "ilha";
 import { z } from "zod";
 
 const ContactSchema = z.object({
@@ -316,26 +321,26 @@ export default ilha
   })
   .render(() => {
     const errors = formStore.getState().errors;
-    return html`
+    return (
       <form>
         <label>
           Name
           <input name="name" />
-          ${errors.name ? html`<p role="alert">${errors.name.join(", ")}</p>` : ""}
+          {errors.name ? <p role="alert">{errors.name.join(", ")}</p> : ""}
         </label>
         <label>
           Email
           <input name="email" type="email" />
-          ${errors.email ? html`<p role="alert">${errors.email.join(", ")}</p>` : ""}
+          {errors.email ? <p role="alert">{errors.email.join(", ")}</p> : ""}
         </label>
         <label>
           Message
           <textarea name="message"></textarea>
-          ${errors.message ? html`<p role="alert">${errors.message.join(", ")}</p>` : ""}
+          {errors.message ? <p role="alert">{errors.message.join(", ")}</p> : ""}
         </label>
         <button type="submit">Send</button>
       </form>
-    `;
+    );
   });
 ```
 

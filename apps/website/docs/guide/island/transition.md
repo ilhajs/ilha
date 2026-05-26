@@ -9,7 +9,9 @@ Attaches enter and leave animation callbacks to the island. The enter callback r
 
 ## Basic usage
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -43,14 +45,16 @@ const Island = ilha
       ).finished;
     },
   })
-  .render(() => `<div>content</div>`);
+  .render(() => <div>content</div>);
 ```
 
 ## Enter transition
 
 The `enter` callback receives the host element immediately after mount. It does not block the island from being interactive — event listeners and effects are already active when it runs.
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -66,7 +70,7 @@ const Island = ilha
       );
     },
   })
-  .render(() => `<div>content</div>`);
+  .render(() => <div>content</div>);
 ```
 
 The enter callback does not need to be async if you do not need to await the animation.
@@ -75,7 +79,9 @@ The enter callback does not need to be async if you do not need to await the ani
 
 The `leave` callback is awaited before ilha runs cleanup. This means event listeners, effects, and signals remain active for the full duration of the leave animation — state updates and re-renders still work while the island is leaving.
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -85,7 +91,7 @@ const Island = ilha
       await host.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200 }).finished;
     },
   })
-  .render(() => `<div>content</div>`);
+  .render(() => <div>content</div>);
 ```
 
 If `leave` throws or rejects, cleanup still runs — the transition error is logged to the console but does not prevent unmounting.
@@ -94,7 +100,9 @@ If `leave` throws or rejects, cleanup still runs — the transition error is log
 
 Both callbacks are optional. You can define only one if the other is not needed:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Drawer = ilha
@@ -112,14 +120,16 @@ const Drawer = ilha
       }).finished;
     },
   })
-  .render(() => `<div class="drawer">content</div>`);
+  .render(() => <div class="drawer">content</div>);
 ```
 
 ## Using CSS transitions
 
 You are not limited to the Web Animations API. Any async work is valid — including toggling a class and waiting for a CSS transition to finish:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 function cssTransitionEnd(el: Element): Promise<void> {
@@ -140,7 +150,7 @@ const Island = ilha
       await cssTransitionEnd(host);
     },
   })
-  .render(() => `<div>content</div>`);
+  .render(() => <div>content</div>);
 ```
 
 ## Interaction with [`.onMount()`](/guide/island/onmount)

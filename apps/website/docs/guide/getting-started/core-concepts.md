@@ -1,11 +1,11 @@
 ---
 title: Core Concepts
-description: Learn the core ideas behind ilha — islands, signals, HTML-first rendering, and the builder chain.
+description: Learn the core ideas behind ilha — islands, signals, JSX rendering, and the builder chain.
 ---
 
 # Core Concepts
 
-ilha is built around a small set of ideas: islands, signals, HTML-first rendering, and a builder-based API. Once these click, the rest of the library feels straightforward.
+ilha is built around a small set of ideas: islands, signals, JSX rendering, and a builder-based API. Once these click, the rest of the library feels straightforward.
 
 ## Islands
 
@@ -33,10 +33,10 @@ state.count(); // read
 state.count(5); // write
 ```
 
-Inside `html\`\``, you can interpolate the accessor directly:
+Inside JSX, you can render the signal value directly:
 
-```ts
-html`<p>${state.count()}</p>`;
+```tsx
+<p>{state.count()}</p>
 ```
 
 This keeps reactive state small and direct. You read what you need, update what you need, and the island updates accordingly.
@@ -57,19 +57,21 @@ A typical island might include:
 
 This step-by-step structure is one of the core design ideas in ilha. Instead of putting everything in one large options object, you compose behavior in a readable chain.
 
-## HTML-first rendering
+## JSX rendering
 
-ilha uses tagged template literals to build HTML. The main template helper is [`html`](/guide/helpers/html), which escapes interpolated values by default.
+ilha can render islands with JSX. Configure TypeScript with `jsxImportSource: "ilha"`, then return JSX from [`.render()`](/guide/island/render).
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 const userInput = "Ilha is awesome";
 // ---cut---
-import { html } from "ilha";
+import ilha from "ilha";
 
-html`<p>${userInput}</p>`;
+const Message = ilha.render(() => <p>{userInput}</p>);
 ```
 
-This keeps markup easy to read while making the safe path the default. If you really need to inject trusted markup, you can opt into that explicitly with [`raw()`](/guide/helpers/raw).
+JSX output follows safe rendering rules: interpolated values are escaped by default, arrays render without commas, and ilha values such as child islands can be nested directly. If you really need to inject trusted markup, you can opt into that explicitly with [`raw()`](/guide/helpers/raw).
 
 ## Derived values
 

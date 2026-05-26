@@ -9,27 +9,23 @@ import dedent from "dedent";
 import { Sandbox } from "$src/sandbox";
 
 export const script = dedent`
-    import "./styles.css";
-    import ilha, { html, mount } from "ilha";
+    import ilha from "ilha";
 
-    const Counter = ilha
+    export const Example = ilha
       .state("count", 1)
       .derived("doubled", ({ state }) => state.count() * 2)
       .on("[data-action=increase]@click", ({ state }) => {
         state.count(state.count() + 1)
       })
       .render(
-        ({ state, derived }) => html\`
-          <p>Count: \${state.count()}</p>
-          <p>Doubled: \${derived.doubled.value}</p>
+        ({ state, derived }) => <>
+          <p>Count: {state.count()}</p>
+          <p>Doubled: {derived.doubled.value}</p>
           <button data-action="increase">increase</button>
-        \`
+        </>
       );
 
-    mount({ Counter });
-
 `;
-export const template = `<div data-ilha="Counter"></div>`;
 
 # Derived
 
@@ -39,7 +35,7 @@ change. Use `.derived()` to keep complex logic out of your templates and make
 components easier to reason about.
 
 ```ts
-.derived("name", ({ state }) => /_ computed value _/)
+.derived("name", ({ state }) => /* computed value */)
 ```
 
 The callback receives the component context, just like `.on()`. The result is
@@ -50,7 +46,7 @@ write to a derived property directly — it always reflects the latest computed 
 The result exposes `value`, `loading`, and `error` — so you get built-in async
 state without reaching for SWR or TanStack Query.
 
-<Sandbox script={script} template={template} />
+<Sandbox script={script} />
 
 ## Similar concepts
 

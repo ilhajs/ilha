@@ -12,7 +12,7 @@ export const URLS = {
 export const AI_SYSTEM_PROMPT =
   "Source code of `ilha`: https://raw.githubusercontent.com/ilhajs/ilha/refs/heads/main/packages/ilha/src/index.ts. Use it to perform this task: ";
 
-export const COUNTER_CODE = `import ilha, { html, mount } from "ilha";
+export const COUNTER_CODE = `import ilha, { mount } from "ilha";
 
 export const Counter = ilha
   .state("count", 0)
@@ -20,16 +20,19 @@ export const Counter = ilha
   .on("[data-action=increase]@click", ({ state }) => {
     state.count(state.count() + 1);
   })
-  .on("[data-action=decrease]@click", ({ state }) => {
-    state.count(state.count() - 1);
+  .effect(({ state }) => {
+    if (state.count() > 3) {
+      state.count(0);
+    }
   })
   .render(
-    ({ state, derived }) => html\`
-      <p>Count: \${state.count()}</p>
-      <p>Doubled: \${derived.doubled.value}</p>
-      <button data-action="increase">Increase</button>
-      <button data-action="decrease">Decrease</button>
-    \`,
+    ({ state, derived }) => (
+      <div class="card">
+        <p>Count: {state.count()}</p>
+        <p>Doubled: {derived.doubled.value}</p>
+        <button data-action="increase">Increase</button>
+      </div>
+    )
   );
 
 mount({ Counter });
@@ -84,7 +87,9 @@ const Search = ilha
     document.title = title;
   })
   .bind("[name=q]", "query")
-  .render(({ state, derived }) => html\`
-    <input name="q" placeholder="Search…" />
-    <!--Render results-->
-  \`);`;
+  .render(({ state, derived }) => (
+    <>
+      <input name="q" placeholder="Search…" />
+      {/* Render results */}
+    </>
+  ));`;

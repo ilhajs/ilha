@@ -9,8 +9,7 @@ import dedent from "dedent";
 import { Sandbox } from "$src/sandbox";
 
 export const script = dedent`
-    import "./styles.css";
-    import ilha, { html, mount, type } from "ilha";
+    import ilha from "ilha";
 
     const PokemonPicker = ilha
       .input<{ defaultPokemon: string }>()
@@ -50,37 +49,28 @@ export const script = dedent`
       .render(({ state }) => {
         const currentPokemon = state.pokemon();
         const options = state.pokemonList().map(
-          ({ name }) => html\`
-            <option value="\${name}" \${
-            name === currentPokemon ? 'selected' : ''
-          }>\${name}</option>
-          \`
+          ({ name }) => <option value={name} selected={name === currentPokemon}>{name}</option>
         );
 
         const card = state.pokemonData()
-          ? html\`
-              <img src="\${state.pokemonData().sprites.front_default}" />
-              <h2>\${state.pokemonData().name}</h2>
-            \`
-          : html\`<p>Loading...</p>\`;
+          ? <>
+              <img src={state.pokemonData().sprites.front_default} />
+              <h2>{state.pokemonData().name}</h2>
+            </>
+          : <p>Loading...</p>;
 
-        return html\`
+        return <>
           <label for="pokemon">Pick a Pokemon</label>
-          <select id="pokemon" bind:value=\${state.pokemon}>
-            \${options}
+          <select id="pokemon" bind:value={state.pokemon}>
+            {options}
           </select>
-          \${card}
-        \`;
+          {card}
+        </>;
       });
 
-    const Pokedex = ilha.render(() => html\`
-      \${PokemonPicker({ defaultPokemon: "charizard" })}
-    \`);
-
-    mount({ Pokedex });
+    export const Example = ilha.render(() => <PokemonPicker defaultPokemon="charizard" />);
 
 `;
-export const template = `<div data-ilha="Pokedex"></div>`;
 
 # Input
 
@@ -120,11 +110,10 @@ your component.
 ## Composition
 
 The example above also demonstrates island composition. A parent island can
-render a child island directly inside its html&grave;&grave; template by interpolating
-it with`${Child}` or `${Child({ prop: value })}`:
+render a child island directly in JSX:
 
 ```ts
-const Pokedex = ilha.render(() => html` ${PokemonPicker({ defaultPokemon: "charizard" })} `);
+const Pokedex = ilha.render(() => <PokemonPicker defaultPokemon="charizard" />);
 ```
 
 Each child manages its own state, lifecycle, and reactivity independently. The
@@ -137,4 +126,4 @@ independently.
 > This tutorial uses the PokéAPI for educational purposes only and is not affiliated
 > with or endorsed by the Pokémon Company.
 
-<Sandbox script={script} template={template} />
+<Sandbox script={script} />

@@ -29,8 +29,10 @@ The result is a plain string, identical to what you would get from an untagged t
 
 Pass the result to the [`.css()`](/guide/island/css) builder method to attach it to an island:
 
-```ts twoslash
-import ilha, { css, html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha, { css } from "ilha";
 
 const styles = css`
   .title {
@@ -47,14 +49,12 @@ const styles = css`
 const Card = ilha
   // [!code highlight]
   .css(styles)
-  .render(
-    () => html`
-      <div>
-        <p class="title">Hello</p>
-        <button>Action</button>
-      </div>
-    `,
-  );
+  .render(() => (
+    <div>
+      <p class="title">Hello</p>
+      <button>Action</button>
+    </div>
+  ));
 ```
 
 ## Interpolations
@@ -87,7 +87,9 @@ const styles = css`
 
 A common pattern is to use both together: author styles with css&grave;&grave; for tooling support, then pass the result to[`.css()`](/guide/island/css) to attach them:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha, { css } from "ilha";
 
 const styles = css`
@@ -96,15 +98,17 @@ const styles = css`
   }
 `; // ← tooling sees CSS here
 
-ilha.css(styles).render(() => `<p>hello</p>`); // ← styles are attached here
+ilha.css(styles).render(() => <p>hello</p>); // ← styles are attached here
 ```
 
 ## Organizing styles
 
 For larger islands, keeping styles in a separate variable improves readability and keeps the builder chain focused on structure and behavior:
 
-```ts twoslash
-import ilha, { css, html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha, { css } from "ilha";
 
 const styles = css`
   .card {
@@ -132,15 +136,13 @@ const Card = ilha
   .state("expanded", false)
   .on("button@click", ({ state }) => state.expanded(!state.expanded()))
   .css(styles)
-  .render(
-    ({ state }) => html`
-      <div class="card">
-        <p class="card-title">Title</p>
-        ${state.expanded() ? html`<p class="card-body">Content</p>` : ""}
-        <button>${state.expanded() ? "Collapse" : "Expand"}</button>
-      </div>
-    `,
-  );
+  .render(({ state }) => (
+    <div class="card">
+      <p class="card-title">Title</p>
+      {state.expanded() ? <p class="card-body">Content</p> : ""}
+      <button>{state.expanded() ? "Collapse" : "Expand"}</button>
+    </div>
+  ));
 ```
 
 ## Notes

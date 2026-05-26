@@ -9,43 +9,39 @@ import dedent from "dedent";
 import { Sandbox } from "$src/sandbox";
 
 export const script = dedent`
-    import "./styles.css";
-    import ilha, { html, mount } from "ilha";
+    import ilha, { mount } from "ilha";
 
-    const Counter = ilha
+    export const Example = ilha
       .state("count", 0)
       .derived("doubled", ({ state }) => state.count() * 2)
       .on("[data-action=increase]@click", ({ state }) => {
         state.count(state.count() + 1)
       })
       .render(
-        ({ state, derived }) => html\`
-          <p>Count: \${state.count()}</p>
-          <p>Doubled: \${derived.doubled.value}</p>
+        ({ state, derived }) => <>
+          <p>Count: {state.count()}</p>
+          <p>Doubled: {derived.doubled.value}</p>
           <label for="count">Current count</label>
-          <input id="count" type="number" bind:value=\${state.count} />
+          <input id="count" type="number" bind:value={state.count} />
           <button data-action="increase">Increase</button>
-        \`
+        </>
       );
 
-    mount({ Counter });
-
 `;
-export const template = `<div data-ilha="Counter"></div>`;
 
-# bind:
+# bind
 
-Use the `bind:` template syntax inside `html\`\`` to create a two-way connection between a state signal and a form element. When the state changes, the input updates. When the user types, the state updates — no event listener boilerplate required.
+Use the `bind:` template syntax in JSX to create a two-way connection between a state signal and a form element. When the state changes, the input updates. When the user types, the state updates — no event listener boilerplate required.
 
 ```ts
-html`<input bind:value=${state.count} />`;
+<input bind:value={state.count} />;
 ```
 
 The `bind:` prefix goes on the attribute, and the value is a signal accessor — either a local `.state()` accessor or an external `signal()`. Ilha infers the correct value property automatically: `value` for text and number inputs, `checked` for checkboxes.
 
 Because binding is declared directly in the template, it lives right next to the element it controls. In the example above, the input and the button both control the same `count` state — either can update it, and both stay in sync.
 
-<Sandbox script={script} template={template} />
+<Sandbox script={script} />
 
 ## Similar concepts
 

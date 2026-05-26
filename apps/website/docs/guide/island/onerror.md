@@ -9,7 +9,9 @@ Registers an error handler that catches errors thrown by [`.on()`](/guide/island
 
 ## Basic usage
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Counter = ilha
@@ -22,15 +24,17 @@ const Counter = ilha
   .onError(({ error, source }) => {
     console.error(`[${source}] ${error.message}`);
   })
-  .render(({ state }) => `<button>${state.count()}</button>`);
+  .render(({ state }) => <button>{state.count()}</button>);
 ```
 
 ## Catching async rejections
 
 `.onError()` also catches rejections from async `.on()` handlers:
 
-```ts twoslash
-import ilha, { html } from "ilha";
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
 
 const Form = ilha
   .state("loading", false)
@@ -45,15 +49,13 @@ const Form = ilha
   .onError(({ error }) => {
     alert(error.message);
   })
-  .render(
-    ({ state }) => html`
-      <form>
-        <button type="submit" disabled="${state.loading()}">
-          ${state.loading() ? "Submitting…" : "Submit"}
-        </button>
-      </form>
-    `,
-  );
+  .render(({ state }) => (
+    <form>
+      <button type="submit" disabled={state.loading()}>
+        {state.loading() ? "Submitting…" : "Submit"}
+      </button>
+    </form>
+  ));
 ```
 
 ## Error context
@@ -73,7 +75,9 @@ The handler receives an `ErrorContext`:
 
 Use `source` to distinguish between `.on()` handler errors and `.effect()` run errors:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -87,14 +91,16 @@ const Island = ilha
       console.error("Effect error:", error);
     }
   })
-  .render(() => `<button>Go</button>`);
+  .render(() => <button>Go</button>);
 ```
 
 ## Multiple error handlers
 
 Chain `.onError()` as many times as needed. All handlers run in declaration order. An error thrown inside one `.onError()` handler does not break the others — it is logged to `console.error` and execution continues:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -110,14 +116,16 @@ const Island = ilha
   .onError(({ error }) => {
     console.log("third handler still runs", error.message);
   })
-  .render(() => `<button>Go</button>`);
+  .render(() => <button>Go</button>);
 ```
 
 ## AbortError is not an error
 
 `AbortError` rejections from `.on()` handlers are **not** routed to `.onError()`. They are the expected outcome of cancellation (via `:abortable` race-cancel or unmount) and would otherwise pollute error tracking:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Search = ilha
@@ -130,14 +138,16 @@ const Search = ilha
     // This is NOT called for AbortError rejections.
     console.error(error);
   })
-  .render(() => `<input />`);
+  .render(() => <input />);
 ```
 
 ## Catching effect errors
 
 `.onError()` catches **synchronous** throws from `.effect()` runs. The runtime does not await async work spawned inside an effect, so passing `signal` to `fetch` only cancels the request — it does not prevent unhandled rejections. You must `await` the promise (if the effect callback is async) or attach `.catch()` inside the effect itself, and handle `AbortError` there. Do not rely on `.onError()` to catch rejected promises from async work inside `.effect()`:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -150,7 +160,7 @@ const Island = ilha
   .onError(({ error, source }) => {
     console.error(`[${source}] ${error.message}`);
   })
-  .render(({ state }) => `<p>${state.count()}</p>`);
+  .render(({ state }) => <p>{state.count()}</p>);
 ```
 
 ## Notes

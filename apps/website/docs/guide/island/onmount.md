@@ -9,7 +9,9 @@ Registers a function that runs once after the island is mounted into the DOM. Us
 
 ## Basic usage
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -17,14 +19,16 @@ const Island = ilha
   .onMount(({ host }) => {
     console.log("mounted", host);
   })
-  .render(() => `<div>hello</div>`);
+  .render(() => <div>hello</div>);
 ```
 
 ## Cleanup
 
 Return a function to run cleanup on unmount:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -36,7 +40,7 @@ const Island = ilha
 
     return () => observer.disconnect(); // [!code highlight]
   })
-  .render(() => `<div>hello</div>`);
+  .render(() => <div>hello</div>);
 ```
 
 The cleanup function is called when `unmount()` is invoked, just before the island tears down its listeners and effects.
@@ -57,7 +61,9 @@ The function receives an `OnMountContext`:
 
 The `hydrated` flag tells you whether the island was activated over existing server-rendered HTML or freshly mounted into an empty element. This is useful when you want to skip an animation or initialization step for content that is already visible:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -66,14 +72,16 @@ const Island = ilha
       host.animate([{ opacity: 0 }, { opacity: 1 }], 300);
     }
   })
-  .render(() => `<div>content</div>`);
+  .render(() => <div>content</div>);
 ```
 
 ## Initializing third-party libraries
 
 `.onMount()` is the right place to hand off a DOM element to a library that manages its own rendering:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 declare global {
   interface Window {
     MapLibrary: any;
@@ -93,14 +101,16 @@ const Map = ilha
 
     return () => map.destroy();
   })
-  .render(() => `<div style="height:400px"></div>`);
+  .render(() => <div style="height:400px"></div>);
 ```
 
 ## Multiple onMount hooks
 
 Chain `.onMount()` as many times as needed. Each runs independently in the order it was declared:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
@@ -110,21 +120,23 @@ const Island = ilha
   .onMount(({ state }) => {
     console.log("second");
   })
-  .render(() => `<div>hello</div>`);
+  .render(() => <div>hello</div>);
 ```
 
 ## Skipping onMount during hydration
 
 When using [`.hydratable()`](/guide/island/hydratable) with `snapshot: true`, the `skipOnMount` option tells ilha to skip all `.onMount()` calls when the island is rehydrated from a snapshot. This is useful when your mount logic would duplicate work that was already done on the server:
 
-```ts twoslash
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
 import ilha from "ilha";
 
 const Island = ilha
   .onMount(({ host }) => {
     console.log("this is skipped on hydration");
   })
-  .render(() => `<div>hello</div>`);
+  .render(() => <div>hello</div>);
 
 // On the server:
 await Island.hydratable(

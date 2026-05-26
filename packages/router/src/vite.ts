@@ -141,7 +141,14 @@ function chainForFile(
   const relDir = relative(pagesDir, dirname(file));
   const parts = relDir === "" ? [] : relDir.split("/");
   const dirs = [pagesDir, ...parts.map((_, i) => join(pagesDir, ...parts.slice(0, i + 1)))];
-  return dirs.map((dir) => join(dir, sentinel)).filter((candidate) => all.has(candidate));
+  const candidatesFor = (dir: string) => {
+    const tsx = `${join(dir, sentinel)}.tsx`;
+    if (all.has(tsx)) return [tsx];
+    const ts = `${join(dir, sentinel)}.ts`;
+    if (all.has(ts)) return [ts];
+    return [];
+  };
+  return dirs.flatMap(candidatesFor);
 }
 
 // ─────────────────────────────────────────────
@@ -189,8 +196,8 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
   return Promise.all(
     pages.map(async (file) => {
       const pattern = fileToPattern(pagesDir, file);
-      const layouts = chainForFile(pagesDir, file, allSet, "+layout.ts");
-      const errors = chainForFile(pagesDir, file, allSet, "+error.ts");
+      const layouts = chainForFile(pagesDir, file, allSet, "+layout");
+      const errors = chainForFile(pagesDir, file, allSet, "+error");
       const [pageHasLoader, ...layoutFlags] = await Promise.all([
         hasLoaderExport(file),
         ...layouts.map(getLayoutHasLoader),
