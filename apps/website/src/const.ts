@@ -4,7 +4,7 @@ export const URLS = {
   CHATGPT: "https://chatgpt.com/",
   PERPLEXITY: "http://perplexity.ai/",
   GITHUB: "https://github.com/ilhajs/ilha",
-  DOCSOME: "https://github.com/guarana-studio/docsome",
+  AREIA: "https://areia.ilha.build",
   DISCORD: "https://discord.gg/WnVTMCTz74",
   X_COM: "https://x.com/ilha_js",
 } as const;
@@ -14,39 +14,49 @@ export const AI_SYSTEM_PROMPT =
 
 export const COUNTER_CODE = `import ilha, { mount } from "ilha";
 
-export const Counter = ilha
-  .state("count", 0)
-  .derived("doubled", ({ state }) => state.count() * 2)
-  .on("[data-action=increase]@click", ({ state }) => {
-    state.count(state.count() + 1);
+export const Signup = ilha
+  .state("email", "")
+  .derived("isReady", ({ state }) =>
+    state.email().includes("@"))
+  .on("[data-action=join]@click", async ({ state }) => {
+    await fetch("/api/waitlist", {
+      method: "POST",
+      body: JSON.stringify({ email: state.email() }),
+    });
   })
-  .effect(({ state }) => {
-    if (state.count() > 3) {
-      state.count(0);
-    }
-  })
-  .render(
-    ({ state, derived }) => (
-      <div class="card">
-        <p>Count: {state.count()}</p>
-        <p>Doubled: {derived.doubled.value}</p>
-        <button data-action="increase">Increase</button>
-      </div>
-    )
-  );
+  .render(({ state, derived }) => (
+    <form class="card">
+      <input
+        name="email"
+        bind:value={state.email}
+        placeholder="you@company.com"
+      />
+      <button
+        data-action="join"
+        disabled={!derived.isReady.value}
+      >
+        Join the waitlist
+      </button>
+    </form>
+  ));
 
-mount({ Counter });
+mount({ Signup });
 `;
 
 export const RENDERING_CODE = `import { mount } from "ilha";
-import { Counter } from "./hero";
+import { ProductCard } from "./product-card";
 
-// Client side (lazy mount)
-mount({ Counter });
-// Server side (only initial state)
-Counter.toString();
-// Server side hydratable (execute derived)
-await Counter.hydratable();
+// Ship plain HTML for instant first paint.
+const html = ProductCard.toString({ featured: true });
+
+// Add interactivity only where it matters.
+const island = await ProductCard.hydratable(
+  { featured: true },
+  { name: "ProductCard", snapshot: true },
+);
+
+// Or mount it client-side when SEO is not needed.
+mount({ ProductCard });
 `;
 
 export const ILHA_ROUTER_CODE = `// vite.config.ts
@@ -57,39 +67,44 @@ export default defineConfig({
   plugins: [pages()],
 });
 
-// main.ts
-// Add routes in src/pages/ and import registered routes
+// src/pages/pricing.tsx becomes /pricing.
+// src/pages/blog/[slug].tsx becomes /blog/:slug.
 import { pageRouter } from "ilha:pages";
+
+pageRouter.start();
 `;
 
-export const ILHA_STORE_CODE = `// src/lib/store.ts
+export const ILHA_STORE_CODE = `// src/lib/cart.ts
 import { createStore } from "@ilha/store";
 
-const store = createStore({ count: 0 }, (set, get) => ({
-  increment() {
-    set({ count: get().count + 1 });
+export const cart = createStore({ items: [] }, (set, get) => ({
+  add(product) {
+    set({ items: [...get().items, product] });
+  },
+  clear() {
+    set({ items: [] });
   },
 }));
 
-store.getState().increment();
-store.getState().count; // → 1`;
+cart.getState().add({ id: "pro", name: "Pro plan" });
+cart.getState().items.length; // → 1`;
 
 export const SIGNALS_CODE = `\
 const Search = ilha
   .state("query", "")
   .derived("results", async ({ state, signal }) => {
-    const url = \`/api/search?q=\${state.query()}\`;
-    const res = await fetch(url, { signal });
+    if (!state.query()) return [];
+
+    const res = await fetch(
+      \`/api/search?q=\${state.query()}\`,
+      { signal },
+    );
     return res.json() as Promise<string[]>;
   })
-  .effect(({ state }) => {
-    const title = \`Search: \${state.query() || "…"}\`;
-    document.title = title;
-  })
   .bind("[name=q]", "query")
-  .render(({ state, derived }) => (
-    <>
-      <input name="q" placeholder="Search…" />
-      {/* Render results */}
-    </>
+  .render(({ derived }) => (
+    <section class="card">
+      <input name="q" placeholder="Search docs, products, or posts…" />
+      <Results items={derived.results.value ?? []} />
+    </section>
   ));`;

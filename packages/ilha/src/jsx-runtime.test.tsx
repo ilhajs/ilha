@@ -200,6 +200,102 @@ describe("ilha JSX runtime", () => {
     expect(result.value).toBe("<div><span>safe</span></div>");
   });
 
+  it("renders non-JSX ilha island as child of JSX component", () => {
+    const Child = ilha.render(
+      () =>
+        html`
+          <span>child</span>
+        `,
+    );
+    const Parent = ilha.render(() => (
+      <div class="parent">
+        <Child />
+      </div>
+    ));
+
+    const result = Parent() as string;
+    expect(result).toContain('class="parent"');
+    expect(result).toContain("<span>child</span>");
+    expect(result).toContain("data-ilha-slot=");
+  });
+
+  it("renders non-JSX ilha island via expression in JSX", () => {
+    const Child = ilha.render(
+      () =>
+        html`
+          <b>bold</b>
+        `,
+    );
+    const Parent = ilha.render(() => <div>{Child()}</div>);
+
+    const result = Parent() as string;
+    expect(result).toContain("<b>bold</b>");
+    expect(result).toContain("data-ilha-slot=");
+  });
+
+  it("renders a plain function component returning html`` inside a JSX ilha island", () => {
+    const Child = () =>
+      html`
+        <span>plain child</span>
+      `;
+    const Parent = ilha.render(() => (
+      <div class="parent">
+        <Child />
+      </div>
+    ));
+
+    const result = Parent() as string;
+    expect(result).toContain('class="parent"');
+    expect(result).toContain("<span>plain child</span>");
+  });
+
+  it("mounts a plain function component returning html`` inside a JSX ilha island", () => {
+    const Child = () =>
+      html`
+        <span class="child">mounted child</span>
+      `;
+    const Parent = ilha.render(() => (
+      <div class="parent">
+        <Child />
+      </div>
+    ));
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+
+    expect(el.querySelector(".parent")).not.toBeNull();
+    expect(el.querySelector(".child")?.textContent).toBe("mounted child");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("mounts a non-JSX ilha island inside a JSX parent and keeps it reactive", () => {
+    const Child = ilha
+      .state("count", 0)
+      .on("button@click", ({ state }) => {
+        state.count(state.count() + 1);
+      })
+      .render(({ state }) => html`<button>${state.count()}</button>`);
+
+    const Parent = ilha.render(() => (
+      <section>
+        <Child />
+      </section>
+    ));
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+    const button = el.querySelector("button") as HTMLButtonElement;
+
+    expect(button.textContent).toBe("0");
+    button.click();
+    expect(button.textContent).toBe("1");
+
+    unmount();
+    cleanup(el);
+  });
+
   it("renders state in JSX", () => {
     const Counter = ilha.state("count", 3).render(({ state }) => <p>Count: {state.count()}</p>);
 

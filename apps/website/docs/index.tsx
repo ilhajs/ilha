@@ -8,7 +8,6 @@ import { useEffect } from "react";
 import { createHighlighter } from "shiki";
 
 import {
-  AI_SYSTEM_PROMPT,
   COUNTER_CODE,
   ILHA_ROUTER_CODE,
   ILHA_STORE_CODE,
@@ -22,7 +21,10 @@ function ToJsx({ children }: { children: string }) {
   return <div style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: children }} />;
 }
 
-const NITRO_SANDBOX = URLS.SANDBOX.replace("{template}", "nitro") + "?file=src%2Fpages%2Findex.ts";
+const META_DESCRIPTION =
+  "Ilha is a lightweight UI framework under 2,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.";
+
+const NITRO_SANDBOX = `${URLS.SANDBOX.replace("{template}", "nitro")}?file=src%2Fpages%2Findex.ts`;
 
 const highlighter = await createHighlighter({
   themes: ["night-owl-light", "night-owl"],
@@ -35,71 +37,6 @@ function highlightCode(code: string): string {
     themes: { light: "night-owl-light", dark: "night-owl" },
   });
 }
-
-const Libraries = ilha
-  .state("library", "router")
-  .derived("code", ({ state }) => {
-    switch (state.library()) {
-      case "router":
-        return highlightCode(ILHA_ROUTER_CODE);
-      case "store":
-        return highlightCode(ILHA_STORE_CODE);
-    }
-  })
-  .on("[data-library]@click", ({ state, target }) => {
-    const library = target.getAttribute("data-library");
-    state.library(library!);
-  })
-  .on("[data-action=copyCommand]@click", async ({ state }) => {
-    const command = `npm install @ilha/${state.library()}`;
-    await navigator.clipboard.writeText(command);
-    return toast("Copied to clipboard");
-  })
-  .render(
-    ({ state, derived }) => html`
-      <section class="card mt-20 flex flex-col gap-0 overflow-hidden rounded-4xl p-0 lg:flex-row">
-        <div class="flex flex-1 flex-col justify-center gap-4 border-r px-4 py-8 lg:px-8">
-          <h2 class="text-xl font-semibold lg:text-2xl">Batteries included.</h2>
-          <p class="text-foreground/60 text-sm lg:text-[1rem]">
-            Ilha goes beyond UI templating. Get routing, typed form binding, and zustand-shaped
-            state management out of the box — no extra setup required.
-          </p>
-          <p class="text-foreground/80 text-sm">Install with:</p>
-          <button data-action="copyCommand" class="btn-lg-outline justify-start rounded-full">
-            <img src="/copy.svg" class="size-5" />
-            <span>npm install @ilha/${state.library()}</span>
-          </button>
-        </div>
-        <div class="flex-1 overflow-x-auto bg-[#FBFBFB] p-2" data-action="copy">
-          <div class="tabs w-full">
-            <nav role="tablist" aria-orientation="horizontal" class="w-full rounded-full">
-              <button
-                type="button"
-                role="tab"
-                aria-selected="${state.library() === "router"}"
-                tabindex="0"
-                data-library="router"
-                class="rounded-full"
-              >
-                @ilha/router
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected="${state.library() === "store"}"
-                tabindex="0"
-                data-library="store"
-                class="rounded-full"
-              >
-                @ilha/store
-              </button>
-            </nav>
-          </div>
-          <div class="text-sm lg:text-[1rem]">${raw(derived.code.value ?? "")}</div>
-        </div>
-      </section>
-    `,
-  );
 
 const Creator = ilha
   .state("name", "")
@@ -119,15 +56,15 @@ const Creator = ilha
   })
   .render(
     ({ state, derived }) => html`
-      <section class="relative -mx-4 mt-20 overflow-hidden lg:mx-0 lg:rounded-4xl">
+      <section class="relative -mx-4 overflow-hidden lg:mx-0 border-t border-b">
         <img src="/dither-3.jpg" class="h-160 w-full object-cover" />
         <div class="absolute inset-0 flex flex-col items-center justify-center p-4">
           <div
-            class="flex w-full max-w-180 flex-col gap-4 rounded-3xl bg-neutral-50 p-6 shadow-xl dark:bg-neutral-900"
+            class="flex w-full max-w-180 flex-col gap-4 bg-neutral-50 p-6 shadow-xl border dark:bg-neutral-900"
           >
             <h2 class="text-lg font-semibold">Start a new Ilha project</h2>
             <label class="label">Project name</label>
-            <input type="text" name="name" class="input rounded-full" placeholder="my-app" bind:value=${state.name} />
+            <input type="text" name="name" class="input" placeholder="my-app" bind:value=${state.name} />
             <label class="label">Pick a template</label>
             <fieldset class="grid gap-4">
               <label class="label"
@@ -147,9 +84,9 @@ const Creator = ilha
               <input type="checkbox" name="useBun" role="switch" class="input" bind:checked=${state.useBun} />
               Use Bun
             </label>
-            <div class="flex min-w-0 items-center gap-2">
+            <div class="flex min-w-0 items-center">
               <button
-                class="btn-outline flex-1 justify-start overflow-hidden rounded-full text-left"
+                class="btn-outline flex-1 justify-start overflow-hidden text-left"
                 data-action="copyCommand"
               >
                 <img src="/copy.svg" class="size-5 shrink-0" />
@@ -159,7 +96,7 @@ const Creator = ilha
                 href="${derived.sandboxUrl.value}"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="btn rounded-full bg-sky-900 dark:bg-sky-300"
+                class="btn bg-sky-900 dark:bg-sky-300"
               >
                 <img src="/stackblitz.svg" class="size-4" />
                 <span>Open Sandbox</span>
@@ -171,148 +108,190 @@ const Creator = ilha
     `,
   );
 
-const AiPrompt = ilha
-  .state("provider", "claude")
-  .on('[data-form="ai"]@submit', ({ event, target, state }) => {
-    if (!(target instanceof HTMLFormElement)) return;
-    event.preventDefault();
-    const formData = new FormData(target);
-    const prompt = formData.get("prompt")!.toString();
-    const wholePrompt = AI_SYSTEM_PROMPT + prompt;
-    const url = new URL(URLS[state.provider().toUpperCase() as keyof typeof URLS]);
-    url.searchParams.set("q", wholePrompt);
-    window.open(url, "_blank");
+const FEATURE_CARDS = [
+  {
+    icon: "/code.svg",
+    title: "Fully open-source.",
+    description: "Every line is free. No paywalls, no hidden tiers.",
+  },
+  {
+    icon: "/thumb.svg",
+    title: "No build step. No virtual DOM.",
+    description: "Runs from a single import — no transform, no toolchain to wrestle with.",
+  },
+  {
+    icon: "/link.svg",
+    title: "Works with any backend.",
+    description: "TypeScript, PHP, Ruby, Elixir, Rust, Go — Ilha fits your stack regardless.",
+  },
+];
+
+const WHY_ILHA_TABS = [
+  {
+    id: "syntax",
+    label: "Familiar syntax",
+    title: "Build interactive UI without framework ceremony",
+    description: "Keep state, validation, events, and markup together in one tiny island.",
+    points: ["Svelte-like reactivity", "React-flavored templating", "No framework ceremony"],
+    code: COUNTER_CODE,
+  },
+  {
+    id: "signals",
+    label: "Signals",
+    title: "Fast by default, because updates are precise",
+    description:
+      "Signals track the data your UI actually reads, so updates stay focused and predictable.",
+    points: ["Fine-grained updates", "Abortable async work", "No app-wide re-render loop"],
+    code: SIGNALS_CODE,
+  },
+  {
+    id: "rendering",
+    label: "Rendering",
+    title: "One island, every rendering strategy",
+    description:
+      "Choose the right rendering mode per island instead of committing your whole app to one strategy.",
+    points: ["Static HTML", "Server-rendered hydration", "Client-only islands"],
+    code: RENDERING_CODE,
+  },
+  {
+    id: "routing",
+    label: "Routing",
+    title: "Start tiny, add structure when it pays off",
+    description: "Start with a single import, then add structure only when the product earns it.",
+    points: ["Single-file prototypes", "File-based routes", "Dynamic pages without rewrites"],
+    code: ILHA_ROUTER_CODE,
+  },
+  {
+    id: "store",
+    label: "Store",
+    title: "The essentials are ready when you need them",
+    description:
+      "Keep the core tiny, but bring in practical extras when real apps need coordination.",
+    points: [
+      "Shared cart and session state",
+      "Cross-island coordination",
+      "Zustand-shaped ergonomics",
+    ],
+    code: ILHA_STORE_CODE,
+  },
+];
+
+function getWhyIlhaTab(id: string) {
+  return WHY_ILHA_TABS.find((item) => item.id === id) ?? WHY_ILHA_TABS[0];
+}
+
+const WhyIlha = ilha
+  .state("tab", WHY_ILHA_TABS[0].id)
+  .derived("code", ({ state }) => {
+    return highlightCode(getWhyIlhaTab(state.tab()).code);
+  })
+  .on("[data-why-tab]@click", ({ state, target }) => {
+    const tab = target.getAttribute("data-why-tab");
+    if (tab) state.tab(tab);
   })
   .render(
-    ({ state }) => html`
-      <section class="relative -mx-4 mt-20 overflow-hidden lg:mx-0 lg:rounded-4xl">
-        <img src="/dither-2.jpg" class="h-120 w-full object-cover lg:h-160" />
-        <div class="absolute inset-0 flex flex-col items-center justify-center p-4">
-          <div
-            class="flex w-full max-w-180 flex-col items-center justify-center gap-8 text-center text-balance"
-          >
-            <h2 class="text-3xl font-semibold text-sky-950 lg:text-4xl">Small enough to think with.</h2>
-            <p class="text-sky-950 lg:text-lg">
-              At under 2,500 lines of code, the entire source fits in a single AI context window, so your
-              assistant can reason about the whole framework, not just the docs.
-            </p>
-            <form
-              data-form="ai"
-              class="card w-full gap-4 rounded-3xl border-none p-2 shadow-xl outline-0"
+    ({ state, derived }) => html`
+      <div class="mt-12 grid grid-cols-1 lg:grid-cols-3">
+        ${FEATURE_CARDS.map(
+          (feature, index) => html`
+            <div
+              class="card gap-2 border-l-0 px-8 py-4 shadow-none ${
+                index === FEATURE_CARDS.length - 1 ? "border-r-0" : ""
+              }"
             >
-              <input
-                type="text"
-                name="prompt"
-                class="input border-none bg-transparent shadow-none ring-0 outline-0 lg:text-[1rem]"
-                placeholder="Ask AI to build a landing page..."
-              />
-              <div class="flex items-center justify-between">
-                <select class="select rounded-full" bind:value=${state.provider}>
-                  <option value="claude" selected>Claude</option>
-                  <option value="chatgpt">ChatGPT</option>
-                  <option value="perplexity">Perplexity</option>
-                </select>
-                <button class="btn rounded-full bg-sky-900 dark:bg-sky-300">Ask</button>
-              </div>
-            </form>
+              <img src="${feature.icon}" class="size-10" />
+              <h3 class="text-lg font-semibold">${feature.title}</h3>
+              <p class="text-foreground/60 text-sm lg:text-[1rem]">${feature.description}</p>
+            </div>
+          `,
+        )}
+      </div>
+      <section class="border-t border-b">
+        <div class="tabs w-full">
+          <nav role="tablist" aria-orientation="horizontal" class="w-full overflow-x-auto">
+            ${WHY_ILHA_TABS.map(
+              (tab) => html`
+                <button
+                  type="button"
+                  role="tab"
+                  data-why-tab="${tab.id}"
+                  aria-selected="${state.tab() === tab.id}"
+                  tabindex="${state.tab() === tab.id ? "0" : "-1"}"
+                  class="${
+                    state.tab() === tab.id
+                      ? "bg-background text-foreground shadow-sm dark:border-input dark:bg-input/30"
+                      : ""
+                  }"
+                >
+                  ${tab.label}
+                </button>
+              `,
+            )}
+          </nav>
+        </div>
+        <div class="grid lg:grid-cols-2 lg:items-start">
+          <div class="p-8">
+            <h2 class="text-2xl font-semibold lg:text-3xl">${getWhyIlhaTab(state.tab()).title}</h2>
+            <p class="text-foreground/60 mt-3 text-sm lg:text-[1rem]">
+              ${getWhyIlhaTab(state.tab()).description}
+            </p>
+            <ul class="mt-6 grid gap-3 text-sm lg:text-[1rem]">
+              ${getWhyIlhaTab(state.tab()).points.map(
+                (point) => html`
+                  <li class="flex items-center gap-3">
+                    <span class="size-1.5 bg-sky-600 dark:bg-sky-300"></span>
+                    <span>${point}</span>
+                  </li>
+                `,
+              )}
+            </ul>
+          </div>
+          <div class="code-surface h-140 overflow-auto text-sm lg:text-[1rem]">
+            ${raw(derived.code.value ?? "")}
           </div>
         </div>
       </section>
     `,
   );
 
-const WhyIlha = ilha.render(
-  () => html`
-    <div class="mt-20 grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div class="card p-4 gap-2">
-            <img src="/code.svg" class="size-10" />
-            <h3 class="text-lg font-semibold">Fully open-source.</h3>
-            <p class="text-sm lg:text-[1rem] text-foreground/60">Every line is free. No paywalls, no hidden tiers.</p>
-        </div>
-        <div class="card p-4 gap-2">
-            <img src="/thumb.svg" class="size-10" />
-            <h3 class="text-lg font-semibold">No build step. No JSX. No virtual DOM.</h3>
-            <p class="text-sm lg:text-[1rem] text-foreground/60"">Runs from a single import — no transform, no toolchain to wrestle with.</p>
-        </div>
-        <div class="card p-4 gap-2">
-            <img src="/link.svg" class="size-10" />
-            <h3 class="text-lg font-semibold">Works with any backend.</h3>
-            <p class="text-sm lg:text-[1rem] text-foreground/60"">TypeScript, PHP, Ruby, Elixir, Rust, Go — Ilha fits your stack regardless.</p>
-        </div>
-    </div>
-    <section class="mt-20 grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div class="card rounded-4xl">
-            <header class="px-4 lg:px-8 pt-4 gap-4">
-                <h2 class="text-xl lg:text-2xl">Renders anywhere.</h2>
-                <p class="lg:text-[1rem]">Render to plain HTML on the server, hydrate on the client — with zero flicker. Edge rendering supported too.</p>
-            </header>
-            <section class="flex flex-col flex-1 px-4 lg:px-8">
-                <div class="border rounded-2xl overflow-hidden flex-1 bg-[#FBFBFB] text-sm lg:text-[1rem]">
-                  ${raw(highlightCode(RENDERING_CODE))}
-                </div>
-            </section>
-        </div>
-        <div class="card rounded-4xl">
-            <header class="px-4 lg:px-8 pt-4 gap-4">
-                <h2 class="text-xl lg:text-2xl">Signals, not a virtual DOM.</h2>
-                <p class="lg:text-[1rem]">Fine-grained reactivity via <code>alien-signals</code>. No diffing, no overhead, no surprises.</p>
-            </header>
-            <section class="flex flex-col flex-1 px-4 lg:px-8">
-                <div class="border rounded-2xl overflow-x-scroll flex-1 bg-[#FBFBFB] text-sm lg:text-[1rem]">
-                  ${raw(highlightCode(SIGNALS_CODE))}
-                </div>
-            </section>
-        </div>
-    </section>
-`,
-);
-
 const Hero = ilha.render(
   () => html`
-    <section class="relative -mx-4 overflow-hidden lg:mx-0 lg:h-160 lg:rounded-4xl">
+    <section class="relative -mx-4 lg:mx-0 lg:h-120 border-b">
       <img
         src="/dither-1.jpg"
         alt=""
         aria-hidden="true"
-        class="absolute inset-0 z-0 h-full w-full object-cover lg:rounded-4xl lg:rounded-br-[2.5rem]"
+        class="absolute inset-0 z-0 h-full w-full object-cover"
       />
       <div
         class="relative inset-0 z-10 flex h-full flex-col items-start justify-between gap-8 lg:flex-row lg:items-stretch"
       >
         <div class="flex flex-1 flex-col justify-center gap-4 px-8 py-32 lg:px-16">
-          <div class="badge-outline">Alpha is live</div>
-          <h1 class="text-3xl leading-normal font-semibold text-balance text-sky-950 lg:text-5xl">
+          <div class="badge-outline rounded-none">Alpha is live</div>
+          <h1 class="text-3xl leading-normal font-semibold text-balance text-blue-950 lg:text-4xl">
             The most versatile web UI library.
           </h1>
-          <div class="flex gap-2">
+          <div class="flex">
             <a
               href="/guide/getting-started/introduction"
-              class="btn-lg rounded-full bg-sky-900 lg:h-12 lg:text-lg dark:bg-sky-300"
+              class="btn-lg bg-sky-900 lg:h-12 lg:text-lg dark:bg-sky-300"
               >Get Started</a
             >
             <a
               href="${NITRO_SANDBOX}"
               target="_blank"
               rel="noopener noreferrer"
-              class="btn-lg-secondary rounded-full bg-white lg:h-12 lg:text-lg dark:bg-neutral-800"
+              class="btn-lg-secondary bg-white lg:h-12 lg:text-lg dark:bg-neutral-800"
             >
               <img src="/stackblitz.svg" alt="StackBlitz" class="size-4" />
               <span>Open Sandbox</span>
             </a>
           </div>
         </div>
-        <div class="hidden flex-1 flex-col justify-end lg:flex">
-          <div
-            class="flex flex-col overflow-hidden bg-[#FBFBFB] text-xs shadow-2xl lg:rounded-tl-2xl lg:text-[1rem]"
-          >
-            <div class="bg-[#FBFBFB] py-1 text-center font-mono text-neutral-500">main.tsx</div>
-            ${raw(highlightCode(COUNTER_CODE))}
-          </div>
-        </div>
       </div>
     </section>
-    <section class="mt-20">
-      <p class="text-xl leading-normal text-balance lg:text-4xl">
+    <section class="mt-12">
+      <p class="text-xl leading-normal text-balance lg:text-3xl px-8">
         Ilha is a tiny island architecture library that renders to
         <b class="text-sky-700 dark:text-sky-300">plain HTML on the server</b> and hydrates on the
         client with zero flicker. The core is
@@ -340,11 +319,11 @@ const Footer = ilha.render(
               >Ilha</a
             >
             <a
-              href="${URLS.DOCSOME}"
+              href="${URLS.AREIA}"
               target="_blank"
               rel="noopener noreferrer"
               class="hover:text-foreground transition"
-              >Docsome</a
+              >Areia</a
             >
           </div>
         </nav>
@@ -383,53 +362,38 @@ const Footer = ilha.render(
   `,
 );
 
-const Heading = ilha.input<{ text: string }>().render(
-  ({ input }) =>
-    html`<h2
-        class="mt-20 text-center text-3xl font-semibold text-sky-700 lg:text-4xl dark:text-sky-300"
-      >
-        ${input.text}
-      </h2>`,
-);
-
 export const frontmatter = {
   pageType: "custom",
   title: "Build Modern UI, Your Way",
-  description:
-    "Ilha is a lightweight UI framework under 2,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
+  description: META_DESCRIPTION,
 };
 
-const hero = await Hero.hydratable({}, { name: "Hero", snapshot: true });
-const aiPrompt = await AiPrompt.hydratable({}, { name: "AiPrompt", snapshot: true });
-const whyIlha = await WhyIlha.hydratable({}, { name: "WhyIlha", snapshot: true });
-const libraries = await Libraries.hydratable({}, { name: "Libraries", snapshot: true });
-const creator = await Creator.hydratable({}, { name: "Creator", snapshot: true });
-const footer = await Footer.hydratable({}, { name: "Footer", snapshot: true });
+const [hero, whyIlha, creator, footer] = await Promise.all([
+  Hero.hydratable({}, { name: "Hero", snapshot: true }),
+  WhyIlha.hydratable({}, { name: "WhyIlha", snapshot: true }),
+  Creator.hydratable({}, { name: "Creator", snapshot: true }),
+  Footer.hydratable({}, { name: "Footer", snapshot: true }),
+]);
 
 export default () => {
   useEffect(() => {
-    mount({ Hero, AiPrompt, Heading, WhyIlha, Libraries, Creator, Footer });
+    mount({ Hero, WhyIlha, Creator, Footer });
   }, []);
   useHead({
     title: "Build Modern UI, Your Way",
     meta: [
       {
         name: "description",
-        content:
-          "Ilha is a lightweight UI framework under 2,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
+        content: META_DESCRIPTION,
       },
     ],
   });
   return (
     <div className="flex min-h-screen flex-col">
       <div id="toaster" className="toaster"></div>
-      <div className="container mx-auto flex flex-1 flex-col p-4">
+      <div className="container mx-2 flex flex-1 flex-col border-r border-l lg:mx-auto">
         <ToJsx>{hero}</ToJsx>
-        <ToJsx>{aiPrompt}</ToJsx>
-        <div data-ilha="Heading" data-ilha-props='{"text": "Why Ilha?"}'></div>
         <ToJsx>{whyIlha}</ToJsx>
-        <div data-ilha="Heading" data-ilha-props='{"text": "And there&apos;s more."}'></div>
-        <ToJsx>{libraries}</ToJsx>
         <ToJsx>{creator}</ToJsx>
         <ToJsx>{footer}</ToJsx>
       </div>
