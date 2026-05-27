@@ -60,7 +60,7 @@ const Creator = ilha
         <img src="/dither-3.jpg" class="min-h-180 w-full object-cover sm:h-160" />
         <div class="absolute inset-0 flex flex-col items-center justify-center p-4">
           <div
-            class="flex w-full max-w-180 flex-col gap-4 border bg-neutral-50 p-4 shadow-xl sm:p-6 dark:bg-neutral-900"
+            class="flex w-full max-w-180 flex-col gap-4 border bg-neutral-50/90 p-4 shadow-xl sm:p-6 dark:bg-neutral-900/90 backdrop-blur-lg"
           >
             <h2 class="text-lg font-semibold">Start a new Ilha project</h2>
             <label class="label">Project name</label>
