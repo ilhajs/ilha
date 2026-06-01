@@ -11,12 +11,16 @@
   "dependencies": {
     "@elysiajs/html": "^1.4.2",
     "@elysiajs/static": "^1.4.10",
-    "@ilha/router": "^0.3.6",
+    "@ilha/router": "workspace:*",
+    "areia": "^0.1.3",
     "elysia": "^1.4.28",
-    "ilha": "^0.6.0"
+    "ilha": "workspace:*",
+    "quando": "^0.1.6"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.0",
     "bun-types": "latest",
+    "tailwindcss": "^4.3.0",
     "tsdown": "^0.22.0"
   }
 }

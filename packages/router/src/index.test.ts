@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 
-import ilha, { ISLAND_MOUNT_INTERNAL } from "ilha";
+import ilha, { ISLAND_MOUNT_INTERNAL, mount as ilhaMount, html } from "ilha";
 
 import {
   router,
@@ -14,6 +14,7 @@ import {
   routeSearch,
   defineLayout,
   wrapError,
+  wrapLayout,
   loader,
   redirect,
   Redirect,
@@ -1755,5 +1756,63 @@ describe("wrapError / wrapLayout hydration", () => {
     expect(el.innerHTML).toContain("error-fallback");
 
     handle.unmount();
+  });
+
+  it("wrapLayout forwards mount/hydratable so page state and nested child islands hydrate", async () => {
+    const Child = ilha
+      .input()
+      .onMount(({ host }) => {
+        host.setAttribute("data-child-live", "1");
+      })
+      .render(
+        () =>
+          html`
+            <span data-child>child</span>
+          `,
+      );
+
+    const Page = ilha
+      .state("todos", [{ done: true }, { done: false }])
+      .render(() => html`<div>${Child()}</div>`);
+
+    const Layout = defineLayout((children) =>
+      ilha.render(() => html`<nav>nav</nav><main>${children()}</main>`),
+    );
+
+    const Wrapped = wrapLayout(Layout, Page);
+    const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
+
+    expect(ssr).toContain("todos");
+    expect(ssr).toContain("<nav>nav</nav>");
+
+    el = makeEl(ssr);
+    const { unmount } = ilhaMount({ page: Wrapped }, { root: el });
+
+    expect(el.querySelector("[data-ilha-slot='p:0']")?.getAttribute("data-child-live")).toBe("1");
+
+    unmount();
+  });
+
+  it("wrapLayout mount wires page handlers through outer hydratable shell", async () => {
+    const Page = ilha
+      .state("count", 0)
+      .on("[data-inc]@click", ({ state }) => {
+        state.count(state.count() + 1);
+      })
+      .render(({ state }) => html`<button data-inc>${state.count()}</button>`);
+
+    const Layout = defineLayout((children) => ilha.render(() => html`<main>${children()}</main>`));
+
+    const Wrapped = wrapLayout(Layout, Page);
+    const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
+
+    el = makeEl(`<div data-router-view>${ssr}</div>`);
+    const { unmount } = ilhaMount({ page: Wrapped }, { root: el });
+
+    el.querySelector<HTMLButtonElement>("[data-inc]")!.click();
+    await flushEffects();
+    expect(el.textContent).toContain("1");
+
+    unmount();
   });
 });

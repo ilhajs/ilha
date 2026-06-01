@@ -8,12 +8,16 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.2",
-    "@ilha/router": "^0.3.6",
+    "@ilha/router": "workspace:*",
+    "areia": "^0.1.3",
     "hono": "^4.12.18",
-    "ilha": "^0.6.0"
+    "ilha": "workspace:*",
+    "quando": "^0.1.6"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.0",
     "@types/node": "^24",
+    "tailwindcss": "^4.3.0",
     "tsdown": "^0.22.0",
     "typescript": "^6.0.3"
   }

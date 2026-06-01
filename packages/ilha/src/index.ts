@@ -69,15 +69,75 @@ function shallowEqualInput(a: unknown, b: unknown): boolean {
   return true;
 }
 
+// Detect the expected client-mount divergence: eager render inlines child
+// SSR while the first reactive pass emits empty slot stubs. Props encoded on
+// the stub must match — if they differ, state changed before the first
+// effect (e.g. Parent.onMount wrote new props) and we must reconcile.
+function extractSlotPropsAttr(html: string, slotId: string): string | null {
+  const escaped = slotId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const withProps = new RegExp(
+    `<div\\s[^>]*data-ilha-slot="${escaped}"[^>]*data-ilha-props='([^']*)'`,
+  );
+  const m = html.match(withProps);
+  if (m) return m[1]!;
+  const withoutProps = new RegExp(`<div\\s[^>]*data-ilha-slot="${escaped}"`);
+  return html.match(withoutProps) ? "" : null;
+}
+
+function isStableInlineSlotMount(
+  initialHtml: string,
+  renderedHtml: string,
+  slotIds: Iterable<string>,
+): boolean {
+  for (const id of slotIds) {
+    const initialProps = extractSlotPropsAttr(initialHtml, id);
+    const renderedProps = extractSlotPropsAttr(renderedHtml, id);
+    if (initialProps === null || renderedProps === null) return false;
+    if (initialProps !== renderedProps) return false;
+  }
+  return true;
+}
+
+function serializeSlotProps(props: Record<string, unknown> | undefined): string {
+  return props === undefined ? "" : JSON.stringify(props);
+}
+
 // ---------------------------------------------
 // Simplified morph engine
 // ---------------------------------------------
 
+// Component libraries (e.g. Areia) reflect bind-driven state onto data-* / aria-*
+// presence attrs that SSR templates omit when bind:* is used. Don't let morph
+// clobber or strip those controller-owned attrs on any data-slot element.
+const MORPH_CONTROLLER_SLOT_SELECTOR = "[data-slot]";
+const MORPH_CONTROLLER_ATTRS = new Set([
+  // checked/toggle (checkbox, switch, radio, menu items)
+  "data-checked",
+  "data-unchecked",
+  "data-indeterminate",
+  "aria-checked",
+  // open/closed (dialog, popover, collapsible, dropdown)
+  "data-open",
+  "data-closed",
+  "data-state",
+  "aria-expanded",
+  "aria-hidden",
+  // selection (tabs, toggle-group, combobox, select)
+  "data-selected",
+  "data-panel-open",
+]);
+
+function shouldPreserveMorphAttr(el: Element, name: string): boolean {
+  return el.matches(MORPH_CONTROLLER_SLOT_SELECTOR) && MORPH_CONTROLLER_ATTRS.has(name);
+}
+
 function syncAttributes(from: Element, to: Element): void {
   for (const { name, value } of to.attributes) {
+    if (shouldPreserveMorphAttr(from, name)) continue;
     if (from.getAttribute(name) !== value) from.setAttribute(name, value);
   }
   for (const { name } of Array.from(from.attributes)) {
+    if (shouldPreserveMorphAttr(from, name)) continue;
     if (!to.hasAttribute(name)) from.removeAttribute(name);
   }
 }
@@ -191,14 +251,16 @@ function dedentString(str: string): string {
 // Symbols & constants
 // ---------------------------------------------
 
-const RAW = Symbol("ilha.raw");
-const SIGNAL_ACCESSOR = Symbol("ilha.signalAccessor");
-const ISLAND = Symbol("ilha.island");
-const ISLAND_CALL = Symbol("ilha.islandCall");
+// Symbol.for keeps brands stable when Vite/Rollup dedupe fails and multiple
+// ilha copies end up in the same page (e.g. app + Areia peer import).
+const RAW = Symbol.for("ilha.raw");
+const SIGNAL_ACCESSOR = Symbol.for("ilha.signalAccessor");
+const ISLAND = Symbol.for("ilha.island");
+const ISLAND_CALL = Symbol.for("ilha.islandCall");
 /** @internal Internal hook used by a parent's mountSlots to mount a child island and
  * retain a handle to push updated props into it on subsequent parent
  * re-renders. Not part of the public surface. */
-export const ISLAND_MOUNT_INTERNAL = Symbol("ilha.islandMountInternal");
+export const ISLAND_MOUNT_INTERNAL = Symbol.for("ilha.islandMountInternal");
 
 const SLOT_ATTR = "data-ilha-slot";
 const PROPS_ATTR = "data-ilha-props";
@@ -314,7 +376,9 @@ function currentRenderCtx(): IslandRenderCtx | undefined {
 }
 
 function isIsland(v: unknown): v is AnyIsland {
-  return typeof v === "function" && ISLAND in (v as object);
+  if (typeof v !== "function") return false;
+  if (ISLAND in (v as object)) return true;
+  return Object.getOwnPropertySymbols(v as object).some((s) => s.description === "ilha.island");
 }
 
 function isIslandCall(v: unknown): v is IslandCall {
@@ -322,9 +386,20 @@ function isIslandCall(v: unknown): v is IslandCall {
   // KeyedIsland callables produced by .key() are functions that ALSO carry the
   // ISLAND_CALL brand but need to be invoked (with no props) when interpolated
   // bare. Both paths converge in interpolateValue.
-  return (
-    (typeof v === "object" || typeof v === "function") && v !== null && ISLAND_CALL in (v as object)
-  );
+  if (v == null || (typeof v !== "object" && typeof v !== "function")) return false;
+  if (ISLAND_CALL in (v as object)) return true;
+  if (Object.getOwnPropertySymbols(v as object).some((s) => s.description === "ilha.islandCall")) {
+    return true;
+  }
+  if (typeof v === "object" && "island" in v) {
+    const island = (v as IslandCall).island;
+    return (
+      typeof island === "function" &&
+      (ISLAND in (island as object) ||
+        Object.getOwnPropertySymbols(island).some((s) => s.description === "ilha.island"))
+    );
+  }
+  return false;
 }
 
 // Emit a slot marker for an island at this interpolation site.
@@ -433,16 +508,112 @@ async function resolveAsyncChildren(html: string, ctx: IslandRenderCtx): Promise
 interface MarkedSignalAccessor<T> {
   (): T;
   (...args: [value: T]): void;
+  select<S>(selector: (state: T) => S): MarkedSignalAccessor<S>;
   [SIGNAL_ACCESSOR]: true;
 }
 
 function markSignalAccessor<T>(fn: { (): T; (value: T): void }): MarkedSignalAccessor<T> {
   (fn as unknown as Record<symbol, boolean>)[SIGNAL_ACCESSOR] = true;
-  return fn as unknown as MarkedSignalAccessor<T>;
+  const accessor = fn as MarkedSignalAccessor<T>;
+  accessor.select = <S>(selector: (state: T) => S) => createSelectAccessor(accessor, selector);
+  return accessor;
 }
 
 function isSignalAccessor(v: unknown): v is MarkedSignalAccessor<unknown> {
-  return typeof v === "function" && SIGNAL_ACCESSOR in (v as object);
+  if (typeof v !== "function") return false;
+  if (SIGNAL_ACCESSOR in (v as object)) return true;
+  // Fallback for accessors marked by another ilha module instance (unique Symbol).
+  return Object.getOwnPropertySymbols(v as object).some(
+    (s) => s.description === "ilha.signalAccessor",
+  );
+}
+
+// ---------------------------------------------
+// Nested accessors via SignalAccessor.select()
+// ---------------------------------------------
+
+type PathSegment = string | number;
+
+function getAtPath(obj: unknown, path: readonly PathSegment[]): unknown {
+  let cur = obj;
+  for (const seg of path) {
+    if (cur == null) return undefined;
+    cur = (cur as Record<string | number, unknown>)[seg];
+  }
+  return cur;
+}
+
+function setAtPath(obj: unknown, path: readonly PathSegment[], value: unknown): unknown {
+  if (path.length === 0) return value;
+  const [head, ...rest] = path;
+  if (Array.isArray(obj)) {
+    const idx = head as number;
+    if (idx < 0 || idx >= obj.length) return obj;
+    const next = obj[idx];
+    const updated = rest.length === 0 ? value : setAtPath(next, rest, value);
+    if (Object.is(next, updated)) return obj;
+    const copy = obj.slice();
+    copy[idx] = updated;
+    return copy;
+  }
+  if (obj !== null && typeof obj === "object") {
+    const record = obj as Record<string, unknown>;
+    const key = String(head);
+    const next = record[key];
+    const updated = rest.length === 0 ? value : setAtPath(next, rest, value);
+    if (rest.length === 0) {
+      if (Object.is(next, value)) return obj;
+    } else if (Object.is(next, updated)) {
+      return obj;
+    }
+    return { ...record, [key]: updated };
+  }
+  return rest.length === 0 ? value : setAtPath(undefined, rest, value);
+}
+
+function toPathSegment(prop: string | symbol): PathSegment | null {
+  if (typeof prop === "symbol") return null;
+  if (prop === "length") return null;
+  if (/^\d+$/.test(prop)) return Number(prop);
+  return prop;
+}
+
+function trackSelectPath<T, S>(rootState: T, selector: (state: T) => S): readonly PathSegment[] {
+  const path: PathSegment[] = [];
+  const track = (value: unknown): unknown => {
+    if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+      return value;
+    }
+    return new Proxy(value as object, {
+      get(target, prop, receiver) {
+        const seg = toPathSegment(prop);
+        if (seg != null) path.push(seg);
+        const next = Reflect.get(target, prop, receiver);
+        return seg != null && next !== null && typeof next === "object" ? track(next) : next;
+      },
+    });
+  };
+  selector(track(rootState) as T);
+  return path;
+}
+
+function createSelectAccessor<T, S>(
+  root: MarkedSignalAccessor<T>,
+  selector: (state: T) => S,
+): MarkedSignalAccessor<S> {
+  const path = trackSelectPath(root(), selector);
+  if (__DEV__ && path.length === 0) {
+    warn(
+      "select(): selector did not traverse nested state — bind writes may replace the entire root value.",
+    );
+  }
+  return markSignalAccessor((...args: unknown[]): unknown => {
+    if (args.length === 0) {
+      return path.length === 0 ? selector(root()) : (getAtPath(root(), path) as S);
+    }
+    const next = path.length === 0 ? (args[0] as T) : (setAtPath(root(), path, args[0]) as T);
+    if (!Object.is(root(), next)) root(next);
+  }) as MarkedSignalAccessor<S>;
 }
 
 // ---------------------------------------------
@@ -517,6 +688,27 @@ function normalizeJsxChildren(props: JsxProps, children: JsxChild[]): JsxChild[]
   const propChildren = props && "children" in props ? props.children : undefined;
   const all = children.length > 0 ? children : propChildren === undefined ? [] : [propChildren];
   return all.flat(1);
+}
+
+function normalizeJsxSlotKey(raw: string | number): string {
+  const key = String(raw);
+  if (key.trim().length === 0) {
+    throw new Error("jsx key requires a non-empty string.");
+  }
+  if (key.includes(":")) {
+    throw new Error(`jsx key cannot contain the slot separator ":" (got "${key}").`);
+  }
+  return key;
+}
+
+/** React-style `key` (props or 3rd jsx arg) on island components → `k:{key}` slot ids. */
+function extractJsxSlotKey(props: JsxProps, keyArg?: string | number): string | undefined {
+  const fromProps = props?.key;
+  const raw =
+    keyArg ??
+    (typeof fromProps === "string" || typeof fromProps === "number" ? fromProps : undefined);
+  if (raw == null) return undefined;
+  return normalizeJsxSlotKey(raw);
 }
 
 function serializeStyle(value: Record<string, unknown>): string {
@@ -604,18 +796,41 @@ function renderJsxElement(type: string, props: JsxProps, children: JsxChild[]): 
   return ilhaHtml(chunks as unknown as TemplateStringsArray, ...values);
 }
 
-function ilhaJsx(type: JsxType, props: JsxProps, ...children: JsxChild[]): RawHtml {
+function ilhaJsx(
+  type: JsxType,
+  props: JsxProps,
+  maybeKey?: JsxChild | string | number,
+  ...restChildren: JsxChild[]
+): RawHtml {
+  const hasKeyArg = typeof maybeKey === "string" || typeof maybeKey === "number";
+  const keyFromArg = hasKeyArg ? maybeKey : undefined;
+  // React automatic runtime passes `key` as the 3rd argument (not a child).
+  const children: JsxChild[] =
+    hasKeyArg || maybeKey === undefined ? restChildren : [maybeKey, ...restChildren];
   const normalizedChildren = normalizeJsxChildren(props, children);
 
   if (typeof type === "function") {
+    const slotKey = extractJsxSlotKey(
+      props,
+      typeof keyFromArg === "string" || typeof keyFromArg === "number" ? keyFromArg : undefined,
+    );
     const componentProps: Record<string, unknown> = {
       ...(props ?? {}),
       ...(normalizedChildren.length > 0 ? { children: normalizedChildren } : {}),
     };
-    delete (componentProps as Record<string, unknown>)["key"];
+    delete componentProps["key"];
     const out = type(Object.keys(componentProps).length ? componentProps : {});
+    if (isIslandCall(out)) {
+      if (slotKey !== undefined) (out as IslandCall).key = slotKey;
+      return ilhaHtml`${out}`;
+    }
+    if (isRawHtml(out)) return out;
+    // Another ilha copy (e.g. Areia) didn't see our render ctx and fell back
+    // to renderToString — emit a slot instead of double-escaping the HTML.
+    if (typeof out === "string" && isIsland(type)) {
+      return ilhaRaw(emitIslandSlot(type as AnyIsland, componentProps, slotKey));
+    }
     if (typeof out === "string") return ilhaHtml`${out}`;
-    if (out && typeof out === "object" && RAW in out) return out as RawHtml;
     return ilhaHtml`${out}`;
   }
 
@@ -628,8 +843,14 @@ function ilhaFragment(props: { children?: JsxChild } | null, ...children: JsxChi
   return ilhaHtml(chunks as unknown as TemplateStringsArray, ...normalizedChildren);
 }
 
-function ilhaJsxDEV(type: JsxType, props: JsxProps): RawHtml {
-  return ilhaJsx(type, props);
+function ilhaJsxDEV(
+  type: JsxType,
+  props: JsxProps,
+  maybeKey?: string | number,
+  _source?: unknown,
+  _self?: unknown,
+): RawHtml {
+  return ilhaJsx(type, props, maybeKey);
 }
 
 // Resolves any interpolated value to an HTML string.
@@ -639,7 +860,7 @@ function ilhaJsxDEV(type: JsxType, props: JsxProps): RawHtml {
 function interpolateValue(v: unknown): string {
   if (v == null || v === true || v === false) return "";
   if (Array.isArray(v)) return v.map(interpolateValue).join("");
-  if (typeof v === "object" && RAW in (v as object)) return (v as RawHtml).value;
+  if (isRawHtml(v)) return v.value;
   if (isIslandCall(v)) {
     // A KeyedIsland (e.g. `Item.key("a")`) is a callable branded IslandCall —
     // calling it with no props yields the concrete IslandCall. A plain
@@ -911,9 +1132,17 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
   return { [RAW]: true, value: dedentString(result) };
 }
 
+/** Duck-type RawHtml — works across duplicate `ilha` bundles (distinct RAW symbols). */
+function isRawHtml(v: unknown): v is RawHtml {
+  if (typeof v !== "object" || v === null || !("value" in v)) return false;
+  if (typeof (v as RawHtml).value !== "string") return false;
+  if (RAW in v) return true;
+  return Object.getOwnPropertySymbols(v).some((s) => s.description === "ilha.raw");
+}
+
 // Unwrap a RawHtml or plain string to a string — used at render boundaries.
 function unwrapHtml(v: string | RawHtml): string {
-  return typeof v === "object" && RAW in v ? v.value : v;
+  return isRawHtml(v) ? v.value : (v as string);
 }
 
 // ---------------------------------------------
@@ -949,13 +1178,12 @@ function ilhaContext<T>(key: string, initial: T): ContextSignal<T> {
  * or `.render()` automatically subscribes the surrounding reactive scope —
  * so when the signal changes, dependents re-run as if it were local state.
  */
-export function ilhaSignal<T>(initial: T): ExternalSignal<T> {
+export function ilhaSignal<T>(initial: T): SignalAccessor<T> {
   const s = signal(initial);
-  const accessor = markSignalAccessor((...args: unknown[]): unknown => {
+  return markSignalAccessor((...args: unknown[]): unknown => {
     if (args.length === 0) return s();
     s(args[0] as T);
-  });
-  return accessor as unknown as ExternalSignal<T>;
+  }) as SignalAccessor<T>;
 }
 
 /**
@@ -1172,10 +1400,7 @@ function createDerivedProxy<
 // Bind
 // ---------------------------------------------
 
-export interface ExternalSignal<T = unknown> {
-  (): T;
-  (value: T): void;
-}
+export type ExternalSignal<T = unknown> = SignalAccessor<T>;
 
 const BIND_SENTINEL_ATTR = "data-ilha-bind";
 
@@ -1983,7 +2208,7 @@ class IlhaBuilder<
         const accessor = markSignalAccessor((...args: unknown[]): unknown => {
           if (args.length === 0) return value;
         });
-        state[entry.key] = accessor as SignalAccessor<unknown>;
+        state[entry.key] = accessor;
       }
       return state as IslandState<TStateMap>;
     }
@@ -2005,7 +2230,7 @@ class IlhaBuilder<
           if (args.length === 0) return s();
           s(args[0] as typeof initial);
         });
-        state[entry.key] = accessor as SignalAccessor<unknown>;
+        state[entry.key] = accessor;
       }
       return state as IslandState<TStateMap>;
     }
@@ -2278,6 +2503,7 @@ class IlhaBuilder<
         for (const [id, entry] of mountedSlots) {
           if (!slotMap.has(id)) {
             entry.unmount();
+            entry.el.remove();
             mountedSlots.delete(id);
           }
         }
@@ -2385,6 +2611,10 @@ class IlhaBuilder<
               const eventTarget = (
                 event.target instanceof Element ? event.target : listenerTarget
               ) as Element;
+              // For selector-based listeners, pass the matched element (the
+              // listener host), not the deepest event.target — component libs
+              // often wrap label text in inner spans that lack data-* attrs.
+              const handlerTarget = entry.selector === "" ? eventTarget : listenerTarget;
 
               // Build the signal passed to the handler. Always linked to the
               // unmount signal; if abortable, also linked to a per-invocation
@@ -2418,7 +2648,7 @@ class IlhaBuilder<
                   derived,
                   input,
                   host,
-                  target: eventTarget,
+                  target: handlerTarget,
                   event,
                   signal: handlerSignal,
                 });
@@ -2468,13 +2698,15 @@ class IlhaBuilder<
       if (!hasExistingContent) {
         host.innerHTML = stylePrefix + initial.html;
       }
-      attachListeners();
 
       let stopBindings = applyTemplateBindings(host, initial.binds);
       cleanups.push(() => stopBindings());
 
       mountSlots(initial.slots);
       cleanups.push(() => mountedSlots.forEach((entry) => entry.unmount()));
+
+      // Bind after slot islands mount so selector-based handlers see the final DOM.
+      attachListeners();
 
       if (!shouldSkipOnMount) {
         for (const entry of onMounts) {
@@ -2581,6 +2813,19 @@ class IlhaBuilder<
           if (rendered === initialRenderedHtml) {
             return;
           }
+          // Client mount: the eager render inlines child SSR, but the first
+          // reactive pass uses liveHost stubs by design. That HTML difference
+          // is expected — remorphing here would disturb already-mounted child
+          // islands (component controllers, bind wiring, etc.). Push fresh
+          // props and skip the destructive morph when the slot set is stable.
+          if (
+            mountedSlots.size > 0 &&
+            mountedSlots.size === newSlotMap.size &&
+            [...newSlotMap.keys()].every((id) => mountedSlots.has(id)) &&
+            isStableInlineSlotMount(initialRenderedHtml, rendered, newSlotMap.keys())
+          ) {
+            return;
+          }
           // Divergence: a state write between the eager initial render and
           // the first effect pass (typically inside onMount) changed what
           // the render fn produces. Fall through to do a full morph + slot
@@ -2592,24 +2837,51 @@ class IlhaBuilder<
         detachListeners();
         stopBindings();
 
+        const prevMountedCount = mountedSlots.size;
+        const removedSlotIds: string[] = [];
+
         // Unmount slots that are no longer present BEFORE morphInner mutates
         // the DOM. This ensures unmount hooks (transition.leave, effect
         // cleanups, etc.) execute while the elements are still connected.
         for (const [id, entry] of mountedSlots) {
           if (!newSlotMap.has(id)) {
             entry.unmount();
+            entry.el.remove();
+            removedSlotIds.push(id);
             mountedSlots.delete(id);
+          }
+        }
+        for (const id of removedSlotIds) {
+          const escaped =
+            typeof CSS !== "undefined" && CSS.escape
+              ? CSS.escape(id)
+              : id.replace(/["\\]/g, "\\$&");
+          for (const el of host.querySelectorAll(`[${SLOT_ATTR}="${escaped}"]`)) {
+            el.remove();
           }
         }
 
         // Detach preserved slot elements from the live DOM, replacing each
         // with an empty stub that matches what the template emitted.
         const preserved = new Map<string, Element>();
+        const listShrunk = newSlotMap.size < prevMountedCount;
         for (const [id, entry] of mountedSlots) {
           if (!newSlotMap.has(id)) continue;
           if (!entry.el.isConnected) continue;
+          // Positional ids (p:N) are reused when a list item is removed. After
+          // any shrink, do not preserve positional slots — controller-driven DOM
+          // (e.g. Areia checkbox) may diverge from the template and rehome
+          // would leave orphaned subtrees. Fresh mount from the stub is safer.
+          if (listShrunk && id.startsWith("p:")) {
+            entry.unmount();
+            entry.el.remove();
+            mountedSlots.delete(id);
+            continue;
+          }
           const stub = document.createElement("div");
           stub.setAttribute(SLOT_ATTR, id);
+          const incomingProps = serializeSlotProps(newSlotMap.get(id)?.props);
+          if (incomingProps !== "") stub.setAttribute(PROPS_ATTR, incomingProps);
           entry.el.replaceWith(stub);
           preserved.set(id, entry.el);
         }

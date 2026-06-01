@@ -1,4 +1,9 @@
-import ilha from "ilha";
+import { LayerCard, LinkButton } from "areia";
+import ilha, { raw } from "ilha";
+import { each } from "quando";
+
+const LINK_ICON =
+  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWxpbmstaWNvbiBsdWNpZGUtbGluayI+PHBhdGggZD0iTTEwIDEzYTUgNSAwIDAgMCA3LjU0LjU0bDMtM2E1IDUgMCAwIDAtNy4wNy03LjA3bC0xLjcyIDEuNzEiLz48cGF0aCBkPSJNMTQgMTFhNSA1IDAgMCAwLTcuNTQtLjU0bC0zIDNhNSA1IDAgMCAwIDcuMDcgNy4wN2wxLjcxLTEuNzEiLz48L3N2Zz4=";
 
 const LEARN_ITEMS = [
   {
@@ -11,31 +16,43 @@ const LEARN_ITEMS = [
     title: "Discord",
     description: "Join our Discord server.",
     href: "https://discord.gg/WnVTMCTz74",
-    icon: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWxpbmstaWNvbiBsdWNpZGUtbGluayI+PHBhdGggZD0iTTEwIDEzYTUgNSAwIDAgMCA3LjU0LjU0bDMtM2E1IDUgMCAwIDAtNy4wNy03LjA3bC0xLjcyIDEuNzEiLz48cGF0aCBkPSJNMTQgMTFhNSA1IDAgMCAwLTcuNTQtLjU0bC0zIDNhNSA1IDAgMCAwIDcuMDcgNy4wN2wxLjcxLTEuNzEiLz48L3N2Zz4=",
+    icon: LINK_ICON,
   },
   {
     title: "x.com",
     description: "Follow us on X.",
     href: "https://x.com/ilha_js",
-    icon: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWxpbmstaWNvbiBsdWNpZGUtbGluayI+PHBhdGggZD0iTTEwIDEzYTUgNSAwIDAgMCA3LjU0LjU0bDMtM2E1IDUgMCAwIDAtNy4wNy03LjA3bC0xLjcyIDEuNzEiLz48cGF0aCBkPSJNMTQgMTFhNSA1IDAgMCAwLTcuNTQtLjU0bC0zIDNhNSA1IDAgMCAwIDcuMDcgNy4wN2wxLjcxLTEuNzEiLz48L3N2Zz4=",
+    icon: LINK_ICON,
   },
 ];
 
 type LearnItem = (typeof LEARN_ITEMS)[0];
 
 const learnItem = (item: LearnItem) => (
-  <a href={item.href} class="item" target="_blank" rel="noopener noreferrer">
-    <section>
+  <LayerCard href={item.href} class="item" target="_blank" rel="noopener noreferrer">
+    <LayerCard.Title>Learn Ilha</LayerCard.Title>
+    <LayerCard.Content>
       <h3>{item.title} </h3>
       <p> {item.description} </p>
-    </section>
-    <img src={item.icon} alt={item.title} class="icon" />
-  </a>
+      <img src={raw(item.icon)} alt={item.title} class="size-6" />
+    </LayerCard.Content>
+  </LayerCard>
 );
 
 export default ilha.render(() => (
-  <>
-    <h2>Learn Ilha </h2>
-    <div class="y-stack"> {LEARN_ITEMS.map(learnItem)} </div>
-  </>
+  <LayerCard>
+    <LayerCard.Title>Learn Ilha</LayerCard.Title>
+    <LayerCard.Content>
+      {each(LEARN_ITEMS).as((item) => (
+        <LinkButton
+          href={item.href}
+          icon={<img src={raw(item.icon)} alt={item.title} class="size-6" />}
+          class="w-full"
+          external
+        >
+          {item.title} - {item.description}
+        </LinkButton>
+      ))}
+    </LayerCard.Content>
+  </LayerCard>
 ));

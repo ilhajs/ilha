@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "alien-signals": "3.2.1",
-    "ilha": "0.6.0"
+    "ilha": "0.6.1"
   },
   "devDependencies": {
     "zod": "^4.4.3"
