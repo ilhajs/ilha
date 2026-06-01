@@ -2,15 +2,18 @@ import { Badge, Button, Checkbox, Input, LayerCard } from "areia";
 import ilha, { raw } from "ilha";
 import { each } from "quando";
 
-type Todo = { text: string; completed: boolean };
+type Todo = { id: string; text: string; completed: boolean };
 
 const DEFAULT_TODOS: Todo[] = [
-  { text: "Start Ilha Dev Server", completed: true },
-  { text: "Develop my Ilha app", completed: false },
-  { text: "Deploy my Ilha app", completed: false },
+  { id: "1", text: "Start Ilha Dev Server", completed: true },
+  { id: "2", text: "Develop my Ilha app", completed: false },
+  { id: "3", text: "Deploy my Ilha app", completed: false },
 ];
 
-const addTodo = (todos: Todo[], text: string): Todo[] => [...todos, { text, completed: false }];
+const addTodo = (todos: Todo[], text: string): Todo[] => [
+  ...todos,
+  { id: crypto.randomUUID(), text, completed: false },
+];
 
 const deleteTodo = (todos: Todo[], index: number): Todo[] =>
   index < 0 ? todos : todos.filter((_, i) => i !== index);
@@ -57,9 +60,8 @@ export default ilha
           <div class="flex flex-col gap-2">
             {each(state.todos())
               .as((todo, index) => (
-                <div class="flex items-center justify-between gap-2">
+                <div key={todo.id} class="flex items-center justify-between gap-2">
                   <Checkbox
-                    key={todo.text}
                     label={todo.text}
                     bind:checked={state.todos.select((t) => t[index].completed)}
                   />

@@ -2658,6 +2658,7 @@ describe("child islands (render-time composition)", () => {
       );
       expect(labels).toEqual(["a", "c"]);
       expect(el.querySelectorAll("[data-ilha-slot]").length).toBe(2);
+      expect(slot("c").querySelector("[data-label]")!.textContent).toBe("c:0");
 
       unmount();
       cleanup(el);

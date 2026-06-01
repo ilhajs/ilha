@@ -73,6 +73,14 @@ function shallowEqualInput(a: unknown, b: unknown): boolean {
 // SSR while the first reactive pass emits empty slot stubs. Props encoded on
 // the stub must match — if they differ, state changed before the first
 // effect (e.g. Parent.onMount wrote new props) and we must reconcile.
+function extractSlotIdsInOrder(html: string): string[] {
+  const ids: string[] = [];
+  const re = /data-ilha-slot="([^"]+)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) ids.push(m[1]!);
+  return ids;
+}
+
 function extractSlotPropsAttr(html: string, slotId: string): string | null {
   const escaped = slotId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const withProps = new RegExp(
@@ -89,6 +97,14 @@ function isStableInlineSlotMount(
   renderedHtml: string,
   slotIds: Iterable<string>,
 ): boolean {
+  const initialOrder = extractSlotIdsInOrder(initialHtml);
+  const renderedOrder = extractSlotIdsInOrder(renderedHtml);
+  if (
+    initialOrder.length !== renderedOrder.length ||
+    initialOrder.some((id, i) => id !== renderedOrder[i])
+  ) {
+    return false;
+  }
   for (const id of slotIds) {
     const initialProps = extractSlotPropsAttr(initialHtml, id);
     const renderedProps = extractSlotPropsAttr(renderedHtml, id);
@@ -602,6 +618,14 @@ function createSelectAccessor<T, S>(
   selector: (state: T) => S,
 ): MarkedSignalAccessor<S> {
   const path = trackSelectPath(root(), selector);
+  const selected = selector(root());
+  const resolved = path.length === 0 ? root() : getAtPath(root(), path);
+  if (!Object.is(selected, resolved)) {
+    const msg =
+      "select(): selector must only traverse nested properties or array indexes — derived or transformed values are not supported.";
+    if (__DEV__) warn(msg);
+    throw new Error(msg);
+  }
   if (__DEV__ && path.length === 0) {
     warn(
       "select(): selector did not traverse nested state — bind writes may replace the entire root value.",
@@ -1951,7 +1975,7 @@ export interface MountOptions {
 }
 
 export interface MountResult {
-  unmount: () => void;
+  unmount: () => void | Promise<void>;
 }
 
 // ---------------------------------------------
@@ -2319,7 +2343,7 @@ class IlhaBuilder<
     }
 
     type MountHandle = {
-      unmount: () => void;
+      unmount: () => void | Promise<void>;
       // Push new props into an already-mounted island. Used by parent
       // mountSlots when a parent re-render produces new props for an
       // already-mounted child slot. The new props are resolved (and
@@ -2476,8 +2500,29 @@ class IlhaBuilder<
       // parent passes them updated state as input).
       const mountedSlots = new Map<
         string,
-        { el: Element; unmount: () => void; updateProps: (props?: Record<string, unknown>) => void }
+        {
+          el: Element;
+          unmount: () => void | Promise<void>;
+          updateProps: (props?: Record<string, unknown>) => void;
+        }
       >();
+
+      function teardownMountedSlot(
+        id: string,
+        entry: {
+          el: Element;
+          unmount: () => void | Promise<void>;
+          updateProps: (props?: Record<string, unknown>) => void;
+        },
+      ): void {
+        const result = entry.unmount();
+        const remove = () => {
+          entry.el.remove();
+          mountedSlots.delete(id);
+        };
+        if (result instanceof Promise) void result.finally(remove);
+        else remove();
+      }
 
       function findSlot(id: string): Element | null {
         // Use CSS.escape when available (DOM environments always have it); fall
@@ -2502,9 +2547,7 @@ class IlhaBuilder<
         // Unmount slots that are no longer present (conditionally removed).
         for (const [id, entry] of mountedSlots) {
           if (!slotMap.has(id)) {
-            entry.unmount();
-            entry.el.remove();
-            mountedSlots.delete(id);
+            teardownMountedSlot(id, entry);
           }
         }
 
@@ -2546,7 +2589,10 @@ class IlhaBuilder<
           // parent to child-internal state and preventing the child's own
           // render effect from receiving updates.
           const prevSub = setActiveSub(undefined);
-          let handle: { unmount: () => void; updateProps: (p?: Record<string, unknown>) => void };
+          let handle: {
+            unmount: () => void | Promise<void>;
+            updateProps: (p?: Record<string, unknown>) => void;
+          };
           try {
             // Use the internal mount path so we get a handle that can push
             // new props on subsequent parent re-renders, not just unmount.
@@ -2556,7 +2602,10 @@ class IlhaBuilder<
               | ((
                   host: Element,
                   props?: Record<string, unknown>,
-                ) => { unmount: () => void; updateProps: (p?: Record<string, unknown>) => void })
+                ) => {
+                  unmount: () => void | Promise<void>;
+                  updateProps: (p?: Record<string, unknown>) => void;
+                })
               | undefined;
             handle = internal
               ? internal(slotEl, slotProps)
@@ -2845,10 +2894,14 @@ class IlhaBuilder<
         // cleanups, etc.) execute while the elements are still connected.
         for (const [id, entry] of mountedSlots) {
           if (!newSlotMap.has(id)) {
-            entry.unmount();
-            entry.el.remove();
-            removedSlotIds.push(id);
-            mountedSlots.delete(id);
+            const result = entry.unmount();
+            const remove = () => {
+              entry.el.remove();
+              removedSlotIds.push(id);
+              mountedSlots.delete(id);
+            };
+            if (result instanceof Promise) void result.finally(remove);
+            else remove();
           }
         }
         for (const id of removedSlotIds) {
@@ -2873,9 +2926,7 @@ class IlhaBuilder<
           // (e.g. Areia checkbox) may diverge from the template and rehome
           // would leave orphaned subtrees. Fresh mount from the stub is safer.
           if (listShrunk && id.startsWith("p:")) {
-            entry.unmount();
-            entry.el.remove();
-            mountedSlots.delete(id);
+            teardownMountedSlot(id, entry);
             continue;
           }
           const stub = document.createElement("div");
@@ -2908,7 +2959,7 @@ class IlhaBuilder<
       //   2. detachListeners — stop new DOM events from firing.
       //   3. cleanups (includes stopBindings which writes null into bind:this
       //      refs; these writes must NOT trigger renders, hence step 1).
-      const unmount = (): void => {
+      const unmount = (): void | Promise<void> => {
         if (tornDown) return;
         tornDown = true;
         if (__DEV__ && _mountedHosts) _mountedHosts.delete(host);
@@ -2917,12 +2968,14 @@ class IlhaBuilder<
         if (transition?.leave) {
           const result = transition.leave(host);
           if (result instanceof Promise) {
-            result
+            return result
               .then(() => {
                 for (const c of cleanups) c();
               })
-              .catch(console.error);
-            return;
+              .catch((err) => {
+                console.error(err);
+                for (const c of cleanups) c();
+              });
           }
         }
         for (const c of cleanups) c();

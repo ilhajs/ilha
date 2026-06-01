@@ -13,7 +13,7 @@ import ilha, { raw } from "ilha";
 import { createHighlighter } from "shiki/bundle/web";
 import { toast } from "sonner";
 
-const NITRO_SANDBOX = `${URLS.SANDBOX.replace("{template}", "nitro")}?file=src%2Fpages%2Findex.ts`;
+const NITRO_SANDBOX = `${URLS.SANDBOX.replace("{template}", "nitro")}?file=src%2Fpages%2Findex.tsx`;
 
 const TEMPLATES = [
   { value: "vite", label: "Vite", icon: "/vite.svg", sandbox: true },
