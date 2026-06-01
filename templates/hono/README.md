@@ -26,7 +26,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Project layout
 
-```
+```text
 src/
   pages/       # File-based routes (+layout, index, learn, …)
   client.ts    # Client entry — mounts islands

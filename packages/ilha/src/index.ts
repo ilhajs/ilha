@@ -73,11 +73,16 @@ function shallowEqualInput(a: unknown, b: unknown): boolean {
 // SSR while the first reactive pass emits empty slot stubs. Props encoded on
 // the stub must match — if they differ, state changed before the first
 // effect (e.g. Parent.onMount wrote new props) and we must reconcile.
-function extractSlotIdsInOrder(html: string): string[] {
+function extractDirectChildSlotIdsInOrder(html: string): string[] {
+  if (typeof document === "undefined") return [];
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
   const ids: string[] = [];
-  const re = /data-ilha-slot="([^"]+)"/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) ids.push(m[1]!);
+  for (const child of tpl.content.children) {
+    if (child instanceof Element && child.hasAttribute("data-ilha-slot")) {
+      ids.push(child.getAttribute("data-ilha-slot")!);
+    }
+  }
   return ids;
 }
 
@@ -97,8 +102,8 @@ function isStableInlineSlotMount(
   renderedHtml: string,
   slotIds: Iterable<string>,
 ): boolean {
-  const initialOrder = extractSlotIdsInOrder(initialHtml);
-  const renderedOrder = extractSlotIdsInOrder(renderedHtml);
+  const initialOrder = extractDirectChildSlotIdsInOrder(initialHtml);
+  const renderedOrder = extractDirectChildSlotIdsInOrder(renderedHtml);
   if (
     initialOrder.length !== renderedOrder.length ||
     initialOrder.some((id, i) => id !== renderedOrder[i])
@@ -2506,6 +2511,7 @@ class IlhaBuilder<
           updateProps: (props?: Record<string, unknown>) => void;
         }
       >();
+      const leavingSlots = new Map<string, { el: Element; token: symbol }>();
 
       function teardownMountedSlot(
         id: string,
@@ -2515,13 +2521,21 @@ class IlhaBuilder<
           updateProps: (props?: Record<string, unknown>) => void;
         },
       ): void {
+        mountedSlots.delete(id);
+        const token = Symbol();
         const result = entry.unmount();
         const remove = () => {
-          entry.el.remove();
-          mountedSlots.delete(id);
+          const leaving = leavingSlots.get(id);
+          if (!leaving || leaving.token !== token) return;
+          leaving.el.remove();
+          leavingSlots.delete(id);
         };
-        if (result instanceof Promise) void result.finally(remove);
-        else remove();
+        if (result instanceof Promise) {
+          leavingSlots.set(id, { el: entry.el, token });
+          void result.finally(remove);
+        } else {
+          entry.el.remove();
+        }
       }
 
       function findSlot(id: string): Element | null {
@@ -2894,14 +2908,8 @@ class IlhaBuilder<
         // cleanups, etc.) execute while the elements are still connected.
         for (const [id, entry] of mountedSlots) {
           if (!newSlotMap.has(id)) {
-            const result = entry.unmount();
-            const remove = () => {
-              entry.el.remove();
-              removedSlotIds.push(id);
-              mountedSlots.delete(id);
-            };
-            if (result instanceof Promise) void result.finally(remove);
-            else remove();
+            teardownMountedSlot(id, entry);
+            removedSlotIds.push(id);
           }
         }
         for (const id of removedSlotIds) {
@@ -2965,20 +2973,31 @@ class IlhaBuilder<
         if (__DEV__ && _mountedHosts) _mountedHosts.delete(host);
         stopRender();
         detachListeners();
+
+        const pending: Promise<unknown>[] = [];
+        for (const [, entry] of mountedSlots) {
+          const result = entry.unmount();
+          if (result instanceof Promise) pending.push(result);
+        }
+
         if (transition?.leave) {
           const result = transition.leave(host);
-          if (result instanceof Promise) {
-            return result
-              .then(() => {
-                for (const c of cleanups) c();
-              })
-              .catch((err) => {
-                console.error(err);
-                for (const c of cleanups) c();
-              });
-          }
+          if (result instanceof Promise) pending.push(result);
         }
-        for (const c of cleanups) c();
+
+        const finish = () => {
+          for (const c of cleanups) c();
+        };
+
+        if (pending.length > 0) {
+          return Promise.all(pending)
+            .then(finish)
+            .catch((err) => {
+              console.error(err);
+              finish();
+            });
+        }
+        finish();
       };
 
       const updateProps = (nextProps?: Partial<TInput>): void => {
@@ -3165,7 +3184,7 @@ type IslandRegistry = Record<string, AnyIsland>;
 function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountResult {
   const root = options.root ?? document.body;
   const lazy = options.lazy ?? false;
-  const unmounts: Array<() => void> = [];
+  const unmounts: Array<() => void | Promise<void>> = [];
 
   function activateEl(host: Element) {
     const name = host.getAttribute("data-ilha");
@@ -3216,7 +3235,16 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
     els.forEach(activateEl);
   }
 
-  return { unmount: () => unmounts.forEach((u) => u()) };
+  return {
+    unmount: (): void | Promise<void> => {
+      const pending: Promise<unknown>[] = [];
+      for (const u of unmounts) {
+        const result = u();
+        if (result instanceof Promise) pending.push(result);
+      }
+      if (pending.length > 0) return Promise.all(pending).then(() => {});
+    },
+  };
 }
 
 // ---------------------------------------------

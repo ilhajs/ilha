@@ -25,7 +25,7 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ## Project layout
 
-```
+```text
 src/
   pages/            # File-based routes (+layout, index, learn, …)
   entry-server.ts   # SSR — renders pages to HTML
