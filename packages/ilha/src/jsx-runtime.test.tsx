@@ -403,6 +403,150 @@ describe("ilha JSX runtime", () => {
     cleanup(el);
   });
 
+  it("supports bind:value on nested object property in JSX", () => {
+    const Form = ilha
+      .state("user", { name: "Ada", email: "ada@example.com" })
+      .render(({ state }) => (
+        <div>
+          <input bind:value={state.user.select((u) => u.name)} />
+          <p>{state.user().name}</p>
+        </div>
+      ));
+
+    const el = makeEl();
+    const unmount = Form.mount(el);
+    const input = el.querySelector("input") as HTMLInputElement;
+
+    expect(input.value).toBe("Ada");
+    expect(el.querySelector("p")!.textContent).toBe("Ada");
+
+    input.value = "Grace";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(el.querySelector("p")!.textContent).toBe("Grace");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("supports bind:value on array items via select in JSX", () => {
+    const List = ilha.state("users", ["Ada", "Grace"]).render(({ state }) => (
+      <ul>
+        {state.users().map((_, i) => (
+          <li>
+            <input bind:value={state.users.select((u) => u[i])} />
+          </li>
+        ))}
+      </ul>
+    ));
+
+    const el = makeEl();
+    const unmount = List.mount(el);
+    const inputs = el.querySelectorAll("input");
+
+    expect(inputs.length).toBe(2);
+    expect((inputs[0] as HTMLInputElement).value).toBe("Ada");
+    expect((inputs[1] as HTMLInputElement).value).toBe("Grace");
+
+    (inputs[0] as HTMLInputElement).value = "Alan";
+    (inputs[0] as HTMLInputElement).dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect((inputs[0] as HTMLInputElement).value).toBe("Alan");
+    expect((inputs[1] as HTMLInputElement).value).toBe("Grace");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("supports bind:value on array index in JSX", () => {
+    const List = ilha.state("items", ["a", "b"]).render(({ state }) => (
+      <div>
+        {state.items().map((_, i) => (
+          <input bind:value={state.items.select((items) => items[i])} />
+        ))}
+      </div>
+    ));
+
+    const el = makeEl();
+    const unmount = List.mount(el);
+    const inputs = el.querySelectorAll("input");
+
+    expect((inputs[0] as HTMLInputElement).value).toBe("a");
+
+    (inputs[0] as HTMLInputElement).value = "z";
+    (inputs[0] as HTMLInputElement).dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect((inputs[0] as HTMLInputElement).value).toBe("z");
+    expect((inputs[1] as HTMLInputElement).value).toBe("b");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("nested bind:value preserves sibling keys in JSX", () => {
+    const Form = ilha
+      .state("user", { name: "Ada", email: "ada@example.com" })
+      .render(({ state }) => (
+        <div>
+          <input bind:value={state.user.select((u) => u.name)} />
+          <p data-email>{state.user().email}</p>
+        </div>
+      ));
+
+    const el = makeEl();
+    const unmount = Form.mount(el);
+    const input = el.querySelector("input") as HTMLInputElement;
+
+    input.value = "Grace";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(el.querySelector("[data-email]")!.textContent).toBe("ada@example.com");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("programmatic nested write updates bound input in JSX", () => {
+    let nameAccessor!: (v?: string) => string | void;
+
+    const Form = ilha.state("user", { name: "Ada" }).render(({ state }) => {
+      nameAccessor = state.user.select((u) => u.name) as typeof nameAccessor;
+      return <input bind:value={state.user.select((u) => u.name)} />;
+    });
+
+    const el = makeEl();
+    const unmount = Form.mount(el);
+    nameAccessor("Grace");
+    expect((el.querySelector("input") as HTMLInputElement).value).toBe("Grace");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("does not bind when mapping snapshot array from state() in JSX", () => {
+    const List = ilha.state("users", ["Ada"]).render(({ state }) => (
+      <div>
+        {state.users().map((u) => (
+          <input data-u bind:value={u} />
+        ))}
+        <span data-out>{state.users()[0]}</span>
+      </div>
+    ));
+
+    const el = makeEl();
+    const unmount = List.mount(el);
+    const input = el.querySelector("[data-u]") as HTMLInputElement;
+    expect(input.getAttribute("data-ilha-bind")).toBeNull();
+
+    input.value = "Grace";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(el.querySelector("[data-out]")!.textContent).toBe("Ada");
+
+    unmount();
+    cleanup(el);
+  });
+
   it("nests an ilha island inside another island via JSX", () => {
     const Child = ilha.state("count", 0).render(({ state }) => <button>{state.count()}</button>);
     const Parent = ilha.render(() => (
@@ -430,6 +574,67 @@ describe("ilha JSX runtime", () => {
     expect(normalizeHtml(Parent.toString())).toBe(
       "<section><div data-ilha-slot=\"p:0\" data-ilha-props='{&quot;label&quot;:&quot;nested&quot;}'><strong>nested</strong></div></section>",
     );
+  });
+
+  it("jsx key prop on nested ilha island uses k:{key} slot id", () => {
+    const Child = ilha
+      .input(z.object({ label: z.string() }))
+      .render(({ input }) => <strong>{input.label}</strong>);
+    const Parent = ilha.render(() => (
+      <section>
+        <Child key="item-a" label="a" />
+      </section>
+    ));
+
+    expect(normalizeHtml(Parent.toString())).toBe(
+      "<section><div data-ilha-slot=\"k:item-a\" data-ilha-props='{&quot;label&quot;:&quot;a&quot;}'><strong>a</strong></div></section>",
+    );
+  });
+
+  it("jsx key on list items preserves child identity after delete", () => {
+    const Child = ilha
+      .input(z.object({ label: z.string() }))
+      .state("n", 0)
+      .on("button@click", ({ state }) => state.n(state.n() + 1))
+      .render(({ input, state }) => (
+        <>
+          <span data-label={input.label}>
+            {input.label}:{state.n()}
+          </span>
+          <button>+</button>
+        </>
+      ));
+
+    let setLabels!: (v: string[]) => void;
+
+    const Parent = ilha.state<string[]>("labels", ["a", "b", "c"]).render(({ state }) => {
+      setLabels = state.labels as unknown as typeof setLabels;
+      return (
+        <div>
+          {state.labels().map((label) => (
+            <Child key={label} label={label} />
+          ))}
+        </div>
+      );
+    });
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+
+    const slot = (label: string) =>
+      el.querySelector(`[data-ilha-slot="k:${label}"]`) as HTMLElement;
+
+    slot("b").querySelector("button")!.click();
+    expect(slot("b").querySelector("[data-label]")!.textContent).toBe("b:1");
+
+    setLabels(["a", "c"]);
+
+    expect(el.querySelector("[data-ilha-slot='k:b']")).toBeNull();
+    expect(slot("a").querySelector("[data-label]")!.textContent).toBe("a:0");
+    expect(slot("c").querySelector("[data-label]")!.textContent).toBe("c:0");
+
+    unmount();
+    cleanup(el);
   });
 
   it("renders arrays of nested ilha islands without commas", () => {
@@ -483,8 +688,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("explicit children prop is overridden by JSX children", () => {
-    // Use jsx() directly because TSX forbids both children prop and slot children
-    const result = ilha.jsx("p", { children: "from prop" }, "from slot");
+    const result = ilha.jsx("p", { children: "from prop" }, ["from slot"]);
     expect(result.value).toBe("<p>from slot</p>");
   });
 
@@ -674,6 +878,33 @@ describe("ilha JSX runtime", () => {
     const Child = ilha.state("x", 42).render(({ state }) => <span>{state.x()}</span>);
     const Parent = () => Child();
     expect((<Parent />).value).toContain("42");
+  });
+
+  it("JSX island component returning SSR string emits slot instead of escaping", () => {
+    const Child = ilha.render(
+      () =>
+        html`
+          <span>child</span>
+        `,
+    );
+    const CrossBundleChild = Object.assign(
+      (props?: Record<string, unknown>) => Child.toString(props),
+      {
+        [Symbol.for("ilha.island")]: true,
+        toString: Child.toString.bind(Child),
+        mount: Child.mount.bind(Child),
+      },
+    );
+    const Parent = ilha.render(() => (
+      <div>
+        <CrossBundleChild />
+      </div>
+    ));
+
+    const result = Parent() as string;
+    expect(result).not.toContain("&lt;span");
+    expect(result).toContain("data-ilha-slot=");
+    expect(result).toContain("<span>child</span>");
   });
 
   it("key prop is not passed to function components", () => {

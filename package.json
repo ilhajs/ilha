@@ -2,8 +2,7 @@
   "private": true,
   "workspaces": [
     "apps/*",
-    "packages/*",
-    "templates/*"
+    "packages/*"
   ],
   "scripts": {
     "build": "bun run --filter './packages/*' build",

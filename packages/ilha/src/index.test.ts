@@ -2,7 +2,18 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 
 import { z } from "zod";
 
-import ilha, { html, raw, css, mount, from, context, signal, batch, untrack } from "./index";
+import ilha, {
+  html,
+  raw,
+  css,
+  mount,
+  from,
+  context,
+  signal,
+  batch,
+  untrack,
+  type SignalAccessor,
+} from "./index";
 
 // ---------------------------------------------
 // Helpers
@@ -863,6 +874,32 @@ describe("Island mount", () => {
       (el.querySelector("[data-btn]") as HTMLButtonElement).click();
       (el.querySelector("[data-btn]") as HTMLButtonElement).click();
       expect(calls.length).toBe(1);
+      expect(el.querySelector("p")!.textContent).toBe("1");
+      unmount();
+      cleanup(el);
+    });
+
+    it("selector-based handler target is the matched element, not nested click target", () => {
+      const seen: { index?: number } = {};
+      const Island = ilha
+        .state("n", 0)
+        .on("[data-action=delete]@click", ({ target, state }) => {
+          seen.index = Number.parseInt(target.getAttribute("data-index")!);
+          state.n(state.n() + 1);
+        })
+        .render(
+          ({ state }) => html`
+          <button data-action="delete" data-index="2">
+            <span>Delete</span>
+          </button>
+          <p>${state.n()}</p>
+        `,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      el.querySelector("span")!.click();
+      expect(seen.index).toBe(2);
       expect(el.querySelector("p")!.textContent).toBe("1");
       unmount();
       cleanup(el);
@@ -2380,6 +2417,31 @@ describe("child islands (render-time composition)", () => {
     cleanup(el);
   });
 
+  it("first render effect keeps inline-mounted child slots without remorphing", () => {
+    const Child = ilha
+      .input()
+      .onMount(({ host }) => {
+        host.setAttribute("data-child-mounted", "1");
+      })
+      .render(
+        () =>
+          html`
+            <span data-child>ok</span>
+          `,
+      );
+
+    const Parent = ilha.render(() => html`<div>${Child()}</div>`);
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+    expect(el.querySelector("[data-ilha-slot='p:0']")?.getAttribute("data-child-mounted")).toBe(
+      "1",
+    );
+    expect(el.querySelector("[data-child]")?.textContent).toBe("ok");
+    unmount();
+    cleanup(el);
+  });
+
   it("client Child Island is interactive independently", () => {
     const Child = ilha
       .state("count", 0)
@@ -2558,6 +2620,45 @@ describe("child islands (render-time composition)", () => {
       expect(el.querySelector("[data-ilha-slot='k:a']")).toBe(slotA);
       // Child state survives.
       expect(slotA.querySelector("li")!.textContent).toBe("1+");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("positional list delete remounts child when slot props change", () => {
+      const Child = ilha
+        .input<{ label: string }>()
+        .state("n", 0)
+        .on("[data-bump]@click", ({ state }) => state.n(state.n() + 1))
+        .render(
+          ({ input, state }) =>
+            html`<span data-label="${input.label}">${input.label}:${state.n()}</span><button data-bump>+</button>`,
+        );
+
+      let setItems!: (v: string[]) => void;
+
+      const Parent = ilha.state<string[]>("items", ["a", "b", "c"]).render(({ state }) => {
+        setItems = state.items as unknown as typeof setItems;
+        return html`<div>${state.items().map((label) => Child({ label }))}</div>`;
+      });
+
+      const el = makeEl();
+      const unmount = Parent.mount(el);
+
+      const slot = (label: string) =>
+        el.querySelector(`[data-ilha-slot] [data-label="${label}"]`)!.closest("[data-ilha-slot]")!;
+
+      slot("b").querySelector<HTMLButtonElement>("[data-bump]")!.click();
+      expect(slot("b").querySelector("[data-label]")!.textContent).toBe("b:1");
+
+      setItems(["a", "c"]);
+
+      const labels = [...el.querySelectorAll("[data-label]")].map((n) =>
+        n.getAttribute("data-label"),
+      );
+      expect(labels).toEqual(["a", "c"]);
+      expect(el.querySelectorAll("[data-ilha-slot]").length).toBe(2);
+      expect(slot("c").querySelector("[data-label]")!.textContent).toBe("c:0");
 
       unmount();
       cleanup(el);
@@ -3293,6 +3394,33 @@ describe("bind: template syntax", () => {
       expect(out).toContain(`data-ilha-bind="value:0"`);
     });
 
+    it("emits nested object property value for bind:value", () => {
+      const Island = ilha
+        .state("user", { name: "Ada" })
+        .render(({ state }) => html`<input bind:value=${state.user.select((u) => u.name)}>`);
+
+      const out = Island();
+      expect(out).toContain(`value="Ada"`);
+      expect(out).toContain(`data-ilha-bind="value:0"`);
+    });
+
+    it("emits array item value for bind:value via select", () => {
+      const Island = ilha
+        .state("tags", ["js", "ts"])
+        .render(
+          ({ state }) =>
+            html`${state
+              .tags()
+              .map((_, i) => html`<input bind:value=${state.tags.select((t) => t[i])}>`)}`,
+        );
+
+      const out = Island();
+      expect(out).toContain(`value="js"`);
+      expect(out).toContain(`value="ts"`);
+      expect(out).toContain(`data-ilha-bind="value:0"`);
+      expect(out).toContain(`data-ilha-bind="value:1"`);
+    });
+
     it("emits checked attribute and sentinel for bind:checked when true", () => {
       const Island = ilha
         .state("agreed", true)
@@ -3479,6 +3607,102 @@ describe("bind: template syntax", () => {
       input.value = "grace";
       input.dispatchEvent(new Event("input"));
       expect(el.querySelector("p")!.textContent).toBe("grace");
+      unmount();
+      cleanup(el);
+    });
+
+    it("text input change updates nested object property via bind:value", () => {
+      const Island = ilha
+        .state("user", { name: "ada", role: "dev" })
+        .render(
+          ({ state }) =>
+            html`<input data-name bind:value=${state.user.select((u) => u.name)}><p>${state.user().name}</p>`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-name]")!;
+      input.value = "grace";
+      input.dispatchEvent(new Event("input"));
+      expect(el.querySelector("p")!.textContent).toBe("grace");
+      unmount();
+      cleanup(el);
+    });
+
+    it("text input change updates array item via bind:value and select", () => {
+      const Island = ilha
+        .state("tags", ["js", "ts"])
+        .render(
+          ({ state }) =>
+            html`${state
+              .tags()
+              .map(
+                (_, i) =>
+                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])}><span data-out="${i}">${state.tags.select((t) => t[i])()}</span>`,
+              )}`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>('[data-tag="0"]')!;
+      input.value = "rust";
+      input.dispatchEvent(new Event("input"));
+      expect(el.querySelector('[data-out="0"]')!.textContent).toBe("rust");
+      expect(el.querySelector('[data-out="1"]')!.textContent).toBe("ts");
+      unmount();
+      cleanup(el);
+    });
+
+    it("select accessor ignores out-of-bounds array writes after shrink", () => {
+      let bindSecond!: SignalAccessor<boolean>;
+      let setTodos!: (v: { text: string; completed: boolean }[]) => void;
+
+      const Island = ilha
+        .state("todos", [
+          { text: "a", completed: false },
+          { text: "b", completed: false },
+        ])
+        .onMount(({ state }) => {
+          bindSecond = state.todos.select((t) => t[1]!.completed);
+          setTodos = state.todos as unknown as typeof setTodos;
+        })
+        .render(({ state }) => html`<span data-len>${state.todos().length}</span>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      setTodos([{ text: "a", completed: false }]);
+      expect(el.querySelector("[data-len]")!.textContent).toBe("1");
+      bindSecond(false);
+      expect(el.querySelector("[data-len]")!.textContent).toBe("1");
+      unmount();
+      cleanup(el);
+    });
+
+    it("checkbox change updates nested array field via select()", () => {
+      let todos!: SignalAccessor<{ text: string; completed: boolean }[]>;
+
+      const Island = ilha
+        .state("todos", [
+          { text: "a", completed: true },
+          { text: "b", completed: false },
+        ])
+        .render(({ state }) => {
+          todos = state.todos;
+          return html`${state
+            .todos()
+            .map(
+              (_, i) =>
+                html`<input type="checkbox" data-cb="${i}" bind:checked=${state.todos.select((t) => t[i].completed)}>`,
+            )}`;
+        });
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const cb = el.querySelector<HTMLInputElement>('[data-cb="1"]')!;
+      cb.checked = true;
+      cb.dispatchEvent(new Event("change"));
+      expect(todos()[0]!.completed).toBe(true);
+      expect(todos()[1]!.completed).toBe(true);
       unmount();
       cleanup(el);
     });
@@ -3965,6 +4189,51 @@ describe("bind: template syntax", () => {
       cleanup(el);
     });
 
+    it("morph preserves controller-owned attrs on data-slot elements", () => {
+      const Island = ilha
+        .state("on", true)
+        .state("n", 0)
+        .on("[data-b]@click", ({ state }) => state.n(state.n() + 1))
+        .render(
+          ({ state }) => html`
+            <span
+              data-slot="checkbox"
+              aria-checked="${state.on() ? "true" : "false"}"
+              data-mark="${state.n()}"
+            ></span>
+            <span data-slot="switch" data-mark="${state.n()}"></span>
+            <span data-slot="dialog-content" data-mark="${state.n()}"></span>
+            <button data-b>rerender</button>
+          `,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const cb = el.querySelector<HTMLElement>('[data-slot="checkbox"]')!;
+      cb.setAttribute("data-checked", "");
+      cb.setAttribute("aria-checked", "true");
+
+      const sw = el.querySelector<HTMLElement>('[data-slot="switch"]')!;
+      sw.setAttribute("data-checked", "");
+      sw.setAttribute("data-unchecked", "");
+
+      const dialog = el.querySelector<HTMLElement>('[data-slot="dialog-content"]')!;
+      dialog.setAttribute("data-open", "");
+      dialog.setAttribute("data-state", "open");
+      dialog.setAttribute("aria-expanded", "true");
+
+      el.querySelector<HTMLButtonElement>("[data-b]")!.click();
+      expect(cb.hasAttribute("data-checked")).toBe(true);
+      expect(cb.getAttribute("aria-checked")).toBe("true");
+      expect(sw.hasAttribute("data-checked")).toBe(true);
+      expect(dialog.hasAttribute("data-open")).toBe(true);
+      expect(dialog.getAttribute("data-state")).toBe("open");
+      expect(dialog.getAttribute("aria-expanded")).toBe("true");
+
+      unmount();
+      cleanup(el);
+    });
+
     it("bind:checked listener survives re-render", () => {
       const Island = ilha
         .state("flag", false)
@@ -4079,6 +4348,329 @@ describe("bind: template syntax", () => {
     });
   });
 
+  describe("nested path binding", () => {
+    it("SSR emits deeply nested object property value for bind:value", () => {
+      const Island = ilha
+        .state("user", { address: { city: "Paris" } })
+        .render(
+          ({ state }) => html`<input bind:value=${state.user.select((u) => u.address.city)}>`,
+        );
+
+      const out = Island();
+      expect(out).toContain(`value="Paris"`);
+      expect(out).toContain(`data-ilha-bind="value:0"`);
+    });
+
+    it("nested write preserves sibling object keys", () => {
+      const Island = ilha
+        .state("user", { name: "ada", role: "dev", email: "ada@example.com" })
+        .render(
+          ({ state }) =>
+            html`<input data-name bind:value=${state.user.select((u) => u.name)}><p data-role>${state.user().role}</p><p data-email>${state.user().email}</p>`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-name]")!;
+      input.value = "grace";
+      input.dispatchEvent(new Event("input"));
+
+      expect(el.querySelector("[data-role]")!.textContent).toBe("dev");
+      expect(el.querySelector("[data-email]")!.textContent).toBe("ada@example.com");
+      unmount();
+      cleanup(el);
+    });
+
+    it("programmatic nested path write updates bound input via re-render", () => {
+      let nameAccessor!: (v?: string) => string | void;
+
+      const Island = ilha.state("user", { name: "ada" }).render(({ state }) => {
+        nameAccessor = state.user.select((u) => u.name) as typeof nameAccessor;
+        return html`<input data-name bind:value=${state.user.select((u) => u.name)}>`;
+      });
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      nameAccessor("hopper");
+      expect(el.querySelector<HTMLInputElement>("[data-name]")!.value).toBe("hopper");
+      unmount();
+      cleanup(el);
+    });
+
+    it("DOM input updates deeply nested object property", () => {
+      const Island = ilha
+        .state("user", { address: { city: "Paris" } })
+        .render(
+          ({ state }) =>
+            html`<input data-city bind:value=${state.user.select((u) => u.address.city)}><p>${state.user().address.city}</p>`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-city]")!;
+      input.value = "London";
+      input.dispatchEvent(new Event("input"));
+      expect(el.querySelector("p")!.textContent).toBe("London");
+      unmount();
+      cleanup(el);
+    });
+
+    it("bind:value on nested path survives re-render triggered by unrelated state", () => {
+      const Island = ilha
+        .state("user", { name: "" })
+        .state("tick", 0)
+        .on("[data-bump]@click", ({ state }) => state.tick(state.tick() + 1))
+        .render(
+          ({ state }) => html`
+            <input data-name bind:value=${state.user.select((u) => u.name)} />
+            <span data-tick>${state.tick}</span>
+            <button data-bump>bump</button>
+          `,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-name]")!;
+
+      input.value = "before";
+      input.dispatchEvent(new Event("input"));
+
+      el.querySelector<HTMLButtonElement>("[data-bump]")!.click();
+      expect(el.querySelector("[data-tick]")!.textContent).toBe("1");
+
+      const inputPostRerender = el.querySelector<HTMLInputElement>("[data-name]")!;
+      inputPostRerender.value = "after";
+      inputPostRerender.dispatchEvent(new Event("input"));
+
+      el.querySelector<HTMLButtonElement>("[data-bump]")!.click();
+      expect(el.querySelector<HTMLInputElement>("[data-name]")!.value).toBe("after");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("supports bind:checked on nested boolean property", () => {
+      const Island = ilha
+        .state("prefs", { notify: false })
+        .render(
+          ({ state }) =>
+            html`<input type="checkbox" data-n bind:checked=${state.prefs.select((p) => p.notify)}><p>${state.prefs.select((p) => p.notify)}</p>`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const cb = el.querySelector<HTMLInputElement>("[data-n]")!;
+      expect(cb.checked).toBe(false);
+
+      cb.checked = true;
+      cb.dispatchEvent(new Event("change"));
+      expect(el.querySelector("p")!.textContent).toBe("true");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("supports object-in-array path bind:value", () => {
+      const Island = ilha
+        .state("rows", [{ label: "a" }, { label: "b" }])
+        .render(
+          ({ state }) =>
+            html`${state
+              .rows()
+              .map(
+                (_, i) =>
+                  html`<input data-row="${i}" bind:value=${state.rows.select((r) => r[i].label)}><span data-out="${i}">${state.rows.select((r) => r[i].label)()}</span>`,
+              )}`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>('[data-row="1"]')!;
+      input.value = "z";
+      input.dispatchEvent(new Event("input"));
+      expect(el.querySelector('[data-out="1"]')!.textContent).toBe("z");
+      expect(el.querySelector('[data-out="0"]')!.textContent).toBe("a");
+      unmount();
+      cleanup(el);
+    });
+
+    it("binds array items via select with snapshot map", () => {
+      const Island = ilha
+        .state("tags", ["js", "ts"])
+        .render(
+          ({ state }) =>
+            html`${state
+              .tags()
+              .map(
+                (_, i) =>
+                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])}><span data-out="${i}">${state.tags.select((t) => t[i])()}</span>`,
+              )}`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>('[data-tag="0"]')!;
+      input.value = "rust";
+      input.dispatchEvent(new Event("input"));
+      expect(el.querySelector('[data-out="0"]')!.textContent).toBe("rust");
+      unmount();
+      cleanup(el);
+    });
+
+    it("array push extends list and new index is bindable after re-render", () => {
+      const Island = ilha
+        .state("tags", ["a"])
+        .on("[data-add]@click", ({ state }) => state.tags([...state.tags(), "b"]))
+        .render(
+          ({ state }) => html`
+            ${state
+              .tags()
+              .map(
+                (_, i) =>
+                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])}><span data-out="${i}">${state.tags.select((t) => t[i])()}</span>`,
+              )}
+            <button data-add>add</button>
+          `,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      expect(el.querySelectorAll("input[data-tag]").length).toBe(1);
+
+      el.querySelector<HTMLButtonElement>("[data-add]")!.click();
+      expect(el.querySelectorAll("input[data-tag]").length).toBe(2);
+
+      const newInput = el.querySelector<HTMLInputElement>('[data-tag="1"]')!;
+      newInput.value = "c";
+      newInput.dispatchEvent(new Event("input"));
+      expect(el.querySelector('[data-out="1"]')!.textContent).toBe("c");
+      expect(el.querySelector('[data-out="0"]')!.textContent).toBe("a");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("array shrink rebinds remaining indices correctly", () => {
+      const Island = ilha
+        .state("tags", ["keep", "drop"])
+        .on("[data-trim]@click", ({ state }) => state.tags([state.tags()[0]!]))
+        .render(
+          ({ state }) => html`
+            ${state
+              .tags()
+              .map(
+                (_, i) =>
+                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])}><span data-out="${i}">${state.tags.select((t) => t[i])()}</span>`,
+              )}
+            <button data-trim>trim</button>
+          `,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      el.querySelector<HTMLButtonElement>("[data-trim]")!.click();
+
+      expect(el.querySelectorAll("input[data-tag]").length).toBe(1);
+      const input = el.querySelector<HTMLInputElement>('[data-tag="0"]')!;
+      input.value = "kept";
+      input.dispatchEvent(new Event("input"));
+      expect(el.querySelector('[data-out="0"]')!.textContent).toBe("kept");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("replacing whole nested object resets bound input to new value", () => {
+      let userAccessor!: (v?: { name: string }) => { name: string } | void;
+
+      const Island = ilha.state("user", { name: "ada" }).render(({ state }) => {
+        userAccessor = state.user as typeof userAccessor;
+        return html`<input data-name bind:value=${state.user.select((u) => u.name)}>`;
+      });
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      userAccessor({ name: "grace" });
+      expect(el.querySelector<HTMLInputElement>("[data-name]")!.value).toBe("grace");
+      unmount();
+      cleanup(el);
+    });
+
+    it("does not bind when iterating a snapshot array from state()", () => {
+      const Island = ilha
+        .state("tags", ["js"])
+        .render(
+          ({ state }) =>
+            html`${state
+              .tags()
+              .map(
+                (tag) =>
+                  html`<input data-tag bind:value=${tag}><span data-out>${state.tags()[0]}</span>`,
+              )}`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-tag]")!;
+      // bind: is skipped — no sentinel, no SSR value reflection.
+      expect(input.getAttribute("data-ilha-bind")).toBeNull();
+
+      input.value = "rust";
+      input.dispatchEvent(new Event("input"));
+      // Wrong pattern: tag is a plain string, not a path accessor — state stays put.
+      expect(el.querySelector("[data-out]")!.textContent).toBe("js");
+
+      unmount();
+      cleanup(el);
+    });
+
+    it("external ilha.signal() supports nested path bind:value", () => {
+      const profile = signal({ user: { name: "ada" } });
+
+      const Island = ilha.render(
+        () =>
+          html`<input data-name bind:value=${profile.select((p) => p.user.name)}><p>${profile().user.name}</p>`,
+      );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-name]")!;
+
+      input.value = "grace";
+      input.dispatchEvent(new Event("input"));
+      expect(profile().user.name).toBe("grace");
+      expect(el.querySelector("p")!.textContent).toBe("grace");
+
+      profile({ user: { name: "hopper" } });
+      expect(input.value).toBe("hopper");
+
+      unmount();
+      cleanup(el);
+    });
+
+    describe("dev warnings", () => {
+      let warnSpy: ReturnType<typeof spyOn>;
+      beforeEach(() => {
+        warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+      });
+      afterEach(() => {
+        warnSpy.mockRestore();
+      });
+
+      it("warns when bind:value target is a snapshot string from state().map()", () => {
+        const Island = ilha
+          .state("tags", ["js"])
+          .render(
+            ({ state }) => html`${state.tags().map((tag) => html`<input bind:value=${tag}>`)}`,
+          );
+
+        Island();
+        const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+        expect(msgs.some((m: string) => m.includes("requires a signal accessor"))).toBe(true);
+      });
+    });
+  });
+
   describe("external signal", () => {
     it("external ilha.signal() interpolates by value in html``", () => {
       const sig = signal("hello");
@@ -4173,6 +4765,23 @@ describe("bind: template syntax", () => {
       html`<input bind:value=${"plain string"}>`;
       const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
       expect(msgs.some((m: string) => m.includes("requires a signal accessor"))).toBe(true);
+    });
+
+    it("accepts bind:value target branded by another ilha module Symbol instance", () => {
+      const foreignBrand = Symbol("ilha.signalAccessor");
+      let value = "ada";
+      const accessor = ((v?: string) => {
+        if (v === undefined) return value;
+        value = v;
+      }) as import("./index").SignalAccessor<string>;
+      (accessor as unknown as Record<symbol, boolean>)[foreignBrand] = true;
+
+      const Island = ilha.render(() => html`<input bind:value=${accessor}>`);
+      const out = Island();
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(msgs.some((m: string) => m.includes("requires a signal accessor"))).toBe(false);
+      expect(out).toContain('value="ada"');
+      expect(out).toContain('data-ilha-bind="value:0"');
     });
   });
 });

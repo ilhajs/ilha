@@ -1,9 +1,2 @@
-.container {
-  max-width: 64rem;
-  margin: 0 auto;
-  padding: 0 1rem;
-}
-
-.navbar {
-  padding: 0.5rem 1rem;
-}
+@import "tailwindcss";
+@plugin "areia";

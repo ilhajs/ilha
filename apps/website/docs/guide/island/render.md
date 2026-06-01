@@ -399,6 +399,46 @@ const Tags = ilha.state<string[]>("tags", ["ts"]).render(({ state }) => (
 ));
 ```
 
+### Nested fields with `.select()`
+
+When state holds an object or array, bind to a nested slice with `.select()` instead of replacing the whole value on every keystroke:
+
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
+
+const Profile = ilha.state("user", { name: "Ada", role: "dev" }).render(({ state }) => (
+  <div>
+    <input bind:value={state.user.select((u) => u.name)} />
+    <p>{state.user().name}</p>
+  </div>
+));
+```
+
+In a list, select the item field you need inside `.map()`:
+
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
+
+const Todos = ilha
+  .state("todos", [{ text: "Learn ilha", completed: false }])
+  .render(({ state }) => (
+    <ul>
+      {state.todos().map((todo, index) => (
+        <li key={todo.text}>
+          <input type="checkbox" bind:checked={state.todos.select((t) => t[index].completed)} />
+          {todo.text}
+        </li>
+      ))}
+    </ul>
+  ));
+```
+
+The selector must traverse nested state (for example `(u) => u.name` or `(t) => t[i].completed`). Writes update only that path — siblings and unrelated fields stay intact.
+
 ### Element references
 
 ```tsx twoslash
@@ -413,7 +453,7 @@ const Focus = ilha
 
 ### External signals
 
-Any signal created with [`signal()`](/guide/helpers/signals) works as a binding target:
+Any signal created with [`signal()`](/guide/helpers/signals) works as a binding target, including [nested slices via `.select()`](#nested-fields-with-select):
 
 ```tsx twoslash
 /** @jsxImportSource ilha */
@@ -423,6 +463,12 @@ import ilha, { signal } from "ilha";
 const username = signal("");
 
 const LoginForm = ilha.render(() => <input bind:value={username} placeholder="Username" />);
+
+const profile = signal({ user: { name: "Ada" } });
+
+const Settings = ilha.render(() => (
+  <input bind:value={profile.select((p) => p.user.name)} placeholder="Name" />
+));
 ```
 
 ## `html`` ` interop

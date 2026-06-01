@@ -62,7 +62,19 @@ export default defineConfig({
     },
   },
   builderConfig: {
+    tools: {
+      swc: {
+        jsc: {
+          transform: {
+            react: {
+              throwIfNamespace: false,
+            },
+          },
+        },
+      },
+    },
     html: {
+      implementation: "native",
       tags: [
         {
           tag: "script",

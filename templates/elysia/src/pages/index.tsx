@@ -1,50 +1,31 @@
+import { Badge, Button, Checkbox, Input, LayerCard } from "areia";
 import ilha, { raw } from "ilha";
+import { each } from "quando";
 
-const DEFAULT_TODOS = [
+type Todo = { text: string; completed: boolean };
+
+const DEFAULT_TODOS: Todo[] = [
   { text: "Start Ilha Dev Server", completed: true },
   { text: "Develop my Ilha app", completed: false },
   { text: "Deploy my Ilha app", completed: false },
 ];
 
-type Todo = { text: string; completed: boolean };
-
 const addTodo = (todos: Todo[], text: string): Todo[] => [...todos, { text, completed: false }];
 
-const toggleTodo = (todos: Todo[], index: number): Todo[] =>
-  todos.map((todo, i) => (i === index ? { ...todo, completed: !todo.completed } : todo));
+const deleteTodo = (todos: Todo[], index: number): Todo[] =>
+  index < 0 ? todos : todos.filter((_, i) => i !== index);
 
-const deleteTodo = (todos: Todo[], index: number): Todo[] => todos.filter((_, i) => i !== index);
-
-const getIndex = (target: Element) => Number.parseInt(target.getAttribute("data-index")!);
-
-const todoItem = (todo: Todo, index: number) => (
-  <div class="item x-stack">
-    <input
-      id={`todo-${index}`}
-      type="checkbox"
-      data-index={index}
-      checked={todo.completed}
-      data-todo-checkbox
-    />
-    <label
-      for={`todo-${index}`}
-      style={todo.completed ? "flex:1;text-decoration:line-through" : "flex:1;"}
-    >
-      {todo.text}
-    </label>
-    <button data-action="delete" data-index={index} type="button" data-variant="secondary">
-      Delete
-    </button>
-  </div>
-);
+const getIndex = (target: Element) => {
+  const el = target.closest("[data-index]") ?? target;
+  const index = Number.parseInt(el.getAttribute("data-index") ?? "", 10);
+  return Number.isNaN(index) ? -1 : index;
+};
 
 export default ilha
   .state("todos", DEFAULT_TODOS)
-  .state("serverResult", "")
-  .on("[data-todo-checkbox]@change", ({ state, target }) => {
-    state.todos(toggleTodo(state.todos(), getIndex(target)));
-  })
-  .on("[data-todo-form]@submit", ({ event, target, state }) => {
+  .state("serverIslandHtml", "")
+  .derived("pending", ({ state }) => state.todos().filter((t) => !t.completed))
+  .on("#todo-form@submit", ({ event, target, state }) => {
     event.preventDefault();
     const form = target as HTMLFormElement;
     const text = new FormData(form).get("todo")!.toString().trim();
@@ -52,35 +33,53 @@ export default ilha
     state.todos(addTodo(state.todos(), text));
     form.reset();
   })
-  .on("[data-action=delete]@click", ({ state, target }) => {
+  .on("[data-action=delete_todo]@click", ({ state, target }) => {
     state.todos(deleteTodo(state.todos(), getIndex(target)));
   })
   .on("[data-action=fetch_component]@click", async ({ state }) => {
-    const req = await fetch("/server-island");
-    const html = await req.text();
-    state.serverResult(html);
+    const res = await fetch("/server-island");
+    state.serverIslandHtml(await res.text());
   })
-  .render(({ state }) => (
-    <div class="y-stack">
-      <div class="card">
-        <header>
-          <h2>To Do</h2>
-        </header>
-        <section class="y-stack">
-          <form data-todo-form>
-            <div class="x-stack">
-              <input name="todo" type="text" placeholder="Add a new todo" style="flex-shrink: 1;" />
-              <button type="submit">Add</button>
+  .render(({ state, derived }) => (
+    <div class="flex flex-col gap-4">
+      <LayerCard>
+        <LayerCard.Title>
+          <span>To Do</span>
+          <Badge>{derived.pending.value?.length}</Badge>
+        </LayerCard.Title>
+        <LayerCard.Content>
+          <form id="todo-form">
+            <div class="flex items-center gap-2">
+              <Input name="todo" type="text" placeholder="Add a new todo" class="w-full" />
+              <Button type="submit">Add</Button>
             </div>
           </form>
-          <div class="y-stack">{state.todos().map(todoItem)}</div>
-        </section>
-      </div>
+          <div class="flex flex-col gap-2">
+            {each(state.todos())
+              .as((todo, index) => (
+                <div class="flex items-center justify-between gap-2">
+                  <Checkbox
+                    key={todo.text}
+                    label={todo.text}
+                    bind:checked={state.todos.select((t) => t[index].completed)}
+                  />
+                  <Button data-action="delete_todo" data-index={index}>
+                    Delete
+                  </Button>
+                </div>
+              ))
+              .else(<p>No todos.</p>)}
+          </div>
+        </LayerCard.Content>
+      </LayerCard>
       <div class="x-stack">
-        <button data-action="fetch_component" data-variant="secondary">
-          Fetch Server Side Component
-        </button>
-        <div>{raw(state.serverResult())}</div>
+        {state.serverIslandHtml() ? (
+          <div>{raw(state.serverIslandHtml())}</div>
+        ) : (
+          <Button data-action="fetch_component" data-variant="secondary">
+            Fetch Server Side Component
+          </Button>
+        )}
       </div>
     </div>
   ));

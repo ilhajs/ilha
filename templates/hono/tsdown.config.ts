@@ -1,6 +1,16 @@
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 
 import { defineConfig } from "tsdown";
+
+function buildCss(input: string, output: string) {
+  const result = spawnSync("bun", ["x", "@tailwindcss/cli", "-i", input, "-o", output], {
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    throw new Error(`tailwindcss failed for ${input}`);
+  }
+}
 
 export default defineConfig([
   {
@@ -23,11 +33,13 @@ export default defineConfig([
     platform: "browser",
     outDir: "dist/static",
     deps: {
-      alwaysBundle: ["ilha", "@ilha/router", "ilha/jsx-runtime"],
+      alwaysBundle: ["ilha", "@ilha/router", "ilha/jsx-runtime", "areia", "quando"],
     },
-    copy: [
-      { from: "public/*", to: "dist/static" },
-      { from: "src/app.css", to: "dist/static" },
-    ],
+    copy: [{ from: "public/*", to: "dist/static" }],
+    hooks: {
+      "build:done": () => {
+        buildCss("src/app.css", "dist/static/app.css");
+      },
+    },
   },
 ]);

@@ -145,7 +145,66 @@ export function composeLoaders<Ls extends readonly Loader<any>[]>(
 // ─────────────────────────────────────────────
 
 export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Island<any, any> {
-  return layout(page);
+  // Key the page slot so its id (k:page) never collides with positional
+  // child slots (p:0, p:1, …) inside the page render.
+  const KeyedPage = Object.assign(page.key("page"), {
+    toString: page.toString.bind(page),
+  }) as unknown as Island<any, any>;
+  const Wrapped = layout(KeyedPage);
+
+  function pageMountHost(host: Element): Element {
+    return host.querySelector('[data-ilha-slot="k:page"]') ?? host;
+  }
+
+  function preparePageMountHost(outer: Element, mountHost: Element): void {
+    if (mountHost.hasAttribute("data-ilha-state")) return;
+    const outerState = outer.getAttribute("data-ilha-state");
+    if (!outerState) return;
+    try {
+      const snapshot = JSON.parse(outerState) as Record<string, unknown>;
+      delete snapshot._skipOnMount;
+      mountHost.setAttribute("data-ilha-state", JSON.stringify(snapshot));
+    } catch {
+      // leave unhydrated — mount will use init defaults
+    }
+  }
+
+  // Layout shells are SSR chrome — interactivity (state, binds, nested child
+  // islands) lives on the page. Same forwarding pattern as wrapError.
+  Wrapped.mount = (host: Element, props?: Record<string, unknown>) => {
+    const mountHost = pageMountHost(host);
+    preparePageMountHost(host, mountHost);
+    return page.mount(mountHost, props as never);
+  };
+
+  (Wrapped as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
+    host: Element,
+    props?: Record<string, unknown>,
+  ) => {
+    const mountHost = pageMountHost(host);
+    preparePageMountHost(host, mountHost);
+    const pageInternal = (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL];
+    if (typeof pageInternal === "function") {
+      return pageInternal(mountHost, props);
+    }
+    return { unmount: page.mount(mountHost, props as never), updateProps: () => {} };
+  };
+
+  Wrapped.hydratable = async (
+    props?: Record<string, unknown>,
+    opts?: HydratableOptions,
+  ): Promise<string> => {
+    if (!opts?.name) throw new Error("wrapLayout: hydratable requires options.name");
+    const resolvedProps = props ?? {};
+    // Snapshot state from the page island, not the layout shell.
+    const pageBlock = await page.hydratable(resolvedProps, opts);
+    const openTag = pageBlock.match(/^<([a-zA-Z][\w-]*)\s([^>]*)>/);
+    if (!openTag) return pageBlock;
+    const layoutInner = Wrapped.toString(resolvedProps as never);
+    return `<${openTag[1]} ${openTag[2]}>${layoutInner}</${openTag[1]}>`;
+  };
+
+  return Wrapped;
 }
 
 export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island<any, any> {
@@ -214,6 +273,14 @@ export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island
       // would need to re-navigate to recover from an error state.
       return { unmount: errorIsland.mount(host, props), updateProps: () => {} };
     }
+  };
+
+  Wrapper.hydratable = async (
+    props?: Record<string, unknown>,
+    opts?: HydratableOptions,
+  ): Promise<string> => {
+    if (!opts?.name) throw new Error("wrapError: hydratable requires options.name");
+    return page.hydratable(props ?? {}, opts);
   };
 
   return Wrapper;

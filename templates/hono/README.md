@@ -1,50 +1,42 @@
-# Hono and Ilha
+# Ilha + Hono
 
-## Add Tailwind
+A minimal Ilha app with [Hono](https://hono.dev) on Node.js. Pages live in `src/pages/` and hydrate on the client via `@ilha/router`.
 
-Install dependencies:
+## Requirements
 
-```sh
-npm install -D tailwindcss @tailwindcss/cli
-# or Bun
-bun add -D tailwindcss @tailwindcss/cli
+- [Bun](https://bun.sh) (for install and Tailwind build)
+- Node.js 20+
+
+## Getting started
+
+```bash
+bun install
+bun run dev
 ```
 
-Import `tailwindcss` in `app.css`:
+Open [http://localhost:3000](http://localhost:3000).
 
-```diff
-+@import "tailwindcss";
+## Scripts
+
+| Command         | Description                         |
+| --------------- | ----------------------------------- |
+| `bun run dev`   | Build and start the server with HMR |
+| `bun run build` | Build server and client bundles     |
+| `bun run start` | Run the production server           |
+
+## Project layout
+
+```text
+src/
+  pages/       # File-based routes (+layout, index, learn, …)
+  client.ts    # Client entry — mounts islands
+  server.tsx   # Hono server — static assets + SPA shell
+  app.css      # Tailwind + Areia styles
 ```
 
-Adjust `tsdown.config.ts`:
+The demo includes a todo island, a server-rendered island at `/server-island`, and [Areia](https://areia.ilha.build) UI components.
 
-```diff
-import { defineConfig } from "tsdown";
+## Learn more
 
-export default defineConfig([
-  // ...
-  {
-    entry: ["src/client.ts"],
-    copy: [
-      { from: "public/*", to: "dist/static" },
--     { from: "src/app.css", to: "dist/static" },
-    ],
-    // ...
-+   hooks: {
-+     "build:done": async () => {
-+       const proc = spawn(
-+         "bunx",
-+         ["@tailwindcss/cli", "-i", "src/app.css", "-o", "dist/static/app.css"],
-+         {
-+           stdio: "inherit",
-+         },
-+       );
-+       if (!proc.stdout) return;
-+       for await (const chunk of proc.stdout) {
-+         process.stdout.write(chunk);
-+       }
-+     },
-+   },
-  },
-]);
-```
+- [Ilha docs](https://ilha.build/docs)
+- [Scaffold a new project](https://ilha.build/docs/guide/getting-started/installation)
