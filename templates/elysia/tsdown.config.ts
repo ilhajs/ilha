@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { defineConfig } from "tsdown";
 
 function buildCss(input: string, output: string) {
-  const result = spawnSync("bun", ["x", "@tailwindcss/cli", "-i", input, "-o", output], {
+  const result = spawnSync("npx", ["@tailwindcss/cli", "-i", input, "-o", output], {
     stdio: "inherit",
   });
   if (result.status !== 0) {

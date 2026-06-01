@@ -266,7 +266,7 @@ const Hero = ilha.render(() => (
       <div class="relative inset-0 z-10 flex h-full flex-col items-start justify-between gap-8 lg:flex-row lg:items-stretch">
         <div class="flex flex-1 flex-col justify-center gap-4 px-4 py-16 sm:px-8 sm:py-32 lg:px-16">
           <Badge variant="beta">Alpha is live</Badge>
-          <h1 class="text-areia-default text-2xl leading-normal font-semibold text-balance sm:text-3xl lg:text-4xl">
+          <h1 class="text-2xl leading-normal font-semibold text-balance text-neutral-950 sm:text-3xl lg:text-4xl dark:text-neutral-950">
             The most versatile web UI library.
           </h1>
           <div class="grid w-full gap-2 sm:flex sm:w-auto">
