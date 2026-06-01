@@ -77,11 +77,21 @@ function extractDirectChildSlotIdsInOrder(html: string): string[] {
   if (typeof document === "undefined") return [];
   const tpl = document.createElement("template");
   tpl.innerHTML = html;
+  const root = tpl.content;
   const ids: string[] = [];
-  for (const child of tpl.content.children) {
-    if (child instanceof Element && child.hasAttribute("data-ilha-slot")) {
-      ids.push(child.getAttribute("data-ilha-slot")!);
+  for (const el of root.querySelectorAll("[data-ilha-slot]")) {
+    if (!(el instanceof Element)) continue;
+    let parent: Node | null = el.parentElement ?? el.parentNode;
+    let nested = false;
+    while (parent && parent !== root) {
+      if (parent instanceof Element && parent.hasAttribute("data-ilha-slot")) {
+        nested = true;
+        break;
+      }
+      parent =
+        parent instanceof Element ? (parent.parentElement ?? parent.parentNode) : parent.parentNode;
     }
+    if (!nested) ids.push(el.getAttribute("data-ilha-slot")!);
   }
   return ids;
 }
@@ -2524,27 +2534,36 @@ class IlhaBuilder<
         mountedSlots.delete(id);
         const token = Symbol();
         const result = entry.unmount();
-        const remove = () => {
+        const remove = (stub?: Element) => {
           const leaving = leavingSlots.get(id);
           if (!leaving || leaving.token !== token) return;
           leaving.el.remove();
+          stub?.remove();
           leavingSlots.delete(id);
         };
         if (result instanceof Promise) {
+          let stub: Element | undefined;
+          if (entry.el.isConnected) {
+            stub = document.createElement("div");
+            stub.setAttribute(SLOT_ATTR, id);
+            entry.el.replaceWith(stub);
+          }
           leavingSlots.set(id, { el: entry.el, token });
-          void result.finally(remove);
+          void result.finally(() => remove(stub));
         } else {
           entry.el.remove();
         }
       }
 
       function findSlot(id: string): Element | null {
+        const leavingEls = new Set([...leavingSlots.values()].map((l) => l.el));
         // Use CSS.escape when available (DOM environments always have it); fall
         // back to a simple attribute-safe escape for edge environments.
         const escaped =
           typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
         const candidates = host.querySelectorAll(`[${SLOT_ATTR}="${escaped}"]`);
         for (const candidate of candidates) {
+          if (leavingEls.has(candidate)) continue;
           // Walk up from the candidate, ensuring we don't cross a [data-ilha]
           // child-island boundary. If we reach `host`, the slot belongs to us.
           let el: Element | null = candidate;
@@ -2913,6 +2932,7 @@ class IlhaBuilder<
           }
         }
         for (const id of removedSlotIds) {
+          if (leavingSlots.has(id)) continue;
           const escaped =
             typeof CSS !== "undefined" && CSS.escape
               ? CSS.escape(id)
