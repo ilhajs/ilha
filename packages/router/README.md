@@ -562,6 +562,8 @@ RouterLink.toString({ href: "/about", label: "About" });
 
 Wraps a page island with a layout handler. Used internally by the Vite plugin codegen — also available for manual composition.
 
+On client hydration, `wrapLayout` mounts the full layout island (layout child slots `p:*` and the keyed page slot `k:page`) from existing SSR DOM — it does not re-render layout markup from serialized props. Interactive components in `+layout.tsx` (state, event handlers, nested islands) hydrate the same way as the page.
+
 ```ts
 import { wrapLayout } from "@ilha/router";
 

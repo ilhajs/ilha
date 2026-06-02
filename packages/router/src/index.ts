@@ -169,25 +169,41 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
     }
   }
 
-  // Layout shells are SSR chrome — interactivity (state, binds, nested child
-  // islands) lives on the page. Same forwarding pattern as wrapError.
+  const layoutMount = Wrapped.mount.bind(Wrapped);
+  const layoutInternal = (Wrapped as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
+    | ((
+        host: Element,
+        props?: Record<string, unknown>,
+      ) => {
+        unmount: () => void | Promise<void>;
+        updateProps: (p?: Record<string, unknown>) => void;
+      })
+    | undefined;
+
+  function prepareLayoutMountHost(host: Element): void {
+    preparePageMountHost(host, pageMountHost(host));
+    // Outer tag carries the page hydratable snapshot (incl. _skipOnMount); the
+    // layout root must not read it — state belongs on k:page only.
+    host.removeAttribute("data-ilha-state");
+  }
+
+  // Mount the full layout island so mountSlots wires layout child slots (p:*)
+  // and the keyed page slot (k:page). preparePageMountHost copies outer SSR
+  // state onto k:page and clears _skipOnMount so the page onMount still runs.
   Wrapped.mount = (host: Element, props?: Record<string, unknown>) => {
-    const mountHost = pageMountHost(host);
-    preparePageMountHost(host, mountHost);
-    return page.mount(mountHost, props as never);
+    prepareLayoutMountHost(host);
+    return layoutMount(host, props as never);
   };
 
   (Wrapped as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
     host: Element,
     props?: Record<string, unknown>,
   ) => {
-    const mountHost = pageMountHost(host);
-    preparePageMountHost(host, mountHost);
-    const pageInternal = (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL];
-    if (typeof pageInternal === "function") {
-      return pageInternal(mountHost, props);
+    prepareLayoutMountHost(host);
+    if (typeof layoutInternal === "function") {
+      return layoutInternal(host, props);
     }
-    return { unmount: page.mount(mountHost, props as never), updateProps: () => {} };
+    return { unmount: layoutMount(host, props as never), updateProps: () => {} };
   };
 
   Wrapped.hydratable = async (
