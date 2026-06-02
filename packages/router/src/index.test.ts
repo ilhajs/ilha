@@ -1839,6 +1839,34 @@ describe("wrapError / wrapLayout hydration", () => {
     unmount();
   });
 
+  it("wrapLayout layout onMount runs when outer snapshot has _skipOnMount", async () => {
+    const Layout = defineLayout((children) =>
+      ilha
+        .onMount(({ host }) => {
+          host.setAttribute("data-layout-mounted", "1");
+        })
+        .render(() => html`<nav>nav</nav><main>${children()}</main>`),
+    );
+
+    const Page = ilha.render(
+      () =>
+        html`
+          <p>page</p>
+        `,
+    );
+    const Wrapped = wrapLayout(Layout, Page);
+    const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
+
+    expect(ssr).toContain("_skipOnMount");
+
+    el = makeEl(`<div data-router-view>${ssr}</div>`);
+    const { unmount } = ilhaMount({ page: Wrapped }, { root: el });
+
+    expect(el.querySelector("[data-ilha]")?.getAttribute("data-layout-mounted")).toBe("1");
+
+    unmount();
+  });
+
   it("wrapLayout mount wires page handlers through outer hydratable shell", async () => {
     const Page = ilha
       .state("count", 0)

@@ -182,6 +182,9 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
 
   function prepareLayoutMountHost(host: Element): void {
     preparePageMountHost(host, pageMountHost(host));
+    // Outer tag carries the page hydratable snapshot (incl. _skipOnMount); the
+    // layout root must not read it — state belongs on k:page only.
+    host.removeAttribute("data-ilha-state");
   }
 
   // Mount the full layout island so mountSlots wires layout child slots (p:*)
