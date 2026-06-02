@@ -1793,6 +1793,52 @@ describe("wrapError / wrapLayout hydration", () => {
     unmount();
   });
 
+  it("wrapLayout hydrates interactive layout child slots (p:*) and page (k:page)", async () => {
+    const LayoutToggle = ilha
+      .state("on", false)
+      .on("[data-layout-toggle]@click", ({ state }) => {
+        state.on(!state.on());
+      })
+      .render(
+        ({ state }) => html`<button data-layout-toggle>${state.on() ? "on" : "off"}</button>`,
+      );
+
+    const Page = ilha
+      .state("count", 0)
+      .on("[data-page-inc]@click", ({ state }) => {
+        state.count(state.count() + 1);
+      })
+      .render(({ state }) => html`<button data-page-inc>${state.count()}</button>`);
+
+    const Layout = defineLayout((children) =>
+      ilha.render(
+        () => html`
+          <aside>${LayoutToggle()}</aside>
+          <main>${children()}</main>
+        `,
+      ),
+    );
+
+    const Wrapped = wrapLayout(Layout, Page);
+    const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
+
+    expect(ssr).toContain('data-ilha-slot="p:0"');
+    expect(ssr).toContain('data-ilha-slot="k:page"');
+
+    el = makeEl(`<div data-router-view>${ssr}</div>`);
+    const { unmount } = ilhaMount({ page: Wrapped }, { root: el });
+
+    el.querySelector<HTMLButtonElement>("[data-layout-toggle]")!.click();
+    await flushEffects();
+    expect(el.textContent).toContain("on");
+
+    el.querySelector<HTMLButtonElement>("[data-page-inc]")!.click();
+    await flushEffects();
+    expect(el.textContent).toContain("1");
+
+    unmount();
+  });
+
   it("wrapLayout mount wires page handlers through outer hydratable shell", async () => {
     const Page = ilha
       .state("count", 0)
