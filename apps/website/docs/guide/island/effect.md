@@ -88,13 +88,14 @@ The effect function receives an `EffectContext`:
 ```ts
 {
   state: IslandState; // reactive state signals
+  derived: IslandDerived; // derived signal accessors (same as render / .on())
   input: TInput; // resolved input props
   host: Element; // island root element
   signal: AbortSignal; // aborts when the effect re-runs or the island unmounts
 }
 ```
 
-Note that `derived` is not available in effects. If you need a derived value inside an effect, read the state signals it depends on directly and let the effect track those dependencies.
+Reading `derived.name()` subscribes the effect, like state. Writing `derived.name(value)` for optimistic UI does **not** subscribe — only reads and envelope property access (`.loading`, `.value`, `.error`) are tracked.
 
 ## Multiple effects
 
@@ -171,7 +172,7 @@ Both run after mount, but they serve different purposes:
 | ------------------ | ------------------------------ | -------------- |
 | Re-runs            | Yes, when dependencies change  | No, runs once  |
 | Tracks signals     | Yes                            | No             |
-| Receives `derived` | No                             | Yes            |
+| Receives `derived` | Yes                            | Yes            |
 | Cleanup support    | Yes                            | Yes            |
 | Use for            | Reactive sync to external APIs | One-time setup |
 

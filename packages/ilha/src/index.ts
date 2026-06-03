@@ -1285,7 +1285,7 @@ function createDerivedAccessor<T>(
     if (args.length > 0) {
       if (write) write(args[0] as T);
       else if (__DEV__) warn("derived values are read-only");
-      return read().value;
+      return;
     }
     return read().value;
   });
@@ -1300,21 +1300,36 @@ function createDerivedAccessor<T>(
   }) as unknown as DerivedAccessor<T>;
 }
 
+function defaultDerivedAccessor(): DerivedAccessor<unknown> {
+  return createDerivedAccessor<unknown>(() => ({
+    loading: false,
+    value: undefined,
+    error: undefined,
+  }));
+}
+
 function buildDerivedAccessors<TDerivedMap extends Record<string, unknown>>(
   envelopes: Record<string, DerivedValue<unknown>>,
 ): IslandDerived<TDerivedMap> {
-  const out: Record<string, DerivedAccessor<unknown>> = {};
+  const accessors = new Map<string, DerivedAccessor<unknown>>();
   for (const [key, envelope] of Object.entries(envelopes)) {
-    out[key] = createDerivedAccessor(
-      () => envelope,
-      (value) => {
-        envelope.loading = false;
-        envelope.value = value;
-        envelope.error = undefined;
-      },
+    accessors.set(
+      key,
+      createDerivedAccessor(
+        () => envelope,
+        (value) => {
+          envelope.loading = false;
+          envelope.value = value;
+          envelope.error = undefined;
+        },
+      ),
     );
   }
-  return out as IslandDerived<TDerivedMap>;
+  return new Proxy({} as IslandDerived<TDerivedMap>, {
+    get(_, key: string) {
+      return accessors.get(key) ?? defaultDerivedAccessor();
+    },
+  });
 }
 
 type DerivedFnContext<TInput, TStateMap extends Record<string, unknown>> = {
@@ -1414,14 +1429,7 @@ function createDerivedProxy<
 
   const proxy = new Proxy({} as IslandDerived<TDerivedMap>, {
     get(_, key: string) {
-      return (
-        accessors.get(key) ??
-        createDerivedAccessor(() => ({
-          loading: false,
-          value: undefined,
-          error: undefined,
-        }))
-      );
+      return accessors.get(key) ?? defaultDerivedAccessor();
     },
   });
 
@@ -1844,8 +1852,13 @@ type RenderContext<
   input: TInput;
 };
 
-type EffectContext<TInput, TStateMap extends Record<string, unknown>> = {
+export type EffectContext<
+  TInput,
+  TStateMap extends Record<string, unknown>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
+> = {
   state: IslandState<TStateMap>;
+  derived: IslandDerived<TDerivedMap>;
   input: TInput;
   host: Element;
   /**
@@ -2010,8 +2023,12 @@ interface OnEntry<
   handler: (ctx: HandlerContext<TInput, TStateMap, TDerivedMap>) => void | Promise<void>;
 }
 
-interface EffectEntry<TInput, TStateMap extends Record<string, unknown>> {
-  fn: (ctx: EffectContext<TInput, TStateMap>) => (() => void) | void;
+interface EffectEntry<
+  TInput,
+  TStateMap extends Record<string, unknown>,
+  TDerivedMap extends Record<string, unknown>,
+> {
+  fn: (ctx: EffectContext<TInput, TStateMap, TDerivedMap>) => (() => void) | void;
 }
 
 /** Where the error originated. `"on"` covers sync throws and async rejections
@@ -2075,7 +2092,7 @@ interface BuilderConfig<
   states: StateEntry<TInput>[];
   deriveds: DerivedEntry<TInput, TStateMap>[];
   ons: OnEntry<TInput, TStateMap, TDerivedMap>[];
-  effects: EffectEntry<TInput, TStateMap>[];
+  effects: EffectEntry<TInput, TStateMap, TDerivedMap>[];
   onMounts: OnMountEntry<TInput, TStateMap, TDerivedMap>[];
   onErrors: OnErrorEntry<TInput, TStateMap, TDerivedMap>[];
   transition: TransitionOptions | null;
@@ -2180,7 +2197,7 @@ class IlhaBuilder<
   }
 
   effect(
-    fn: (ctx: EffectContext<TInput, TStateMap>) => (() => void) | void,
+    fn: (ctx: EffectContext<TInput, TStateMap, TDerivedMap>) => (() => void) | void,
   ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
     return new IlhaBuilder({ ...this._cfg, effects: [...this._cfg.effects, { fn }] });
   }
@@ -2895,7 +2912,7 @@ class IlhaBuilder<
           // single run propagate atomically.
           startBatch();
           try {
-            userCleanup = entry.fn({ state, input, host, signal: runSignal });
+            userCleanup = entry.fn({ state, derived, input, host, signal: runSignal });
           } catch (err) {
             reportError(err, "effect");
           } finally {

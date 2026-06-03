@@ -239,11 +239,14 @@ The handler receives an `EffectContext`:
 ```ts
 {
   state: IslandState;
+  derived: IslandDerived;
   input: TInput;
   host: Element;
   signal: AbortSignal; // aborts when the effect re-runs OR the island unmounts
 }
 ```
+
+Reading `derived.name()` subscribes the effect. Writing `derived.name(value)` does not — use writes for optimistic UI without pinning the effect to every derived update.
 
 **Cancelling async work with `ctx.signal`** — unlike `.on()`, race-cancellation is the **default** behaviour for effects (no opt-in modifier needed) because dependency changes invariably make the previous run stale. Pass `signal` to async work to bail out of stale invocations without needing a manual cleanup function:
 

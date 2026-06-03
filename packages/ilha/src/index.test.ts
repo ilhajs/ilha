@@ -3051,6 +3051,17 @@ describe(".derived", () => {
       expect(Island()).toBe("<p>10</p>");
     });
 
+    it("SSR unknown derived key returns safe fallback accessor", () => {
+      const Island = ilha
+        .derived("known", () => 1)
+        .render(({ derived }) => {
+          const d = (derived as Record<string, { (): unknown; loading: boolean }>).missing;
+          return `<p>${d()}${d.loading}</p>`;
+        });
+
+      expect(Island()).toBe("<p>undefinedfalse</p>");
+    });
+
     it("SSR async derived () returns value after await", async () => {
       const Island = ilha
         .derived("data", async () => "ok")
@@ -6538,6 +6549,93 @@ describe("regression: child receives updated props when parent state changes", (
     el.querySelector<HTMLButtonElement>("[data-b]")!.click();
     expect(el.querySelector(".child")!.textContent).toBe("x!-y?");
     expect(childRenders).toBe(baseline + 2);
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe(".effect() derived context", () => {
+  it("write-only state() in effect does not subscribe — effect does not re-run when that state changes", () => {
+    let effectRuns = 0;
+    let setCount!: (v: number) => void;
+
+    const Island = ilha
+      .state("count", 1)
+      .effect(({ state }) => {
+        effectRuns++;
+        state.count(5);
+      })
+      .render(({ state }) => {
+        setCount = state.count as (v: number) => void;
+        return `<p>${state.count()}</p>`;
+      });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(effectRuns).toBe(1);
+    expect(el.querySelector("p")!.textContent).toBe("5");
+
+    setCount(10);
+    expect(effectRuns).toBe(1);
+    expect(el.querySelector("p")!.textContent).toBe("10");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("write-only derived() in effect does not subscribe — effect does not re-run when derived updates", () => {
+    let effectRuns = 0;
+    let setCount!: (v: number) => void;
+
+    const Island = ilha
+      .state("count", 1)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .effect(({ derived }) => {
+        effectRuns++;
+        derived.doubled(99);
+      })
+      .render(({ state, derived }) => {
+        setCount = state.count as (v: number) => void;
+        return `<p>${derived.doubled()}</p>`;
+      });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(effectRuns).toBe(1);
+
+    setCount(5);
+    expect(effectRuns).toBe(1);
+    expect(el.querySelector("p")!.textContent).toBe("10");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("reading derived() in effect subscribes and re-runs when state or derived changes", () => {
+    let effectRuns = 0;
+    let setCount!: (v: number) => void;
+
+    const Island = ilha
+      .state("count", 1)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .effect(({ state, derived }) => {
+        effectRuns++;
+        state.count();
+        derived.doubled();
+      })
+      .render(({ state, derived }) => {
+        setCount = state.count as (v: number) => void;
+        return `<p>${derived.doubled()}</p>`;
+      });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const runsAfterMount = effectRuns;
+    expect(runsAfterMount).toBeGreaterThanOrEqual(1);
+
+    setCount(2);
+    expect(effectRuns).toBeGreaterThan(runsAfterMount);
 
     unmount();
     cleanup(el);
