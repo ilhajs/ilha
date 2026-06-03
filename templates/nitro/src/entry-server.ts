@@ -13,7 +13,7 @@ async function handler(request: Request): Promise<Response> {
 
   const assets = clientAssets.merge(serverAssets);
   const entryPath = assets.entry ?? "/entry-client.js";
-  const styles = assets.css.map((asset) => stylesheetTag(asset)).join("\n  ");
+  const styles = (assets.css ?? []).map((asset) => stylesheetTag(asset)).join("\n  ");
 
   return new Response(htmlTemplate(body, entryPath, styles), {
     headers: { "content-type": "text/html;charset=utf-8" },
