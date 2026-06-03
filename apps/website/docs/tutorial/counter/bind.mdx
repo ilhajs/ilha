@@ -20,7 +20,7 @@ export const script = dedent`
       .render(
         ({ state, derived }) => <>
           <p>Count: {state.count()}</p>
-          <p>Doubled: {derived.doubled.value}</p>
+          <p>Doubled: {derived.doubled()}</p>
           <label for="count">Current count</label>
           <input id="count" type="number" bind:value={state.count} />
           <button data-action="increase">Increase</button>

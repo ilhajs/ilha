@@ -121,11 +121,11 @@ ilha
   .render(({ derived }) => {
     if (derived.user.loading) return `<p>Loading…</p>`;
     if (derived.user.error) return `<p>Error: ${derived.user.error.message}</p>`;
-    return `<p>${derived.user.value.name}</p>`;
+    return `<p>${derived.user().name}</p>`;
   });
 ```
 
-Each derived value exposes `{ loading, value, error }`.
+Read with `derived.name()` like state. Each accessor also exposes `loading`, `value`, and `error` for async work. Write `derived.name(value)` for optimistic UI.
 
 ---
 
@@ -239,11 +239,14 @@ The handler receives an `EffectContext`:
 ```ts
 {
   state: IslandState;
+  derived: IslandDerived;
   input: TInput;
   host: Element;
   signal: AbortSignal; // aborts when the effect re-runs OR the island unmounts
 }
 ```
+
+Reading `derived.name()` subscribes the effect. Writing `derived.name(value)` does not — use writes for optimistic UI without pinning the effect to every derived update.
 
 **Cancelling async work with `ctx.signal`** — unlike `.on()`, race-cancellation is the **default** behaviour for effects (no opt-in modifier needed) because dependency changes invariably make the previous run stale. Pass `signal` to async work to bail out of stale invocations without needing a manual cleanup function:
 

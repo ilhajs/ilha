@@ -48,7 +48,7 @@ export default ilha
       <LayerCard>
         <LayerCard.Title>
           <span>To Do</span>
-          <Badge>{derived.pending.value?.length}</Badge>
+          <Badge>{derived.pending()?.length}</Badge>
         </LayerCard.Title>
         <LayerCard.Content>
           <form id="todo-form">

@@ -155,7 +155,7 @@ await Island.hydratable(
 | ------------------- | -------------------------------- | -------------------------------------------- |
 | Runs                | Once after mount                 | After mount, then on every dependency change |
 | Tracks signals      | No                               | Yes                                          |
-| Receives `derived`  | Yes                              | No                                           |
+| Receives `derived`  | Yes                              | Yes                                          |
 | Receives `hydrated` | Yes                              | No                                           |
 | Cleanup support     | Yes                              | Yes                                          |
 | Use for             | One-time setup, third-party libs | Reactive sync to external APIs               |

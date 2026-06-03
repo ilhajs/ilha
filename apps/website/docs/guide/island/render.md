@@ -56,7 +56,7 @@ The render function receives a `RenderContext` with everything declared in the b
 ```ts
 {
   state: IslandState; // reactive state signals
-  derived: IslandDerived; // derived value envelopes
+  derived: IslandDerived; // derived signal accessors
   input: TInput; // resolved input props
 }
 ```
@@ -501,7 +501,7 @@ const Island = ilha
   })
   .render(({ derived }) => {
     if (derived.user.loading) return <p>Loading…</p>;
-    return <p>{derived.user.value?.name}</p>;
+    return <p>{derived.user()?.name}</p>;
   });
 
 // Async — waits for derived values

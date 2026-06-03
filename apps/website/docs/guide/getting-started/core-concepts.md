@@ -77,13 +77,9 @@ JSX output follows safe rendering rules: interpolated values are escaped by defa
 
 Not every value belongs in local state. Sometimes a component needs data that depends on state or input, including async data.
 
-That is what [`.derived()`](/guide/island/derived) is for. A derived value exposes a small envelope with:
+That is what [`.derived()`](/guide/island/derived) is for. Each derived entry is a signal accessor — read it with `derived.name()`, the same way you read `state.count()`. You can also write `derived.name(value)` for optimistic UI.
 
-- `loading`
-- `value`
-- `error`
-
-This makes loading and error states part of the normal rendering model instead of something bolted on from the outside.
+For async work, the accessor also exposes `loading`, `value`, and `error`, so loading and error states stay part of the normal rendering model instead of something bolted on from the outside.
 
 ## Events and effects
 

@@ -16,6 +16,73 @@ Declares a computed value that depends on state or input. Derived values can be 
 // ---cut---
 import ilha from "ilha";
 
+const Cart = ilha
+  .state("price", 100)
+  .state("qty", 3)
+  // [!code highlight:2]
+  .derived("total", ({ state }) => state.price() * state.qty())
+  .render(({ derived }) => <p>Total: {derived.total()}</p>);
+```
+
+Each derived entry is a signal accessor — call it with no arguments to read the resolved value, the same way you read `state.count()`:
+
+```ts
+derived.total(); // read → returns current value
+```
+
+When any signal the derived function reads changes, the function re-runs and the island re-renders.
+
+## Reading and writing
+
+Derived accessors can also be written for optimistic UI. A write updates the value immediately without waiting for the derived function to re-run:
+
+```ts
+derived.total(999); // write → sets value optimistically
+```
+
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
+
+const Cart = ilha
+  .state("price", 100)
+  .state("qty", 3)
+  .derived("total", ({ state }) => state.price() * state.qty())
+  .on("button@click", ({ derived }) => derived.total(0))
+  .render(({ derived }) => <p>Total: {derived.total()}</p>);
+```
+
+The next time the derived function runs (for example after state changes or an async fetch resolves), it overwrites the optimistic value with the computed result.
+
+## The derived envelope
+
+Every derived value also exposes `loading`, `value`, and `error` on the accessor itself. Use these when you need explicit control — especially with async derived values:
+
+| Property  | Type                 | Description                           |
+| --------- | -------------------- | ------------------------------------- |
+| `loading` | `boolean`            | `true` while the function is running  |
+| `value`   | `T \| undefined`     | The last successfully resolved value  |
+| `error`   | `Error \| undefined` | Set if the function threw or rejected |
+
+```ts
+derived.total(); // same as derived.total.value when resolved
+derived.total.value; // envelope read
+derived.total.loading; // false for sync derived after first run
+derived.total.error; // undefined when no error
+```
+
+For synchronous derived values, `loading` is `false` after the first run and `()` returns the computed value directly. For async derived values, check `loading` and `error` before reading `value` or calling `()`.
+
+## Async derived values
+
+Pass an async function to fetch data or run any other asynchronous work. The envelope tracks progress while the promise is pending:
+
+```tsx twoslash
+/** @jsxImportSource ilha */
+// ---cut---
+import ilha from "ilha";
+
 const UserCard = ilha
   .state("userId", 1)
   // [!code highlight:4]
@@ -26,37 +93,11 @@ const UserCard = ilha
   .render(({ derived }) => {
     if (derived.user.loading) return <p>Loading…</p>;
     if (derived.user.error) return <p>Error: {derived.user.error.message}</p>;
-    return <p>{derived.user.value.name}</p>;
+    return <p>{derived.user().name}</p>;
   });
 ```
 
-## The derived envelope
-
-Every derived value exposes three properties:
-
-| Property  | Type                 | Description                           |
-| --------- | -------------------- | ------------------------------------- |
-| `loading` | `boolean`            | `true` while the function is running  |
-| `value`   | `T \| undefined`     | The last successfully resolved value  |
-| `error`   | `Error \| undefined` | Set if the function threw or rejected |
-
-Always check `loading` and `error` before reading `value`. On first render, `loading` is `true` and `value` is `undefined`.
-
-## Synchronous derived values
-
-The function does not have to be async. If it returns a plain value, the envelope resolves immediately with `loading: false`:
-
-```tsx twoslash
-/** @jsxImportSource ilha */
-// ---cut---
-import ilha from "ilha";
-
-const Island = ilha
-  .state("price", 100)
-  .state("qty", 3)
-  .derived("total", ({ state }) => state.price() * state.qty())
-  .render(({ derived }) => <p>Total: {derived.total.value}</p>);
-```
+On first render, `loading` is `true` and `derived.user()` is `undefined` until the promise resolves.
 
 ## Reactive dependencies
 
@@ -80,7 +121,7 @@ const Search = ilha
         <p>Searching…</p>
       ) : (
         <ul>
-          {derived.results.value?.map((r) => (
+          {derived.results()?.map((r) => (
             <li>{r}</li>
           ))}
         </ul>
@@ -104,7 +145,7 @@ const Island = ilha
     const res = await fetch(`/api/items/${state.id()}`, { signal });
     return res.json();
   })
-  .render(({ derived }) => <p>{derived.data.value?.name ?? "…"}</p>);
+  .render(({ derived }) => <p>{derived.data()?.name ?? "…"}</p>);
 ```
 
 If the signal was already aborted before your async work completes, the result is discarded silently.
@@ -127,7 +168,7 @@ const Island = ilha
   .render(({ derived }) => (
     <>
       <ul style={`opacity: ${derived.items.loading ? "0.5" : "1"}`}>
-        {derived.items.value?.map((i) => (
+        {derived.items()?.map((i) => (
           <li>{i}</li>
         ))}
       </ul>

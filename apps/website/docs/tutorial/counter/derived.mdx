@@ -20,7 +20,7 @@ export const script = dedent`
       .render(
         ({ state, derived }) => <>
           <p>Count: {state.count()}</p>
-          <p>Doubled: {derived.doubled.value}</p>
+          <p>Doubled: {derived.doubled()}</p>
           <button data-action="increase">increase</button>
         </>
       );
@@ -39,12 +39,14 @@ components easier to reason about.
 ```
 
 The callback receives the component context, just like `.on()`. The result is
-available in `.render()` via `derived.name.value`. Unlike state, you never
-write to a derived property directly — it always reflects the latest computed result.
+available in `.render()` via `derived.name()` — the same call syntax as state.
+
+You can also write `derived.name(value)` for optimistic UI; the next time the
+derived function runs, it overwrites with the computed result.
 
 `.derived()` also accepts an async function, making it suitable for data fetching.
-The result exposes `value`, `loading`, and `error` — so you get built-in async
-state without reaching for SWR or TanStack Query.
+Async derived values expose `loading`, `value`, and `error` on the accessor — so
+you get built-in async state without reaching for SWR or TanStack Query.
 
 <Sandbox script={script} />
 

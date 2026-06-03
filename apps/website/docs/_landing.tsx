@@ -50,7 +50,7 @@ const Creator = ilha
     return TEMPLATES.find((template) => template.value === state.template())?.sandbox ?? true;
   })
   .on("[data-action=copyCommand]@click", async ({ derived }) => {
-    await navigator.clipboard.writeText(derived.createCommand.value!);
+    await navigator.clipboard.writeText(derived.createCommand()!);
     toast.success("Command copied");
   })
   .render(({ state, derived }) => (
@@ -100,11 +100,11 @@ const Creator = ilha
               data-action="copyCommand"
             >
               <img src="/copy.svg" class="size-5 shrink-0" alt="" />
-              <span class="block truncate">{derived.createCommand.value}</span>
+              <span class="block truncate">{derived.createCommand()}</span>
             </Button>
-            {derived.hasSandbox.value ? (
+            {derived.hasSandbox() ? (
               <LinkButton
-                href={derived.sandboxUrl.value}
+                href={derived.sandboxUrl()}
                 target="_blank"
                 rel="noopener noreferrer"
                 variant="primary"
@@ -230,7 +230,7 @@ const WhyIlhaContent = ilha
           </ul>
         </div>
         <div class="code-surface border-areia-border h-72 overflow-auto border-t text-xs sm:h-96 sm:text-sm lg:h-128 lg:border-t-0 lg:border-l lg:text-[1rem]">
-          {raw(derived.code.value ?? "")}
+          {raw(derived.code() ?? "")}
         </div>
       </div>
     );

@@ -3041,6 +3041,153 @@ describe(".derived", () => {
     });
   });
 
+  describe("signal accessor ()", () => {
+    it("SSR sync derived () returns resolved value", () => {
+      const Island = ilha
+        .state("count", 5)
+        .derived("doubled", ({ state }) => state.count() * 2)
+        .render(({ derived }) => `<p>${derived.doubled()}</p>`);
+
+      expect(Island()).toBe("<p>10</p>");
+    });
+
+    it("SSR unknown derived key returns safe fallback accessor", () => {
+      const Island = ilha
+        .derived("known", () => 1)
+        .render(({ derived }) => {
+          const d = (derived as Record<string, { (): unknown; loading: boolean }>).missing;
+          return `<p>${d()}${d.loading}</p>`;
+        });
+
+      expect(Island()).toBe("<p>undefinedfalse</p>");
+    });
+
+    it("SSR async derived () returns value after await", async () => {
+      const Island = ilha
+        .derived("data", async () => "ok")
+        .render(({ derived }) => `<p>${derived.data()}</p>`);
+
+      expect(await Island()).toBe("<p>ok</p>");
+    });
+
+    it("envelope .loading/.value/.error still work alongside ()", () => {
+      const Island = ilha
+        .state("n", 2)
+        .derived("sq", ({ state }) => state.n() ** 2)
+        .render(({ derived }) => {
+          const d = derived.sq;
+          return `${d.loading}${d.value}${d.error}${d()}`;
+        });
+
+      expect(Island()).toBe("false4undefined4");
+    });
+
+    it("client () re-renders when async derived resolves", async () => {
+      const Island = ilha
+        .derived("msg", async () => {
+          await new Promise((r) => setTimeout(r, 5));
+          return "done";
+        })
+        .render(({ derived }) =>
+          derived.msg.loading ? `<p>loading</p>` : `<p>${derived.msg()}</p>`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      expect(el.querySelector("p")!.textContent).toBe("loading");
+      await new Promise((r) => setTimeout(r, 15));
+      expect(el.querySelector("p")!.textContent).toBe("done");
+      unmount();
+      cleanup(el);
+    });
+
+    it("client () updates reactively when state changes", () => {
+      let setCount!: (v: number) => void;
+
+      const Island = ilha
+        .state("count", 1)
+        .derived("doubled", ({ state }) => state.count() * 2)
+        .render(({ state, derived }) => {
+          setCount = state.count as (v: number) => void;
+          return `<p>${derived.doubled()}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      expect(el.querySelector("p")!.textContent).toBe("2");
+      setCount(5);
+      expect(el.querySelector("p")!.textContent).toBe("10");
+      unmount();
+      cleanup(el);
+    });
+
+    it(".on() handler can read derived via ()", () => {
+      let captured: number | undefined;
+
+      const Island = ilha
+        .state("n", 4)
+        .derived("sq", ({ state }) => state.n() ** 2)
+        .on("[data-btn]@click", ({ derived }) => {
+          captured = derived.sq();
+        })
+        .render(({ derived }) => `<p>${derived.sq()}</p><button data-btn>go</button>`);
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      expect(el.querySelector("p")!.textContent).toBe("16");
+      el.querySelector("[data-btn]")!.dispatchEvent(new Event("click", { bubbles: true }));
+      expect(captured).toBe(16);
+      unmount();
+      cleanup(el);
+    });
+
+    it("client () write applies optimistic value and re-renders", () => {
+      let setDoubled!: (v: number) => void;
+
+      const Island = ilha
+        .state("count", 2)
+        .derived("doubled", ({ state }) => state.count() * 2)
+        .render(({ derived }) => {
+          setDoubled = derived.doubled as (v: number) => void;
+          return `<p>${derived.doubled()}</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      expect(el.querySelector("p")!.textContent).toBe("4");
+      setDoubled(50);
+      expect(el.querySelector("p")!.textContent).toBe("50");
+      unmount();
+      cleanup(el);
+    });
+
+    it("optimistic write clears loading and updates envelope .value", async () => {
+      let setMsg!: (v: string) => void;
+
+      const Island = ilha
+        .derived("msg", async () => {
+          await new Promise((r) => setTimeout(r, 30));
+          return "server";
+        })
+        .render(({ derived }) => {
+          setMsg = derived.msg as (v: string) => void;
+          const d = derived.msg;
+          return `<p>${d()}</p><span>${d.loading}</span>`;
+        });
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      expect(el.querySelector("span")!.textContent).toBe("true");
+      setMsg("optimistic");
+      expect(el.querySelector("p")!.textContent).toBe("optimistic");
+      expect(el.querySelector("span")!.textContent).toBe("false");
+      await new Promise((r) => setTimeout(r, 40));
+      expect(el.querySelector("p")!.textContent).toBe("server");
+      unmount();
+      cleanup(el);
+    });
+  });
+
   describe("Client reactivity", () => {
     it("client sync derived re-runs reactively when state changes", () => {
       let accessor!: (v?: number) => number | void;
@@ -6402,6 +6549,93 @@ describe("regression: child receives updated props when parent state changes", (
     el.querySelector<HTMLButtonElement>("[data-b]")!.click();
     expect(el.querySelector(".child")!.textContent).toBe("x!-y?");
     expect(childRenders).toBe(baseline + 2);
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe(".effect() derived context", () => {
+  it("write-only state() in effect does not subscribe — effect does not re-run when that state changes", () => {
+    let effectRuns = 0;
+    let setCount!: (v: number) => void;
+
+    const Island = ilha
+      .state("count", 1)
+      .effect(({ state }) => {
+        effectRuns++;
+        state.count(5);
+      })
+      .render(({ state }) => {
+        setCount = state.count as (v: number) => void;
+        return `<p>${state.count()}</p>`;
+      });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(effectRuns).toBe(1);
+    expect(el.querySelector("p")!.textContent).toBe("5");
+
+    setCount(10);
+    expect(effectRuns).toBe(1);
+    expect(el.querySelector("p")!.textContent).toBe("10");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("write-only derived() in effect does not subscribe — effect does not re-run when derived updates", () => {
+    let effectRuns = 0;
+    let setCount!: (v: number) => void;
+
+    const Island = ilha
+      .state("count", 1)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .effect(({ derived }) => {
+        effectRuns++;
+        derived.doubled(99);
+      })
+      .render(({ state, derived }) => {
+        setCount = state.count as (v: number) => void;
+        return `<p>${derived.doubled()}</p>`;
+      });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(effectRuns).toBe(1);
+
+    setCount(5);
+    expect(effectRuns).toBe(1);
+    expect(el.querySelector("p")!.textContent).toBe("10");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("reading derived() in effect subscribes and re-runs when state or derived changes", () => {
+    let effectRuns = 0;
+    let setCount!: (v: number) => void;
+
+    const Island = ilha
+      .state("count", 1)
+      .derived("doubled", ({ state }) => state.count() * 2)
+      .effect(({ state, derived }) => {
+        effectRuns++;
+        state.count();
+        derived.doubled();
+      })
+      .render(({ state, derived }) => {
+        setCount = state.count as (v: number) => void;
+        return `<p>${derived.doubled()}</p>`;
+      });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const runsAfterMount = effectRuns;
+    expect(runsAfterMount).toBeGreaterThanOrEqual(1);
+
+    setCount(2);
+    expect(effectRuns).toBeGreaterThan(runsAfterMount);
 
     unmount();
     cleanup(el);
