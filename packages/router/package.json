@@ -30,7 +30,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "ilha": "0.6.1",
+    "ilha": "0.7.0",
     "rou3": "0.8.1"
   },
   "devDependencies": {

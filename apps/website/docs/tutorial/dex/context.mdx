@@ -74,7 +74,7 @@ export const script = dedent`
         if (derived.pokemonData.loading) return <p>Loading Pokémon...</p>;
         if (derived.pokemonData.error) return <p>{derived.pokemonData.error.message}</p>;
 
-        const { name, sprites, types, stats } = derived.pokemonData.value!;
+        const { name, sprites, types, stats } = derived.pokemonData()!;
         const typesBadges = types.map(({ type }) => <span class="badge">{type.name}</span>);
         const mappedStats = stats.map((entry) => ({
           key: entry.stat.name,

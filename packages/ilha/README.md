@@ -121,11 +121,11 @@ ilha
   .render(({ derived }) => {
     if (derived.user.loading) return `<p>Loading…</p>`;
     if (derived.user.error) return `<p>Error: ${derived.user.error.message}</p>`;
-    return `<p>${derived.user.value.name}</p>`;
+    return `<p>${derived.user().name}</p>`;
   });
 ```
 
-Each derived value exposes `{ loading, value, error }`.
+Read with `derived.name()` like state. Each accessor also exposes `loading`, `value`, and `error` for async work. Write `derived.name(value)` for optimistic UI.
 
 ---
 

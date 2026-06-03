@@ -235,7 +235,7 @@ const Profile = ilha
     //                ^ inline is fine here — `.effect()` runs once per dep change,
     //                  not on every render. For hot paths, hoist the `select`.
   })
-  .render(({ derived }) => html`<p>${derived.user.value?.name ?? "…"}</p>`);
+  .render(({ derived }) => html`<p>${derived.user()?.name ?? "…"}</p>`);
 ```
 
 When `userId()` changes, the derived re-fetches automatically.

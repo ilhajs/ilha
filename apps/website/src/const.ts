@@ -33,7 +33,7 @@ export const Signup = ilha
       />
       <button
         data-action="join"
-        disabled={!derived.isReady.value}
+        disabled={!derived.isReady()}
       >
         Join the waitlist
       </button>
@@ -105,6 +105,6 @@ const Search = ilha
   .render(({ derived }) => (
     <section class="card">
       <input name="q" placeholder="Search docs, products, or posts…" />
-      <Results items={derived.results.value ?? []} />
+      <Results items={derived.results() ?? []} />
     </section>
   ));`;

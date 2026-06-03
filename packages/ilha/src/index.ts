@@ -1269,6 +1269,54 @@ export interface DerivedValue<T> {
   error: Error | undefined;
 }
 
+export type DerivedAccessor<T> = {
+  readonly loading: boolean;
+  readonly value: T | undefined;
+  readonly error: Error | undefined;
+  (): T | undefined;
+  (value: T): void;
+};
+
+function createDerivedAccessor<T>(
+  read: () => DerivedValue<T>,
+  write?: (value: T) => void,
+): DerivedAccessor<T> {
+  const accessor = markSignalAccessor((...args: unknown[]): T | undefined => {
+    if (args.length > 0) {
+      if (write) write(args[0] as T);
+      else if (__DEV__) warn("derived values are read-only");
+      return read().value;
+    }
+    return read().value;
+  });
+
+  return new Proxy(accessor, {
+    get(target, prop, receiver) {
+      if (prop === "loading" || prop === "value" || prop === "error") {
+        return read()[prop as keyof DerivedValue<T>];
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as unknown as DerivedAccessor<T>;
+}
+
+function buildDerivedAccessors<TDerivedMap extends Record<string, unknown>>(
+  envelopes: Record<string, DerivedValue<unknown>>,
+): IslandDerived<TDerivedMap> {
+  const out: Record<string, DerivedAccessor<unknown>> = {};
+  for (const [key, envelope] of Object.entries(envelopes)) {
+    out[key] = createDerivedAccessor(
+      () => envelope,
+      (value) => {
+        envelope.loading = false;
+        envelope.value = value;
+        envelope.error = undefined;
+      },
+    );
+  }
+  return out as IslandDerived<TDerivedMap>;
+}
+
 type DerivedFnContext<TInput, TStateMap extends Record<string, unknown>> = {
   state: IslandState<TStateMap>;
   input: TInput;
@@ -1285,7 +1333,7 @@ interface DerivedEntry<TInput, TStateMap extends Record<string, unknown>> {
 }
 
 export type IslandDerived<TDerivedMap extends Record<string, unknown>> = {
-  readonly [K in keyof TDerivedMap]: DerivedValue<TDerivedMap[K]>;
+  readonly [K in keyof TDerivedMap]: DerivedAccessor<TDerivedMap[K]>;
 };
 
 function createDerivedProxy<
@@ -1348,11 +1396,32 @@ function createDerivedProxy<
     envelopes.set(entry.key, env);
   }
 
+  const accessors = new Map<string, DerivedAccessor<unknown>>();
+  for (const entry of entries) {
+    const env = envelopes.get(entry.key)!;
+    accessors.set(
+      entry.key,
+      createDerivedAccessor(
+        () => env(),
+        (value) => {
+          const prevSub = setActiveSub(undefined);
+          env({ loading: false, value, error: undefined });
+          setActiveSub(prevSub);
+        },
+      ),
+    );
+  }
+
   const proxy = new Proxy({} as IslandDerived<TDerivedMap>, {
     get(_, key: string) {
-      const env = envelopes.get(key);
-      if (!env) return { loading: false, value: undefined, error: undefined };
-      return env();
+      return (
+        accessors.get(key) ??
+        createDerivedAccessor(() => ({
+          loading: false,
+          value: undefined,
+          error: undefined,
+        }))
+      );
     },
   });
 
@@ -2299,19 +2368,18 @@ class IlhaBuilder<
       const hasAsync = results.some((r) => r.result instanceof Promise);
 
       if (!hasAsync || sync) {
-        const derived: Record<string, DerivedValue<unknown>> = {};
+        const envelopes: Record<string, DerivedValue<unknown>> = {};
         for (const r of results) {
           if (r.result instanceof Promise) {
-            derived[r.key] = { loading: true, value: undefined, error: undefined };
+            envelopes[r.key] = { loading: true, value: undefined, error: undefined };
           } else {
-            derived[r.key] = { loading: false, value: r.result as unknown, error: undefined };
+            envelopes[r.key] = { loading: false, value: r.result as unknown, error: undefined };
           }
         }
+        const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
         const prevSub = setActiveSub(undefined);
         try {
-          const { html } = renderWithCtx(() =>
-            fn({ state, derived: derived as IslandDerived<TDerivedMap>, input }),
-          );
+          const { html } = renderWithCtx(() => fn({ state, derived, input }));
           return stylePrefix + html;
         } finally {
           setActiveSub(prevSub);
@@ -2341,12 +2409,13 @@ class IlhaBuilder<
           }
         }),
       ).then(async (resolved) => {
-        const derived: Record<string, DerivedValue<unknown>> = {};
-        for (const r of resolved) derived[r.key] = r.envelope;
+        const envelopes: Record<string, DerivedValue<unknown>> = {};
+        for (const r of resolved) envelopes[r.key] = r.envelope;
+        const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
         const prevSub = setActiveSub(undefined);
         try {
           const { html } = await renderWithCtx(
-            () => fn({ state, derived: derived as IslandDerived<TDerivedMap>, input }),
+            () => fn({ state, derived, input }),
             undefined,
             true,
           );
