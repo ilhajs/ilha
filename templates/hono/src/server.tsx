@@ -18,10 +18,10 @@ const app = new Hono();
 
 app.use("/static/*", serveAssets);
 
-app.get("/server-island", (c) => {
+app.get("/server-island", async (c) => {
   const Counter = ilha.render(() => <p>Hello from the server.</p>);
 
-  return c.html(Counter());
+  return c.html(await Counter());
 });
 
 app.get("/*", async (c) => {

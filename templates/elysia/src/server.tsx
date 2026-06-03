@@ -6,10 +6,7 @@ import ilha from "ilha";
 const app = new Elysia()
   .use(staticPlugin({ indexHTML: true, assets: "./dist", prefix: "/" }))
   .use(htmlPlugin())
-  .get("/server-island", () => {
-    const Greeting = ilha.render(() => <p>Hello from the server.</p>);
-    return Greeting();
-  })
+  .get("/server-island", () => ilha.render(() => <p>Hello from the server.</p>))
   .listen(3000);
 
 console.log(`Elysia is running at ${app.server?.url}`);
