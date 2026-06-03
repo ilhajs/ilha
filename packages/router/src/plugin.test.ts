@@ -93,7 +93,7 @@ describe("pages — plugin", () => {
     const p = plugin({ dir: "src/pages", generated: "src/generated/routes.ts" });
     p.configResolved({ root });
     await mkdir(join(root, "src/pages"), { recursive: true });
-    expect(p.buildStart()).resolves.toBeUndefined();
+    await expect(p.buildStart()).resolves.toBeUndefined();
     await removeDir(root);
   });
 });

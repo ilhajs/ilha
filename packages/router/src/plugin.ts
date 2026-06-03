@@ -1,5 +1,5 @@
 import { watch } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 
 import { createUnplugin } from "unplugin";
 import type { UnpluginFactory } from "unplugin";
@@ -58,7 +58,7 @@ export function createPagesPluginState(options: IlhaPagesOptions): PagesPluginSt
     }
   };
 
-  const isUnderPagesDir = (file: string) => file.startsWith(pagesDir);
+  const isUnderPagesDir = (file: string) => file === pagesDir || file.startsWith(pagesDir + sep);
 
   const shouldRegenOnChange = (file: string) => {
     if (!isUnderPagesDir(file)) return false;

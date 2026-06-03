@@ -40,7 +40,7 @@
   "dependencies": {
     "ilha": "0.7.0",
     "rou3": "0.8.1",
-    "unplugin": "^2.3.2"
+    "unplugin": "3.0.0"
   },
   "devDependencies": {
     "vite": "^8.0.14"
