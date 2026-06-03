@@ -104,6 +104,16 @@ Have questions or want to share what you're building? [Join our Discord](https:/
 
 ---
 
+## Contributors
+
+<a href="https://github.com/ilhajs/ilha/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=ilhajs/ilha" />
+</a>
+
+Made with [contrib.rocks](https://contrib.rocks).
+
+---
+
 ## License
 
 MIT
