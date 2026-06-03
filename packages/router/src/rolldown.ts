@@ -1,5 +1,3 @@
-import type { Plugin } from "vite";
-
 export {
   wrapLayout,
   wrapError,
@@ -13,7 +11,7 @@ export { ilhaPages, type IlhaPagesOptions } from "./plugin";
 
 import { ilhaPages, type IlhaPagesOptions } from "./plugin";
 
-/** Vite plugin — use via `@ilha/router/vite`. */
-export function pages(options: IlhaPagesOptions = {}): Plugin {
-  return ilhaPages.vite(options) as Plugin;
+/** Rolldown plugin — use via `@ilha/router/rolldown`. */
+export function pages(options: IlhaPagesOptions = {}) {
+  return ilhaPages.rolldown(options);
 }

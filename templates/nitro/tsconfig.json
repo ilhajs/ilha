@@ -2,6 +2,7 @@
   "extends": "nitro/tsconfig",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "jsxImportSource": "ilha"
+    "jsxImportSource": "ilha",
+    "types": ["./.ilha/routes.d.ts"]
   }
 }

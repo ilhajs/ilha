@@ -7,7 +7,7 @@
     "strict": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": ["node", "./.ilha/routes.d.ts"],
     "outDir": "./dist"
   },
   "exclude": ["node_modules"]

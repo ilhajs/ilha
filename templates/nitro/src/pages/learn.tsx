@@ -26,19 +26,6 @@ const LEARN_ITEMS = [
   },
 ];
 
-type LearnItem = (typeof LEARN_ITEMS)[0];
-
-const learnItem = (item: LearnItem) => (
-  <LayerCard href={item.href} class="item" target="_blank" rel="noopener noreferrer">
-    <LayerCard.Title>Learn Ilha</LayerCard.Title>
-    <LayerCard.Content>
-      <h3>{item.title} </h3>
-      <p> {item.description} </p>
-      <img src={raw(item.icon)} alt={item.title} class="size-6" />
-    </LayerCard.Content>
-  </LayerCard>
-);
-
 export default ilha.render(() => (
   <LayerCard>
     <LayerCard.Title>Learn Ilha</LayerCard.Title>

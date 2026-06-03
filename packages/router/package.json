@@ -1,6 +1,6 @@
 {
   "name": "@ilha/router",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "description": "A tiny SPA router for Ilha",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
@@ -23,6 +23,14 @@
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
+    },
+    "./rspack": {
+      "types": "./dist/rspack.d.ts",
+      "import": "./dist/rspack.js"
+    },
+    "./rolldown": {
+      "types": "./dist/rolldown.d.ts",
+      "import": "./dist/rolldown.js"
     }
   },
   "scripts": {
@@ -31,7 +39,8 @@
   },
   "dependencies": {
     "ilha": "0.7.0",
-    "rou3": "0.8.1"
+    "rou3": "0.8.1",
+    "unplugin": "^2.3.2"
   },
   "devDependencies": {
     "vite": "^8.0.14"

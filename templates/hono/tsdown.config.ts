@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 
+import { pages } from "@ilha/router/rolldown";
 import { defineConfig } from "tsdown";
 
 function buildCss(input: string, output: string) {
@@ -31,6 +32,7 @@ export default defineConfig([
   {
     entry: ["src/client.ts"],
     platform: "browser",
+    plugins: [pages()],
     outDir: "dist/static",
     deps: {
       alwaysBundle: ["ilha", "@ilha/router", "ilha/jsx-runtime", "areia", "quando"],

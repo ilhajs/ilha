@@ -1,168 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdir, writeFile, rm, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { mkdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 
-import ilha from "ilha";
-
-import { routePath, routeParams } from "./index";
-import {
-  wrapLayout,
-  wrapError,
-  pages,
-  type LayoutHandler,
-  type ErrorHandler,
-  type AppError,
-  type RouteSnapshot,
-} from "./vite";
-
-// ─────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────
-
-async function makeDir(suffix: string): Promise<string> {
-  const dir = join(tmpdir(), `ilha-pages-test-${suffix}-${Date.now()}`);
-  await mkdir(dir, { recursive: true });
-  return dir;
-}
-
-async function writePage(dir: string, rel: string, content: string): Promise<void> {
-  const full = join(dir, rel);
-  await mkdir(join(full, ".."), { recursive: true });
-  await writeFile(full, content, "utf8");
-}
-
-async function removeDir(dir: string): Promise<void> {
-  await rm(dir, { recursive: true, force: true });
-}
-
-const make = (content: string) => ilha.render(() => content);
-
-// ─────────────────────────────────────────────
-// wrapLayout()
-// ─────────────────────────────────────────────
-
-describe("wrapLayout()", () => {
-  it("wraps Page island with layout", () => {
-    const Page: LayoutHandler = (children) =>
-      ilha.render(() => `<layout>${children.toString()}</layout>`);
-    const inner = make("<p>content</p>");
-    const wrapped = wrapLayout(Page, inner);
-    expect(wrapped.toString()).toContain("<layout>");
-    expect(wrapped.toString()).toContain("<p>content</p>");
-  });
-
-  it("nested layouts compose correctly — inner layout is innermost", () => {
-    const rootLayout: LayoutHandler = (children) =>
-      ilha.render(() => `<root>${children.toString()}</root>`);
-    const userLayout: LayoutHandler = (children) =>
-      ilha.render(() => `<user>${children.toString()}</user>`);
-    const Page = make("<p>Page</p>");
-    const wrapped = wrapLayout(rootLayout, wrapLayout(userLayout, Page));
-    const html = wrapped.toString();
-    expect(html).toContain("<root>");
-    expect(html).toContain("<user>");
-    expect(html).toContain("<p>Page</p>");
-    expect(html.indexOf("<root>")).toBeLessThan(html.indexOf("<user>"));
-    expect(html.indexOf("<user>")).toBeLessThan(html.indexOf("<p>Page</p>"));
-  });
-
-  it("returns an island with .toString and .mount", () => {
-    const layout: LayoutHandler = (children) => ilha.render(() => children.toString());
-    const wrapped = wrapLayout(layout, make("hi"));
-    expect(typeof wrapped.toString).toBe("function");
-    expect(typeof wrapped.mount).toBe("function");
-  });
-});
-
-// ─────────────────────────────────────────────
-// wrapError()
-// ─────────────────────────────────────────────
-
-describe("wrapError()", () => {
-  it("renders Page normally when no error is thrown", () => {
-    const handler: ErrorHandler = () => make(`<p>error</p>`);
-    const wrapped = wrapError(handler, make(`<p>ok</p>`));
-    expect(wrapped.toString()).toContain("<p>ok</p>");
-    expect(wrapped.toString()).not.toContain("<p>error</p>");
-  });
-
-  it("renders error island when Page throws", () => {
-    const handler: ErrorHandler = (err) => make(`<p>caught:${err.message}</p>`);
-    const Page = ilha.render(() => {
-      throw new Error("boom");
-    });
-    const wrapped = wrapError(handler, Page);
-    expect(wrapped.toString()).toContain("caught:boom");
-  });
-
-  it("passes error.message, error.status, error.stack to handler", () => {
-    let captured: AppError | null = null;
-    const handler: ErrorHandler = (err) => {
-      captured = err;
-      return make("");
-    };
-    const Page = ilha.render(() => {
-      const e: any = new Error("fail");
-      e.status = 500;
-      throw e;
-    });
-    wrapError(handler, Page).toString();
-    expect(captured!.message).toBe("fail");
-    expect(captured!.status).toBe(500);
-    expect(typeof captured!.stack).toBe("string");
-  });
-
-  it("passes current route snapshot to handler", () => {
-    let snapshot: RouteSnapshot | null = null;
-    const handler: ErrorHandler = (_, route) => {
-      snapshot = route;
-      return make("");
-    };
-    const Page = ilha.render(() => {
-      throw new Error("x");
-    });
-    routePath("/user/7");
-    routeParams({ id: "7" });
-    wrapError(handler, Page).toString();
-    expect(snapshot!.path).toBe("/user/7");
-    expect(snapshot!.params).toEqual({ id: "7" });
-  });
-
-  it("nearest error boundary is innermost — outer boundary not called when inner catches", () => {
-    let outerCalled = false;
-    const outer: ErrorHandler = () => {
-      outerCalled = true;
-      return make("outer");
-    };
-    const inner: ErrorHandler = () => make("inner-caught");
-    const Page = ilha.render(() => {
-      throw new Error("e");
-    });
-    const wrapped = wrapError(outer, wrapError(inner, Page));
-    expect(wrapped.toString()).toContain("inner-caught");
-    expect(outerCalled).toBe(false);
-  });
-
-  it("falls back to outer boundary if inner re-throws", () => {
-    const outer: ErrorHandler = () => make("outer-caught");
-    const inner: ErrorHandler = (err) =>
-      ilha.render(() => {
-        throw err;
-      });
-    const Page = ilha.render(() => {
-      throw new Error("e");
-    });
-    const wrapped = wrapError(outer, wrapError(inner, Page));
-    expect(wrapped.toString()).toContain("outer-caught");
-  });
-
-  it("returns an island with .toString and .mount", () => {
-    const wrapped = wrapError(() => make(""), make("hi"));
-    expect(typeof wrapped.toString).toBe("function");
-    expect(typeof wrapped.mount).toBe("function");
-  });
-});
+import { generate } from "./codegen";
+import { makeDir, writePage, removeDir } from "./test-helpers";
 
 // ─────────────────────────────────────────────
 // codegen — generated file
@@ -185,9 +26,7 @@ describe("codegen — generated file", () => {
   });
 
   async function runCodegen() {
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    await plugin.buildStart();
+    await generate(pagesDir, outFile);
     return readFile(outFile, "utf8");
   }
 
@@ -454,9 +293,7 @@ describe("codegen — registry", () => {
   });
 
   async function runCodegen() {
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    await plugin.buildStart();
+    await generate(pagesDir, outFile);
     return readFile(outFile, "utf8");
   }
 
@@ -570,9 +407,7 @@ describe("codegen — registry name collision", () => {
   });
 
   async function runCodegen() {
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    await plugin.buildStart();
+    await generate(pagesDir, outFile);
     return readFile(outFile, "utf8");
   }
 
@@ -626,9 +461,7 @@ describe("codegen — route sorting", () => {
   });
 
   async function runCodegen() {
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    await plugin.buildStart();
+    await generate(pagesDir, outFile);
     return readFile(outFile, "utf8");
   }
 
@@ -713,9 +546,7 @@ describe("codegen — duplicate pattern detection", () => {
   });
 
   async function runCodegen() {
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    await plugin.buildStart();
+    await generate(pagesDir, outFile);
     return readFile(outFile, "utf8");
   }
 
@@ -773,9 +604,7 @@ describe("codegen — empty pages dir warning", () => {
   });
 
   async function runCodegen() {
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    await plugin.buildStart();
+    await generate(pagesDir, outFile);
     return readFile(outFile, "utf8");
   }
 
@@ -824,9 +653,7 @@ describe("codegen — relative imports", () => {
   });
 
   async function runCodegen() {
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    await plugin.buildStart();
+    await generate(pagesDir, outFile);
     return readFile(outFile, "utf8");
   }
 
@@ -874,90 +701,6 @@ describe("codegen — relative imports", () => {
 });
 
 // ─────────────────────────────────────────────
-// Vite plugin virtual modules
-// ─────────────────────────────────────────────
-
-describe("pages — Vite plugin", () => {
-  it("resolves ilha:pages virtual id", () => {
-    const plugin = pages() as any;
-    expect(plugin.resolveId("ilha:pages")).toBe("\0ilha:pages");
-  });
-
-  it("resolves ilha:registry virtual id", () => {
-    const plugin = pages() as any;
-    expect(plugin.resolveId("ilha:registry")).toBe("\0ilha:registry");
-  });
-
-  it("returns undefined for unrelated ids", () => {
-    const plugin = pages() as any;
-    expect(plugin.resolveId("some-other-module")).toBeUndefined();
-  });
-
-  it("load for ilha:pages re-exports pageRouter as named export", async () => {
-    const root = await makeDir("vite-pages");
-    const pagesDir = join(root, "src/pages");
-    const outFile = join(root, ".ilha/routes.ts");
-    await mkdir(pagesDir, { recursive: true });
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    const result = plugin.load("\0ilha:pages");
-    expect(result).toContain(outFile.replace(/\.ts$/, ""));
-    expect(result).toContain("pageRouter");
-    expect(result).toContain("export");
-    // must NOT re-export default — named exports only
-    expect(result).not.toContain("export default");
-    await removeDir(root);
-  });
-
-  it("load for ilha:registry re-exports registry as named export", async () => {
-    const root = await makeDir("vite-registry");
-    const pagesDir = join(root, "src/pages");
-    const outFile = join(root, ".ilha/routes.ts");
-    await mkdir(pagesDir, { recursive: true });
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    const result = plugin.load("\0ilha:registry");
-    expect(result).toContain(outFile.replace(/\.ts$/, ""));
-    expect(result).toContain("registry");
-    expect(result).toContain("export");
-    expect(result).not.toContain("export default");
-    await removeDir(root);
-  });
-
-  it("ilha:pages and ilha:registry both point to the same generated file", async () => {
-    const root = await makeDir("vite-same-file");
-    const pagesDir = join(root, "src/pages");
-    const outFile = join(root, ".ilha/routes.ts");
-    await mkdir(pagesDir, { recursive: true });
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    const pagesResult = plugin.load("\0ilha:pages");
-    const registryResult = plugin.load("\0ilha:registry");
-    const fileRef = (s: string) => s.match(/from ['"](.+)['"]/)?.[1];
-    expect(fileRef(pagesResult)).toBe(fileRef(registryResult));
-    await removeDir(root);
-  });
-
-  it("load returns undefined for unrelated ids", () => {
-    const plugin = pages() as any;
-    expect(plugin.load("something-else")).toBeUndefined();
-  });
-
-  it("plugin has correct name", () => {
-    expect((pages() as any).name).toBe("ilha:pages");
-  });
-
-  it("configResolved sets root-relative paths", async () => {
-    const root = await makeDir("cfg");
-    const plugin = pages({ dir: "src/pages", generated: "src/generated/routes.ts" }) as any;
-    plugin.configResolved({ root });
-    await mkdir(join(root, "src/pages"), { recursive: true });
-    expect(plugin.buildStart()).resolves.toBeUndefined();
-    await removeDir(root);
-  });
-});
-
-// ─────────────────────────────────────────────
 // codegen — loader detection & ?client suffix
 // ─────────────────────────────────────────────
 
@@ -980,9 +723,7 @@ describe("codegen — loader detection", () => {
   });
 
   async function runCodegen() {
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    await plugin.buildStart();
+    await generate(pagesDir, outFile);
     return {
       routes: await readFile(outFile, "utf8"),
       loaders: await readFile(loadersFile, "utf8").catch(() => ""),
@@ -1237,9 +978,7 @@ describe("codegen — loaders.ts file", () => {
   });
 
   async function runCodegen() {
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    await plugin.buildStart();
+    await generate(pagesDir, outFile);
     return readFile(loadersFile, "utf8");
   }
 
@@ -1322,77 +1061,5 @@ describe("codegen — loaders.ts file", () => {
     await runCodegen();
     // File must exist at the expected path
     expect(readFile(loadersFile, "utf8")).resolves.toBeDefined();
-  });
-});
-
-// ─────────────────────────────────────────────
-// Vite plugin — ?client virtual module
-// ─────────────────────────────────────────────
-
-describe("pages — ?client virtual module", () => {
-  it("resolveId returns the id with ?client suffix for a relative ?client import", () => {
-    const plugin = pages() as any;
-    const resolved = plugin.resolveId("./foo.ts?client", "/proj/.ilha/routes.ts");
-    expect(resolved).toBe("/proj/.ilha/foo.ts?client");
-  });
-
-  it("resolveId resolves ../ paths relative to importer", () => {
-    const plugin = pages() as any;
-    const resolved = plugin.resolveId("../src/pages/index.ts?client", "/proj/.ilha/routes.ts");
-    expect(resolved).toBe("/proj/src/pages/index.ts?client");
-  });
-
-  it("resolveId without ?client suffix is unaffected", () => {
-    const plugin = pages() as any;
-    expect(plugin.resolveId("./foo.ts", "/proj/.ilha/routes.ts")).toBeUndefined();
-  });
-
-  it("load(?client) emits `export { default }` from the bare path", () => {
-    const plugin = pages() as any;
-    const result = plugin.load("/proj/src/pages/index.ts?client");
-    expect(result).toContain("export { default }");
-    expect(result).toContain(`"/proj/src/pages/index.ts"`);
-    // No other exports — the whole point of the suffix
-    expect(result).not.toContain("load");
-  });
-
-  it("load(?client) result does not re-export non-default symbols", () => {
-    const plugin = pages() as any;
-    const result = plugin.load("/abs/path.ts?client");
-    // The re-export is specifically of `default`, nothing else
-    expect(result).toMatch(/export\s*\{\s*default\s*\}/);
-    expect(result).not.toContain("*");
-  });
-});
-
-// ─────────────────────────────────────────────
-// Vite plugin — ilha:loaders virtual module
-// ─────────────────────────────────────────────
-
-describe("pages — ilha:loaders virtual module", () => {
-  it("resolves ilha:loaders virtual id", () => {
-    const plugin = pages() as any;
-    expect(plugin.resolveId("ilha:loaders")).toBe("\0ilha:loaders");
-  });
-
-  it("load for ilha:loaders imports the generated loaders file for side effects", async () => {
-    const root = await makeDir("loaders-virt");
-    const pagesDir = join(root, "src/pages");
-    const outFile = join(root, ".ilha/routes.ts");
-    await mkdir(pagesDir, { recursive: true });
-    const plugin = pages({ dir: pagesDir, generated: outFile }) as any;
-    plugin.configResolved({ root });
-    const result = plugin.load("\0ilha:loaders");
-    const loadersFile = join(dirname(outFile), "loaders.ts");
-    expect(result).toContain(loadersFile.replace(/\.ts$/, ""));
-    // Must be a bare import (side-effect) not a named re-export
-    expect(result).toMatch(/import\s+["']/);
-    expect(result).not.toContain("export");
-    await removeDir(root);
-  });
-
-  it("plugin.resolveId returns undefined for unrelated ids", () => {
-    const plugin = pages() as any;
-    expect(plugin.resolveId("random-module")).toBeUndefined();
   });
 });

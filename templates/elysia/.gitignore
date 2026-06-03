@@ -40,3 +40,5 @@ yarn-error.log*
 **/*.log
 package-lock.json
 **/*.bun
+
+.ilha
