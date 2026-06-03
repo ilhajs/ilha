@@ -205,7 +205,7 @@ const combined = composeLoaders([layoutLoader, pageLoader]);
 // → { user: …, post: … }
 ```
 
-Used internally by the Vite plugin. Also available for manual composition.
+Used internally by the pages plugin. Also available for manual composition.
 
 ---
 
@@ -300,9 +300,19 @@ Opt a specific link out of prefetching with `data-prefetch="false"`.
 
 ## File-system routing
 
-`@ilha/router` ships a Vite plugin that scans `src/pages/`, resolves layout and error boundary chains, and generates a ready-to-use router with zero manual route registration.
+`@ilha/router` ships a **pages plugin** (built on [unplugin](https://unplugin.unjs.io/)) that scans `src/pages/`, resolves layout and error boundary chains, and generates a ready-to-use router with zero manual route registration. The same plugin works across bundlers — pick the entry that matches your toolchain:
+
+| Bundler  | Import                  |
+| -------- | ----------------------- |
+| Vite     | `@ilha/router/vite`     |
+| Rspack   | `@ilha/router/rspack`   |
+| Rolldown | `@ilha/router/rolldown` |
+
+Vite 8+ may use Rolldown under the hood; use `@ilha/router/vite` in `vite.config.ts` either way. Use `@ilha/router/rolldown` when you configure [Rolldown](https://rolldown.rs/) directly (for example with [tsdown](https://tsdown.dev/)).
 
 ### Setup
+
+**Vite**
 
 ```ts
 // vite.config.ts
@@ -310,6 +320,30 @@ import { defineConfig } from "vite";
 import { pages } from "@ilha/router/vite";
 
 export default defineConfig({
+  plugins: [pages()],
+});
+```
+
+**Rspack**
+
+```ts
+// rspack.config.ts
+import { pages } from "@ilha/router/rspack";
+
+export default {
+  plugins: [pages()],
+};
+```
+
+**Rolldown** (tsdown, Rolldown CLI, or other Rolldown-based tools)
+
+```ts
+// tsdown.config.ts
+import { pages } from "@ilha/router/rolldown";
+import { defineConfig } from "tsdown";
+
+export default defineConfig({
+  entry: ["src/client.ts"],
   plugins: [pages()],
 });
 ```
@@ -380,7 +414,7 @@ export default defineLayout((Children) =>
 
 ### Page loaders
 
-Export a `load` function from any page file. The Vite plugin detects it automatically, composes it with any layout loaders, and wires it into the router at SSR time.
+Export a `load` function from any page file. The pages plugin detects it automatically, composes it with any layout loaders, and wires it into the router at SSR time.
 
 ```tsx
 /** @jsxImportSource ilha */
@@ -407,7 +441,7 @@ A `+error.tsx` catches rendering errors for pages in its directory. The nearest 
 /** @jsxImportSource ilha */
 // ---cut---
 // src/pages/+error.tsx
-import type { ErrorHandler } from "@ilha/router/vite";
+import type { ErrorHandler } from "@ilha/router";
 import ilha from "ilha";
 
 export default ((err, route) =>
@@ -431,6 +465,8 @@ The plugin exposes three virtual modules:
 
 ### Plugin options
 
+Options are the same for every bundler entry (`vite`, `rspack`, `rolldown`):
+
 ```ts twoslash
 import { pages } from "@ilha/router/vite";
 // ---cut---
@@ -439,6 +475,8 @@ pages({
   generated: ".ilha/routes.ts", // default
 });
 ```
+
+For advanced use, import `ilhaPages` from any bundler entry and call `.vite()`, `.rspack()`, or `.rolldown()` on the shared factory.
 
 ---
 
