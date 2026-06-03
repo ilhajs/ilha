@@ -9,7 +9,7 @@
   "dependencies": {
     "@hono/node-server": "^2.0.2",
     "@ilha/router": "^0.3.8",
-    "areia": "^0.1.3",
+    "areia": "^0.1.4",
     "hono": "^4.12.18",
     "ilha": "^0.7.0",
     "quando": "^0.1.6"
