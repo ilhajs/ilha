@@ -19,7 +19,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@codesandbox/sandpack-react": "^2.20.0",
-        "areia": "^0.1.3",
+        "areia": "^0.1.4",
         "dedent": "^1.7.2",
         "ilha": "0.7.0",
         "react": "^19.2.6",
@@ -80,7 +80,7 @@
   "packages": {
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
 
-    "@areia/slots": ["@areia/slots@0.1.1", "", {}, "sha512-cSAJHqfRbGwNp9gXBnWPGMQMqq44IOpW4JACTuxtn41o1U2CAuqIsw53gmY3traRqTTJc07t4xcunwDQv+bYXg=="],
+    "@areia/slots": ["@areia/slots@0.1.2", "", {}, "sha512-0BqytKeOnhjAEyjw3KpofSQ82+q9zLJYRB4LSbhFSSekgOoBpOyXJXsFKgScjvRGvrFYYsrbSSJR3cxfxxUWEg=="],
 
     "@babel/generator": ["@babel/generator@8.0.0-rc.3", "", { "dependencies": { "@babel/parser": "^8.0.0-rc.3", "@babel/types": "^8.0.0-rc.3", "@jridgewell/gen-mapping": "^0.3.12", "@jridgewell/trace-mapping": "^0.3.28", "@types/jsesc": "^2.5.0", "jsesc": "^3.0.2" } }, "sha512-em37/13/nR320G4jab/nIIHZgc2Wz2y/D39lxnTyxB4/D/omPQncl/lSdlnJY1OhQcRGugTSIF2l/69o31C9dA=="],
 
@@ -434,7 +434,7 @@
 
     "ansis": ["ansis@4.2.0", "", {}, "sha512-HqZ5rWlFjGiV0tDm3UxxgNRqsOTniqoKZu0pIAfh7TZQMGuZK+hH0drySty0si0QXj1ieop4+SkSfPZBPPkHig=="],
 
-    "areia": ["areia@0.1.3", "", { "dependencies": { "@areia/slots": "0.1.1", "clsx": "2.1.1", "date-fns": "4.2.1", "tailwind-merge": "3.6.0" }, "peerDependencies": { "ilha": "^0.6.0", "sonner": "^2.0.7", "tailwindcss": ">=4.0.0" }, "optionalPeers": ["tailwindcss"] }, "sha512-mP8no140ssA2ag68LrDrFs7ZTqhUHAnom3CXsYc/+W0CgYHTSwkzQ1ql5rj9f1jFUC1HHtUsgtjARBGsYI1Llg=="],
+    "areia": ["areia@0.1.4", "", { "dependencies": { "@areia/slots": "0.1.2", "clsx": "2.1.1", "date-fns": "4.2.1", "tailwind-merge": "3.6.0" }, "peerDependencies": { "ilha": "^0.6.0", "sonner": "^2.0.7", "tailwindcss": ">=4.0.0" }, "optionalPeers": ["tailwindcss"] }, "sha512-2b2nuSXg2rylOV8huUUOxyFk6CNz9PcN+9O/l8BClP76ZjDE3YGq0hJNnxgmgMLmr696gW3MpOpLMG9SPIIJ1Q=="],
 
     "argparse": ["argparse@2.0.1", "", {}, "sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q=="],
 
