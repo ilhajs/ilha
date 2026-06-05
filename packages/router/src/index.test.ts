@@ -455,6 +455,25 @@ describe("RouterView", () => {
 // ─────────────────────────────────────────────
 
 describe("router() isolation", () => {
+  it("pageRouter exposes registered routes in match order", () => {
+    const r = router().route("/about", AboutPage).route("/user/:id", UserPage);
+    expect(r.routes().map((route) => route.pattern)).toEqual(["/about", "/user/:id"]);
+    expect(r.routes()[0]?.island).toBe(AboutPage);
+  });
+
+  it("routes() returns snapshots so prerender consumers cannot mutate internals", () => {
+    const r = router().route("/", HomePage);
+    const routes = r.routes();
+    routes[0]!.pattern = "/mutated";
+    expect(r.routes()[0]?.pattern).toBe("/");
+  });
+
+  it("routes() reflects loaders attached after route generation", () => {
+    const load = loader(() => ({ ok: true }));
+    const r = router().route("/", HomePage).attachLoader("/", load);
+    expect(r.routes()[0]?.loader).toBe(load);
+  });
+
   it("calling router() resets the route registry", () => {
     setLocation("/");
     const el1 = makeEl();

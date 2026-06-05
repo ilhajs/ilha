@@ -342,6 +342,12 @@ export interface RouterBuilder {
    * was never registered via `.route()`.
    */
   attachLoader(pattern: string, loader: Loader<any>): RouterBuilder;
+  /**
+   * Return a snapshot of every registered route in match order. Useful for
+   * prerenderers that need to discover the filesystem routes exposed by
+   * `pageRouter` without reaching into router internals.
+   */
+  routes(): RouteRecord[];
   prime(): void;
   mount(target: string | Element, options?: MountOptions): () => void;
   render(url: string | URL): string;
@@ -886,6 +892,10 @@ export function router(): RouterBuilder {
       const rec = _records.find((r) => r.pattern === pattern);
       if (rec) rec.loader = loader;
       return builder;
+    },
+
+    routes(): RouteRecord[] {
+      return _records.map((record) => ({ ...record }));
     },
 
     // ── Pre-hydration signal priming ───────────────────────────────────────
