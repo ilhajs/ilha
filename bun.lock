@@ -30,7 +30,7 @@
       "devDependencies": {
         "@fontsource-variable/geist": "^5.2.8",
         "@fontsource-variable/geist-mono": "^5.2.7",
-        "@ilha/router": "0.4.0",
+        "@ilha/router": "0.4.1",
         "@rspress/core": "^2.0.11",
         "@rspress/plugin-llms": "^2.0.11",
         "@rspress/plugin-sitemap": "^2.0.11",
@@ -56,7 +56,7 @@
     },
     "packages/router": {
       "name": "@ilha/router",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "dependencies": {
         "ilha": "0.7.0",
         "rou3": "0.8.1",
