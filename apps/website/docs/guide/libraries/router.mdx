@@ -328,10 +328,56 @@ export default defineConfig({
 
 ```ts
 // rspack.config.ts
+import { rspack } from "@rspack/core";
 import { pages } from "@ilha/router/rspack";
 
 export default {
-  plugins: [pages()],
+  plugins: [
+    pages(),
+    new rspack.HtmlRspackPlugin({
+      template: "./index.html",
+    }),
+  ],
+  resolve: {
+    extensions: ["...", ".ts", ".tsx"],
+  },
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        loader: "builtin:swc-loader",
+        options: {
+          jsc: {
+            parser: {
+              syntax: "typescript",
+            },
+          },
+        },
+        type: "javascript/auto",
+      },
+      {
+        test: /\.tsx$/,
+        exclude: /node_modules/,
+        loader: "builtin:swc-loader",
+        options: {
+          jsc: {
+            parser: {
+              syntax: "typescript",
+              tsx: true,
+            },
+            transform: {
+              react: {
+                runtime: "automatic",
+                importSource: "ilha",
+              },
+            },
+          },
+        },
+        type: "javascript/auto",
+      },
+    ],
+  },
 };
 ```
 
