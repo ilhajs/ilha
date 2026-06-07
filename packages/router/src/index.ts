@@ -889,8 +889,9 @@ export function router(options: RouterOptions = {}): RouterBuilder {
 
   const builder: RouterBuilder = {
     route(pattern: string, island: Island<any, any>, loader?: Loader<any>): RouterBuilder {
-      const data: RouteData = { island, loader, hasLoader: !!loader };
-      _records.push({ pattern, island, loader });
+      const hasLoader = !!loader;
+      const data: RouteData = { island, loader, hasLoader };
+      _records.push({ pattern, island, loader, hasLoader });
       addRoute(_rou3, "GET", pattern, data);
       _patternToData.set(pattern, data);
       // First pattern registered for an island wins (most specific due to sort order)

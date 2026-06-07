@@ -788,6 +788,18 @@ describe("codegen — loader detection", () => {
     expect(routes).not.toContain("attachLoader");
     expect(routes).not.toContain("composeLoaders");
     expect(routes).not.toContain("import { load");
+
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(
+      pagesDir,
+      "+layout.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    const layoutOnly = await runCodegen();
+    expect(layoutOnly.routes).toContain(`.markLoader("/")`);
+    expect(layoutOnly.routes).not.toContain("attachLoader");
+    expect(layoutOnly.routes).not.toContain("composeLoaders");
+    expect(layoutOnly.routes).not.toContain("import { load");
   });
 
   // ── loaders.ts — written only when needed ──────────────────────────────

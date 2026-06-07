@@ -522,12 +522,10 @@ describe("router() isolation", () => {
   });
 
   it("SPA mode follows redirects returned by a marked FS loader", async () => {
-    const fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
-      return new Response(JSON.stringify({ kind: "redirect", to: "/login", status: 302 }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    });
+    const fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({ kind: "redirect", to: "/login", status: 302 }),
+    }));
 
     setLocation("/protected");
     const el = makeEl();
@@ -537,16 +535,20 @@ describe("router() isolation", () => {
       .route("/login", HomePage)
       .mount(el);
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    try {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(routePath()).toBe("/login");
-    expect(el.innerHTML).toContain("home");
-
-    unmount();
-    cleanup(el);
-    fetchSpy.mockRestore();
-    setLocation("/");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(routePath()).toBe("/login");
+      expect(el.innerHTML).toContain("home");
+    } finally {
+      unmount();
+      cleanup(el);
+      fetchSpy.mockRestore();
+      setLocation("/");
+    }
   });
 });
 
