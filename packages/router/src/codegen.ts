@@ -327,7 +327,12 @@ export async function generate(
     registryLines.push(
       `  ${JSON.stringify(entry.name)}: ${wrappedId}` + (i < entries.length - 1 ? "," : ""),
     );
-    routeLines.push(`  .route(${JSON.stringify(entry.pattern)}, ${wrappedId})`);
+    routeLines.push(
+      `  .route(${JSON.stringify(entry.pattern)}, ${wrappedId})` +
+        (entry.hasLoader || entry.loaderLayouts.length > 0
+          ? `.markLoader(${JSON.stringify(entry.pattern)})`
+          : ""),
+    );
   }
 
   const code = [

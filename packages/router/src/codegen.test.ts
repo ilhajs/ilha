@@ -777,13 +777,14 @@ describe("codegen — loader detection", () => {
     expect(errorImport!).toContain("?client");
   });
 
-  it("routes.ts does not reference loaders", async () => {
+  it("routes.ts marks routes that have loaders without importing loader code", async () => {
     await writePage(
       pagesDir,
       "index.ts",
       `export const load = async () => ({}); export default null;`,
     );
     const { routes } = await runCodegen();
+    expect(routes).toContain(`.route("/", _wrapped0).markLoader("/")`);
     expect(routes).not.toContain("attachLoader");
     expect(routes).not.toContain("composeLoaders");
     expect(routes).not.toContain("import { load");
