@@ -23,6 +23,8 @@ export interface RouteRecord {
   island: Island<any, any>;
   /** Merged loader chain (layouts outer→inner, then page) — `undefined` if no loaders. */
   loader?: Loader<any>;
+  /** True when the route has a server-side loader, even if the client only has a marker. */
+  hasLoader?: boolean;
 }
 
 export interface RouteSnapshot {
@@ -355,6 +357,12 @@ export interface RouterBuilder {
    */
   attachLoader(pattern: string, loader: Loader<any>): RouterBuilder;
   /**
+   * Mark an already-registered route as having a server-side loader without
+   * importing that loader into the client bundle. Used by FS-routing codegen
+   * so SPA navigation knows to call the loader endpoint.
+   */
+  markLoader(pattern: string): RouterBuilder;
+  /**
    * Return a snapshot of every registered route in match order. Useful for
    * prerenderers that need to discover the filesystem routes exposed by
    * `pageRouter` without reaching into router internals.
@@ -482,7 +490,7 @@ export function prefetch(pathWithSearch: string): void {
   // Don't prefetch routes that have no loader — nothing to fetch.
   const pathOnly = pathWithSearch.split("?")[0] ?? "";
   const match = findRoute(_rou3, "GET", pathOnly);
-  if (!match?.data?.loader) return;
+  if (!match?.data?.hasLoader) return;
   const promise = fetchLoaderData(pathWithSearch).catch((e) => {
     return { kind: "error", status: 0, message: e?.message ?? "prefetch failed" } as const;
   });
@@ -515,7 +523,7 @@ async function mountRouteWithHydration(
   // Routes registered client-side have `loader: undefined` when the Vite
   // plugin emits server-only loader imports behind `import.meta.env.SSR`.
   const clientMatch = findRoute(_rou3, "GET", pathWithSearch.split("?")[0] ?? "");
-  const hasLoader = !!clientMatch?.data?.loader;
+  const hasLoader = !!clientMatch?.data?.hasLoader;
 
   let props: Record<string, unknown> = {};
   const loaderResult: LoaderFetchResult = hasLoader
@@ -600,6 +608,7 @@ const activeIsland = context<Island<any, any> | null>("router.active", null);
 interface RouteData {
   island: Island<any, any>;
   loader?: Loader<any>;
+  hasLoader?: boolean;
 }
 
 let _records: RouteRecord[] = [];
@@ -880,8 +889,9 @@ export function router(options: RouterOptions = {}): RouterBuilder {
 
   const builder: RouterBuilder = {
     route(pattern: string, island: Island<any, any>, loader?: Loader<any>): RouterBuilder {
-      const data: RouteData = { island, loader };
-      _records.push({ pattern, island, loader });
+      const hasLoader = !!loader;
+      const data: RouteData = { island, loader, hasLoader };
+      _records.push({ pattern, island, loader, hasLoader });
       addRoute(_rou3, "GET", pattern, data);
       _patternToData.set(pattern, data);
       // First pattern registered for an island wins (most specific due to sort order)
@@ -901,9 +911,28 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         return builder;
       }
       data.loader = loader;
+      data.hasLoader = true;
       // Keep _records in sync for consumers that read it directly
       const rec = _records.find((r) => r.pattern === pattern);
-      if (rec) rec.loader = loader;
+      if (rec) {
+        rec.loader = loader;
+        rec.hasLoader = true;
+      }
+      return builder;
+    },
+
+    markLoader(pattern: string): RouterBuilder {
+      const data = _patternToData.get(pattern);
+      if (!data) {
+        console.warn(
+          `[ilha-router] markLoader("${pattern}"): pattern was never registered via .route(). ` +
+            `The loader marker will be ignored.`,
+        );
+        return builder;
+      }
+      data.hasLoader = true;
+      const rec = _records.find((r) => r.pattern === pattern);
+      if (rec) rec.hasLoader = true;
       return builder;
     },
 
@@ -1041,7 +1070,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         const adapter = getAdapter();
         const loc = adapter.readLocation();
         const clientMatch = findRoute(_rou3, "GET", loc.pathname);
-        const hasLoader = !!clientMatch?.data?.loader;
+        const hasLoader = !!clientMatch?.data?.hasLoader;
         const result: LoaderFetchResult = hasLoader
           ? await fetchLoaderData(loc.pathname + loc.search, signal)
           : { kind: "data", data: {} };

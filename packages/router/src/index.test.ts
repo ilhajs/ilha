@@ -520,6 +520,36 @@ describe("router() isolation", () => {
     cleanup(el);
     setLocation("/");
   });
+
+  it("SPA mode follows redirects returned by a marked FS loader", async () => {
+    const fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({ kind: "redirect", to: "/login", status: 302 }),
+    }));
+
+    setLocation("/protected");
+    const el = makeEl();
+    const unmount = router()
+      .route("/protected", UserPage)
+      .markLoader("/protected")
+      .route("/login", HomePage)
+      .mount(el);
+
+    try {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(routePath()).toBe("/login");
+      expect(el.innerHTML).toContain("home");
+    } finally {
+      unmount();
+      cleanup(el);
+      fetchSpy.mockRestore();
+      setLocation("/");
+    }
+  });
 });
 
 // ─────────────────────────────────────────────
