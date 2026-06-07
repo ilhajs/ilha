@@ -500,6 +500,26 @@ describe("router() isolation", () => {
     cleanup(el);
     setLocation("/");
   });
+
+  it("mpa mode leaves anchor clicks to the browser", () => {
+    setLocation("/");
+    const el = makeEl();
+    const unmount = router({ mode: "mpa" })
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
+    const link = document.createElement("a");
+    link.href = "/about";
+    link.textContent = "About";
+    el.appendChild(link);
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(routePath()).toBe("/");
+    unmount();
+    cleanup(el);
+    setLocation("/");
+  });
 });
 
 // ─────────────────────────────────────────────

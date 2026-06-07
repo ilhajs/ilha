@@ -144,6 +144,19 @@ describe("codegen — generated file", () => {
     expect(await runCodegen()).toContain("export const pageRouter");
   });
 
+  it("defaults generated pageRouter to SPA mode", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    expect(await runCodegen()).toContain("export const pageRouter = router()");
+  });
+
+  it("can generate an MPA pageRouter", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await generate(pagesDir, outFile, { mode: "mpa" });
+    expect(await readFile(outFile, "utf8")).toContain(
+      `export const pageRouter = router({ mode: "mpa" })`,
+    );
+  });
+
   it("does not generate export default", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     expect(await runCodegen()).not.toContain("export default");

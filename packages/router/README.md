@@ -666,6 +666,11 @@ interface HydrateOptions {
 }
 
 type HistoryMode = "history" | "hash";
+type RouterMode = "spa" | "mpa";
+
+interface RouterOptions {
+  mode?: RouterMode; // default: "spa"
+}
 
 // Helper — returns fn as-is with LayoutHandler type enforced
 function defineLayout(fn: LayoutHandler): LayoutHandler;
@@ -927,6 +932,18 @@ pageRouter.hydrate(registry);
 pages({
   dir: "src/pages", // pages directory (default: "src/pages")
   generated: ".ilha/routes.ts", // generated file output (default: ".ilha/routes.ts")
+  mode: "spa", // "spa" | "mpa" (default: "spa")
+});
+```
+
+Use `mode: "mpa"` when you want filesystem-routed pages to behave like a multi-page app: the current page can still be SSR-rendered and hydrated, but in-app links are not intercepted by the router, so navigation is handled by the browser as a full document request.
+
+```ts
+// vite.config.ts
+import { pages } from "@ilha/router/vite";
+
+export default defineConfig({
+  plugins: [pages({ mode: "mpa" })],
 });
 ```
 

@@ -261,7 +261,19 @@ function validateEntries(entries: PageEntry[], pagesDir: string): void {
 // Codegen — emit generated file
 // ─────────────────────────────────────────────
 
-export async function generate(pagesDir: string, outFile: string): Promise<void> {
+export type PagesMode = "spa" | "mpa";
+
+export interface GenerateOptions {
+  /** Generated page router navigation mode. Default: `spa`. */
+  mode?: PagesMode;
+}
+
+export async function generate(
+  pagesDir: string,
+  outFile: string,
+  options: GenerateOptions = {},
+): Promise<void> {
+  const mode = options.mode ?? "spa";
   const raw = await scanPages(pagesDir);
   const entries = sortEntries(raw);
 
@@ -329,7 +341,7 @@ export async function generate(pagesDir: string, outFile: string): Promise<void>
     ...registryLines,
     `};`,
     ``,
-    `export const pageRouter = router()`,
+    `export const pageRouter = router(${mode === "mpa" ? `{ mode: "mpa" }` : ""})`,
     ...routeLines,
     `  ;`,
   ].join("\n");
