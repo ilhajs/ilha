@@ -5,6 +5,7 @@ import { createUnplugin } from "unplugin";
 import type { UnpluginFactory } from "unplugin";
 
 import { generate } from "./codegen";
+import type { PagesMode } from "./codegen";
 
 export const VIRTUAL_PAGES = "ilha:pages";
 export const VIRTUAL_REGISTRY = "ilha:registry";
@@ -22,6 +23,12 @@ export interface IlhaPagesOptions {
   dir?: string;
   /** Output path for the generated routes + registry file. Default: `.ilha/routes.ts` */
   generated?: string;
+  /**
+   * File-system router navigation mode. `spa` intercepts in-app links and
+   * renders routes client-side; `mpa` leaves links to the browser for full
+   * document navigations. Default: `spa`.
+   */
+  mode?: PagesMode;
 }
 
 export function resolvePluginPaths(root: string, options: IlhaPagesOptions) {
@@ -52,7 +59,7 @@ export function createPagesPluginState(options: IlhaPagesOptions): PagesPluginSt
 
   const regen = async () => {
     try {
-      await generate(pagesDir, outFile);
+      await generate(pagesDir, outFile, { mode: options.mode });
     } catch (e) {
       console.error("[ilha:pages] codegen failed:", e);
     }

@@ -310,6 +310,18 @@ export interface NavigateOptions {
   replace?: boolean;
 }
 
+export type RouterMode = "spa" | "mpa";
+
+export interface RouterOptions {
+  /**
+   * Client navigation mode. `spa` intercepts in-app links and renders routes
+   * in-place. `mpa` leaves links to the browser, so each page navigation is a
+   * full document request while still allowing hydration of the current route.
+   * Default: `spa`.
+   */
+  mode?: RouterMode;
+}
+
 export interface HydratableRenderOptions extends Partial<Omit<HydratableOptions, "name">> {}
 
 export interface HydrateOptions {
@@ -856,7 +868,8 @@ async function executeLoader(
 // Router builder
 // ─────────────────────────────────────────────
 
-export function router(): RouterBuilder {
+export function router(options: RouterOptions = {}): RouterBuilder {
+  const mode = options.mode ?? "spa";
   _records = [];
   _rou3 = createRouter<RouteData>();
   _islandToPattern = new Map();
@@ -919,7 +932,7 @@ export function router(): RouterBuilder {
 
       const popHandler = () => syncRouteFromLocation();
       _navChangeCleanup = getAdapter().onChange(popHandler);
-      _linkCleanup = enableLinkInterception(document);
+      _linkCleanup = mode === "spa" ? enableLinkInterception(document) : null;
 
       let unmountView: (() => void) | null = null;
       // Per-navigation AbortController — canceled when navigation is superseded
