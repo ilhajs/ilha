@@ -1206,6 +1206,10 @@ describe("codegen — static mode", () => {
     // Both should use wrapLayout and wrapError
     expect(clientWrap).toContain("wrapLayout");
     expect(serverWrap).toContain("wrapLayout");
+    expect(client).toContain("+layout.ts?client");
+    expect(client).toContain("+error.ts?client");
+    expect(client).not.toContain(".route(");
+    expect(client).toContain(`export const pageRouter = _router({ mode: "static" });`);
     // Structure should be equivalent (same nesting order, different import suffixes)
     const normalize = (s: string) =>
       s
