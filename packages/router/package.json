@@ -1,6 +1,6 @@
 {
   "name": "@ilha/router",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "A tiny SPA router for Ilha",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
@@ -38,7 +38,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "ilha": "0.7.0",
+    "ilha": "0.7.1",
     "rou3": "0.8.1",
     "unplugin": "3.0.0"
   },

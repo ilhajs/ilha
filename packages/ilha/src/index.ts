@@ -870,6 +870,18 @@ function ilhaJsx(
       return ilhaRaw(emitIslandSlot(type as AnyIsland, componentProps, slotKey));
     }
     if (typeof out === "string") return ilhaHtml`${out}`;
+    // Plain object with a custom toString (e.g. Areia compound-component parts
+    // like ResizablePanel that return { __areiaResizablePart, toString() { ... } }).
+    // Treat the toString() result as raw HTML — the object is a renderable part
+    // intended for parent consumption, not an opaque value to be escaped.
+    if (
+      typeof out === "object" &&
+      out !== null &&
+      Object.getPrototypeOf(out) === Object.prototype &&
+      Object.prototype.hasOwnProperty.call(out, "toString")
+    ) {
+      return ilhaRaw((out as object).toString());
+    }
     return ilhaHtml`${out}`;
   }
 
