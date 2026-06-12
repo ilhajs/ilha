@@ -300,7 +300,7 @@ pageRouter.mount("#app", { hydrate: true, registry });
 
 #### `.hydrate(registry, options?)` — browser only
 
-Convenience method that combines `.prime()`, `ilha.mount()`, and `.mount()` into a single call. **This is the recommended client entry point.**
+Convenience method that combines `.prime()`, `ilha.mount()`, and `.mount()` into a single call. **This is the recommended client entry point for SPA apps.**
 
 ```ts
 pageRouter.hydrate(registry);
@@ -315,6 +315,23 @@ pageRouter.hydrate(registry, {
 Returns an `unmount` function that tears down all listeners and hydrated islands.
 
 > `.hydrate()` is for SSR + history-mode apps. In hash mode, use plain `.mount("#app")` instead — the server has no visibility into hash routes, so there's nothing to hydrate against.
+
+---
+
+#### `.hydrateStatic(registry, options?)` — browser only
+
+The lightest client entry point. Calls `prime()` then `ilha.mount()` — no route view is mounted, no navigation handler is installed, and no route graph is touched. Use this in `static` mode where each page is a self-contained pre-rendered HTML file.
+
+```ts
+pageRouter.hydrateStatic(registry);
+
+// With options:
+pageRouter.hydrateStatic(registry, {
+  root: document.getElementById("app"), // defaults to document.body
+});
+```
+
+Internal `<a href>` links navigate via normal browser page loads. Only interactive islands in the current page are activated.
 
 ---
 
@@ -658,18 +675,21 @@ interface NavigateOptions {
 interface MountOptions {
   hydrate?: boolean;
   registry?: Record<string, Island>;
+  interceptLinks?: boolean; // default: true
 }
 
 interface HydrateOptions {
   root?: Element;
   target?: string | Element;
+  interceptLinks?: boolean; // default: true
 }
 
 type HistoryMode = "history" | "hash";
-type RouterMode = "spa" | "mpa";
+type RouterMode = "spa" | "static";
 
 interface RouterOptions {
-  mode?: RouterMode; // default: "spa"
+  mode?: RouterMode; // "spa" | "static", default: "spa"
+  interceptLinks?: boolean; // default: true — only meaningful in spa mode
 }
 
 // Helper — returns fn as-is with LayoutHandler type enforced
@@ -932,20 +952,14 @@ pageRouter.hydrate(registry);
 pages({
   dir: "src/pages", // pages directory (default: "src/pages")
   generated: ".ilha/routes.ts", // generated file output (default: ".ilha/routes.ts")
-  mode: "spa", // "spa" | "mpa" (default: "spa")
+  mode: "spa", // "spa" | "static" (default: "spa")
+  interceptLinks: true, // only meaningful in spa mode (default: true)
 });
 ```
 
-Use `mode: "mpa"` when you want filesystem-routed pages to behave like a multi-page app: the current page can still be SSR-rendered and hydrated, but in-app links are not intercepted by the router, so navigation is handled by the browser as a full document request.
-
-```ts
-// vite.config.ts
-import { pages } from "@ilha/router/vite";
-
-export default defineConfig({
-  plugins: [pages({ mode: "mpa" })],
-});
-```
+- **`mode: "spa"`** — full client route graph, SSR/hydration, and client-side navigation.
+- **`mode: "spa", interceptLinks: false`** — full route graph and SSR/hydration, but internal links perform full document navigations.
+- **`mode: "static"`** — island registry only; no route graph bundled. Each pre-rendered page hydrates its own islands via `pageRouter.hydrateStatic(registry)`.
 
 The plugin regenerates the routes file only when content actually changes — avoiding unnecessary HMR invalidations. Structural changes (file add/remove, `+layout.ts`/`+error.ts` edits, or changes to loader exports) trigger full HMR reloads.
 
