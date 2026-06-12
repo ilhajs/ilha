@@ -146,7 +146,77 @@ export function composeLoaders<Ls extends readonly Loader<any>[]>(
 // Runtime helpers — wrapLayout / wrapError
 // ─────────────────────────────────────────────
 
+const WRAP_LAYOUT_LEAF = Symbol.for("ilha.router.wrapLayout.leaf");
+
+function extractHydratableInnerHtml(block: string): string {
+  const m = block.match(/^<([a-zA-Z][\w-]*)\s[^>]*>([\s\S]*)<\/\1>\s*$/);
+  return m ? m[2]! : block;
+}
+
+function parseHydratableOpenTag(block: string): { tag: string; attrs: string } | null {
+  const m = block.match(/^<([a-zA-Z][\w-]*)\s([^>]*)>/);
+  if (!m) return null;
+  return { tag: m[1]!, attrs: m[2]! };
+}
+
+function findKPageSlotSpans(layoutHtml: string): Array<{ openEnd: number; closeStart: number }> {
+  const spans: Array<{ openEnd: number; closeStart: number }> = [];
+  const openRe = /<div\s[^>]*data-ilha-slot="k:page"[^>]*>/g;
+  for (const m of layoutHtml.matchAll(openRe)) {
+    const openEnd = m.index! + m[0].length;
+    let depth = 1;
+    let i = openEnd;
+    while (i < layoutHtml.length && depth > 0) {
+      const nextOpen = layoutHtml.indexOf("<div", i);
+      const nextClose = layoutHtml.indexOf("</div>", i);
+      if (nextClose === -1) break;
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        depth += 1;
+        i = nextOpen + 4;
+      } else {
+        depth -= 1;
+        if (depth === 0) {
+          spans.push({ openEnd, closeStart: nextClose });
+          break;
+        }
+        i = nextClose + 6;
+      }
+    }
+  }
+  return spans;
+}
+
+/** Replace inner HTML of the first or innermost `k:page` slot (empty or pre-filled). */
+function injectKPageSlot(
+  layoutHtml: string,
+  slotInnerHtml: string,
+  which: "first" | "innermost",
+): string {
+  const spans = findKPageSlotSpans(layoutHtml);
+  if (spans.length === 0) return layoutHtml;
+  const target = which === "innermost" ? spans[spans.length - 1]! : spans[0]!;
+  return layoutHtml.slice(0, target.openEnd) + slotInnerHtml + layoutHtml.slice(target.closeStart);
+}
+
+async function wrapLayoutSlotMarkup(
+  innerWrapped: Island<any, any>,
+  leafPage: Island<any, any>,
+  props: Record<string, unknown>,
+  opts: HydratableOptions,
+): Promise<string> {
+  const pageBlock = await leafPage.hydratable(props, opts);
+  const pageInner = extractHydratableInnerHtml(pageBlock);
+  const layoutInner = innerWrapped.toString(props as never);
+  return injectKPageSlot(layoutInner, pageInner, "innermost");
+}
+
 export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Island<any, any> {
+  const leafPage: Island<any, any> =
+    ((page as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] as
+      | Island<any, any>
+      | undefined) ?? page;
+  const childWrapped = leafPage !== page ? (page as Island<any, any>) : null;
+
   // Key the page slot so its id (k:page) never collides with positional
   // child slots (p:0, p:1, …) inside the page render.
   const KeyedPage = Object.assign(page.key("page"), {
@@ -154,8 +224,15 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   }) as unknown as Island<any, any>;
   const Wrapped = layout(KeyedPage);
 
+  (Wrapped as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] = leafPage;
+
   function pageMountHost(host: Element): Element {
-    return host.querySelector('[data-ilha-slot="k:page"]') ?? host;
+    const slots = [...host.querySelectorAll('[data-ilha-slot="k:page"]')].filter((slot) => {
+      const boundary = slot.closest("[data-ilha]");
+      return boundary === null || boundary === host;
+    });
+    if (slots.length === 0) return host;
+    return slots[slots.length - 1]!;
   }
 
   function preparePageMountHost(outer: Element, mountHost: Element): void {
@@ -214,12 +291,20 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   ): Promise<string> => {
     if (!opts?.name) throw new Error("wrapLayout: hydratable requires options.name");
     const resolvedProps = props ?? {};
-    // Snapshot state from the page island, not the layout shell.
-    const pageBlock = await page.hydratable(resolvedProps, opts);
-    const openTag = pageBlock.match(/^<([a-zA-Z][\w-]*)\s([^>]*)>/);
-    if (!openTag) return pageBlock;
+    // Snapshot attrs from the leaf page island, not the layout shell.
+    const pageBlock = await leafPage.hydratable(resolvedProps, opts);
+    const open = parseHydratableOpenTag(pageBlock);
+    if (!open) return pageBlock;
+
+    const pageInner = extractHydratableInnerHtml(pageBlock);
+    const slotContent = childWrapped
+      ? await wrapLayoutSlotMarkup(childWrapped, leafPage, resolvedProps, opts)
+      : pageInner;
+
     const layoutInner = Wrapped.toString(resolvedProps as never);
-    return `<${openTag[1]} ${openTag[2]}>${layoutInner}</${openTag[1]}>`;
+    const layoutInnerOut = injectKPageSlot(layoutInner, slotContent, "first");
+
+    return `<${open.tag} ${open.attrs}>${layoutInnerOut}</${open.tag}>`;
   };
 
   return Wrapped;

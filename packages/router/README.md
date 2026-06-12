@@ -580,6 +580,8 @@ Wraps a page island with a layout handler. Used internally by the Vite plugin co
 
 On client hydration, `wrapLayout` mounts the full layout island (layout child slots `p:*` and the keyed page slot `k:page`) from existing SSR DOM — it does not re-render layout markup from serialized props. Interactive components in `+layout.tsx` (state, event handlers, nested islands) hydrate the same way as the page.
 
+With **nested** layouts (codegen: `wrapLayout(outer, wrapLayout(inner, page))`), `renderHydratable()` composes layout markup by awaiting the **leaf** page’s `hydratable()` envelope and injecting that HTML into each layout’s `k:page` slot (outer slot receives the inner layout tree; the innermost slot receives the page). Page state snapshots always come from the leaf page island.
+
 ```ts
 import { wrapLayout } from "@ilha/router";
 
