@@ -402,7 +402,10 @@ function buildClientFile(
   const clientImport = (abs: string) => `${rel(abs)}?client`;
 
   const imports: string[] = isStatic
-    ? [`import { router as _router } from "@ilha/router";`, `import type { Island } from "ilha";`]
+    ? [
+        `import { router as _router, wrapLayout, wrapError } from "@ilha/router";`,
+        `import type { Island } from "ilha";`,
+      ]
     : [
         `import { router, wrapLayout, wrapError } from "@ilha/router";`,
         `import type { Island } from "ilha";`,
@@ -416,24 +419,19 @@ function buildClientFile(
     imports.push(
       `import { default as _page${i} } from ${JSON.stringify(clientImport(entry.file))};`,
     );
-    if (!isStatic) {
-      for (const [j, l] of entry.layouts.entries())
-        imports.push(
-          `import { default as _layout${i}_${j} } from ${JSON.stringify(clientImport(l))};`,
-        );
-      for (const [j, e] of entry.errors.entries())
-        imports.push(
-          `import { default as _error${i}_${j} } from ${JSON.stringify(clientImport(e))};`,
-        );
-    }
+    for (const [j, l] of entry.layouts.entries())
+      imports.push(
+        `import { default as _layout${i}_${j} } from ${JSON.stringify(clientImport(l))};`,
+      );
+    for (const [j, e] of entry.errors.entries())
+      imports.push(
+        `import { default as _error${i}_${j} } from ${JSON.stringify(clientImport(e))};`,
+      );
 
     let expr = `_page${i}`;
-    if (!isStatic) {
-      for (let j = entry.errors.length - 1; j >= 0; j--)
-        expr = `wrapError(_error${i}_${j}, ${expr})`;
-      for (let j = entry.layouts.length - 1; j >= 0; j--)
-        expr = `wrapLayout(_layout${i}_${j}, ${expr})`;
-    }
+    for (let j = entry.errors.length - 1; j >= 0; j--) expr = `wrapError(_error${i}_${j}, ${expr})`;
+    for (let j = entry.layouts.length - 1; j >= 0; j--)
+      expr = `wrapLayout(_layout${i}_${j}, ${expr})`;
 
     const wrappedId = `_wrapped${i}`;
     wrappedIslandLines.push(`const ${wrappedId} = ${expr};`);
