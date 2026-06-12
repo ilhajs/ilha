@@ -149,11 +149,11 @@ describe("codegen — generated file", () => {
     expect(await runCodegen()).toContain("export const pageRouter = router()");
   });
 
-  it("can generate an MPA pageRouter", async () => {
+  it("can generate a no-intercept SPA pageRouter", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
-    await generate(pagesDir, outFile, { mode: "mpa" });
+    await generate(pagesDir, outFile, { interceptLinks: false });
     expect(await readFile(outFile, "utf8")).toContain(
-      `export const pageRouter = router({ mode: "mpa" })`,
+      `export const pageRouter = router({ interceptLinks: false })`,
     );
   });
 
@@ -1087,5 +1087,97 @@ describe("codegen — loaders.ts file", () => {
     await runCodegen();
     // File must exist at the expected path
     expect(readFile(loadersFile, "utf8")).resolves.toBeDefined();
+  });
+});
+
+// ─────────────────────────────────────────────
+// codegen — static mode
+// ─────────────────────────────────────────────
+
+describe("codegen — static mode", () => {
+  let pagesDir: string;
+  let outFile: string;
+  let root: string;
+
+  beforeEach(async () => {
+    root = await makeDir("static");
+    pagesDir = join(root, "src/pages");
+    outFile = join(root, ".ilha/routes.ts");
+    await mkdir(pagesDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await removeDir(root);
+  });
+
+  async function runStatic() {
+    await generate(pagesDir, outFile, { mode: "static" });
+    return readFile(outFile, "utf8");
+  }
+
+  it("emits static mode router stub", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    const code = await runStatic();
+    expect(code).toContain(`router({ mode: "static" })`);
+  });
+
+  it("does not emit .route() calls", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "about.ts", `export default null;`);
+    const code = await runStatic();
+    expect(code).not.toContain(".route(");
+  });
+
+  it("does not emit wrapLayout even when layouts exist", async () => {
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    const code = await runStatic();
+    expect(code).not.toContain("wrapLayout");
+  });
+
+  it("does not emit wrapError even when error boundaries exist", async () => {
+    await writePage(pagesDir, "+error.ts", `export default null;`);
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    const code = await runStatic();
+    expect(code).not.toContain("wrapError");
+  });
+
+  it("still exports registry with all pages", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "about.ts", `export default null;`);
+    const code = await runStatic();
+    expect(code).toContain("export const registry");
+    expect(code).toContain('"index"');
+    expect(code).toContain('"about"');
+  });
+
+  it("does not import router runtime (wrapLayout/wrapError) from @ilha/router in island imports", async () => {
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    const code = await runStatic();
+    // The only @ilha/router import should be the router stub, not wrapLayout/wrapError
+    const routerImports = code.split("\n").filter((l) => l.includes(`from "@ilha/router"`));
+    expect(routerImports).toHaveLength(1);
+    expect(routerImports[0]).toContain("router as _router");
+    expect(routerImports[0]).not.toContain("wrapLayout");
+  });
+
+  it("layout page modules are NOT imported in static mode", async () => {
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    const code = await runStatic();
+    expect(code).not.toContain("+layout.ts");
+  });
+
+  it("page with load export does not wire loader code in static mode", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => null; export default null;`,
+    );
+    const code = await runStatic();
+    expect(code).not.toContain(".route(");
+    expect(code).not.toContain("load");
+    expect(code).not.toContain("attachLoader");
   });
 });

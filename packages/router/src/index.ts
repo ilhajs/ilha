@@ -312,16 +312,25 @@ export interface NavigateOptions {
   replace?: boolean;
 }
 
-export type RouterMode = "spa" | "mpa";
+export type RouterMode = "spa" | "static";
 
 export interface RouterOptions {
   /**
-   * Client navigation mode. `spa` intercepts in-app links and renders routes
-   * in-place. `mpa` leaves links to the browser, so each page navigation is a
-   * full document request while still allowing hydration of the current route.
+   * Client navigation mode.
+   * - `spa` — full route graph, SSR/hydration, client-side navigation.
+   * - `static` — no route graph bundled; hydrate islands on the current
+   *   pre-rendered page only.
    * Default: `spa`.
    */
   mode?: RouterMode;
+  /**
+   * When `true` (default), internal `<a>` clicks are intercepted and handled
+   * by the client router. Set to `false` for MPA-style behavior where links
+   * perform full document navigations.
+   * Only meaningful in `spa` mode; ignored in `static` mode.
+   * Default: `true`.
+   */
+  interceptLinks?: boolean;
 }
 
 export interface HydratableRenderOptions extends Partial<Omit<HydratableOptions, "name">> {}
@@ -329,11 +338,21 @@ export interface HydratableRenderOptions extends Partial<Omit<HydratableOptions,
 export interface HydrateOptions {
   root?: Element;
   target?: string | Element;
+  /**
+   * When `true` (default), internal `<a>` clicks are intercepted for
+   * client-side navigation. Set to `false` for MPA-style full-page navigations.
+   */
+  interceptLinks?: boolean;
 }
 
 export interface MountOptions {
   hydrate?: boolean;
   registry?: Record<string, Island<any, any>>;
+  /**
+   * When `true` (default), internal `<a>` clicks are intercepted for
+   * client-side navigation. Set to `false` for MPA-style full-page navigations.
+   */
+  interceptLinks?: boolean;
 }
 
 /** Response envelope returned by `renderResponse` — lets the host app handle redirects. */
@@ -410,6 +429,15 @@ export interface RouterBuilder {
    * @returns Cleanup function
    */
   hydrate(registry: Record<string, Island<any, any>>, options?: HydrateOptions): () => void;
+  /**
+   * Hydrate islands on the current pre-rendered page without mounting a route
+   * view or enabling client navigation. Intended for `static` mode: each page
+   * is a self-contained HTML file; only interactive islands need activation.
+   */
+  hydrateStatic(
+    registry: Record<string, Island<any, any>>,
+    options?: { root?: Element },
+  ): () => void;
 }
 
 // ─────────────────────────────────────────────
@@ -878,7 +906,8 @@ async function executeLoader(
 // ─────────────────────────────────────────────
 
 export function router(options: RouterOptions = {}): RouterBuilder {
-  const mode = options.mode ?? "spa";
+  const mode = (options.mode ?? "spa") as RouterMode;
+  const defaultInterceptLinks = options.interceptLinks !== false;
   _records = [];
   _rou3 = createRouter<RouteData>();
   _islandToPattern = new Map();
@@ -943,8 +972,23 @@ export function router(options: RouterOptions = {}): RouterBuilder {
     // ── Pre-hydration signal priming ───────────────────────────────────────
     prime,
 
+    // ── Static mode ───────────────────────────────────────────────────────────
+    hydrateStatic(
+      registry: Record<string, Island<any, any>>,
+      options: { root?: Element } = {},
+    ): () => void {
+      if (!isBrowser) return () => {};
+      const root = options.root ?? document.body;
+      prime();
+      const { unmount } = mount(registry, { root });
+      return unmount;
+    },
+
     // ── Client-side ──────────────────────────────────────────────────────────
-    mount(target: string | Element, { hydrate = false, registry }: MountOptions = {}): () => void {
+    mount(
+      target: string | Element,
+      { hydrate = false, registry, interceptLinks: mountInterceptLinks }: MountOptions = {},
+    ): () => void {
       if (!isBrowser) {
         console.warn("[ilha-router] mount() called in a non-browser environment");
         return () => {};
@@ -959,9 +1003,22 @@ export function router(options: RouterOptions = {}): RouterBuilder {
       // Ensure route signals are current.
       syncRouteFromLocation();
 
+      // static mode — no client navigation, no RouterView, no NavHandler.
+      // Islands in the pre-rendered HTML are hydrated by ilha.mount() via
+      // hydrateStatic(); this path is only reached if someone calls .mount()
+      // directly in static mode, which is a no-op.
+      if (mode === "static") {
+        console.warn(
+          "[ilha-router] router.mount() called in static mode. " +
+            "Use router.hydrateStatic(registry) instead.",
+        );
+        return () => {};
+      }
+
       const popHandler = () => syncRouteFromLocation();
       _navChangeCleanup = getAdapter().onChange(popHandler);
-      _linkCleanup = mode === "spa" ? enableLinkInterception(document) : null;
+      _linkCleanup =
+        (mountInterceptLinks ?? defaultInterceptLinks) ? enableLinkInterception(document) : null;
 
       let unmountView: (() => void) | null = null;
       // Per-navigation AbortController — canceled when navigation is superseded
@@ -1251,7 +1308,11 @@ export function router(options: RouterOptions = {}): RouterBuilder {
 
       prime();
       const { unmount } = mount(registry, { root });
-      const unmountRouter = this.mount(target, { hydrate: true, registry });
+      const unmountRouter = this.mount(target, {
+        hydrate: true,
+        registry,
+        interceptLinks: options.interceptLinks,
+      });
 
       return () => {
         unmount();

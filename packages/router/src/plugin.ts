@@ -24,11 +24,18 @@ export interface IlhaPagesOptions {
   /** Output path for the generated routes + registry file. Default: `.ilha/routes.ts` */
   generated?: string;
   /**
-   * File-system router navigation mode. `spa` intercepts in-app links and
-   * renders routes client-side; `mpa` leaves links to the browser for full
-   * document navigations. Default: `spa`.
+   * File-system router navigation mode.
+   * - `spa` — full client route graph with SSR/hydration and client navigation.
+   * - `static` — island registry only; no route graph bundled into the client.
+   * Default: `spa`.
    */
   mode?: PagesMode;
+  /**
+   * When `false`, internal `<a>` clicks are not intercepted — browser performs
+   * full document navigations. Only meaningful in `spa` mode.
+   * Default: `true`.
+   */
+  interceptLinks?: boolean;
 }
 
 export function resolvePluginPaths(root: string, options: IlhaPagesOptions) {
@@ -59,7 +66,10 @@ export function createPagesPluginState(options: IlhaPagesOptions): PagesPluginSt
 
   const regen = async () => {
     try {
-      await generate(pagesDir, outFile, { mode: options.mode });
+      await generate(pagesDir, outFile, {
+        mode: options.mode,
+        interceptLinks: options.interceptLinks,
+      });
     } catch (e) {
       console.error("[ilha:pages] codegen failed:", e);
     }

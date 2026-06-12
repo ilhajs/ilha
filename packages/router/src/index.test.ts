@@ -501,10 +501,10 @@ describe("router() isolation", () => {
     setLocation("/");
   });
 
-  it("mpa mode leaves anchor clicks to the browser", () => {
+  it("interceptLinks: false leaves anchor clicks to the browser", () => {
     setLocation("/");
     const el = makeEl();
-    const unmount = router({ mode: "mpa" })
+    const unmount = router({ interceptLinks: false })
       .route("/", HomePage)
       .route("/about", AboutPage)
       .mount(el);
@@ -516,6 +516,59 @@ describe("router() isolation", () => {
     link.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
     expect(routePath()).toBe("/");
+    unmount();
+    cleanup(el);
+    setLocation("/");
+  });
+
+  it("interceptLinks: false — mount option overrides router default", () => {
+    setLocation("/");
+    const el = makeEl();
+    // router defaults to interceptLinks: true, but mount option overrides
+    const unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el, { interceptLinks: false });
+    const link = document.createElement("a");
+    link.href = "/about";
+    el.appendChild(link);
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    unmount();
+    cleanup(el);
+    setLocation("/");
+  });
+
+  it("interceptLinks: true (default) intercepts clicks", () => {
+    setLocation("/");
+    const el = makeEl();
+    const unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    const link = document.createElement("a");
+    link.href = "/about";
+    el.appendChild(link);
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    unmount();
+    cleanup(el);
+    setLocation("/");
+  });
+
+  it("hydrate() with interceptLinks: false does not intercept links", async () => {
+    setLocation("/");
+    const ssrHtml = await router().route("/", HomePage).renderHydratable("/", registry);
+    const el = makeEl(ssrHtml);
+    const unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .hydrate(registry, { root: el, interceptLinks: false });
+    const link = document.createElement("a");
+    link.href = "/about";
+    el.appendChild(link);
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
     unmount();
     cleanup(el);
     setLocation("/");
@@ -1957,5 +2010,96 @@ describe("wrapError / wrapLayout hydration", () => {
     expect(el.textContent).toContain("1");
 
     unmount();
+  });
+});
+
+// ─────────────────────────────────────────────
+// static mode
+// ─────────────────────────────────────────────
+
+describe("static mode — router({ mode: 'static' })", () => {
+  it("mount() in static mode logs a warning and returns a no-op", () => {
+    const warnings: string[] = [];
+    const spy = spyOn(console, "warn").mockImplementation((...a) => warnings.push(a.join(" ")));
+    const el = makeEl(`<p>original</p>`);
+    const innerBefore = el.innerHTML;
+    const unmount = router({ mode: "static" }).route("/", HomePage).mount(el);
+    expect(warnings.some((w) => w.includes("static mode"))).toBe(true);
+    expect(typeof unmount).toBe("function");
+    expect(el.innerHTML).toBe(innerBefore);
+    unmount();
+    expect(el.innerHTML).toBe(innerBefore);
+    spy.mockRestore();
+    cleanup(el);
+  });
+
+  it("does not intercept anchor clicks in static mode after mount()", () => {
+    const warnings: string[] = [];
+    const spy = spyOn(console, "warn").mockImplementation((...a) => warnings.push(a.join(" ")));
+    setLocation("/");
+    const el = makeEl();
+    const unmount = router({ mode: "static" })
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
+    const link = document.createElement("a");
+    link.href = "/about";
+    el.appendChild(link);
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    unmount();
+    spy.mockRestore();
+    cleanup(el);
+    setLocation("/");
+  });
+
+  it("hydrateStatic() returns a cleanup function", () => {
+    setLocation("/");
+    const el = makeEl(`<div data-ilha="home" data-ilha-state="{}"><div>home</div></div>`);
+    const unmount = router({ mode: "static" })
+      .route("/", HomePage)
+      .hydrateStatic({ home: HomePage }, { root: el });
+    expect(typeof unmount).toBe("function");
+    unmount();
+    cleanup(el);
+    setLocation("/");
+  });
+
+  it("hydrateStatic() does not mount a NavHandler or RouterView sentinel", () => {
+    setLocation("/");
+    const el = makeEl(`<div data-ilha="home" data-ilha-state="{}"><div>home</div></div>`);
+    const childCountBefore = el.children.length;
+    const unmount = router({ mode: "static" })
+      .route("/", HomePage)
+      .hydrateStatic({ home: HomePage }, { root: el });
+    // ilha.mount() does not inject sentinel nodes into the root
+    expect(el.children.length).toBe(childCountBefore);
+    unmount();
+    cleanup(el);
+    setLocation("/");
+  });
+
+  it("routes() still returns registered routes in static mode", () => {
+    const r = router({ mode: "static" }).route("/", HomePage).route("/about", AboutPage);
+    expect(r.routes()).toHaveLength(2);
+    expect(r.routes()[0]?.pattern).toBe("/");
+    expect(r.routes()[1]?.pattern).toBe("/about");
+  });
+
+  it("renderHydratable works in static mode for SSG prerendering", async () => {
+    const html = await router({ mode: "static" })
+      .route("/", HomePage)
+      .renderHydratable("/", { home: HomePage });
+    expect(html).toContain("home");
+    expect(html).toContain("data-router-view");
+  });
+
+  it("renderHydratable with snapshot:false omits data-ilha-state", async () => {
+    const html = await router({ mode: "static" })
+      .route("/about", AboutPage)
+      .renderHydratable("/about", { about: AboutPage }, { snapshot: false });
+    expect(html).toContain("about");
+    expect(html).not.toContain("data-ilha-state");
   });
 });
