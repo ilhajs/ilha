@@ -2026,6 +2026,8 @@ describe("wrapError / wrapLayout hydration", () => {
     expect(result).toContain('data-ilha="slug"');
     expect(result).toContain("h-dvh");
     expect(result).toContain("data-inner-layout");
+    expect((result.match(/data-inner-layout/g) ?? []).length).toBe(1);
+    expect((result.match(/data-page-marker/g) ?? []).length).toBe(1);
     expect(result).toMatch(
       /data-ilha-slot="k:page"[^>]*>[\s\S]*data-inner-layout[\s\S]*data-ilha-slot="k:page"[^>]*>[\s\S]*data-page-marker/,
     );
@@ -2033,7 +2035,13 @@ describe("wrapError / wrapLayout hydration", () => {
 
     el = makeEl(`<div data-router-view>${result}</div>`);
     const { unmount } = ilhaMount(serverRegistry, { root: el });
-    expect(el.querySelector("[data-page-marker]")).not.toBeNull();
+    expect(el.querySelectorAll("[data-page-marker]").length).toBe(1);
+    expect(el.querySelectorAll("[data-inner-layout]").length).toBe(1);
+    const innerLayout = el.querySelector("[data-inner-layout]");
+    expect(innerLayout?.querySelector("[data-page-marker]")).not.toBeNull();
+    expect(
+      [...el.querySelectorAll("[data-page-marker]")].every((m) => innerLayout?.contains(m)),
+    ).toBe(true);
     expect((el.innerHTML.match(/class="h-dvh"/g) ?? []).length).toBe(1);
     unmount();
   });

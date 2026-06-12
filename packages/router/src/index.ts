@@ -159,20 +159,43 @@ function parseHydratableOpenTag(block: string): { tag: string; attrs: string } |
   return { tag: m[1]!, attrs: m[2]! };
 }
 
-/** Replace the first or innermost empty `k:page` slot stub with resolved SSR HTML. */
+function findKPageSlotSpans(layoutHtml: string): Array<{ openEnd: number; closeStart: number }> {
+  const spans: Array<{ openEnd: number; closeStart: number }> = [];
+  const openRe = /<div\s[^>]*data-ilha-slot="k:page"[^>]*>/g;
+  for (const m of layoutHtml.matchAll(openRe)) {
+    const openEnd = m.index! + m[0].length;
+    let depth = 1;
+    let i = openEnd;
+    while (i < layoutHtml.length && depth > 0) {
+      const nextOpen = layoutHtml.indexOf("<div", i);
+      const nextClose = layoutHtml.indexOf("</div>", i);
+      if (nextClose === -1) break;
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        depth += 1;
+        i = nextOpen + 4;
+      } else {
+        depth -= 1;
+        if (depth === 0) {
+          spans.push({ openEnd, closeStart: nextClose });
+          break;
+        }
+        i = nextClose + 6;
+      }
+    }
+  }
+  return spans;
+}
+
+/** Replace inner HTML of the first or innermost `k:page` slot (empty or pre-filled). */
 function injectKPageSlot(
   layoutHtml: string,
   slotInnerHtml: string,
   which: "first" | "innermost",
 ): string {
-  const re = /<div\s[^>]*data-ilha-slot="k:page"[^>]*><\/div>/g;
-  const matches = [...layoutHtml.matchAll(re)];
-  if (matches.length === 0) return layoutHtml;
-  const target = which === "innermost" ? matches[matches.length - 1]! : matches[0]!;
-  const start = target.index!;
-  const open = target[0]!;
-  const filled = open.slice(0, -6) + `>${slotInnerHtml}</div>`;
-  return layoutHtml.slice(0, start) + filled + layoutHtml.slice(start + open.length);
+  const spans = findKPageSlotSpans(layoutHtml);
+  if (spans.length === 0) return layoutHtml;
+  const target = which === "innermost" ? spans[spans.length - 1]! : spans[0]!;
+  return layoutHtml.slice(0, target.openEnd) + slotInnerHtml + layoutHtml.slice(target.closeStart);
 }
 
 async function wrapLayoutSlotMarkup(
@@ -183,9 +206,8 @@ async function wrapLayoutSlotMarkup(
 ): Promise<string> {
   const pageBlock = await leafPage.hydratable(props, opts);
   const pageInner = extractHydratableInnerHtml(pageBlock);
-  let layoutInner = innerWrapped.toString(props as never);
-  const injected = injectKPageSlot(layoutInner, pageInner, "innermost");
-  return injected === layoutInner ? pageInner + layoutInner : injected;
+  const layoutInner = innerWrapped.toString(props as never);
+  return injectKPageSlot(layoutInner, pageInner, "innermost");
 }
 
 export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Island<any, any> {
@@ -205,7 +227,10 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   (Wrapped as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] = leafPage;
 
   function pageMountHost(host: Element): Element {
-    const slots = host.querySelectorAll('[data-ilha-slot="k:page"]');
+    const slots = [...host.querySelectorAll('[data-ilha-slot="k:page"]')].filter((slot) => {
+      const boundary = slot.closest("[data-ilha]");
+      return boundary === null || boundary === host;
+    });
     if (slots.length === 0) return host;
     return slots[slots.length - 1]!;
   }
@@ -276,15 +301,10 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
       ? await wrapLayoutSlotMarkup(childWrapped, leafPage, resolvedProps, opts)
       : pageInner;
 
-    let layoutInner = Wrapped.toString(resolvedProps as never);
-    const injected = injectKPageSlot(layoutInner, slotContent, "first");
-    if (injected === layoutInner) {
-      layoutInner = slotContent + layoutInner;
-    } else {
-      layoutInner = injected;
-    }
+    const layoutInner = Wrapped.toString(resolvedProps as never);
+    const layoutInnerOut = injectKPageSlot(layoutInner, slotContent, "first");
 
-    return `<${open.tag} ${open.attrs}>${layoutInner}</${open.tag}>`;
+    return `<${open.tag} ${open.attrs}>${layoutInnerOut}</${open.tag}>`;
   };
 
   return Wrapped;
