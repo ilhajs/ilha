@@ -146,7 +146,55 @@ export function composeLoaders<Ls extends readonly Loader<any>[]>(
 // Runtime helpers — wrapLayout / wrapError
 // ─────────────────────────────────────────────
 
+const WRAP_LAYOUT_LEAF = Symbol.for("ilha.router.wrapLayout.leaf");
+
+function extractHydratableInnerHtml(block: string): string {
+  const m = block.match(/^<([a-zA-Z][\w-]*)\s[^>]*>([\s\S]*)<\/\1>\s*$/);
+  return m ? m[2]! : block;
+}
+
+function parseHydratableOpenTag(block: string): { tag: string; attrs: string } | null {
+  const m = block.match(/^<([a-zA-Z][\w-]*)\s([^>]*)>/);
+  if (!m) return null;
+  return { tag: m[1]!, attrs: m[2]! };
+}
+
+/** Replace the first or innermost empty `k:page` slot stub with resolved SSR HTML. */
+function injectKPageSlot(
+  layoutHtml: string,
+  slotInnerHtml: string,
+  which: "first" | "innermost",
+): string {
+  const re = /<div\s[^>]*data-ilha-slot="k:page"[^>]*><\/div>/g;
+  const matches = [...layoutHtml.matchAll(re)];
+  if (matches.length === 0) return layoutHtml;
+  const target = which === "innermost" ? matches[matches.length - 1]! : matches[0]!;
+  const start = target.index!;
+  const open = target[0]!;
+  const filled = open.slice(0, -6) + `>${slotInnerHtml}</div>`;
+  return layoutHtml.slice(0, start) + filled + layoutHtml.slice(start + open.length);
+}
+
+async function wrapLayoutSlotMarkup(
+  innerWrapped: Island<any, any>,
+  leafPage: Island<any, any>,
+  props: Record<string, unknown>,
+  opts: HydratableOptions,
+): Promise<string> {
+  const pageBlock = await leafPage.hydratable(props, opts);
+  const pageInner = extractHydratableInnerHtml(pageBlock);
+  let layoutInner = innerWrapped.toString(props as never);
+  const injected = injectKPageSlot(layoutInner, pageInner, "innermost");
+  return injected === layoutInner ? pageInner + layoutInner : injected;
+}
+
 export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Island<any, any> {
+  const leafPage: Island<any, any> =
+    ((page as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] as
+      | Island<any, any>
+      | undefined) ?? page;
+  const childWrapped = leafPage !== page ? (page as Island<any, any>) : null;
+
   // Key the page slot so its id (k:page) never collides with positional
   // child slots (p:0, p:1, …) inside the page render.
   const KeyedPage = Object.assign(page.key("page"), {
@@ -154,8 +202,12 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   }) as unknown as Island<any, any>;
   const Wrapped = layout(KeyedPage);
 
+  (Wrapped as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] = leafPage;
+
   function pageMountHost(host: Element): Element {
-    return host.querySelector('[data-ilha-slot="k:page"]') ?? host;
+    const slots = host.querySelectorAll('[data-ilha-slot="k:page"]');
+    if (slots.length === 0) return host;
+    return slots[slots.length - 1]!;
   }
 
   function preparePageMountHost(outer: Element, mountHost: Element): void {
@@ -214,12 +266,25 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   ): Promise<string> => {
     if (!opts?.name) throw new Error("wrapLayout: hydratable requires options.name");
     const resolvedProps = props ?? {};
-    // Snapshot state from the page island, not the layout shell.
-    const pageBlock = await page.hydratable(resolvedProps, opts);
-    const openTag = pageBlock.match(/^<([a-zA-Z][\w-]*)\s([^>]*)>/);
-    if (!openTag) return pageBlock;
-    const layoutInner = Wrapped.toString(resolvedProps as never);
-    return `<${openTag[1]} ${openTag[2]}>${layoutInner}</${openTag[1]}>`;
+    // Snapshot attrs from the leaf page island, not the layout shell.
+    const pageBlock = await leafPage.hydratable(resolvedProps, opts);
+    const open = parseHydratableOpenTag(pageBlock);
+    if (!open) return pageBlock;
+
+    const pageInner = extractHydratableInnerHtml(pageBlock);
+    const slotContent = childWrapped
+      ? await wrapLayoutSlotMarkup(childWrapped, leafPage, resolvedProps, opts)
+      : pageInner;
+
+    let layoutInner = Wrapped.toString(resolvedProps as never);
+    const injected = injectKPageSlot(layoutInner, slotContent, "first");
+    if (injected === layoutInner) {
+      layoutInner = slotContent + layoutInner;
+    } else {
+      layoutInner = injected;
+    }
+
+    return `<${open.tag} ${open.attrs}>${layoutInner}</${open.tag}>`;
   };
 
   return Wrapped;
