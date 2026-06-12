@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { generate } from "./codegen";
+import { generate, resolveGeneratedPaths } from "./codegen";
 import { makeDir, writePage, removeDir } from "./test-helpers";
 
 // ─────────────────────────────────────────────
@@ -11,13 +11,13 @@ import { makeDir, writePage, removeDir } from "./test-helpers";
 
 describe("codegen — generated file", () => {
   let pagesDir: string;
-  let outFile: string;
+  let outDir: string;
   let root: string;
 
   beforeEach(async () => {
     root = await makeDir("root");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, "src/generated/Page-routes.ts");
+    outDir = join(root, "src/generated");
     await mkdir(pagesDir, { recursive: true });
   });
 
@@ -26,8 +26,8 @@ describe("codegen — generated file", () => {
   });
 
   async function runCodegen() {
-    await generate(pagesDir, outFile);
-    return readFile(outFile, "utf8");
+    await generate(pagesDir, outDir);
+    return readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
   }
 
   it("generates a file with the @generated header", async () => {
@@ -151,8 +151,8 @@ describe("codegen — generated file", () => {
 
   it("can generate a no-intercept SPA pageRouter", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
-    await generate(pagesDir, outFile, { interceptLinks: false });
-    expect(await readFile(outFile, "utf8")).toContain(
+    await generate(pagesDir, outDir, { interceptLinks: false });
+    expect(await readFile(resolveGeneratedPaths(outDir).clientFile, "utf8")).toContain(
       `export const pageRouter = router({ interceptLinks: false })`,
     );
   });
@@ -291,13 +291,13 @@ describe("codegen — generated file", () => {
 
 describe("codegen — registry", () => {
   let pagesDir: string;
-  let outFile: string;
+  let outDir: string;
   let root: string;
 
   beforeEach(async () => {
     root = await makeDir("registry");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, ".ilha/routes.ts");
+    outDir = join(root, ".ilha");
     await mkdir(pagesDir, { recursive: true });
   });
 
@@ -306,8 +306,8 @@ describe("codegen — registry", () => {
   });
 
   async function runCodegen() {
-    await generate(pagesDir, outFile);
-    return readFile(outFile, "utf8");
+    await generate(pagesDir, outDir);
+    return readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
   }
 
   it("generates export const registry", async () => {
@@ -402,14 +402,14 @@ describe("codegen — registry", () => {
 
 describe("codegen — registry name collision", () => {
   let pagesDir: string;
-  let outFile: string;
+  let outDir: string;
   let root: string;
   let warnings: string[];
 
   beforeEach(async () => {
     root = await makeDir("namecol");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, ".ilha/routes.ts");
+    outDir = join(root, ".ilha");
     await mkdir(pagesDir, { recursive: true });
     warnings = [];
     console.warn = (...args: any[]) => warnings.push(args.join(" "));
@@ -420,8 +420,8 @@ describe("codegen — registry name collision", () => {
   });
 
   async function runCodegen() {
-    await generate(pagesDir, outFile);
-    return readFile(outFile, "utf8");
+    await generate(pagesDir, outDir);
+    return readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
   }
 
   it("warns on registry name collision", async () => {
@@ -459,13 +459,13 @@ describe("codegen — registry name collision", () => {
 
 describe("codegen — route sorting", () => {
   let pagesDir: string;
-  let outFile: string;
+  let outDir: string;
   let root: string;
 
   beforeEach(async () => {
     root = await makeDir("sort");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, "src/generated/Page-routes.ts");
+    outDir = join(root, "src/generated");
     await mkdir(pagesDir, { recursive: true });
   });
 
@@ -474,8 +474,8 @@ describe("codegen — route sorting", () => {
   });
 
   async function runCodegen() {
-    await generate(pagesDir, outFile);
-    return readFile(outFile, "utf8");
+    await generate(pagesDir, outDir);
+    return readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
   }
 
   it("static routes appear before param routes", async () => {
@@ -541,14 +541,14 @@ describe("codegen — route sorting", () => {
 
 describe("codegen — duplicate pattern detection", () => {
   let pagesDir: string;
-  let outFile: string;
+  let outDir: string;
   let root: string;
   let warnings: string[];
 
   beforeEach(async () => {
     root = await makeDir("dup");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, "src/generated/Page-routes.ts");
+    outDir = join(root, "src/generated");
     await mkdir(pagesDir, { recursive: true });
     warnings = [];
     console.warn = (...args: any[]) => warnings.push(args.join(" "));
@@ -559,8 +559,8 @@ describe("codegen — duplicate pattern detection", () => {
   });
 
   async function runCodegen() {
-    await generate(pagesDir, outFile);
-    return readFile(outFile, "utf8");
+    await generate(pagesDir, outDir);
+    return readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
   }
 
   it("warns when two files produce the same pattern", async () => {
@@ -599,14 +599,14 @@ describe("codegen — duplicate pattern detection", () => {
 
 describe("codegen — empty pages dir warning", () => {
   let pagesDir: string;
-  let outFile: string;
+  let outDir: string;
   let root: string;
   let warnings: string[];
 
   beforeEach(async () => {
     root = await makeDir("empty");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, "src/generated/Page-routes.ts");
+    outDir = join(root, "src/generated");
     await mkdir(pagesDir, { recursive: true });
     warnings = [];
     console.warn = (...args: any[]) => warnings.push(args.join(" "));
@@ -617,8 +617,8 @@ describe("codegen — empty pages dir warning", () => {
   });
 
   async function runCodegen() {
-    await generate(pagesDir, outFile);
-    return readFile(outFile, "utf8");
+    await generate(pagesDir, outDir);
+    return readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
   }
 
   it("warns when pages dir is empty", async () => {
@@ -651,13 +651,13 @@ describe("codegen — empty pages dir warning", () => {
 
 describe("codegen — relative imports", () => {
   let pagesDir: string;
-  let outFile: string;
+  let outDir: string;
   let root: string;
 
   beforeEach(async () => {
     root = await makeDir("rel");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, ".ilha/routes.ts");
+    outDir = join(root, ".ilha");
     await mkdir(pagesDir, { recursive: true });
   });
 
@@ -666,8 +666,8 @@ describe("codegen — relative imports", () => {
   });
 
   async function runCodegen() {
-    await generate(pagesDir, outFile);
-    return readFile(outFile, "utf8");
+    await generate(pagesDir, outDir);
+    return readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
   }
 
   it("Page imports start with . or ..", async () => {
@@ -719,14 +719,14 @@ describe("codegen — relative imports", () => {
 
 describe("codegen — loader detection", () => {
   let pagesDir: string;
-  let outFile: string;
+  let outDir: string;
   let loadersFile: string;
   let root: string;
 
   beforeEach(async () => {
     root = await makeDir("loaders");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, ".ilha/routes.ts");
+    outDir = join(root, ".ilha");
     loadersFile = join(root, ".ilha/loaders.ts");
     await mkdir(pagesDir, { recursive: true });
   });
@@ -736,9 +736,9 @@ describe("codegen — loader detection", () => {
   });
 
   async function runCodegen() {
-    await generate(pagesDir, outFile);
+    await generate(pagesDir, outDir);
     return {
-      routes: await readFile(outFile, "utf8"),
+      routes: await readFile(resolveGeneratedPaths(outDir).serverFile, "utf8"),
       loaders: await readFile(loadersFile, "utf8").catch(() => ""),
     };
   }
@@ -748,18 +748,26 @@ describe("codegen — loader detection", () => {
   it("Page imports in routes.ts use the ?client suffix", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     const { routes } = await runCodegen();
-    const PageImport = routes
+    const clientCode = await readFile(resolveGeneratedPaths(outDir).clientFile, "utf8");
+    const PageImport = clientCode
       .split("\n")
       .find((l) => l.startsWith("import") && l.includes("_page0"));
     expect(PageImport).toBeDefined();
     expect(PageImport!).toContain("?client");
+    // server file must NOT have ?client
+    const serverImport = routes
+      .split("\n")
+      .find((l) => l.startsWith("import") && l.includes("_page0"));
+    expect(serverImport).toBeDefined();
+    expect(serverImport!).not.toContain("?client");
   });
 
   it("layout imports in routes.ts use the ?client suffix", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await writePage(pagesDir, "+layout.ts", `export default null;`);
-    const { routes } = await runCodegen();
-    const layoutImport = routes
+    await runCodegen();
+    const clientCode = await readFile(resolveGeneratedPaths(outDir).clientFile, "utf8");
+    const layoutImport = clientCode
       .split("\n")
       .find((l) => l.startsWith("import") && l.includes("+layout"));
     expect(layoutImport).toBeDefined();
@@ -769,8 +777,9 @@ describe("codegen — loader detection", () => {
   it("error imports in routes.ts use the ?client suffix", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await writePage(pagesDir, "+error.ts", `export default null;`);
-    const { routes } = await runCodegen();
-    const errorImport = routes
+    await runCodegen();
+    const clientCode = await readFile(resolveGeneratedPaths(outDir).clientFile, "utf8");
+    const errorImport = clientCode
       .split("\n")
       .find((l) => l.startsWith("import") && l.includes("+error"));
     expect(errorImport).toBeDefined();
@@ -987,14 +996,14 @@ describe("codegen — loader detection", () => {
 
 describe("codegen — loaders.ts file", () => {
   let pagesDir: string;
-  let outFile: string;
+  let outDir: string;
   let loadersFile: string;
   let root: string;
 
   beforeEach(async () => {
     root = await makeDir("loaders-struct");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, ".ilha/routes.ts");
+    outDir = join(root, ".ilha");
     loadersFile = join(root, ".ilha/loaders.ts");
     await mkdir(pagesDir, { recursive: true });
   });
@@ -1004,7 +1013,7 @@ describe("codegen — loaders.ts file", () => {
   });
 
   async function runCodegen() {
-    await generate(pagesDir, outFile);
+    await generate(pagesDir, outDir);
     return readFile(loadersFile, "utf8");
   }
 
@@ -1028,19 +1037,19 @@ describe("codegen — loaders.ts file", () => {
       "+layout.ts",
       `export const load = async () => ({}); export default null;`,
     );
-    const code = await runCodegen();
-    expect(code).toContain(`import { composeLoaders } from "@ilha/router"`);
+    const loaders = await runCodegen();
+    expect(loaders).toContain(`import { composeLoaders } from "@ilha/router"`);
   });
 
-  it("imports pageRouter from the routes file", async () => {
+  it("imports pageRouter from the server routes file", async () => {
     await writePage(
       pagesDir,
       "index.ts",
       `export const load = async () => ({}); export default null;`,
     );
-    const code = await runCodegen();
-    expect(code).toContain(`import { pageRouter } from`);
-    expect(code).toContain("routes");
+    const loaders = await runCodegen();
+    expect(loaders).toContain(`import { pageRouter } from`);
+    expect(loaders).toContain("pages.server");
   });
 
   it("all imports are relative (no absolute paths)", async () => {
@@ -1096,13 +1105,13 @@ describe("codegen — loaders.ts file", () => {
 
 describe("codegen — static mode", () => {
   let pagesDir: string;
-  let outFile: string;
+  let outDir: string;
   let root: string;
 
   beforeEach(async () => {
     root = await makeDir("static");
     pagesDir = join(root, "src/pages");
-    outFile = join(root, ".ilha/routes.ts");
+    outDir = join(root, ".ilha");
     await mkdir(pagesDir, { recursive: true });
   });
 
@@ -1111,8 +1120,8 @@ describe("codegen — static mode", () => {
   });
 
   async function runStatic() {
-    await generate(pagesDir, outFile, { mode: "static" });
-    return readFile(outFile, "utf8");
+    await generate(pagesDir, outDir, { mode: "static" });
+    return readFile(resolveGeneratedPaths(outDir).clientFile, "utf8");
   }
 
   it("emits static mode router stub", async () => {
@@ -1179,5 +1188,80 @@ describe("codegen — static mode", () => {
     expect(code).not.toContain(".route(");
     expect(code).not.toContain("load");
     expect(code).not.toContain("attachLoader");
+  });
+});
+
+// ─────────────────────────────────────────────
+// codegen — server/client split correctness
+// ─────────────────────────────────────────────
+
+describe("codegen — server/client split", () => {
+  let pagesDir: string;
+  let outDir: string;
+  let root: string;
+
+  beforeEach(async () => {
+    root = await makeDir("split");
+    pagesDir = join(root, "src/pages");
+    outDir = join(root, ".ilha");
+    await mkdir(pagesDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await removeDir(root);
+  });
+
+  it("server file does not contain ?client imports", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    await generate(pagesDir, outDir);
+    const server = await readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
+    expect(server).not.toContain("?client");
+  });
+
+  it("client file uses ?client imports for all page/layout/error modules", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    await writePage(pagesDir, "+error.ts", `export default null;`);
+    await generate(pagesDir, outDir);
+    const client = await readFile(resolveGeneratedPaths(outDir).clientFile, "utf8");
+    const importLines = client
+      .split("\n")
+      .filter((l) => l.startsWith("import") && l.includes("src/pages"));
+    expect(importLines.length).toBeGreaterThan(0);
+    expect(importLines.every((l) => l.includes("?client"))).toBe(true);
+  });
+
+  it("server file has full route graph (wrapLayout, .route calls)", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    await generate(pagesDir, outDir);
+    const server = await readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
+    expect(server).toContain("wrapLayout");
+    expect(server).toContain(".route(");
+  });
+
+  it("static mode: client file has no route graph, server file still has full graph", async () => {
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    await generate(pagesDir, outDir, { mode: "static" });
+    const client = await readFile(resolveGeneratedPaths(outDir).clientFile, "utf8");
+    const server = await readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
+    expect(client).not.toContain(".route(");
+    expect(client).not.toContain("wrapLayout");
+    expect(server).toContain(".route(");
+    expect(server).toContain("wrapLayout");
+  });
+
+  it("loaders.ts imports pageRouter from pages.server, not pages.client", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    await generate(pagesDir, outDir);
+    const loaders = await readFile(resolveGeneratedPaths(outDir).loadersFile, "utf8");
+    expect(loaders).toContain("pages.server");
+    expect(loaders).not.toContain("pages.client");
   });
 });

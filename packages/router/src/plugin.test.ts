@@ -1,7 +1,8 @@
 import { describe, it, expect } from "bun:test";
 import { mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
+import { resolveGeneratedPaths } from "./codegen";
 import { ilhaPages } from "./plugin";
 import { makeDir, removeDir } from "./test-helpers";
 
@@ -20,14 +21,14 @@ function plugin(options: Record<string, string> = {}) {
 // ─────────────────────────────────────────────
 
 describe("pages — plugin", () => {
-  it("resolves ilha:pages virtual id", () => {
+  it("resolves ilha:pages/server virtual id", () => {
     const p = plugin();
-    expect(p.resolveId("ilha:pages")).toBe("\0ilha:pages");
+    expect(p.resolveId("ilha:pages/server")).toBe("\0ilha:pages/server");
   });
 
-  it("resolves ilha:registry virtual id", () => {
+  it("resolves ilha:pages/client virtual id", () => {
     const p = plugin();
-    expect(p.resolveId("ilha:registry")).toBe("\0ilha:registry");
+    expect(p.resolveId("ilha:pages/client")).toBe("\0ilha:pages/client");
   });
 
   it("returns undefined for unrelated ids", () => {
@@ -35,47 +36,49 @@ describe("pages — plugin", () => {
     expect(p.resolveId("some-other-module")).toBeUndefined();
   });
 
-  it("load for ilha:pages re-exports pageRouter as named export", async () => {
-    const root = await makeDir("vite-pages");
+  it("load for ilha:pages/server re-exports pageRouter and registry", async () => {
+    const root = await makeDir("vite-server");
     const pagesDir = join(root, "src/pages");
-    const outFile = join(root, ".ilha/routes.ts");
+    const outDir = join(root, ".ilha");
     await mkdir(pagesDir, { recursive: true });
-    const p = plugin({ dir: pagesDir, generated: outFile });
+    const p = plugin({ dir: pagesDir, outDir });
     p.configResolved({ root });
-    const result = p.load("\0ilha:pages");
-    expect(result).toContain(outFile.replace(/\.ts$/, ""));
+    const result = p.load("\0ilha:pages/server");
+    const serverSpec = resolveGeneratedPaths(outDir).serverFile.replace(/\.ts$/, "");
+    expect(result).toContain(serverSpec);
     expect(result).toContain("pageRouter");
-    expect(result).toContain("export");
-    expect(result).not.toContain("export default");
-    await removeDir(root);
-  });
-
-  it("load for ilha:registry re-exports registry as named export", async () => {
-    const root = await makeDir("vite-registry");
-    const pagesDir = join(root, "src/pages");
-    const outFile = join(root, ".ilha/routes.ts");
-    await mkdir(pagesDir, { recursive: true });
-    const p = plugin({ dir: pagesDir, generated: outFile });
-    p.configResolved({ root });
-    const result = p.load("\0ilha:registry");
-    expect(result).toContain(outFile.replace(/\.ts$/, ""));
     expect(result).toContain("registry");
-    expect(result).toContain("export");
-    expect(result).not.toContain("export default");
     await removeDir(root);
   });
 
-  it("ilha:pages and ilha:registry both point to the same generated file", async () => {
-    const root = await makeDir("vite-same-file");
+  it("load for ilha:pages/client re-exports pageRouter and registry", async () => {
+    const root = await makeDir("vite-client");
     const pagesDir = join(root, "src/pages");
-    const outFile = join(root, ".ilha/routes.ts");
+    const outDir = join(root, ".ilha");
     await mkdir(pagesDir, { recursive: true });
-    const p = plugin({ dir: pagesDir, generated: outFile });
+    const p = plugin({ dir: pagesDir, outDir });
     p.configResolved({ root });
-    const pagesResult = p.load("\0ilha:pages");
-    const registryResult = p.load("\0ilha:registry");
+    const result = p.load("\0ilha:pages/client");
+    const clientSpec = resolveGeneratedPaths(outDir).clientFile.replace(/\.ts$/, "");
+    expect(result).toContain(clientSpec);
+    expect(result).toContain("pageRouter");
+    expect(result).toContain("registry");
+    await removeDir(root);
+  });
+
+  it("server and client load from different generated files", async () => {
+    const root = await makeDir("vite-split");
+    const pagesDir = join(root, "src/pages");
+    const outDir = join(root, ".ilha");
+    await mkdir(pagesDir, { recursive: true });
+    const p = plugin({ dir: pagesDir, outDir });
+    p.configResolved({ root });
+    const serverResult = p.load("\0ilha:pages/server");
+    const clientResult = p.load("\0ilha:pages/client");
     const fileRef = (s: string | undefined) => s?.match(/from ['"](.+)['"]/)?.[1];
-    expect(fileRef(pagesResult)).toBe(fileRef(registryResult));
+    expect(fileRef(serverResult)).not.toBe(fileRef(clientResult));
+    expect(fileRef(serverResult)).toContain("pages.server");
+    expect(fileRef(clientResult)).toContain("pages.client");
     await removeDir(root);
   });
 
@@ -90,7 +93,7 @@ describe("pages — plugin", () => {
 
   it("configResolved sets root-relative paths", async () => {
     const root = await makeDir("cfg");
-    const p = plugin({ dir: "src/pages", generated: "src/generated/routes.ts" });
+    const p = plugin({ dir: "src/pages", outDir: ".ilha" });
     p.configResolved({ root });
     await mkdir(join(root, "src/pages"), { recursive: true });
     await expect(p.buildStart()).resolves.toBeUndefined();
@@ -105,19 +108,19 @@ describe("pages — plugin", () => {
 describe("pages — ?client virtual module", () => {
   it("resolveId returns the id with ?client suffix for a relative ?client import", () => {
     const p = plugin();
-    const resolved = p.resolveId("./foo.ts?client", "/proj/.ilha/routes.ts");
+    const resolved = p.resolveId("./foo.ts?client", "/proj/.ilha/pages.client.ts");
     expect(resolved).toBe("/proj/.ilha/foo.ts?client");
   });
 
   it("resolveId resolves ../ paths relative to importer", () => {
     const p = plugin();
-    const resolved = p.resolveId("../src/pages/index.ts?client", "/proj/.ilha/routes.ts");
+    const resolved = p.resolveId("../src/pages/index.ts?client", "/proj/.ilha/pages.client.ts");
     expect(resolved).toBe("/proj/src/pages/index.ts?client");
   });
 
   it("resolveId without ?client suffix is unaffected", () => {
     const p = plugin();
-    expect(p.resolveId("./foo.ts", "/proj/.ilha/routes.ts")).toBeUndefined();
+    expect(p.resolveId("./foo.ts", "/proj/.ilha/pages.client.ts")).toBeUndefined();
   });
 
   it("load(?client) emits `export { default }` from the bare path", () => {
@@ -149,13 +152,13 @@ describe("pages — ilha:loaders virtual module", () => {
   it("load for ilha:loaders imports the generated loaders file for side effects", async () => {
     const root = await makeDir("loaders-virt");
     const pagesDir = join(root, "src/pages");
-    const outFile = join(root, ".ilha/routes.ts");
+    const outDir = join(root, ".ilha");
     await mkdir(pagesDir, { recursive: true });
-    const p = plugin({ dir: pagesDir, generated: outFile });
+    const p = plugin({ dir: pagesDir, outDir });
     p.configResolved({ root });
     const result = p.load("\0ilha:loaders");
-    const loadersFile = join(dirname(outFile), "loaders.ts");
-    expect(result).toContain(loadersFile.replace(/\.ts$/, ""));
+    const loadersSpec = resolveGeneratedPaths(outDir).loadersFile.replace(/\.ts$/, "");
+    expect(result).toContain(loadersSpec);
     expect(result).toMatch(/import\s+["']/);
     expect(result).not.toContain("export");
     await removeDir(root);
