@@ -389,6 +389,11 @@ export async function generate(
   const routesChanged = await writeIfChanged(outFile, code);
 
   // ─── Server-only loaders file ───────────────────────────────────────────
+  // Static mode has no route graph so attachLoader is never called; skip.
+  if (isStatic) {
+    if (routesChanged) await generateTypes(outFile);
+    return;
+  }
   const loadersFile = join(dirname(outFile), "loaders.ts");
   const loadersCode = buildLoadersFile(entries, loadersFile, outFile);
   const loadersChanged = await writeIfChanged(loadersFile, loadersCode);

@@ -1168,4 +1168,16 @@ describe("codegen — static mode", () => {
     const code = await runStatic();
     expect(code).not.toContain("+layout.ts");
   });
+
+  it("page with load export does not wire loader code in static mode", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => null; export default null;`,
+    );
+    const code = await runStatic();
+    expect(code).not.toContain(".route(");
+    expect(code).not.toContain("load");
+    expect(code).not.toContain("attachLoader");
+  });
 });

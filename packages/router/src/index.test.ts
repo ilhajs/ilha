@@ -2021,11 +2021,14 @@ describe("static mode — router({ mode: 'static' })", () => {
   it("mount() in static mode logs a warning and returns a no-op", () => {
     const warnings: string[] = [];
     const spy = spyOn(console, "warn").mockImplementation((...a) => warnings.push(a.join(" ")));
-    const el = makeEl();
+    const el = makeEl(`<p>original</p>`);
+    const innerBefore = el.innerHTML;
     const unmount = router({ mode: "static" }).route("/", HomePage).mount(el);
     expect(warnings.some((w) => w.includes("static mode"))).toBe(true);
     expect(typeof unmount).toBe("function");
+    expect(el.innerHTML).toBe(innerBefore);
     unmount();
+    expect(el.innerHTML).toBe(innerBefore);
     spy.mockRestore();
     cleanup(el);
   });
@@ -2053,7 +2056,7 @@ describe("static mode — router({ mode: 'static' })", () => {
 
   it("hydrateStatic() returns a cleanup function", () => {
     setLocation("/");
-    const el = makeEl(`<p data-ilha="home" data-ilha-state="{}"><p>home</p></p>`);
+    const el = makeEl(`<div data-ilha="home" data-ilha-state="{}"><div>home</div></div>`);
     const unmount = router({ mode: "static" })
       .route("/", HomePage)
       .hydrateStatic({ home: HomePage }, { root: el });
@@ -2065,7 +2068,7 @@ describe("static mode — router({ mode: 'static' })", () => {
 
   it("hydrateStatic() does not mount a NavHandler or RouterView sentinel", () => {
     setLocation("/");
-    const el = makeEl(`<p data-ilha="home" data-ilha-state="{}"><p>home</p></p>`);
+    const el = makeEl(`<div data-ilha="home" data-ilha-state="{}"><div>home</div></div>`);
     const childCountBefore = el.children.length;
     const unmount = router({ mode: "static" })
       .route("/", HomePage)

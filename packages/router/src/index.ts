@@ -434,7 +434,10 @@ export interface RouterBuilder {
    * view or enabling client navigation. Intended for `static` mode: each page
    * is a self-contained HTML file; only interactive islands need activation.
    */
-  hydrateStatic(registry: Record<string, Island<any, any>>, options?: HydrateOptions): () => void;
+  hydrateStatic(
+    registry: Record<string, Island<any, any>>,
+    options?: { root?: Element },
+  ): () => void;
 }
 
 // ─────────────────────────────────────────────
@@ -972,7 +975,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
     // ── Static mode ───────────────────────────────────────────────────────────
     hydrateStatic(
       registry: Record<string, Island<any, any>>,
-      options: HydrateOptions = {},
+      options: { root?: Element } = {},
     ): () => void {
       if (!isBrowser) return () => {};
       const root = options.root ?? document.body;
