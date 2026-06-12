@@ -53,9 +53,9 @@ export default defineEventHandler((event) => {
 ### SSR + Client Hydration (recommended)
 
 ```ts
-// routes/[...].ts — Nitro handler
-import { pageRouter } from "ilha:pages";
-import { registry } from "ilha:registry";
+// routes/[...].ts — Nitro handler (SSR/prerender)
+import { pageRouter, registry } from "ilha:pages/server";
+import "ilha:loaders"; // ← wire server-only loaders
 
 export default defineEventHandler(async (event) => {
   const html = await pageRouter.renderHydratable(event.node.req.url ?? "/", registry);
@@ -67,8 +67,7 @@ export default defineEventHandler(async (event) => {
 
 ```ts
 // src/client.ts — browser entry
-import { pageRouter } from "ilha:pages";
-import { registry } from "ilha:registry";
+import { pageRouter, registry } from "ilha:pages/client";
 
 pageRouter.hydrate(registry);
 ```
@@ -916,18 +915,19 @@ export default ((error, route) =>
 
 ### Virtual modules
 
-The plugin exposes three virtual modules:
+The plugin exposes separate server and client virtual modules. **Always use the explicit `/server` or `/client` path** — they resolve to different generated files with different import strategies.
 
-| Module          | Export       | Description                                  |
-| --------------- | ------------ | -------------------------------------------- |
-| `ilha:pages`    | `pageRouter` | A `RouterBuilder` with all routes registered |
-| `ilha:registry` | `registry`   | `Record<string, Island>` for hydration       |
-| `ilha:loaders`  | —            | Side-effect import that wires server loaders |
+| Module              | Exports                  | Use for                                |
+| ------------------- | ------------------------ | -------------------------------------- |
+| `ilha:pages/server` | `pageRouter`, `registry` | SSR, prerender, Nitro handlers         |
+| `ilha:pages/client` | `pageRouter`, `registry` | Browser hydration entry                |
+| `ilha:loaders`      | —                        | Server-only side-effect: wires loaders |
+
+The server module imports page/layout/error modules **without** `?client` — raw imports so SSR sees full JSX including compound component render parts. The client module imports with `?client` which strips server-only `load` exports from the browser bundle.
 
 ```ts
-// routes/[...].ts — Nitro catch-all handler
-import { pageRouter } from "ilha:pages";
-import { registry } from "ilha:registry";
+// routes/[...].ts — SSR/prerender
+import { pageRouter, registry } from "ilha:pages/server";
 import "ilha:loaders"; // ← wire server loaders
 
 export default defineEventHandler(async (event) => {
@@ -940,10 +940,18 @@ export default defineEventHandler(async (event) => {
 
 ```ts
 // src/client.ts — browser entry
-import { pageRouter } from "ilha:pages";
-import { registry } from "ilha:registry";
+import { pageRouter, registry } from "ilha:pages/client";
 
 pageRouter.hydrate(registry);
+```
+
+For `static` MPA mode:
+
+```ts
+// src/entry-client.ts — static/SSG browser entry
+import { pageRouter, registry } from "ilha:pages/client";
+
+pageRouter.hydrateStatic(registry);
 ```
 
 ### Plugin options
@@ -951,7 +959,7 @@ pageRouter.hydrate(registry);
 ```ts
 pages({
   dir: "src/pages", // pages directory (default: "src/pages")
-  generated: ".ilha/routes.ts", // generated file output (default: ".ilha/routes.ts")
+  outDir: ".ilha", // output directory for generated files (default: ".ilha")
   mode: "spa", // "spa" | "static" (default: "spa")
   interceptLinks: true, // only meaningful in spa mode (default: true)
 });

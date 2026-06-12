@@ -1,28 +1,32 @@
 import { watch } from "node:fs";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 
 import { createUnplugin } from "unplugin";
 import type { UnpluginFactory } from "unplugin";
 
-import { generate } from "./codegen";
+import { generate, resolveGeneratedPaths } from "./codegen";
 import type { PagesMode } from "./codegen";
 
-export const VIRTUAL_PAGES = "ilha:pages";
-export const VIRTUAL_REGISTRY = "ilha:registry";
+export const VIRTUAL_PAGES_SERVER = "ilha:pages/server";
+export const VIRTUAL_PAGES_CLIENT = "ilha:pages/client";
 export const VIRTUAL_LOADERS = "ilha:loaders";
-export const RESOLVED_PAGES = "\0ilha:pages";
-export const RESOLVED_REGISTRY = "\0ilha:registry";
+export const RESOLVED_PAGES_SERVER = "\0ilha:pages/server";
+export const RESOLVED_PAGES_CLIENT = "\0ilha:pages/client";
 export const RESOLVED_LOADERS = "\0ilha:loaders";
-export const RESOLVED_VIRTUAL_IDS = [RESOLVED_PAGES, RESOLVED_REGISTRY, RESOLVED_LOADERS] as const;
+export const RESOLVED_VIRTUAL_IDS = [
+  RESOLVED_PAGES_SERVER,
+  RESOLVED_PAGES_CLIENT,
+  RESOLVED_LOADERS,
+] as const;
 
-/** Query suffix used on page/layout imports in the client-safe routes file. */
+/** Query suffix used on page/layout imports in the client file. */
 export const CLIENT_QUERY = "?client";
 
 export interface IlhaPagesOptions {
   /** Directory containing page files. Default: `src/pages` */
   dir?: string;
-  /** Output path for the generated routes + registry file. Default: `.ilha/routes.ts` */
-  generated?: string;
+  /** Output directory for generated files. Default: `.ilha` */
+  outDir?: string;
   /**
    * File-system router navigation mode.
    * - `spa` — full client route graph with SSR/hydration and client navigation.
@@ -40,14 +44,16 @@ export interface IlhaPagesOptions {
 
 export function resolvePluginPaths(root: string, options: IlhaPagesOptions) {
   const pagesDir = resolve(root, options.dir ?? "src/pages");
-  const outFile = resolve(root, options.generated ?? ".ilha/routes.ts");
-  const loadersFile = join(dirname(outFile), "loaders.ts");
-  return { pagesDir, outFile, loadersFile };
+  const outDir = resolve(root, options.outDir ?? ".ilha");
+  const { serverFile, clientFile, loadersFile } = resolveGeneratedPaths(outDir);
+  return { pagesDir, outDir, serverFile, clientFile, loadersFile };
 }
 
 export interface PagesPluginState {
   pagesDir: string;
-  outFile: string;
+  outDir: string;
+  serverFile: string;
+  clientFile: string;
   loadersFile: string;
   setPaths(root: string): void;
   regen(): Promise<void>;
@@ -57,16 +63,18 @@ export interface PagesPluginState {
 
 export function createPagesPluginState(options: IlhaPagesOptions): PagesPluginState {
   let pagesDir!: string;
-  let outFile!: string;
+  let outDir!: string;
+  let serverFile!: string;
+  let clientFile!: string;
   let loadersFile!: string;
 
   const setPaths = (root: string) => {
-    ({ pagesDir, outFile, loadersFile } = resolvePluginPaths(root, options));
+    ({ pagesDir, outDir, serverFile, clientFile, loadersFile } = resolvePluginPaths(root, options));
   };
 
   const regen = async () => {
     try {
-      await generate(pagesDir, outFile, {
+      await generate(pagesDir, outDir, {
         mode: options.mode,
         interceptLinks: options.interceptLinks,
       });
@@ -87,8 +95,14 @@ export function createPagesPluginState(options: IlhaPagesOptions): PagesPluginSt
     get pagesDir() {
       return pagesDir;
     },
-    get outFile() {
-      return outFile;
+    get outDir() {
+      return outDir;
+    },
+    get serverFile() {
+      return serverFile;
+    },
+    get clientFile() {
+      return clientFile;
     },
     get loadersFile() {
       return loadersFile;
@@ -110,27 +124,25 @@ export async function regenFromPagesChange(
 }
 
 export function resolvePagesId(_state: PagesPluginState, id: string, importer?: string) {
-  if (id === VIRTUAL_PAGES) return RESOLVED_PAGES;
-  if (id === VIRTUAL_REGISTRY) return RESOLVED_REGISTRY;
+  if (id === VIRTUAL_PAGES_SERVER) return RESOLVED_PAGES_SERVER;
+  if (id === VIRTUAL_PAGES_CLIENT) return RESOLVED_PAGES_CLIENT;
   if (id === VIRTUAL_LOADERS) return RESOLVED_LOADERS;
 
   if (id.endsWith(CLIENT_QUERY)) {
     const bare = id.slice(0, -CLIENT_QUERY.length);
-    const resolved = importer
-      ? resolve(dirname(importer.replace(/\?.*$/, "")), bare)
-      : resolve(bare);
+    const resolved = importer ? resolve(importer.replace(/\?.*$/, ""), "..", bare) : resolve(bare);
     return resolved + CLIENT_QUERY;
   }
 }
 
 export function loadPagesModule(state: PagesPluginState, id: string) {
-  if (id === RESOLVED_PAGES) {
-    const spec = state.outFile.replace(/\.tsx?$/, "");
-    return `export { pageRouter } from ${JSON.stringify(spec)};`;
+  if (id === RESOLVED_PAGES_SERVER) {
+    const spec = state.serverFile.replace(/\.tsx?$/, "");
+    return `export { pageRouter, registry } from ${JSON.stringify(spec)};`;
   }
-  if (id === RESOLVED_REGISTRY) {
-    const spec = state.outFile.replace(/\.tsx?$/, "");
-    return `export { registry } from ${JSON.stringify(spec)};`;
+  if (id === RESOLVED_PAGES_CLIENT) {
+    const spec = state.clientFile.replace(/\.tsx?$/, "");
+    return `export { pageRouter, registry } from ${JSON.stringify(spec)};`;
   }
   if (id === RESOLVED_LOADERS) {
     const spec = state.loadersFile.replace(/\.tsx?$/, "");

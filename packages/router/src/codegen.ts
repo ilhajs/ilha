@@ -112,10 +112,8 @@ function sortEntries(entries: PageEntry[]): PageEntry[] {
   return [...entries].sort((a, b) => {
     const specDiff = specificityScore(b.pattern) - specificityScore(a.pattern);
     if (specDiff !== 0) return specDiff;
-    // Within the same specificity tier, more segments = more specific
     const segDiff = b.pattern.split("/").length - a.pattern.split("/").length;
     if (segDiff !== 0) return segDiff;
-    // Final tiebreaker: alphabetical for determinism across filesystems
     return a.pattern.localeCompare(b.pattern);
   });
 }
@@ -181,9 +179,6 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
   const allSet = new Set(all);
   const pages = all.filter((f) => !basename(f).startsWith("+"));
 
-  // Detect loader exports on pages and on +layout.ts files in parallel. Error
-  // sentinels don't carry loaders so we skip them. Cache layout results since
-  // the same layout can apply to many pages.
   const layoutLoaderCache = new Map<string, Promise<boolean>>();
   const getLayoutHasLoader = (file: string): Promise<boolean> => {
     let cached = layoutLoaderCache.get(file);
@@ -258,13 +253,13 @@ function validateEntries(entries: PageEntry[], pagesDir: string): void {
 }
 
 // ─────────────────────────────────────────────
-// Codegen — emit generated file
+// Codegen — emit generated files
 // ─────────────────────────────────────────────
 
 export type PagesMode = "spa" | "static";
 
 export interface GenerateOptions {
-  /** Generated page router navigation mode. Default: `spa`. */
+  /** Client navigation mode. Default: `spa`. */
   mode?: PagesMode;
   /**
    * Whether to install client-side link interception. Only meaningful in `spa`
@@ -273,9 +268,27 @@ export interface GenerateOptions {
   interceptLinks?: boolean;
 }
 
+/** Paths for all generated files derived from the base output directory. */
+export interface GeneratedPaths {
+  /** Server module: raw imports, full route graph. `ilha:pages/server` */
+  serverFile: string;
+  /** Client module: ?client imports, browser-optimised. `ilha:pages/client` */
+  clientFile: string;
+  /** Server-only loaders side-effect module. `ilha:loaders` */
+  loadersFile: string;
+}
+
+export function resolveGeneratedPaths(outDir: string): GeneratedPaths {
+  return {
+    serverFile: join(outDir, "pages.server.ts"),
+    clientFile: join(outDir, "pages.client.ts"),
+    loadersFile: join(outDir, "loaders.ts"),
+  };
+}
+
 export async function generate(
   pagesDir: string,
-  outFile: string,
+  outDir: string,
   options: GenerateOptions = {},
 ): Promise<void> {
   const mode = options.mode ?? "spa";
@@ -286,14 +299,110 @@ export async function generate(
 
   validateEntries(entries, pagesDir);
 
+  await mkdir(outDir, { recursive: true });
+
+  const { serverFile, clientFile, loadersFile } = resolveGeneratedPaths(outDir);
+
+  // ─── Server file: raw imports, full route graph ──────────────────────────
+  const serverCode = buildServerFile(entries, serverFile);
+  const serverChanged = await writeIfChanged(serverFile, serverCode);
+
+  // ─── Client file: ?client imports, browser bundle ───────────────────────
+  const clientCode = buildClientFile(entries, clientFile, { isStatic, interceptLinks });
+  const clientChanged = await writeIfChanged(clientFile, clientCode);
+
+  // ─── Loaders file (server-only, skipped in static mode) ─────────────────
+  if (!isStatic) {
+    const loadersCode = buildLoadersFile(entries, loadersFile, serverFile);
+    await writeIfChanged(loadersFile, loadersCode);
+  }
+
+  if (serverChanged || clientChanged) {
+    await generateTypes(outDir);
+  }
+}
+
+// ─────────────────────────────────────────────
+// Codegen — server file
+// ─────────────────────────────────────────────
+
+function buildServerFile(entries: PageEntry[], serverFile: string): string {
   const rel = (abs: string) => {
-    const r = toPosix(relative(dirname(outFile), abs));
+    const r = toPosix(relative(dirname(serverFile), abs));
     return r.startsWith(".") ? r : `./${r}`;
   };
 
-  // ─── Client-safe routes file ────────────────────────────────────────────
+  const imports: string[] = [
+    `import { router, wrapLayout, wrapError } from "@ilha/router";`,
+    `import type { Island } from "ilha";`,
+  ];
+  const wrappedIslandLines: string[] = [];
+  const registryLines: string[] = [];
+  const routeLines: string[] = [];
+
+  for (const [i, entry] of entries.entries()) {
+    // Raw imports — no ?client — so SSR sees the full module including JSX
+    imports.push(`import { default as _page${i} } from ${JSON.stringify(rel(entry.file))};`);
+    for (const [j, l] of entry.layouts.entries())
+      imports.push(`import { default as _layout${i}_${j} } from ${JSON.stringify(rel(l))};`);
+    for (const [j, e] of entry.errors.entries())
+      imports.push(`import { default as _error${i}_${j} } from ${JSON.stringify(rel(e))};`);
+
+    let expr = `_page${i}`;
+    for (let j = entry.errors.length - 1; j >= 0; j--) expr = `wrapError(_error${i}_${j}, ${expr})`;
+    for (let j = entry.layouts.length - 1; j >= 0; j--)
+      expr = `wrapLayout(_layout${i}_${j}, ${expr})`;
+
+    const wrappedId = `_wrapped${i}`;
+    wrappedIslandLines.push(`const ${wrappedId} = ${expr};`);
+    registryLines.push(
+      `  ${JSON.stringify(entry.name)}: ${wrappedId}` + (i < entries.length - 1 ? "," : ""),
+    );
+    routeLines.push(
+      `  .route(${JSON.stringify(entry.pattern)}, ${wrappedId})` +
+        (entry.hasLoader || entry.loaderLayouts.length > 0
+          ? `.markLoader(${JSON.stringify(entry.pattern)})`
+          : ""),
+    );
+  }
+
+  return [
+    `// @generated by @ilha/router — do not edit`,
+    `// Server module. Use for SSR and SSG/prerender.`,
+    `// Import via: import { pageRouter, registry } from "ilha:pages/server";`,
+    ``,
+    ...imports,
+    ``,
+    ...wrappedIslandLines,
+    ``,
+    `export const registry: Record<string, Island<any, any>> = {`,
+    ...registryLines,
+    `};`,
+    ``,
+    `export const pageRouter = router()`,
+    ...routeLines,
+    `  ;`,
+  ].join("\n");
+}
+
+// ─────────────────────────────────────────────
+// Codegen — client file
+// ─────────────────────────────────────────────
+
+function buildClientFile(
+  entries: PageEntry[],
+  clientFile: string,
+  opts: { isStatic: boolean; interceptLinks?: boolean },
+): string {
+  const { isStatic, interceptLinks } = opts;
+  const rel = (abs: string) => {
+    const r = toPosix(relative(dirname(clientFile), abs));
+    return r.startsWith(".") ? r : `./${r}`;
+  };
+  const clientImport = (abs: string) => `${rel(abs)}?client`;
+
   const imports: string[] = isStatic
-    ? [`import type { Island } from "ilha";`]
+    ? [`import { router as _router } from "@ilha/router";`, `import type { Island } from "ilha";`]
     : [
         `import { router, wrapLayout, wrapError } from "@ilha/router";`,
         `import type { Island } from "ilha";`,
@@ -303,30 +412,22 @@ export async function generate(
   const registryLines: string[] = [];
   const routeLines: string[] = [];
 
-  // The `?client` query suffix resolves (via the plugin) to a virtual module
-  // that re-exports only the default. This strips `load` and any symbol only
-  // reachable from `load`, keeping server-only code out of the client bundle.
-  const clientImport = (abs: string) => `${rel(abs)}?client`;
-
   for (const [i, entry] of entries.entries()) {
-    const pageId = `_page${i}`;
     imports.push(
-      `import { default as ${pageId} } from ${JSON.stringify(clientImport(entry.file))};`,
+      `import { default as _page${i} } from ${JSON.stringify(clientImport(entry.file))};`,
     );
-
     if (!isStatic) {
       for (const [j, l] of entry.layouts.entries())
         imports.push(
           `import { default as _layout${i}_${j} } from ${JSON.stringify(clientImport(l))};`,
         );
-
       for (const [j, e] of entry.errors.entries())
         imports.push(
           `import { default as _error${i}_${j} } from ${JSON.stringify(clientImport(e))};`,
         );
     }
 
-    let expr = pageId;
+    let expr = `_page${i}`;
     if (!isStatic) {
       for (let j = entry.errors.length - 1; j >= 0; j--)
         expr = `wrapError(_error${i}_${j}, ${expr})`;
@@ -334,8 +435,6 @@ export async function generate(
         expr = `wrapLayout(_layout${i}_${j}, ${expr})`;
     }
 
-    // Store wrapped island in a variable so registry and route use the SAME instance
-    // This is required for renderHydratable to find the island by identity
     const wrappedId = `_wrapped${i}`;
     wrappedIslandLines.push(`const ${wrappedId} = ${expr};`);
     registryLines.push(
@@ -351,70 +450,44 @@ export async function generate(
     }
   }
 
-  const code = isStatic
-    ? [
-        `// @generated by @ilha/router — do not edit`,
-        `// static mode: no route graph, no client navigation.`,
-        `// Import registry to hydrate islands; use pageRouter.hydrateStatic(registry).`,
-        ``,
-        `import { router as _router } from "@ilha/router";`,
-        ...imports,
-        ``,
-        ...wrappedIslandLines,
-        ``,
-        `export const registry: Record<string, Island<any, any>> = {`,
-        ...registryLines,
-        `};`,
-        ``,
-        `export const pageRouter = _router({ mode: "static" });`,
-      ].join("\n")
-    : [
-        `// @generated by @ilha/router — do not edit`,
-        ``,
-        ...imports,
-        ``,
-        ...wrappedIslandLines,
-        ``,
-        `export const registry: Record<string, Island<any, any>> = {`,
-        ...registryLines,
-        `};`,
-        ``,
-        `export const pageRouter = router(${interceptLinks === false ? `{ interceptLinks: false }` : ""})`,
-        ...routeLines,
-        `  ;`,
-      ].join("\n");
+  const routerExpr = isStatic
+    ? `_router({ mode: "static" })`
+    : `router(${interceptLinks === false ? `{ interceptLinks: false }` : ""})`;
 
-  // Only write if content actually changed — avoids unnecessary HMR invalidation
-  await mkdir(dirname(outFile), { recursive: true });
-  const routesChanged = await writeIfChanged(outFile, code);
+  const lines = [
+    `// @generated by @ilha/router — do not edit`,
+    `// Client module. Use for browser hydration.`,
+    `// Import via: import { pageRouter, registry } from "ilha:pages/client";`,
+    ``,
+    ...imports,
+    ``,
+    ...wrappedIslandLines,
+    ``,
+    `export const registry: Record<string, Island<any, any>> = {`,
+    ...registryLines,
+    `};`,
+    ``,
+  ];
 
-  // ─── Server-only loaders file ───────────────────────────────────────────
-  // Static mode has no route graph so attachLoader is never called; skip.
   if (isStatic) {
-    if (routesChanged) await generateTypes(outFile);
-    return;
+    lines.push(`export const pageRouter = ${routerExpr};`);
+  } else {
+    lines.push(`export const pageRouter = ${routerExpr}`, ...routeLines, `  ;`);
   }
-  const loadersFile = join(dirname(outFile), "loaders.ts");
-  const loadersCode = buildLoadersFile(entries, loadersFile, outFile);
-  const loadersChanged = await writeIfChanged(loadersFile, loadersCode);
 
-  if (routesChanged || loadersChanged) {
-    await generateTypes(outFile);
-  }
+  return lines.join("\n");
 }
 
 // ─────────────────────────────────────────────
-// Codegen — build the server-only loaders file
+// Codegen — server-only loaders file
 // ─────────────────────────────────────────────
 
-function buildLoadersFile(entries: PageEntry[], loadersFile: string, routesFile: string): string {
+function buildLoadersFile(entries: PageEntry[], loadersFile: string, serverFile: string): string {
   const relFromLoaders = (abs: string) => {
     const r = toPosix(relative(dirname(loadersFile), abs));
     return r.startsWith(".") ? r : `./${r}`;
   };
 
-  // Only include pages that have at least one loader in their chain (page or
-  // any layout). Pages without any loaders don't need an attachLoader call.
   const withLoaders = entries.filter((e) => e.hasLoader || e.loaderLayouts.length > 0);
 
   if (withLoaders.length === 0) {
@@ -427,42 +500,30 @@ function buildLoadersFile(entries: PageEntry[], loadersFile: string, routesFile:
     ].join("\n");
   }
 
-  const routesRel = relFromLoaders(routesFile).replace(/\.tsx?$/, "");
-
-  const imports: string[] = [`import { pageRouter } from ${JSON.stringify(routesRel)};`];
+  const serverRel = relFromLoaders(serverFile).replace(/\.tsx?$/, "");
+  const imports: string[] = [`import { pageRouter } from ${JSON.stringify(serverRel)};`];
   let needsComposeLoaders = false;
-
   const attachLines: string[] = [];
 
   for (const [i, entry] of withLoaders.entries()) {
-    // Unique local names per page index to avoid collisions when the same
-    // layout file is imported by many pages (we import it once per page for
-    // clarity — Vite dedupes the underlying module anyway).
     const loaderIds: string[] = [];
-
     for (const [j, layout] of entry.loaderLayouts.entries()) {
       const id = `_p${i}_l${j}`;
       imports.push(`import { load as ${id} } from ${JSON.stringify(relFromLoaders(layout))};`);
       loaderIds.push(id);
     }
-
     if (entry.hasLoader) {
       const id = `_p${i}`;
       imports.push(`import { load as ${id} } from ${JSON.stringify(relFromLoaders(entry.file))};`);
       loaderIds.push(id);
     }
-
     const loadersExpr =
       loaderIds.length === 1 ? loaderIds[0] : `composeLoaders([${loaderIds.join(", ")}])`;
     if (loaderIds.length > 1) needsComposeLoaders = true;
-
     attachLines.push(`pageRouter.attachLoader(${JSON.stringify(entry.pattern)}, ${loadersExpr});`);
   }
 
-  // Only import composeLoaders if at least one page needs it (multiple loaders)
-  if (needsComposeLoaders) {
-    imports.unshift(`import { composeLoaders } from "@ilha/router";`);
-  }
+  if (needsComposeLoaders) imports.unshift(`import { composeLoaders } from "@ilha/router";`);
 
   return [
     `// @generated by @ilha/router — do not edit`,
@@ -486,7 +547,7 @@ async function writeIfChanged(file: string, content: string): Promise<boolean> {
     const existing = await readFile(file, "utf8");
     if (existing === content) return false;
   } catch {
-    // File doesn't exist yet — that's fine, proceed to write
+    // File doesn't exist yet — proceed to write
   }
   await writeFile(file, content, "utf8");
   return true;
@@ -496,19 +557,23 @@ async function writeIfChanged(file: string, content: string): Promise<boolean> {
 // Type declarations for virtual modules
 // ─────────────────────────────────────────────
 
-async function generateTypes(outFile: string): Promise<void> {
-  const dtsFile = outFile.replace(/\.tsx?$/, ".d.ts");
+async function generateTypes(outDir: string): Promise<void> {
+  const dtsFile = join(outDir, "pages.d.ts");
 
   const types = [
     `// @generated by @ilha/router — do not edit`,
     ``,
-    `declare module "ilha:pages" {`,
+    `declare module "ilha:pages/server" {`,
     `  import type { RouterBuilder } from "@ilha/router";`,
+    `  import type { Island } from "ilha";`,
     `  export const pageRouter: RouterBuilder;`,
+    `  export const registry: Record<string, Island<any, any>>;`,
     `}`,
     ``,
-    `declare module "ilha:registry" {`,
+    `declare module "ilha:pages/client" {`,
+    `  import type { RouterBuilder } from "@ilha/router";`,
     `  import type { Island } from "ilha";`,
+    `  export const pageRouter: RouterBuilder;`,
     `  export const registry: Record<string, Island<any, any>>;`,
     `}`,
     ``,

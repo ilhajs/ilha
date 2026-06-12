@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 
 import ilha, { ISLAND_MOUNT_INTERNAL, mount as ilhaMount, html } from "ilha";
+import { jsx, jsxs } from "ilha/jsx-runtime";
 
 import {
   router,
@@ -2101,5 +2102,73 @@ describe("static mode — router({ mode: 'static' })", () => {
       .renderHydratable("/about", { about: AboutPage }, { snapshot: false });
     expect(html).toContain("about");
     expect(html).not.toContain("data-ilha-state");
+  });
+});
+
+// ─────────────────────────────────────────────
+// SSR compound render-part regression
+// ─────────────────────────────────────────────
+
+describe("SSR compound render-part regression (Areia Resizable pattern)", () => {
+  const ILHA_RENDER_PART = Symbol.for("ilha.renderPart");
+  const PART = "__testPart";
+
+  function createPart(type: string, input: any) {
+    const part: any = { [PART]: type, [ILHA_RENDER_PART]: true, input };
+    Object.defineProperty(part, "toString", {
+      value: () =>
+        type === "panel"
+          ? `<div data-slot="resizable-panel">${input.children ?? ""}</div>`
+          : `<div data-slot="resizable-handle"></div>`,
+    });
+    return part;
+  }
+
+  function Resizable(props: any) {
+    const kids = Array.isArray(props.children) ? props.children : [props.children];
+    const inner = kids
+      .map((c: any) => (typeof c === "object" && c?.value ? c.value : String(c)))
+      .join("");
+    return { [Symbol.for("ilha.raw")]: true, value: `<div data-slot="resizable">${inner}</div>` };
+  }
+  (Resizable as any).Panel = (props: any) => createPart("panel", props);
+  (Resizable as any).Handle = (props: any) => createPart("handle", props);
+
+  const R = Resizable as any;
+
+  it("compound render-part children render inside parent, not as siblings", async () => {
+    const Page = ilha.render(
+      () =>
+        html`
+          <article>page</article>
+        `,
+    );
+
+    const Layout = defineLayout((children) =>
+      ilha.render(() =>
+        jsxs("main", {
+          children: [
+            jsxs(R, {
+              children: [
+                jsx(R.Panel, { children: "sidebar" }),
+                jsx(R.Handle, {}),
+                jsx(R.Panel, { children }),
+              ],
+            }),
+          ],
+        }),
+      ),
+    );
+
+    const Wrapped = wrapLayout(Layout, Page);
+    const serverRegistry = { page: Wrapped };
+
+    const result = await router().route("/", Wrapped).renderHydratable("/", serverRegistry);
+
+    expect(result).toContain('data-slot="resizable"');
+    expect(result).toMatch(
+      /data-slot="resizable"[\s\S]*data-slot="resizable-panel"[\s\S]*data-slot="resizable-handle"[\s\S]*data-slot="resizable-panel"/,
+    );
+    expect(result).not.toMatch(/<\/main>\s*<div data-slot="resizable-panel"/);
   });
 });
