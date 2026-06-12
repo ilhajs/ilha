@@ -1068,3 +1068,113 @@ describe("ilha JSX runtime", () => {
     }
   });
 });
+
+describe("ilha JSX runtime — compound component children", () => {
+  it("plain object children with custom toString are rendered as raw HTML inside parent", () => {
+    const RENDER_PART = Symbol.for("ilha.renderPart");
+    function Root(props: { children?: any }) {
+      const kids: any[] = Array.isArray(props.children) ? props.children : [props.children];
+      return html`<root>${kids}</root>`;
+    }
+    Root.Part = function Part(props: { label: string }) {
+      const part: any = { [RENDER_PART]: true };
+      Object.defineProperty(part, "toString", {
+        value: () => `<part>${props.label}</part>`,
+        enumerable: false,
+      });
+      return part;
+    };
+
+    const result = (
+      <Root>
+        <Root.Part label="A" />
+        <Root.Part label="B" />
+      </Root>
+    );
+    expect(result.value).toBe("<root><part>A</part><part>B</part></root>");
+  });
+
+  it("plain object children do not appear as escaped [object Object]", () => {
+    const RENDER_PART = Symbol.for("ilha.renderPart");
+    function Wrapper(props: { children?: any }) {
+      const kids: any[] = Array.isArray(props.children) ? props.children : [props.children];
+      return html`<wrap>${kids}</wrap>`;
+    }
+    (Wrapper as any).Slot = function Slot(_props: {}) {
+      const part: any = { [RENDER_PART]: true };
+      Object.defineProperty(part, "toString", {
+        value: () => "<slot/>",
+        enumerable: false,
+      });
+      return part;
+    };
+    const W = Wrapper as any;
+    const result = (
+      <W>
+        <W.Slot />
+      </W>
+    );
+    expect(result.value).not.toContain("[object Object]");
+    expect(result.value).toBe("<wrap><slot/></wrap>");
+  });
+
+  it("Areia-like Resizable: panels and handle rendered inside root, not as siblings", () => {
+    const PART = "__resizablePart";
+    const RENDER_PART = Symbol.for("ilha.renderPart");
+    function createPart(type: string, input: any) {
+      const part: any = { [PART]: type, input, [RENDER_PART]: true };
+      Object.defineProperty(part, "toString", {
+        value: () => {
+          const r = renderPart(part);
+          return typeof r === "object" && r !== null && "value" in r ? (r as any).value : String(r);
+        },
+        enumerable: false,
+      });
+      return part;
+    }
+    function renderPart(part: any) {
+      if (part[PART] === "panel")
+        return html`<div data-slot="resizable-panel">${part.input.children ?? ""}</div>`;
+      return html`
+        <div data-slot="resizable-handle"></div>
+      `;
+    }
+    function renderChildren(v: any): any {
+      if (v == null) return "";
+      if (Array.isArray(v)) return v.map(renderChildren);
+      if (typeof v === "object" && PART in v) return renderPart(v);
+      if (typeof v === "object" && "value" in v && typeof v.value === "string") return raw(v.value);
+      return v;
+    }
+    function ResizablePanel(input: any) {
+      return createPart("panel", input);
+    }
+    function ResizableHandle(input: any) {
+      return createPart("handle", input);
+    }
+    function Resizable(input: any) {
+      const kids = Array.isArray(input.children) ? input.children : [input.children];
+      return html`<div data-slot="resizable">${renderChildren(kids)}</div>`;
+    }
+    (Resizable as any).Panel = ResizablePanel;
+    (Resizable as any).Handle = ResizableHandle;
+    const R = Resizable as any;
+
+    const result = (
+      <R>
+        <R.Panel>content A</R.Panel>
+        <R.Handle />
+        <R.Panel>content B</R.Panel>
+      </R>
+    );
+
+    expect(result.value).toContain('data-slot="resizable"');
+    expect(result.value).toContain('data-slot="resizable-panel"');
+    expect(result.value).toContain('data-slot="resizable-handle"');
+    expect(result.value).not.toContain("[object Object]");
+    // panels must be inside the root, not siblings
+    const rootIdx = result.value.indexOf('data-slot="resizable"');
+    const panelIdx = result.value.indexOf('data-slot="resizable-panel"');
+    expect(panelIdx).toBeGreaterThan(rootIdx);
+  });
+});

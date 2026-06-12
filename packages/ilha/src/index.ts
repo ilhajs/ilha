@@ -870,6 +870,18 @@ function ilhaJsx(
       return ilhaRaw(emitIslandSlot(type as AnyIsland, componentProps, slotKey));
     }
     if (typeof out === "string") return ilhaHtml`${out}`;
+    // Plain object explicitly marked as a renderable part (e.g. Areia compound-component
+    // parts like ResizablePanel). The marker Symbol.for("ilha.renderPart") must be set
+    // on the object, and toString must be a callable that produces safe HTML.
+    if (
+      typeof out === "object" &&
+      out !== null &&
+      Object.getPrototypeOf(out) === Object.prototype &&
+      (out as Record<symbol, unknown>)[Symbol.for("ilha.renderPart")] === true &&
+      typeof (out as any).toString === "function"
+    ) {
+      return ilhaRaw((out as object).toString());
+    }
     return ilhaHtml`${out}`;
   }
 

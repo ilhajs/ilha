@@ -1,6 +1,6 @@
 {
   "name": "ilha",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "A tiny, framework-free island architecture library",
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
