@@ -1137,18 +1137,13 @@ describe("codegen — static mode", () => {
     expect(code).not.toContain(".route(");
   });
 
-  it("does not emit wrapLayout even when layouts exist", async () => {
+  it("wraps pages with layouts/errors in static mode (same structure as server)", async () => {
     await writePage(pagesDir, "+layout.ts", `export default null;`);
-    await writePage(pagesDir, "index.ts", `export default null;`);
-    const code = await runStatic();
-    expect(code).not.toContain("wrapLayout");
-  });
-
-  it("does not emit wrapError even when error boundaries exist", async () => {
     await writePage(pagesDir, "+error.ts", `export default null;`);
     await writePage(pagesDir, "index.ts", `export default null;`);
     const code = await runStatic();
-    expect(code).not.toContain("wrapError");
+    expect(code).toContain("wrapLayout");
+    expect(code).toContain("wrapError");
   });
 
   it("still exports registry with all pages", async () => {
@@ -1160,22 +1155,21 @@ describe("codegen — static mode", () => {
     expect(code).toContain('"about"');
   });
 
-  it("does not import router runtime (wrapLayout/wrapError) from @ilha/router in island imports", async () => {
+  it("imports wrapLayout, wrapError and router stub from @ilha/router", async () => {
     await writePage(pagesDir, "+layout.ts", `export default null;`);
     await writePage(pagesDir, "index.ts", `export default null;`);
     const code = await runStatic();
-    // The only @ilha/router import should be the router stub, not wrapLayout/wrapError
-    const routerImports = code.split("\n").filter((l) => l.includes(`from "@ilha/router"`));
-    expect(routerImports).toHaveLength(1);
-    expect(routerImports[0]).toContain("router as _router");
-    expect(routerImports[0]).not.toContain("wrapLayout");
+    const routerImport = code.split("\n").find((l) => l.includes(`from "@ilha/router"`));
+    expect(routerImport).toContain("router as _router");
+    expect(routerImport).toContain("wrapLayout");
+    expect(routerImport).toContain("wrapError");
   });
 
-  it("layout page modules are NOT imported in static mode", async () => {
+  it("layout modules are imported with ?client in static mode", async () => {
     await writePage(pagesDir, "+layout.ts", `export default null;`);
     await writePage(pagesDir, "index.ts", `export default null;`);
     const code = await runStatic();
-    expect(code).not.toContain("+layout.ts");
+    expect(code).toContain("+layout.ts?client");
   });
 
   it("page with load export does not wire loader code in static mode", async () => {
@@ -1188,6 +1182,41 @@ describe("codegen — static mode", () => {
     expect(code).not.toContain(".route(");
     expect(code).not.toContain("load");
     expect(code).not.toContain("attachLoader");
+  });
+
+  it("static client registry uses wrapped island (not raw page)", async () => {
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    const code = await runStatic();
+    expect(code).toContain("const _wrapped");
+    expect(code).toContain("wrapLayout(");
+    expect(code).toMatch(/"index":\s*_wrapped\d+/);
+  });
+
+  it("static client wrapping shape matches server for layout+error", async () => {
+    await writePage(pagesDir, "+layout.ts", `export default null;`);
+    await writePage(pagesDir, "+error.ts", `export default null;`);
+    await writePage(pagesDir, "index.ts", `export default null;`);
+    await generate(pagesDir, outDir, { mode: "static" });
+    const client = await readFile(resolveGeneratedPaths(outDir).clientFile, "utf8");
+    const server = await readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
+    // Extract the _wrapped0 = ... line from each
+    const clientWrap = client.split("\n").find((l) => l.includes("_wrapped0") && l.includes("="));
+    const serverWrap = server.split("\n").find((l) => l.includes("_wrapped0") && l.includes("="));
+    // Both should use wrapLayout and wrapError
+    expect(clientWrap).toContain("wrapLayout");
+    expect(serverWrap).toContain("wrapLayout");
+    expect(client).toContain("+layout.ts?client");
+    expect(client).toContain("+error.ts?client");
+    expect(client).not.toContain(".route(");
+    expect(client).toContain(`export const pageRouter = _router({ mode: "static" });`);
+    // Structure should be equivalent (same nesting order, different import suffixes)
+    const normalize = (s: string) =>
+      s
+        .replace(/\?client/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    expect(normalize(clientWrap!)).toBe(normalize(serverWrap!));
   });
 });
 
@@ -1241,14 +1270,14 @@ describe("codegen — server/client split", () => {
     expect(server).toContain(".route(");
   });
 
-  it("static mode: client file has no route graph, server file still has full graph", async () => {
+  it("static mode: client file has no route graph but keeps wrapping; server file has full graph", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
     await writePage(pagesDir, "+layout.ts", `export default null;`);
     await generate(pagesDir, outDir, { mode: "static" });
     const client = await readFile(resolveGeneratedPaths(outDir).clientFile, "utf8");
     const server = await readFile(resolveGeneratedPaths(outDir).serverFile, "utf8");
     expect(client).not.toContain(".route(");
-    expect(client).not.toContain("wrapLayout");
+    expect(client).toContain("wrapLayout");
     expect(server).toContain(".route(");
     expect(server).toContain("wrapLayout");
   });
