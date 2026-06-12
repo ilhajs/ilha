@@ -1,6 +1,5 @@
 import "./app.css";
-import { pageRouter } from "ilha:pages";
-import { registry } from "ilha:registry";
+import { pageRouter, registry } from "ilha:pages/server";
 
 import clientAssets from "./entry-client.ts?assets=client";
 import serverAssets from "./entry-server.ts?assets=ssr";
