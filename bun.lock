@@ -30,7 +30,7 @@
       "devDependencies": {
         "@fontsource-variable/geist": "^5.2.8",
         "@fontsource-variable/geist-mono": "^5.2.7",
-        "@ilha/router": "0.5.0",
+        "@ilha/router": "0.6.2",
         "@rspress/core": "^2.0.11",
         "@rspress/plugin-llms": "^2.0.11",
         "@rspress/plugin-sitemap": "^2.0.11",
@@ -56,7 +56,7 @@
     },
     "packages/router": {
       "name": "@ilha/router",
-      "version": "0.5.1",
+      "version": "0.6.2",
       "dependencies": {
         "ilha": "0.7.1",
         "rou3": "0.8.1",
@@ -1050,8 +1050,6 @@
     "parse5/entities": ["entities@6.0.1", "", {}, "sha512-aN97NXWF6AWBTahfVOIrB/NShkzi5H7F9r1s9mD3cDj4Ko5f2qhhVoYMibXF7GlLveb/D2ioWay8lxI97Ven3g=="],
 
     "vite/rolldown": ["rolldown@1.0.2", "", { "dependencies": { "@oxc-project/types": "=0.132.0", "@rolldown/pluginutils": "^1.0.0" }, "optionalDependencies": { "@rolldown/binding-android-arm64": "1.0.2", "@rolldown/binding-darwin-arm64": "1.0.2", "@rolldown/binding-darwin-x64": "1.0.2", "@rolldown/binding-freebsd-x64": "1.0.2", "@rolldown/binding-linux-arm-gnueabihf": "1.0.2", "@rolldown/binding-linux-arm64-gnu": "1.0.2", "@rolldown/binding-linux-arm64-musl": "1.0.2", "@rolldown/binding-linux-ppc64-gnu": "1.0.2", "@rolldown/binding-linux-s390x-gnu": "1.0.2", "@rolldown/binding-linux-x64-gnu": "1.0.2", "@rolldown/binding-linux-x64-musl": "1.0.2", "@rolldown/binding-openharmony-arm64": "1.0.2", "@rolldown/binding-wasm32-wasi": "1.0.2", "@rolldown/binding-win32-arm64-msvc": "1.0.2", "@rolldown/binding-win32-x64-msvc": "1.0.2" }, "bin": { "rolldown": "./bin/cli.mjs" } }, "sha512-oZx5zVDtVB44AW3eaifgDml1gWRDZGvjcfdxonE4swNPG98PrrXjaO/KrnUjzlMnztCCRVlUueA1kCXhARGk6g=="],
-
-    "website/@ilha/router": ["@ilha/router@0.5.0", "", { "dependencies": { "ilha": "0.7.0", "rou3": "0.8.1", "unplugin": "3.0.0" } }, "sha512-988ct3A/uaR9SJuZSK/wcQpLFuyp+jWmaeC7d/lnM9SIu2SBy4L36ajSW5BbrSkigGDwNNN/jCkRPo3ZdG5n7A=="],
 
     "website/ilha": ["ilha@0.7.0", "", { "dependencies": { "alien-signals": "3.2.1" } }, "sha512-ospMnQ9Faw66dVyTE1kNkcmvBilNbEzp7ppmR10xs1AuYAoyw8eHmupUkYOHQKo2Fg38FeHdf/KyNRG+yu6MMQ=="],
 
