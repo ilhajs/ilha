@@ -6,31 +6,9 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 
 import { effect } from "alien-signals";
-import { html, raw } from "ilha";
+import ilha, { html } from "ilha";
 
 import { createStore, effectScope } from "./index";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function fixture(markup: string): HTMLElement {
-  const el = document.createElement("div");
-  el.innerHTML = markup;
-  document.body.appendChild(el);
-  return el;
-}
-
-function makeEl(inner = ""): Element {
-  const el = document.createElement("div");
-  el.innerHTML = inner;
-  document.body.appendChild(el);
-  return el;
-}
-
-function cleanup(el: Element) {
-  if (el.parentNode) el.parentNode.removeChild(el);
-}
 
 beforeEach(() => {
   document.body.innerHTML = "";
@@ -351,212 +329,6 @@ describe("subscribe() — selector form", () => {
 });
 
 // ---------------------------------------------------------------------------
-// bind() — plain string render
-// ---------------------------------------------------------------------------
-
-describe("bind() — plain string render", () => {
-  it("renders immediately on bind", () => {
-    const store = createStore({ count: 0 });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(target, (s) => `<span>${s.count}</span>`);
-    expect(target.innerHTML).toBe("<span>0</span>");
-  });
-
-  it("re-renders when state changes", () => {
-    const store = createStore({ count: 0 });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(target, (s) => `<span>${s.count}</span>`);
-    store.setState({ count: 5 });
-    expect(target.innerHTML).toBe("<span>5</span>");
-  });
-
-  it("returns an unsub function that stops re-renders", () => {
-    const store = createStore({ count: 0 });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    const unsub = store.bind(target, (s) => `${s.count}`);
-    store.setState({ count: 1 });
-    unsub();
-    store.setState({ count: 99 });
-    expect(target.innerHTML).toBe("1");
-  });
-
-  it("multiple bind calls on different elements are independent", () => {
-    const store = createStore({ count: 0 });
-    const root = fixture("<div id='a'></div><div id='b'></div>");
-    const a = root.querySelector("#a")!;
-    const b = root.querySelector("#b")!;
-    store.bind(a, (s) => `a:${s.count}`);
-    store.bind(b, (s) => `b:${s.count}`);
-    store.setState({ count: 3 });
-    expect(a.innerHTML).toBe("a:3");
-    expect(b.innerHTML).toBe("b:3");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// bind() — RawHtml render (ilha html``)
-// ---------------------------------------------------------------------------
-
-describe("bind() — RawHtml render", () => {
-  it("accepts an html`` tagged template as render output", () => {
-    const store = createStore({ count: 0 });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(target, (s) => html`<span>${s.count}</span>`);
-    expect(target.innerHTML).toContain("0");
-  });
-
-  it("re-renders on state change when using html``", () => {
-    const store = createStore({ count: 0 });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(target, (s) => html`<b>${s.count}</b>`);
-    store.setState({ count: 7 });
-    expect(target.innerHTML).toContain("7");
-  });
-
-  it("html`` escapes interpolated values", () => {
-    const store = createStore({ label: "<script>xss</script>" });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(target, (s) => html`<p>${s.label}</p>`);
-    expect(target.innerHTML).not.toContain("<script>");
-    expect(target.innerHTML).toContain("&lt;script&gt;");
-  });
-
-  it("raw() passes trusted HTML through unescaped", () => {
-    const store = createStore({ bold: "<b>hi</b>" });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(target, (s) => html`<p>${raw(s.bold)}</p>`);
-    expect(target.innerHTML).toContain("<b>hi</b>");
-  });
-
-  it("list rendering with html`` — no comma-joining", () => {
-    const store = createStore({ items: ["a", "b", "c"] });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(
-      target,
-      (s) =>
-        html`<ul>
-          ${s.items.map((i) => html`<li>${i}</li>`)}
-        </ul>`,
-    );
-    expect(target.querySelectorAll("li").length).toBe(3);
-    expect(target.innerHTML).not.toContain(",");
-  });
-
-  it("updates list correctly on state change", () => {
-    const store = createStore({ items: ["a"] });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(
-      target,
-      (s) =>
-        html`<ul>
-          ${s.items.map((i) => html`<li>${i}</li>`)}
-        </ul>`,
-    );
-    store.setState({ items: ["a", "b", "c"] });
-    expect(target.querySelectorAll("li").length).toBe(3);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// bind() — selector form
-// ---------------------------------------------------------------------------
-
-describe("bind() — selector form", () => {
-  it("renders immediately with the initial slice", () => {
-    const store = createStore({ count: 0, name: "Ada" });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(
-      target,
-      (s) => s.count,
-      (count) => `<b>${count}</b>`,
-    );
-    expect(target.innerHTML).toBe("<b>0</b>");
-  });
-
-  it("re-renders when the selected slice changes", () => {
-    const store = createStore({ count: 0, name: "Ada" });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(
-      target,
-      (s) => s.count,
-      (count) => `${count}`,
-    );
-    store.setState({ count: 7 });
-    expect(target.innerHTML).toBe("7");
-  });
-
-  it("does NOT re-render when an unrelated slice changes", () => {
-    const store = createStore({ count: 0, name: "Ada" });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    const render = mock((count: number) => `${count}`);
-    store.bind(target, (s) => s.count, render);
-    const callsBefore = render.mock.calls.length;
-    store.setState({ name: "Grace" });
-    expect(render.mock.calls.length).toBe(callsBefore);
-  });
-
-  it("returns an unsub that stops re-renders", () => {
-    const store = createStore({ count: 0 });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    const unsub = store.bind(
-      target,
-      (s) => s.count,
-      (c) => `${c}`,
-    );
-    store.setState({ count: 1 });
-    unsub();
-    store.setState({ count: 99 });
-    expect(target.innerHTML).toBe("1");
-  });
-
-  it("accepts html`` as render output in selector form", () => {
-    const store = createStore({ name: "Ada" });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(
-      target,
-      (s) => s.name,
-      (name) => html`<span>${name}</span>`,
-    );
-    expect(target.innerHTML).toContain("Ada");
-    store.setState({ name: "Grace" });
-    expect(target.innerHTML).toContain("Grace");
-  });
-
-  it("two selectors on the same element — last bind wins (overwrites innerHTML)", () => {
-    const store = createStore({ a: 0, b: 0 });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    store.bind(
-      target,
-      (s) => s.a,
-      (a) => `a:${a}`,
-    );
-    store.bind(
-      target,
-      (s) => s.b,
-      (b) => `b:${b}`,
-    );
-    expect(target.innerHTML).toBe("b:0");
-    store.setState({ a: 1 });
-    expect(target.innerHTML).toBe("a:1");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
 
@@ -644,47 +416,16 @@ describe("effectScope", () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  it("stops all bind effects inside the scope", () => {
+  it("stops slice subscribe effects registered inside the scope", () => {
     const store = createStore({ count: 0 });
-    const el = fixture("<div id='t'></div>");
-    const target = el.querySelector("#t")!;
-    const stop = effectScope(() => {
-      store.bind(target, (s) => `${s.count}`);
-    });
-    store.setState({ count: 5 });
-    expect(target.innerHTML).toBe("5");
-    stop();
-    store.setState({ count: 99 });
-    expect(target.innerHTML).toBe("5");
-  });
-
-  it("groups multiple binds and subscriptions — one stop tears all down", () => {
-    const store = createStore({ count: 0, name: "Ada" });
-    const root = fixture("<div id='a'></div><div id='b'></div>");
-    const a = root.querySelector("#a")!;
-    const b = root.querySelector("#b")!;
     const listener = mock();
     const stop = effectScope(() => {
-      store.bind(
-        a,
-        (s) => s.count,
-        (c) => `${c}`,
-      );
-      store.bind(
-        b,
-        (s) => s.name,
-        (n) => n,
-      );
-      store.subscribe(listener);
+      store.subscribe((s) => s.count, listener);
     });
-    store.setState({ count: 1, name: "Grace" });
-    expect(a.innerHTML).toBe("1");
-    expect(b.innerHTML).toBe("Grace");
+    store.setState({ count: 5 });
     expect(listener).toHaveBeenCalledTimes(1);
     stop();
-    store.setState({ count: 99, name: "Turing" });
-    expect(a.innerHTML).toBe("1");
-    expect(b.innerHTML).toBe("Grace");
+    store.setState({ count: 99 });
     expect(listener).toHaveBeenCalledTimes(1);
   });
 });
@@ -694,42 +435,43 @@ describe("effectScope", () => {
 // ---------------------------------------------------------------------------
 
 describe("integration", () => {
-  it("store-driven error state renders via bind with html``", () => {
+  it("store-driven error state renders in an island via select", () => {
     const store = createStore({ errors: {} as Record<string, string> }, (set) => ({
       setErrors: (errors: Record<string, string>) => set({ errors }),
       clearErrors: () => set({ errors: {} }),
     }));
-    const el = fixture("<div id='errors'></div>");
-    const target = el.querySelector("#errors")!;
-    store.bind(
-      target,
-      (s) => s.errors,
-      (errors) =>
-        html`${Object.entries(errors).map(([f, m]) => html`<p data-field="${f}">${m}</p>`)}`,
+    const errors = store.select((s) => s.errors);
+    const Island = ilha.render(
+      () => html`${Object.entries(errors()).map(([f, m]) => html`<p data-field="${f}">${m}</p>`)}`,
     );
-    expect(target.innerHTML).toBe("");
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const unmount = Island.mount(el);
+    expect(el.querySelectorAll("p").length).toBe(0);
     store.getState().setErrors({ email: "Invalid email", name: "Required" });
-    expect(target.querySelectorAll("p").length).toBe(2);
-    expect(target.querySelector("[data-field='email']")?.textContent).toBe("Invalid email");
+    expect(el.querySelectorAll("p").length).toBe(2);
+    expect(el.querySelector("[data-field='email']")?.textContent).toBe("Invalid email");
     store.getState().clearErrors();
-    expect(target.querySelector("p")).toBeNull();
+    expect(el.querySelector("p")).toBeNull();
+    unmount();
+    el.remove();
   });
 
-  it("counter with html`` label", () => {
+  it("counter label renders in an island via select", () => {
     const store = createStore({ count: 0 }, (set) => ({
       inc: () => set((s) => ({ count: s.count + 1 })),
     }));
-    const el = fixture("<div id='label'></div>");
-    const target = el.querySelector("#label")!;
-    store.bind(
-      target,
-      (s) => s.count,
-      (count) => html`<span>Count: ${count}</span>`,
-    );
-    expect(target.innerHTML).toContain("Count: 0");
+    const count = store.select((s) => s.count);
+    const Island = ilha.render(() => html`<span>Count: ${count()}</span>`);
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const unmount = Island.mount(el);
+    expect(el.textContent).toContain("Count: 0");
     store.getState().inc();
     store.getState().inc();
-    expect(target.innerHTML).toContain("Count: 2");
+    expect(el.textContent).toContain("Count: 2");
+    unmount();
+    el.remove();
   });
 
   it("island subscribes to store slice and drives its own signal", () => {
@@ -744,30 +486,37 @@ describe("integration", () => {
     expect(themes).toEqual(["dark", "light"]);
   });
 
-  it("store shared across two bind targets — both stay in sync", () => {
+  it("store shared across two islands — both stay in sync via select", () => {
     const store = createStore({ value: "hello" });
-    const root = fixture("<div id='a'></div><div id='b'></div>");
-    const a = root.querySelector("#a")!;
-    const b = root.querySelector("#b")!;
-    store.bind(a, (s) => html`<p>${s.value}</p>`);
-    store.bind(b, (s) => html`<em>${s.value}</em>`);
+    const value = store.select((s) => s.value);
+    const A = ilha.render(() => html`<p>${value()}</p>`);
+    const B = ilha.render(() => html`<em>${value()}</em>`);
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const slotA = document.createElement("div");
+    const slotB = document.createElement("div");
+    root.append(slotA, slotB);
+    const unmountA = A.mount(slotA);
+    const unmountB = B.mount(slotB);
     store.setState({ value: "ilha" });
-    expect(a.querySelector("p")?.textContent).toBe("ilha");
-    expect(b.querySelector("em")?.textContent).toBe("ilha");
+    expect(slotA.querySelector("p")?.textContent).toBe("ilha");
+    expect(slotB.querySelector("em")?.textContent).toBe("ilha");
+    unmountA();
+    unmountB();
+    root.remove();
   });
 
-  it("unsubscribing one consumer does not affect another", () => {
+  it("unsubscribing one slice listener does not affect another", () => {
     const store = createStore({ count: 0 });
-    const root = fixture("<div id='a'></div><div id='b'></div>");
-    const a = root.querySelector("#a")!;
-    const b = root.querySelector("#b")!;
-    const unsubA = store.bind(a, (s) => `${s.count}`);
-    store.bind(b, (s) => `${s.count}`);
+    const a = mock();
+    const b = mock();
+    const unsubA = store.subscribe((s) => s.count, a);
+    store.subscribe((s) => s.count, b);
     store.setState({ count: 1 });
     unsubA();
     store.setState({ count: 2 });
-    expect(a.innerHTML).toBe("1"); // frozen after unsub
-    expect(b.innerHTML).toBe("2"); // still live
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -962,75 +711,6 @@ describe("store.select() — reactivity", () => {
 });
 
 // ---------------------------------------------------------------------------
-// .select() — interplay with bind() refactor
-// ---------------------------------------------------------------------------
-
-describe("store.bind() (post-refactor)", () => {
-  it("two-arg form still updates the element when slice changes", () => {
-    const el = makeEl();
-    const store = createStore({ name: "Ada" });
-    const stop = store.bind(
-      el,
-      (s) => s.name,
-      (name) => `<p>${name}</p>`,
-    );
-    expect(el.innerHTML).toBe("<p>Ada</p>");
-    store.setState({ name: "Grace" });
-    expect(el.innerHTML).toBe("<p>Grace</p>");
-    stop();
-    cleanup(el);
-  });
-
-  it("two-arg form does NOT re-render when an unrelated field changes", () => {
-    const el = makeEl();
-    const store = createStore({ name: "Ada", count: 0 });
-
-    let renders = 0;
-    const stop = store.bind(
-      el,
-      (s) => s.name,
-      (name) => {
-        renders++;
-        return `<p>${name}</p>`;
-      },
-    );
-    expect(renders).toBe(1);
-
-    store.setState({ count: 1 });
-    store.setState({ count: 2 });
-    expect(renders).toBe(1);
-
-    store.setState({ name: "Grace" });
-    expect(renders).toBe(2);
-
-    stop();
-    cleanup(el);
-  });
-
-  it("one-arg form is unaffected and re-renders on any state change", () => {
-    const el = makeEl();
-    const store = createStore({ a: 1, b: 2 });
-
-    let renders = 0;
-    const stop = store.bind(el, (s) => {
-      renders++;
-      return `<p>${s.a}-${s.b}</p>`;
-    });
-    expect(renders).toBe(1);
-    expect(el.innerHTML).toBe("<p>1-2</p>");
-
-    store.setState({ a: 10 });
-    expect(renders).toBe(2);
-    store.setState({ b: 20 });
-    expect(renders).toBe(3);
-    expect(el.innerHTML).toBe("<p>10-20</p>");
-
-    stop();
-    cleanup(el);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // .select() — type-level checks (compile-time, exercised at runtime)
 // ---------------------------------------------------------------------------
 
@@ -1059,5 +739,97 @@ describe("store.select() — type inference", () => {
     // Selector sees both state and action keys — `reset` is a function.
     const reset = store.select((s) => s.reset);
     expect(typeof reset()).toBe("function");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bind(selector) — Ilha bind:* accessor
+// ---------------------------------------------------------------------------
+
+describe("bind(selector) — bindable accessor", () => {
+  it("returns a function", () => {
+    const store = createStore({ query: "" });
+    const query = store.bind((s) => s.query);
+    expect(typeof query).toBe("function");
+  });
+
+  it("reads current value with no args", () => {
+    const store = createStore({ query: "ilha" });
+    const query = store.bind((s) => s.query);
+    expect(query()).toBe("ilha");
+  });
+
+  it("writes value via accessor call", () => {
+    const store = createStore({ query: "" });
+    const query = store.bind((s) => s.query);
+    query("abc");
+    expect(store.getState().query).toBe("abc");
+  });
+
+  it("updates nested path immutably", () => {
+    const other = { x: 1 };
+    const store = createStore({ search: { query: "" }, other });
+    const query = store.bind((s) => s.search.query);
+    const before = store.getState().search;
+    query("abc");
+    expect(store.getState().search.query).toBe("abc");
+    expect(store.getState().search).not.toBe(before);
+    expect(store.getState().other).toBe(other);
+  });
+
+  it("updates array index path", () => {
+    const store = createStore({ items: [{ title: "Old" }] });
+    const title = store.bind((s) => s.items[0].title);
+    title("New");
+    expect(store.getState().items[0].title).toBe("New");
+  });
+
+  it("is reactive in alien-signals effect", () => {
+    const store = createStore({ count: 0 });
+    const count = store.bind((s) => s.count);
+    const seen: number[] = [];
+    const stop = effect(() => {
+      seen.push(count());
+    });
+    expect(seen).toEqual([0]);
+    store.setState({ count: 2 });
+    expect(seen).toEqual([0, 2]);
+    stop();
+  });
+
+  it("throws for unsupported selector shapes", () => {
+    const store = createStore({ query: "  x  " });
+    expect(() => store.bind((s) => s.query.trim())).toThrow(/property-path selectors/);
+    expect(() => store.bind((s) => s.query + "!")).toThrow(/property-path selectors/);
+  });
+
+  it("preserves actions after bind writes", () => {
+    const store = createStore({ count: 0 }, (set) => ({
+      inc: () => set((s) => ({ count: s.count + 1 })),
+    }));
+    const count = store.bind((s) => s.count);
+    count(5);
+    expect(store.getState().count).toBe(5);
+    store.getState().inc();
+    expect(store.getState().count).toBe(6);
+  });
+});
+
+describe("bind(selector) — Ilha integration", () => {
+  it("bind:value updates store from input event", () => {
+    const store = createStore({ query: "" });
+    const query = store.bind((s) => s.query);
+    const Island = ilha.render(() => html`<input data-q bind:value=${query}><p>${query()}</p>`);
+
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const unmount = Island.mount(el);
+    const input = el.querySelector<HTMLInputElement>("[data-q]")!;
+    input.value = "typed";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(store.getState().query).toBe("typed");
+    expect(el.querySelector("p")!.textContent).toBe("typed");
+    unmount();
+    el.remove();
   });
 });

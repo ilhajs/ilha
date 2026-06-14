@@ -1,15 +1,23 @@
 # `@ilha/store`
 
-A zustand-shaped reactive store for [Ilha](https://github.com/ilhajs/ilha) islands. Backed by [alien-signals](https://github.com/stackblitz/alien-signals) — the same engine that powers `ilha` core state — for shared global state that lives outside any single island.
+Shared reactive store for [Ilha](https://github.com/ilhajs/ilha) islands — global state outside any single island, backed by [alien-signals](https://github.com/stackblitz/alien-signals) (the same engine as Ilha core).
 
 Includes a `/form` subpath with unopinionated, type-safe form helpers built on [Standard Schema](https://standardschema.dev) — works with Zod, Valibot, ArkType, or any compatible library.
+
+| API                  | Use in Ilha apps                                                      |
+| -------------------- | --------------------------------------------------------------------- |
+| **`select`**         | Read-only slices in `html\`\`` / JSX — lists, labels, derived display |
+| **`bind(selector)`** | Two-way `bind:value`, `bind:checked`, `bind:open`, etc.               |
+| **`subscribe`**      | Side effects outside islands — `localStorage`, WebSockets, analytics  |
 
 ---
 
 ## Installation
 
+Ilha apps already depend on `ilha`; add the store alongside it:
+
 ```bash
-bun add @ilha/store
+bun add @ilha/store ilha
 ```
 
 ---
@@ -74,6 +82,8 @@ The actions creator receives:
 | `get()`                 | Read the current live state (includes other actions) |
 | `getInitialState()`     | Read the frozen initial state snapshot               |
 
+Actions are merged onto the same object as state (`store.getState().increment()`). Use **`select` / `bind` only on data fields** — not on action methods. For example, `store.bind((s) => s.count)` is valid; `store.bind((s) => s.increment)` is not (functions are not bindable paths).
+
 ---
 
 ### `store.setState(update)`
@@ -122,7 +132,7 @@ store.setState({ count: 5 });
 count(); // → 5    (reflects the change)
 ```
 
-The returned accessor has the same shape as `signal()` and `context()` from `ilha` core, so it composes naturally with `html\`\``interpolation and`.bind()`. See [Usage with Ilha Islands](#usage-with-ilha-islands) below for the full pattern.
+The returned accessor has the same shape as `signal()` and `context()` from `ilha` core, so it composes naturally with `html\`\`` interpolation. See [Usage with Ilha Islands](#usage-with-ilha-islands) below for the full pattern.
 
 The slice is memoized — accessors only notify dependents when the selected value changes (compared with `Object.is`). Setting `count` to its current value, or mutating an unrelated field, does not trigger downstream re-runs.
 
@@ -155,32 +165,29 @@ const unsub = store.subscribe(
 
 ---
 
-### `store.bind(el, render)`
+### `store.bind(selector)` — two-way fields for `bind:*`
 
-Reactively renders a store-driven HTML string into a DOM element whenever state changes. The render function may return a plain string or an `html\`\`` tagged template.
+Returns a **read/write accessor** for a property path in store state, compatible with Ilha's template `bind:*` syntax (`bind:value`, `bind:checked`, `bind:open`, and so on). Use this for form fields and toggles that must update the store when the user interacts with the DOM.
 
-```ts
-import { html } from "ilha";
-
-const unsub = store.bind(
-  document.getElementById("counter")!,
-  (state) => html`<p>Count: ${state.count}</p>`,
-);
-
-unsub(); // detach
-```
-
-### `store.bind(el, selector, render)` — slice bind
-
-Only re-renders when the selected slice changes.
+`select()` stays **read-only** — use it for derived values and list rendering inside `html\`\``.
 
 ```ts
-store.bind(
-  document.getElementById("badge")!,
-  (s) => s.count,
-  (count) => html`<span>${count}</span>`,
-);
+const searchStore = createStore({ search: { query: "", open: false } });
+
+const query = searchStore.bind((s) => s.search.query);
+const open = searchStore.bind((s) => s.search.open);
+const results = searchStore.select((s) => s.results);
+
+// In an island:
+// <dialog bind:open={open}><input bind:value={query} /></dialog>
 ```
+
+- **Read:** `query()` — reactive inside `.render()`, `.derived()`, and `.effect()`.
+- **Write:** `query("ilha")` — immutably updates `search.query` in the store.
+
+Only **property-path** selectors are supported (`s => s.user.name`, `s => s.items[0].title`). Derived expressions (`s => s.query.trim()`, `s => s.a + s.b`) throw at accessor creation time.
+
+Render store-driven UI with **`select` + islands**, not by writing into arbitrary DOM nodes. `@ilha/store` does not morph HTML outside Ilha's render pipeline.
 
 ---
 
@@ -240,13 +247,13 @@ const Profile = ilha
 
 When `userId()` changes, the derived re-fetches automatically.
 
-### When to use `select` vs `subscribe`
+### When to use `select`, `bind`, or `subscribe`
 
-| Use `select`                                          | Use `subscribe`                                        |
-| ----------------------------------------------------- | ------------------------------------------------------ |
-| Reading store state inside an island                  | Imperative side effects outside an island              |
-| Driving `.derived()` or `.effect()` dependencies      | Syncing to `localStorage`, WebSockets, analytics       |
-| Anywhere you'd reach for `context()` from `ilha` core | Anywhere you'd reach for `effect()` from alien-signals |
+| Use `select`                            | Use `bind(selector)`                            | Use `subscribe`                                  |
+| --------------------------------------- | ----------------------------------------------- | ------------------------------------------------ |
+| Read-only slices in `html\`\``          | Two-way `bind:*` on inputs, checkboxes, dialogs | Imperative side effects outside an island        |
+| Lists and derived display data          | `bind:value`, `bind:checked`, `bind:open`, etc. | Syncing to `localStorage`, WebSockets, analytics |
+| `.derived()` / `.effect()` dependencies | Hoist accessors at module scope like `select`   | Non-reactive listeners outside islands           |
 
 ---
 
@@ -372,7 +379,7 @@ import type {
   GetState, // () => T
   Listener, // (state, prevState) => void
   SliceListener, // (slice, prevSlice) => void
-  RenderResult, // string | RawHtml
+  StoreBindable, // read/write accessor from bind(selector)
   Unsub, // () => void
 } from "@ilha/store";
 

@@ -1,23 +1,25 @@
 ---
 title: "@ilha/store"
-description: A zustand-shaped reactive store for shared global state backed by alien-signals. Includes /form helpers for type-safe, schema-validated forms.
+description: Shared reactive store for Ilha islands (alien-signals). Includes /form helpers for type-safe, schema-validated forms.
 ---
 
 # Ilha Store
 
 import { PackageManagerTabs } from "@rspress/core/theme";
 
-`@ilha/store` is a zustand-shaped reactive store for ilha apps. It lives outside any island and is backed by [alien-signals](https://github.com/stackblitz/alien-signals) — the same engine that powers ilha core state — so stores and islands share a single reactive graph with no extra bridging.
+`@ilha/store` is a shared reactive store for Ilha apps. It lives outside any island and is backed by [alien-signals](https://github.com/stackblitz/alien-signals) — the same engine that powers ilha core state — so stores and islands share a single reactive graph with no extra bridging.
 
 It also ships a `/form` subpath with unopinionated, type-safe form helpers built on [Standard Schema](https://standardschema.dev), compatible with Zod, Valibot, ArkType, and any other compliant library.
 
 ## How it relates to ilha
 
-ilha state is **island-local** — signals are scoped to a single component instance. `@ilha/store` adds a layer of **shared global state** that any island (or any non-island code) can read and write. A store is a plain object with `getState`, `setState`, `subscribe`, and `bind` — no context providers, no wrapping components, no framework lock-in.
+ilha state is **island-local** — signals are scoped to a single component instance. `@ilha/store` adds a layer of **shared global state** that any island (or any non-island code) can read and write. A store is a plain object with `getState`, `setState`, `subscribe`, `select`, and `bind` (for Ilha `bind:*` fields) — no context providers, no wrapping components, no framework lock-in.
 
 ## Install
 
-<PackageManagerTabs command="install @ilha/store" />
+<PackageManagerTabs command="install @ilha/store ilha" />
+
+`@ilha/store` lists `ilha` as a peer dependency (optional at install time). Island apps should depend on both so `select` / `bind` accessors work with `bind:*` in templates.
 
 ## Quick start
 
@@ -145,52 +147,45 @@ const unsub = store.subscribe(
 );
 ```
 
-### `store.bind(el, render)`
+### `store.select(selector)` — reactive read
 
-Reactively renders store-driven markup into a DOM element whenever state changes. The render function may return JSX, a plain string, or any `RawHtml` value. Runs immediately on call to set initial content.
+Projects a slice into a signal-shaped `() => S` accessor. Use inside island `.render()` (or `.derived()` / `.effect()`) so Ilha tracks store changes and re-renders automatically.
+
+```ts
+const count = store.select((s) => s.count);
+count(); // read; reactive in render scopes
+```
+
+Hoist `select` (and `bind`) at module scope — each call allocates a fresh computed.
+
+### `store.bind(selector)` — two-way `bind:*`
+
+Returns a read/write accessor for a **property path** only (`s => s.search.query`), marked for Ilha `bind:value`, `bind:checked`, `bind:open`, etc. Use `select` for read-only lists and derived UI.
 
 ```tsx
 /** @jsxImportSource ilha */
 // ---cut---
-const unsub = store.bind(document.getElementById("counter")!, (state) => (
-  <p>Count: {state.count}</p>
-));
+const cartStore = createStore({ name: "" });
+const name = cartStore.bind((s) => s.name);
 
-unsub(); // detach
+export const Field = ilha.render(() => <input bind:value={name} />);
 ```
 
-### `store.bind(el, selector, render)` — slice bind
-
-Only re-renders when the selected slice changes.
-
-```tsx
-/** @jsxImportSource ilha */
-// ---cut---
-store.bind(
-  document.getElementById("badge")!,
-  (s) => s.count,
-  (count) => <span>{count}</span>,
-);
-```
-
-Both forms assign to `el.innerHTML`. Binding two selectors to the same element is allowed — each bind effect is independent, and the last write wins whenever both fire.
+`bind(selector)` does not render HTML into arbitrary DOM nodes — use islands + `select` for display.
 
 ---
 
 ## `effectScope`
 
-Re-exported from alien-signals. Runs a setup function inside a reactive scope and returns a `stop()` function that tears down every `subscribe` and `bind` effect registered inside it in one call. Use this when you need to mount and unmount a group of store consumers together.
+Re-exported from alien-signals. Runs a setup function inside a reactive scope and returns `stop()` to tear down every `subscribe` effect registered inside it.
 
 ```ts
 import { createStore, effectScope } from "@ilha/store";
 
 const stop = effectScope(() => {
   store.subscribe((s) => console.log(s.count));
-  store.bind(document.getElementById("count")!, (s) => `${s.count}`);
-  store.bind(document.getElementById("name")!, (s) => s.name);
 });
 
-// Later — stops all three effects at once:
 stop();
 ```
 
@@ -198,7 +193,7 @@ stop();
 
 ## Usage with ilha islands
 
-The standard pattern is subscribing to a store slice inside an island's `.effect()` and driving a local signal from it. The `.effect()` cleanup return keeps things tidy on unmount.
+Prefer `store.select()` inside `.render()` so the island subscribes to the store through the same reactive graph as island state — no manual `.effect()` bridge unless you need imperative sync.
 
 ```tsx
 /** @jsxImportSource ilha */
@@ -215,24 +210,18 @@ export const cartStore = createStore({ items: [] as string[] }, (set, get) => ({
   },
 }));
 
-export const CartIsland = ilha
-  .state("items", cartStore.getState().items)
-  .effect(({ state }) => {
-    return cartStore.subscribe(
-      (s) => s.items,
-      (items) => state.items(items),
-    );
-  })
-  .render(({ state }) => (
-    <ul>
-      {state.items().map((item) => (
-        <li>{item}</li>
-      ))}
-    </ul>
-  ));
+const items = cartStore.select((s) => s.items);
+
+export const CartIsland = ilha.render(() => (
+  <ul>
+    {items().map((item) => (
+      <li>{item}</li>
+    ))}
+  </ul>
+));
 ```
 
-When the store updates, the slice subscription fires, the island signal updates, and ilha re-renders only the affected DOM — no manual wiring needed.
+When the store updates, accessors read in render re-run the island and Ilha updates the DOM.
 
 ---
 
