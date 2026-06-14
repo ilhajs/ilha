@@ -3,6 +3,9 @@ import { describe, expect, it } from "bun:test";
 import { z } from "zod";
 
 import ilha, { html, raw } from "./index";
+import * as jsxDevRuntime from "./jsx-dev-runtime";
+import { jsx, jsxs } from "./jsx-runtime";
+import * as jsxRuntime from "./jsx-runtime";
 
 function normalizeHtml(s: string | { value: string }): string {
   const str = typeof s === "object" ? s.value : s;
@@ -21,6 +24,15 @@ function cleanup(el: Element): void {
 }
 
 describe("ilha JSX runtime", () => {
+  it("subpath runtime exports JSX helpers", () => {
+    expect(typeof jsxRuntime.jsx).toBe("function");
+    expect(typeof jsxRuntime.jsxs).toBe("function");
+    expect(typeof jsxRuntime.jsxDEV).toBe("function");
+    expect(typeof jsxRuntime.Fragment).toBe("function");
+    expect(typeof jsxDevRuntime.jsxDEV).toBe("function");
+    expect(typeof jsxDevRuntime.Fragment).toBe("function");
+  });
+
   it("renders simple JSX in an ilha island", () => {
     const Greeting = ilha.render(() => <p>Hello, ilha!</p>);
 
@@ -688,7 +700,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("explicit children prop is overridden by JSX children", () => {
-    const result = ilha.jsx("p", { children: "from prop" }, ["from slot"]);
+    const result = jsx("p", { children: "from prop" }, ["from slot"]);
     expect(result.value).toBe("<p>from slot</p>");
   });
 
@@ -880,6 +892,23 @@ describe("ilha JSX runtime", () => {
     expect((<Parent />).value).toContain("42");
   });
 
+  it("cross-entry JSX island composition mounts interactively", () => {
+    const Child = ilha
+      .state("count", 0)
+      .on("button@click", ({ state }) => state.count(state.count() + 1))
+      .render(({ state }) => <button>{state.count()}</button>);
+    const Parent = ilha.render(() =>
+      jsxRuntime.jsx("div", { children: jsxRuntime.jsx(Child, {}) }),
+    );
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+    el.querySelector<HTMLButtonElement>("button")!.click();
+    expect(el.querySelector("button")!.textContent).toBe("1");
+    unmount();
+    cleanup(el);
+  });
+
   it("JSX island component returning SSR string emits slot instead of escaping", () => {
     const Child = ilha.render(
       () =>
@@ -934,7 +963,6 @@ describe("ilha JSX runtime", () => {
   });
 
   it("jsxs produces the same output as jsx with multiple children", () => {
-    const { jsx, jsxs } = ilha;
     const viaJsx = jsx("div", {
       children: [jsx("span", { children: "a" }), jsx("span", { children: "b" })],
     });

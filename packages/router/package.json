@@ -1,7 +1,23 @@
 {
   "name": "@ilha/router",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "A tiny SPA router for Ilha",
+  "keywords": [
+    "frontend",
+    "ilha",
+    "island-architecture",
+    "islands",
+    "router",
+    "routing",
+    "spa",
+    "ssr",
+    "unplugin",
+    "vite"
+  ],
+  "homepage": "https://github.com/ilhajs/ilha/tree/main/packages/router#readme",
+  "bugs": {
+    "url": "https://github.com/ilhajs/ilha/issues"
+  },
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
   "repository": {
@@ -12,9 +28,12 @@
     "dist"
   ],
   "type": "module",
+  "sideEffects": false,
+  "module": "./dist/index.js",
   "browser": {
     "process": false
   },
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -33,16 +52,19 @@
       "import": "./dist/rolldown.js"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc && tsdown",
     "test": "bun test"
   },
   "dependencies": {
-    "ilha": "0.7.1",
+    "ilha": "0.8.0",
     "rou3": "0.8.1",
     "unplugin": "3.0.0"
   },
   "devDependencies": {
-    "vite": "^8.0.14"
+    "vite": "^8.0.16"
   }
 }

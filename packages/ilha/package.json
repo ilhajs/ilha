@@ -1,7 +1,23 @@
 {
   "name": "ilha",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "A tiny, framework-free island architecture library",
+  "keywords": [
+    "framework-free",
+    "frontend",
+    "hydration",
+    "island-architecture",
+    "islands",
+    "jsx",
+    "reactive",
+    "signals",
+    "ssr",
+    "web-components"
+  ],
+  "homepage": "https://github.com/ilhajs/ilha#readme",
+  "bugs": {
+    "url": "https://github.com/ilhajs/ilha/issues"
+  },
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
   "repository": {
@@ -12,9 +28,12 @@
     "dist"
   ],
   "type": "module",
+  "sideEffects": false,
+  "module": "./dist/index.js",
   "browser": {
     "process": false
   },
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -28,6 +47,9 @@
       "types": "./dist/jsx-dev-runtime.d.ts",
       "import": "./dist/jsx-dev-runtime.js"
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc && tsdown",
