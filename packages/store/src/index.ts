@@ -1,9 +1,17 @@
 // =============================================================================
-// @ilha/store — zustand-shaped reactive store backed by alien-signals
+// @ilha/store — shared reactive store for Ilha islands (alien-signals)
 // =============================================================================
 
 import { signal, computed, effect } from "alien-signals";
-import type { RawHtml } from "ilha";
+
+import { capturePropertyPath, patchStateAtPath } from "./bind-path";
+
+const SIGNAL_ACCESSOR = Symbol.for("ilha.signalAccessor");
+
+export type StoreBindable<S> = {
+  (): S;
+  (value: S): void;
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,17 +27,17 @@ export type Listener<T> = (state: T, prevState: T) => void;
 export type SliceListener<_T, S> = (slice: S, prevSlice: S) => void;
 export type Unsub = () => void;
 
-/** Accepted render output — either a plain string or an ilha RawHtml value. */
-export type RenderResult = string | RawHtml;
-
 export interface StoreApi<T extends object> {
   setState(update: Partial<T> | ((state: T) => Partial<T>)): void;
   getState(): T;
   getInitialState(): T;
   subscribe(listener: Listener<T>): Unsub;
   subscribe<S>(selector: (state: T) => S, listener: SliceListener<T, S>): Unsub;
-  bind(el: Element, render: (state: T) => RenderResult): Unsub;
-  bind<S>(el: Element, selector: (state: T) => S, render: (slice: S) => RenderResult): Unsub;
+  /**
+   * Two-way field accessor for Ilha `bind:*` (e.g. `bind:value`, `bind:checked`).
+   * Property-path selectors only — `s => s.search.query`, not derived expressions.
+   */
+  bind<S>(selector: (state: T) => S): StoreBindable<S>;
   /**
    * Project a reactive slice of state into a signal-shaped accessor.
    *
@@ -66,15 +74,6 @@ type ActionsCreator<TState extends object, TActions extends object> = (
   get: GetState<any>,
   getInitialState: () => TState,
 ) => TActions;
-
-// ---------------------------------------------------------------------------
-// Internal helper — unwrap RenderResult to an HTML string
-// ---------------------------------------------------------------------------
-
-function unwrap(result: RenderResult): string {
-  if (typeof result === "string") return result;
-  return result.value;
-}
 
 // ---------------------------------------------------------------------------
 // createStore
@@ -148,26 +147,19 @@ export function createStore<TState extends object, TActions extends object = Rec
     return () => sliceComputed();
   }
 
-  function bind(el: Element, render: (state: T) => RenderResult): Unsub;
-  function bind<S>(
-    el: Element,
-    selector: (state: T) => S,
-    render: (slice: S) => RenderResult,
-  ): Unsub;
-  function bind<S>(
-    el: Element,
-    renderOrSelector: ((state: T) => RenderResult) | ((state: T) => S),
-    maybeRender?: (slice: S) => RenderResult,
-  ): Unsub {
-    if (maybeRender === undefined) {
-      return effect(() => {
-        el.innerHTML = unwrap((renderOrSelector as (state: T) => RenderResult)(stateSignal()));
-      });
-    }
-    const slice = select(renderOrSelector as (state: T) => S);
-    return effect(() => {
-      el.innerHTML = unwrap(maybeRender(slice()));
-    });
+  function createBindableAccessor<S>(selector: (state: T) => S): StoreBindable<S> {
+    const path = capturePropertyPath(getState, selector);
+    const read = select(selector);
+    const accessor = ((...args: unknown[]): unknown => {
+      if (args.length === 0) return read();
+      setState((state) => patchStateAtPath(state, path, args[0]));
+    }) as StoreBindable<S>;
+    (accessor as unknown as Record<symbol, boolean>)[SIGNAL_ACCESSOR] = true;
+    return accessor;
+  }
+
+  function bind<S>(selector: (state: T) => S): StoreBindable<S> {
+    return createBindableAccessor(selector);
   }
 
   let resolvedInitialState: T;

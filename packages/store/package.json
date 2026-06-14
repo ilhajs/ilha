@@ -1,7 +1,22 @@
 {
   "name": "@ilha/store",
-  "version": "0.3.8",
-  "description": "Typed store.",
+  "version": "0.4.0",
+  "description": "Shared reactive store for Ilha islands.",
+  "keywords": [
+    "forms",
+    "frontend",
+    "ilha",
+    "island-architecture",
+    "islands",
+    "reactive",
+    "signals",
+    "state-management",
+    "store"
+  ],
+  "homepage": "https://github.com/ilhajs/ilha/tree/main/packages/store#readme",
+  "bugs": {
+    "url": "https://github.com/ilhajs/ilha/issues"
+  },
   "license": "MIT",
   "author": "Ryuz <ryuzer@proton.me>",
   "repository": {
@@ -12,9 +27,12 @@
     "dist"
   ],
   "type": "module",
+  "sideEffects": false,
+  "module": "./dist/index.js",
   "browser": {
     "process": false
   },
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -25,16 +43,27 @@
       "import": "./dist/form.js"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc && tsdown",
     "test": "bun test",
     "cleanup": "rimraf dist node_modules"
   },
   "dependencies": {
-    "alien-signals": "3.2.1",
-    "ilha": "0.7.1"
+    "alien-signals": "3.2.1"
   },
   "devDependencies": {
+    "ilha": "0.8.0",
     "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "ilha": ">=0.8.0"
+  },
+  "peerDependenciesMeta": {
+    "ilha": {
+      "optional": true
+    }
   }
 }

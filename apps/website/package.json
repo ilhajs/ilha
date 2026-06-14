@@ -12,7 +12,7 @@
     "@codesandbox/sandpack-react": "^2.20.0",
     "areia": "^0.1.6",
     "dedent": "^1.7.2",
-    "ilha": "0.7.0",
+    "ilha": "0.8.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "shiki": "^4.0.2",
@@ -21,7 +21,7 @@
   "devDependencies": {
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/geist-mono": "^5.2.7",
-    "@ilha/router": "0.6.2",
+    "@ilha/router": "0.6.3",
     "@rspress/core": "^2.0.11",
     "@rspress/plugin-llms": "^2.0.11",
     "@rspress/plugin-sitemap": "^2.0.11",

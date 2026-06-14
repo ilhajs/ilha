@@ -99,12 +99,39 @@ function extractDirectChildSlotIdsInOrder(html: string): string[] {
 function extractSlotPropsAttr(html: string, slotId: string): string | null {
   const escaped = slotId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const withProps = new RegExp(
-    `<div\\s[^>]*data-ilha-slot="${escaped}"[^>]*data-ilha-props='([^']*)'`,
+    `<[a-z][a-z0-9-]*\\s[^>]*data-ilha-slot="${escaped}"[^>]*data-ilha-props='([^']*)'`,
+    "i",
   );
   const m = html.match(withProps);
   if (m) return m[1]!;
-  const withoutProps = new RegExp(`<div\\s[^>]*data-ilha-slot="${escaped}"`);
+  const withoutProps = new RegExp(`<[a-z][a-z0-9-]*\\s[^>]*data-ilha-slot="${escaped}"`, "i");
   return html.match(withoutProps) ? "" : null;
+}
+
+const SLOT_TAG_NAME_RE = /^[a-z][a-z0-9-]*$/i;
+
+function assertValidSlotTagName(tag: string): string {
+  const trimmed = tag.trim();
+  if (trimmed.length === 0) {
+    throw new Error("island.as() requires a non-empty HTML tag name.");
+  }
+  if (!SLOT_TAG_NAME_RE.test(trimmed)) {
+    throw new Error(
+      `island.as() tag must be a valid HTML element name (got "${tag}"). ` +
+        `Use names like "span", "div", or "li".`,
+    );
+  }
+  return trimmed.toLowerCase();
+}
+
+function getIslandSlotTag(island: AnyIsland): string {
+  const tag = (island as unknown as Record<symbol, unknown>)[ISLAND_SLOT_TAG];
+  if (typeof tag === "string" && tag.length > 0) return tag;
+  return "div";
+}
+
+function wrapIslandSlotHtml(tag: string, id: string, propsAttr: string, inner: string): string {
+  return `<${tag} ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}>${inner}</${tag}>`;
 }
 
 function isStableInlineSlotMount(
@@ -292,6 +319,7 @@ const ISLAND_CALL = Symbol.for("ilha.islandCall");
  * retain a handle to push updated props into it on subsequent parent
  * re-renders. Not part of the public surface. */
 export const ISLAND_MOUNT_INTERNAL = Symbol.for("ilha.islandMountInternal");
+const ISLAND_SLOT_TAG = Symbol.for("ilha.islandSlotTag");
 
 const SLOT_ATTR = "data-ilha-slot";
 const PROPS_ATTR = "data-ilha-props";
@@ -333,8 +361,9 @@ export interface RawHtml {
 //      positional based on appearance order within the current render frame.
 //   2. Records { id -> { island, props } } in the active RenderContext so the
 //      parent's mount pass can look it up and mount the child onto the slot.
-//   3. Emits <div data-ilha-slot="{id}" data-ilha-props="...">{child SSR}</div>
-//      — the data-* attributes let hydration recover props without the map.
+//   3. Emits <tag data-ilha-slot="{id}" data-ilha-props="...">{child SSR}</tag>
+//      (tag from child island .as(), default div) — data-* attrs let hydration
+//      recover props without the map.
 //
 // Nested islands: each island's renderToString pushes its own RenderContext
 // onto the stack, so child-of-child interpolations are scoped to the correct
@@ -367,6 +396,8 @@ interface IslandRenderCtx {
   // here, and emits a data-ilha-bind sentinel attribute referencing the
   // entry by index. Mount-time wiring reads these back out.
   binds: BindRecord[];
+  // Slot id -> wrapper tag recorded during emitIslandSlot (async SSR substitution).
+  slotTags: Map<string, string>;
 }
 
 type BindKind =
@@ -393,6 +424,7 @@ function pushRenderCtx(liveHost?: Element, asyncChildren?: boolean): IslandRende
     liveHost,
     pending: asyncChildren ? new Map() : undefined,
     binds: [],
+    slotTags: new Map(),
   };
   renderCtxStack.push(ctx);
   return ctx;
@@ -459,6 +491,9 @@ function emitIslandSlot(
 
   if (ctx) ctx.slots.set(id, { island, props });
 
+  const slotTag = getIslandSlotTag(island);
+  if (ctx) ctx.slotTags.set(id, slotTag);
+
   const propsAttr = props ? ` ${PROPS_ATTR}='${escapeHtml(JSON.stringify(props))}'` : "";
 
   // Client re-render path: emit an EMPTY stub. Post-morph, mountSlots rehomes
@@ -468,7 +503,7 @@ function emitIslandSlot(
   // thing afterwards. New (not-yet-mounted) slots stay as stubs and get mounted
   // by mountSlots.
   if (ctx?.liveHost) {
-    return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}></div>`;
+    return wrapIslandSlotHtml(slotTag, id, propsAttr, "");
   }
 
   // SSR path: render the child's HTML inline.
@@ -488,11 +523,11 @@ function emitIslandSlot(
         ctx.pending.set(id, result.then(String));
         // Emit a placeholder stub; resolveAsyncChildren will substitute the
         // resolved inner HTML after all children have been awaited.
-        return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}></div>`;
+        return wrapIslandSlotHtml(slotTag, id, propsAttr, "");
       }
 
       // Child rendered synchronously — inline its HTML as usual.
-      return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}>${result}</div>`;
+      return wrapIslandSlotHtml(slotTag, id, propsAttr, String(result));
     } finally {
       renderCtxStack.push(ctx);
     }
@@ -501,7 +536,7 @@ function emitIslandSlot(
   // Sync SSR path (no async children support). The child's renderToString
   // pushes its own render context so grandchildren are scoped correctly.
   const inner = island.toString(props);
-  return `<div ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}>${inner}</div>`;
+  return wrapIslandSlotHtml(slotTag, id, propsAttr, inner);
 }
 
 // After the parent's render function has produced HTML with placeholder stubs
@@ -510,8 +545,9 @@ function emitIslandSlot(
 async function resolveAsyncChildren(html: string, ctx: IslandRenderCtx): Promise<string> {
   for (const [id, promise] of ctx.pending!) {
     const inner = await promise;
+    const tag = ctx.slotTags.get(id) ?? "div";
     // The placeholder is an empty stub
-    //   <div data-ilha-slot="…" data-ilha-props="…"></div>
+    //   <tag data-ilha-slot="…" data-ilha-props="…"></tag>
     // Replace it with the same tag but containing the resolved inner HTML.
     const escaped = escapeHtml(id);
     // Guard against ReDoS from pathologically long slot ids.
@@ -520,13 +556,15 @@ async function resolveAsyncChildren(html: string, ctx: IslandRenderCtx): Promise
         `Slot id exceeds safe length for regex replacement (${escaped.length} > 500).`,
       );
     }
-    // Build a regex that matches the empty slot div for this id.
-    // Pattern: <div ... data-ilha-slot="ESCAPED" ...></div>
     const attrPattern = escaped.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const placeholder = new RegExp(`<div\\s[^>]*${SLOT_ATTR}="${attrPattern}"[^>]*></div>`, "g");
+    const tagPattern = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const placeholder = new RegExp(
+      `<${tagPattern}\\s[^>]*${SLOT_ATTR}="${attrPattern}"[^>]*></${tagPattern}>`,
+      "g",
+    );
     html = html.replace(placeholder, (match) => {
-      // Slice off `></div>` (last 6 chars) and insert inner HTML.
-      return match.slice(0, -6) + `>${inner}</div>`;
+      const suffix = `></${tag}>`;
+      return match.slice(0, -suffix.length) + `>${inner}</${tag}>`;
     });
   }
   return html;
@@ -679,231 +717,6 @@ function ilhaCss(strings: TemplateStringsArray | string, ...values: (string | nu
 }
 
 // ---------------------------------------------
-// JSX runtime
-// ---------------------------------------------
-
-type JsxChild = unknown;
-type JsxProps = Record<string, unknown> | null | undefined;
-type JsxType = string | ((props: Record<string, unknown>) => unknown);
-
-const SAFE_NAME_RE = /^[A-Za-z_:][A-Za-z0-9:._-]*$/;
-const SAFE_BIND_LOCAL_RE = /^[A-Za-z][A-Za-z0-9]*$/;
-const VOID_ELEMENTS = new Set([
-  "area",
-  "base",
-  "br",
-  "col",
-  "embed",
-  "hr",
-  "img",
-  "input",
-  "link",
-  "meta",
-  "param",
-  "source",
-  "track",
-  "wbr",
-]);
-
-// Allows standard CSS properties and CSS custom properties (--*)
-const SAFE_CSS_PROP_RE = /^(-{2}[a-zA-Z][a-zA-Z0-9-]*|-?[a-zA-Z][a-zA-Z0-9-]*)$/;
-
-const URL_ATTRS = new Set(["href", "src", "action", "formaction", "cite", "data", "poster"]);
-const SAFE_URL_RE =
-  /^(?!javascript:|data:text\/html|data:text\/xml|data:application\/xhtml\+xml|data:image\/svg|vbscript:)/i;
-
-function normalizeClass(value: unknown): string {
-  if (Array.isArray(value)) return value.filter(Boolean).join(" ");
-  if (value && typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>)
-      .filter(([, enabled]) => Boolean(enabled))
-      .map(([name]) => name)
-      .join(" ");
-  }
-  return String(value);
-}
-
-function normalizeJsxChildren(props: JsxProps, children: JsxChild[]): JsxChild[] {
-  const propChildren = props && "children" in props ? props.children : undefined;
-  const all = children.length > 0 ? children : propChildren === undefined ? [] : [propChildren];
-  return all.flat(1);
-}
-
-function normalizeJsxSlotKey(raw: string | number): string {
-  const key = String(raw);
-  if (key.trim().length === 0) {
-    throw new Error("jsx key requires a non-empty string.");
-  }
-  if (key.includes(":")) {
-    throw new Error(`jsx key cannot contain the slot separator ":" (got "${key}").`);
-  }
-  return key;
-}
-
-/** React-style `key` (props or 3rd jsx arg) on island components → `k:{key}` slot ids. */
-function extractJsxSlotKey(props: JsxProps, keyArg?: string | number): string | undefined {
-  const fromProps = props?.key;
-  const raw =
-    keyArg ??
-    (typeof fromProps === "string" || typeof fromProps === "number" ? fromProps : undefined);
-  if (raw == null) return undefined;
-  return normalizeJsxSlotKey(raw);
-}
-
-function serializeStyle(value: Record<string, unknown>): string {
-  return Object.entries(value)
-    .map(([k, v]) => {
-      if (!SAFE_CSS_PROP_RE.test(k)) return "";
-      const prop = k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
-      let safeV = String(v).replace(/["<>{};]/g, "");
-      // Block IE expression() and javascript: URLs in style values
-      if (/expression\(/i.test(safeV) || /^javascript:/i.test(safeV)) {
-        return "";
-      }
-      return `${prop}:${safeV}`;
-    })
-    .filter(Boolean)
-    .join(";");
-}
-
-function pushJsxAttr(chunks: string[], values: unknown[], name: string, value: unknown): void {
-  if (value == null || value === false || name === "children" || name === "key") return;
-  if (name === "__proto__" || name === "constructor" || name === "prototype") return;
-
-  if (name.startsWith("bind:")) {
-    const [prefix, localName, ...rest] = name.split(":");
-    if (prefix !== "bind" || rest.length > 0 || !localName || !SAFE_BIND_LOCAL_RE.test(localName)) {
-      return;
-    }
-    if (!isSignalAccessor(value)) return;
-
-    const safeName = `${prefix}:${localName}`;
-    chunks[chunks.length - 1] += ` ${safeName}=`;
-    values.push(value);
-    chunks.push("");
-    return;
-  }
-
-  if (!SAFE_NAME_RE.test(name)) return;
-
-  let safeName = name;
-  if (safeName === "className") safeName = "class";
-  if (safeName === "htmlFor") safeName = "for";
-  if (safeName.startsWith("on")) return;
-  if (safeName === "class") value = normalizeClass(value);
-  if (safeName === "style" && value && typeof value === "object") {
-    value = serializeStyle(value as Record<string, unknown>);
-  }
-  if (
-    (URL_ATTRS.has(safeName) || /:(href|src|action|formaction|cite|data|poster)$/.test(safeName)) &&
-    typeof value === "string" &&
-    !SAFE_URL_RE.test(value.trim())
-  ) {
-    return;
-  }
-
-  if (value === true) {
-    chunks[chunks.length - 1] += ` ${safeName}`;
-    return;
-  }
-
-  chunks[chunks.length - 1] += ` ${safeName}="`;
-  values.push(value);
-  chunks.push('"');
-}
-
-function renderJsxElement(type: string, props: JsxProps, children: JsxChild[]): RawHtml {
-  const chunks = [`<${type}`];
-  const values: unknown[] = [];
-
-  if (props) {
-    for (const [name, value] of Object.entries(props)) pushJsxAttr(chunks, values, name, value);
-  }
-
-  chunks[chunks.length - 1] += ">";
-
-  if (!VOID_ELEMENTS.has(type)) {
-    for (const child of children) {
-      values.push(child);
-      chunks.push("");
-    }
-    chunks[chunks.length - 1] += `</${type}>`;
-  } else if (children.length > 0 && __DEV__) {
-    warn(`Void element <${type}> should not have children. They will be ignored.`);
-  }
-
-  return ilhaHtml(chunks as unknown as TemplateStringsArray, ...values);
-}
-
-function ilhaJsx(
-  type: JsxType,
-  props: JsxProps,
-  maybeKey?: JsxChild | string | number,
-  ...restChildren: JsxChild[]
-): RawHtml {
-  const hasKeyArg = typeof maybeKey === "string" || typeof maybeKey === "number";
-  const keyFromArg = hasKeyArg ? maybeKey : undefined;
-  // React automatic runtime passes `key` as the 3rd argument (not a child).
-  const children: JsxChild[] =
-    hasKeyArg || maybeKey === undefined ? restChildren : [maybeKey, ...restChildren];
-  const normalizedChildren = normalizeJsxChildren(props, children);
-
-  if (typeof type === "function") {
-    const slotKey = extractJsxSlotKey(
-      props,
-      typeof keyFromArg === "string" || typeof keyFromArg === "number" ? keyFromArg : undefined,
-    );
-    const componentProps: Record<string, unknown> = {
-      ...(props ?? {}),
-      ...(normalizedChildren.length > 0 ? { children: normalizedChildren } : {}),
-    };
-    delete componentProps["key"];
-    const out = type(Object.keys(componentProps).length ? componentProps : {});
-    if (isIslandCall(out)) {
-      if (slotKey !== undefined) (out as IslandCall).key = slotKey;
-      return ilhaHtml`${out}`;
-    }
-    if (isRawHtml(out)) return out;
-    // Another ilha copy (e.g. Areia) didn't see our render ctx and fell back
-    // to renderToString — emit a slot instead of double-escaping the HTML.
-    if (typeof out === "string" && isIsland(type)) {
-      return ilhaRaw(emitIslandSlot(type as AnyIsland, componentProps, slotKey));
-    }
-    if (typeof out === "string") return ilhaHtml`${out}`;
-    // Plain object explicitly marked as a renderable part (e.g. Areia compound-component
-    // parts like ResizablePanel). The marker Symbol.for("ilha.renderPart") must be set
-    // on the object, and toString must be a callable that produces safe HTML.
-    if (
-      typeof out === "object" &&
-      out !== null &&
-      Object.getPrototypeOf(out) === Object.prototype &&
-      (out as Record<symbol, unknown>)[Symbol.for("ilha.renderPart")] === true &&
-      typeof (out as any).toString === "function"
-    ) {
-      return ilhaRaw((out as object).toString());
-    }
-    return ilhaHtml`${out}`;
-  }
-
-  return renderJsxElement(type, props, normalizedChildren);
-}
-
-function ilhaFragment(props: { children?: JsxChild } | null, ...children: JsxChild[]): RawHtml {
-  const normalizedChildren = normalizeJsxChildren(props, children);
-  const chunks = ["", ...normalizedChildren.map(() => "")];
-  return ilhaHtml(chunks as unknown as TemplateStringsArray, ...normalizedChildren);
-}
-
-function ilhaJsxDEV(
-  type: JsxType,
-  props: JsxProps,
-  maybeKey?: string | number,
-  _source?: unknown,
-  _self?: unknown,
-): RawHtml {
-  return ilhaJsx(type, props, maybeKey);
-}
-
 // Resolves any interpolated value to an HTML string.
 // Arrays are joined with "" — each item is recursively resolved.
 // This means string[] is escaped per-item, RawHtml[] is passed through raw,
@@ -2109,6 +1922,8 @@ interface BuilderConfig<
   onErrors: OnErrorEntry<TInput, TStateMap, TDerivedMap>[];
   transition: TransitionOptions | null;
   css: string | null;
+  /** Slot wrapper tag when this island is embedded in a parent (default div). */
+  as: string | null;
 }
 
 // ---------------------------------------------
@@ -2155,7 +1970,12 @@ class IlhaBuilder<
       onErrors: [],
       transition: null,
       css: null,
+      as: null,
     });
+  }
+
+  as<Tag extends string>(tag: Tag): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
+    return new IlhaBuilder({ ...this._cfg, as: assertValidSlotTagName(tag) });
   }
 
   state<V = undefined, K extends string = string>(
@@ -2273,9 +2093,11 @@ class IlhaBuilder<
       onErrors,
       transition,
       css: cssSource,
+      as: slotAs,
     } = this._cfg;
 
     const stylePrefix = cssSource != null ? buildScopedStyle(cssSource) : "";
+    const configuredSlotTag = slotAs ?? "div";
 
     function resolveInput(props?: Partial<TInput>): TInput {
       const value = props ?? {};
@@ -2642,7 +2464,7 @@ class IlhaBuilder<
         if (result instanceof Promise) {
           let stub: Element | undefined;
           if (entry.el.isConnected) {
-            stub = document.createElement("div");
+            stub = document.createElement(entry.el.tagName.toLowerCase());
             stub.setAttribute(SLOT_ATTR, id);
             entry.el.replaceWith(stub);
           }
@@ -3055,7 +2877,8 @@ class IlhaBuilder<
             teardownMountedSlot(id, entry);
             continue;
           }
-          const stub = document.createElement("div");
+          const stubTag = entry.el.tagName.toLowerCase();
+          const stub = document.createElement(stubTag);
           stub.setAttribute(SLOT_ATTR, id);
           const incomingProps = serializeSlotProps(newSlotMap.get(id)?.props);
           if (incomingProps !== "") stub.setAttribute(PROPS_ATTR, incomingProps);
@@ -3064,7 +2887,8 @@ class IlhaBuilder<
         }
 
         const tpl = document.createElement("template");
-        tpl.innerHTML = `<div>${html}</div>`;
+        const morphRootTag = host.tagName.toLowerCase();
+        tpl.innerHTML = `<${morphRootTag}>${html}</${morphRootTag}>`;
         morphInner(host, tpl.content.firstElementChild as Element);
 
         // Rehome preserved slots: swap post-morph stubs back to live elements.
@@ -3169,6 +2993,8 @@ class IlhaBuilder<
       props?: Partial<TInput>,
     ): MountHandle => mountIslandInternal(host, props);
 
+    (island as unknown as Record<symbol, unknown>)[ISLAND_SLOT_TAG] = configuredSlotTag;
+
     // Create a keyed invocation for stable slot identity across re-renders
     // (useful in reorderable lists). Returns a callable that, when given
     // optional props, produces an IslandCall that interpolateValue recognises.
@@ -3195,7 +3021,8 @@ class IlhaBuilder<
       props: Partial<TInput>,
       opts: HydratableOptions,
     ): Promise<string> => {
-      const { name, as: tag = "div", snapshot = false, skipOnMount: explicitSkipOnMount } = opts;
+      const { name, as: rawTag = "div", snapshot = false, skipOnMount: explicitSkipOnMount } = opts;
+      const tag = assertValidSlotTagName(rawTag);
 
       const resolvedProps = props ?? {};
       const inner = await renderToString(resolvedProps);
@@ -3383,6 +3210,7 @@ const EMPTY_CFG: BuilderConfig<
   onErrors: [],
   transition: null,
   css: null,
+  as: null,
 };
 
 const rootBuilder = new IlhaBuilder(EMPTY_CFG);
@@ -3390,10 +3218,6 @@ const rootBuilder = new IlhaBuilder(EMPTY_CFG);
 const ilha = Object.assign(rootBuilder, {
   html: ilhaHtml,
   raw: ilhaRaw,
-  jsx: ilhaJsx,
-  jsxs: ilhaJsx,
-  jsxDEV: ilhaJsxDEV,
-  Fragment: ilhaFragment,
   mount: mountAll,
   from: ilhaFrom,
   context: ilhaContext,
@@ -3402,12 +3226,17 @@ const ilha = Object.assign(rootBuilder, {
   untrack,
 });
 
+/** @internal Used by the separate JSX runtime entry to preserve island slot composition. */
+export function __ilhaJsxSlot(
+  island: unknown,
+  props: Record<string, unknown> | undefined,
+  key: string | undefined,
+): RawHtml {
+  return ilhaRaw(emitIslandSlot(island as AnyIsland, props, key));
+}
+
 export const html = ilhaHtml;
 export const raw = ilhaRaw;
-export const jsx = ilhaJsx;
-export const jsxs = ilhaJsx;
-export const jsxDEV = ilhaJsxDEV;
-export const Fragment = ilhaFragment;
 export const css = ilhaCss;
 export const mount = mountAll;
 export const from = ilhaFrom;

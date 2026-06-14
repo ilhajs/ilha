@@ -14,6 +14,7 @@ import ilha, {
   untrack,
   type SignalAccessor,
 } from "./index";
+import * as mainExports from "./index";
 
 // ---------------------------------------------
 // Helpers
@@ -50,6 +51,36 @@ function makeEl(inner = ""): Element {
 function cleanup(el: Element) {
   document.body.removeChild(el);
 }
+
+// ---------------------------------------------
+// Public entry shape
+// ---------------------------------------------
+
+describe("public entry shape", () => {
+  it("main entry does not expose JSX runtime helpers", () => {
+    expect("jsx" in ilha).toBe(false);
+    expect("jsxs" in ilha).toBe(false);
+    expect("jsxDEV" in ilha).toBe(false);
+    expect("Fragment" in ilha).toBe(false);
+    expect("jsx" in mainExports).toBe(false);
+    expect("jsxs" in mainExports).toBe(false);
+    expect("jsxDEV" in mainExports).toBe(false);
+    expect("Fragment" in mainExports).toBe(false);
+  });
+
+  it("main entry keeps the expected runtime helpers", () => {
+    expect(typeof mainExports.default.render).toBe("function");
+    expect(typeof mainExports.html).toBe("function");
+    expect(typeof mainExports.raw).toBe("function");
+    expect(typeof mainExports.css).toBe("function");
+    expect(typeof mainExports.mount).toBe("function");
+    expect(typeof mainExports.from).toBe("function");
+    expect(typeof mainExports.context).toBe("function");
+    expect(typeof mainExports.signal).toBe("function");
+    expect(typeof mainExports.batch).toBe("function");
+    expect(typeof mainExports.untrack).toBe("function");
+  });
+});
 
 // ---------------------------------------------
 // html`` tagged template
@@ -1739,6 +1770,13 @@ describe("Island mount", () => {
         expect(result).toMatch(/<\/section>$/);
       });
 
+      it("rejects invalid hydratable as tag names", async () => {
+        const Counter = ilha.render(() => `<p>ok</p>`);
+        await expect(Counter.hydratable({}, { name: "Counter", as: "bad tag" })).rejects.toThrow(
+          /valid HTML element name/,
+        );
+      });
+
       it("defaults to a div wrapper when 'as' is not provided", async () => {
         const Counter = ilha
           .input(z.object({ count: z.number().default(0) }))
@@ -2359,6 +2397,104 @@ describe("ilha.mount()", () => {
     expect(elB.innerHTML).toBe("<b>hello Ada</b>");
     unmount();
   });
+
+  it("lazy mount waits for IntersectionObserver before activating", () => {
+    let callback!: IntersectionObserverCallback;
+    const observed: Element[] = [];
+    const original = globalThis.IntersectionObserver;
+    class FakeIntersectionObserver {
+      constructor(cb: IntersectionObserverCallback) {
+        callback = cb;
+      }
+      observe(el: Element) {
+        observed.push(el);
+      }
+      unobserve(el: Element) {
+        const i = observed.indexOf(el);
+        if (i >= 0) observed.splice(i, 1);
+      }
+      disconnect() {
+        observed.length = 0;
+      }
+    }
+    globalThis.IntersectionObserver =
+      FakeIntersectionObserver as unknown as typeof IntersectionObserver;
+
+    try {
+      const Counter = ilha.state("count", 1).render(({ state }) => `<p>${state.count()}</p>`);
+      const el = document.createElement("div");
+      el.setAttribute("data-ilha", "Counter");
+      document.body.appendChild(el);
+
+      const { unmount } = mount({ Counter }, { lazy: true });
+      expect(el.innerHTML).toBe("");
+      expect(observed).toEqual([el]);
+
+      callback(
+        [{ target: el, isIntersecting: true } as unknown as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+      expect(el.innerHTML).toBe("<p>1</p>");
+      expect(observed).toEqual([]);
+      unmount();
+    } finally {
+      globalThis.IntersectionObserver = original;
+    }
+  });
+
+  it("lazy mount disconnects and ignores future intersections after unmount", () => {
+    let callback!: IntersectionObserverCallback;
+    let disconnected = false;
+    const original = globalThis.IntersectionObserver;
+    class FakeIntersectionObserver {
+      constructor(cb: IntersectionObserverCallback) {
+        callback = cb;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {
+        disconnected = true;
+      }
+    }
+    globalThis.IntersectionObserver =
+      FakeIntersectionObserver as unknown as typeof IntersectionObserver;
+
+    try {
+      const Counter = ilha.state("count", 1).render(({ state }) => `<p>${state.count()}</p>`);
+      const el = document.createElement("div");
+      el.setAttribute("data-ilha", "Counter");
+      document.body.appendChild(el);
+
+      const { unmount } = mount({ Counter }, { lazy: true });
+      unmount();
+      expect(disconnected).toBe(true);
+      callback(
+        [{ target: el, isIntersecting: true } as unknown as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+      expect(el.innerHTML).toBe("");
+    } finally {
+      globalThis.IntersectionObserver = original;
+    }
+  });
+
+  it("lazy mount falls back to immediate activation when IntersectionObserver is unavailable", () => {
+    const original = globalThis.IntersectionObserver;
+    // @ts-expect-error simulates older runtimes without IntersectionObserver
+    globalThis.IntersectionObserver = undefined;
+    try {
+      const Counter = ilha.state("count", 1).render(({ state }) => `<p>${state.count()}</p>`);
+      const el = document.createElement("div");
+      el.setAttribute("data-ilha", "Counter");
+      document.body.appendChild(el);
+
+      const { unmount } = mount({ Counter }, { lazy: true });
+      expect(el.innerHTML).toBe("<p>1</p>");
+      unmount();
+    } finally {
+      globalThis.IntersectionObserver = original;
+    }
+  });
 });
 
 // ---------------------------------------------
@@ -2566,6 +2702,113 @@ describe("child islands (render-time composition)", () => {
     cleanup(el);
   });
 
+  describe(".as()", () => {
+    it("default embedded island uses div slot wrapper", () => {
+      const Child = ilha.render(() => `<em>x</em>`);
+      const Parent = ilha.render(() => html`<div>${Child}</div>`);
+      expect(Parent()).toBe(`<div><div data-ilha-slot="p:0"><em>x</em></div></div>`);
+    });
+
+    it("SSR uses span slot wrapper when .as('span')", () => {
+      const Age = ilha
+        .as("span")
+        .state("age", 0)
+        .render(({ state }) => html`${state.age()}`);
+      const Parent = ilha.render(() => html`<p>Age: ${Age}</p>`);
+      expect(Parent()).toBe(`<p>Age: <span data-ilha-slot="p:0">0</span></p>`);
+    });
+
+    it("SSR uses li slot wrapper when .as('li')", () => {
+      const Row = ilha
+        .as("li")
+        .state("label", "a")
+        .render(({ state }) => html`${state.label()}`);
+      const Parent = ilha.render(() => html`<ul>${Row}</ul>`);
+      expect(Parent()).toBe(`<ul><li data-ilha-slot="p:0">a</li></ul>`);
+    });
+
+    it("client mount: span slot host runs effects and updates DOM", () => {
+      const Age = ilha
+        .as("span")
+        .state("age", 0)
+        .effect(({ state }) => {
+          state.age(1);
+        })
+        .render(({ state }) => html`${state.age()}`);
+
+      const Parent = ilha.render(() => html`<div>${Age}</div>`);
+
+      const el = makeEl();
+      const unmount = Parent.mount(el);
+      const slot = el.querySelector("span[data-ilha-slot='p:0']");
+      expect(slot).not.toBeNull();
+      expect(slot!.textContent).toBe("1");
+      unmount();
+      cleanup(el);
+    });
+
+    it("SSR awaited async child preserves .as('span') wrapper", async () => {
+      const Child = ilha
+        .as("span")
+        .derived("msg", async () => "resolved")
+        .render(({ derived }) => html`${derived.msg.loading ? "loading" : derived.msg.value}`);
+
+      const Parent = ilha.derived("ready", async () => true).render(() => html`<p>${Child}</p>`);
+
+      await expect(Parent()).resolves.toBe(`<p><span data-ilha-slot="p:0">resolved</span></p>`);
+    });
+
+    it("span slot is preserved while prop updates re-render the child", () => {
+      let setLabel!: (v?: string) => string | void;
+      const Child = ilha
+        .input<{ label: string }>()
+        .as("span")
+        .render(({ input }) => html`${input.label}`);
+      const Parent = ilha.state("label", "a").render(({ state }) => {
+        setLabel = state.label as typeof setLabel;
+        return html`<div>${Child({ label: state.label() })}</div>`;
+      });
+
+      const el = makeEl();
+      const unmount = Parent.mount(el);
+      const slot = el.querySelector("span[data-ilha-slot='p:0']")!;
+      expect(slot.textContent).toBe("a");
+      setLabel("b");
+      expect(el.querySelector("span[data-ilha-slot='p:0']")).toBe(slot);
+      expect(slot.textContent).toBe("b");
+      unmount();
+      cleanup(el);
+    });
+
+    it("rejects invalid .as() tag names", () => {
+      expect(() => ilha.as("")).toThrow(/non-empty/);
+      expect(() => ilha.as("   ")).toThrow(/non-empty/);
+      expect(() => ilha.as("not a tag")).toThrow(/valid HTML element name/);
+      expect(() => ilha.as("123")).toThrow(/valid HTML element name/);
+    });
+
+    it("nested mixed slot tags mount and stay interactive", () => {
+      const Inner = ilha
+        .as("span")
+        .state("n", 0)
+        .on("[data-inc]@click", ({ state }) => state.n(state.n() + 1))
+        .render(({ state }) => html`${state.n()}<button data-inc>+</button>`);
+
+      const Outer = ilha.as("section").render(() => html`<div>${Inner}</div>`);
+
+      const Parent = ilha.render(() => html`<main>${Outer}</main>`);
+
+      const el = makeEl();
+      const unmount = Parent.mount(el);
+      expect(el.querySelector("section[data-ilha-slot='p:0']")).not.toBeNull();
+      expect(el.querySelector("span[data-ilha-slot='p:0']")).not.toBeNull();
+      el.querySelector<HTMLButtonElement>("[data-inc]")!.click();
+      expect(el.querySelector("span[data-ilha-slot='p:0']")!.textContent).toContain("1");
+      unmount();
+      cleanup(el);
+    });
+  });
+
   // .key() — explicit keys for stable identity across re-renders, required when
   // positional order is not reliable (reorderable lists, conditional children).
   describe(".key()", () => {
@@ -2621,6 +2864,36 @@ describe("child islands (render-time composition)", () => {
       // Child state survives.
       expect(slotA.querySelector("li")!.textContent).toBe("1+");
 
+      unmount();
+      cleanup(el);
+    });
+
+    it("keyed .as('li') children emit li slots and preserve identity across reorder", () => {
+      const Item = ilha
+        .input<{ label: string }>()
+        .as("li")
+        .state("n", 0)
+        .on("[data-bump]@click", ({ state }) => state.n(state.n() + 1))
+        .render(
+          ({ input, state }) => html`${input.label}:${state.n()}<button data-bump>+</button>`,
+        );
+
+      let setOrder!: (v: string[]) => void;
+      const List = ilha.state<string[]>("order", ["a", "b"]).render(({ state }) => {
+        setOrder = state.order as unknown as typeof setOrder;
+        return html`<ul>${state.order().map((k) => Item.key(k)({ label: k }))}</ul>`;
+      });
+
+      expect(List.toString()).toContain(`<li data-ilha-slot="k:a"`);
+
+      const el = makeEl();
+      const unmount = List.mount(el);
+      const slotA = el.querySelector("li[data-ilha-slot='k:a']")!;
+      slotA.querySelector<HTMLButtonElement>("[data-bump]")!.click();
+      expect(slotA.textContent).toContain("a:1");
+      setOrder(["b", "a"]);
+      expect(el.querySelector("li[data-ilha-slot='k:a']")).toBe(slotA);
+      expect(slotA.textContent).toContain("a:1");
       unmount();
       cleanup(el);
     });
@@ -4909,7 +5182,8 @@ describe("bind: template syntax", () => {
     });
 
     it("warns when bind: target is not a signal accessor", () => {
-      html`<input bind:value=${"plain string"}>`;
+      const result = html`<input bind:value=${"plain string"}>`;
+      expect(result.value).toBe("<input bind:value=plain string>");
       const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
       expect(msgs.some((m: string) => m.includes("requires a signal accessor"))).toBe(true);
     });
@@ -6308,6 +6582,28 @@ describe(".css()", () => {
       // Two separate @scope wrappers, one per Island
       const scopeCount = (out.match(/@scope \(:scope\) to \(\[data-ilha\]\)/g) ?? []).length;
       expect(scopeCount).toBe(2);
+    });
+
+    it("Child Island with .as('span') keeps scoped style inside span slot across re-render", () => {
+      const Inner = ilha
+        .as("span")
+        .state("n", 0)
+        .on("button@click", ({ state }) => state.n(state.n() + 1))
+        .css("button { color: red; }")
+        .render(({ state }) => html`${state.n()}<button>+</button>`);
+      const Outer = ilha.render(() => html`<div>${Inner}</div>`);
+
+      const el = makeEl();
+      const unmount = Outer.mount(el);
+      const slot = el.querySelector("span[data-ilha-slot='p:0']")!;
+      const style = slot.querySelector("style[data-ilha-css]")!;
+      expect(style.textContent).toContain("button { color: red; }");
+      slot.querySelector<HTMLButtonElement>("button")!.click();
+      expect(el.querySelector("span[data-ilha-slot='p:0']")).toBe(slot);
+      expect(slot.querySelector("style[data-ilha-css]")).toBe(style);
+      expect(slot.textContent).toContain("1+");
+      unmount();
+      cleanup(el);
     });
 
     it("does not interfere with .toString() synchronous contract when derived are async", () => {
