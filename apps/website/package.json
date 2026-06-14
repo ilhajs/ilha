@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@codesandbox/sandpack-react": "^2.20.0",
-    "areia": "^0.1.6",
+    "areia": "^0.1.21",
     "dedent": "^1.7.2",
     "ilha": "0.8.0",
     "react": "^19.2.6",
