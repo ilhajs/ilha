@@ -243,9 +243,7 @@ These signals reflect the current route and are safe to read inside any island o
 
 Returns reactive accessors for the current route state as a convenience object:
 
-```tsx twoslash
-/** @jsxImportSource ilha */
-// ---cut---
+```tsx
 import ilha from "ilha";
 import { useRoute } from "@ilha/router";
 
@@ -259,7 +257,7 @@ const MyPage = ilha.render(() => {
 
 The underlying context signals for direct access outside of islands:
 
-```ts twoslash
+```ts
 import { routePath, routeParams } from "@ilha/router";
 
 routePath(); // → "/user/42"
@@ -270,7 +268,7 @@ routeParams(); // → { id: "42" }
 
 Returns `true` if the current path matches a registered pattern:
 
-```ts twoslash
+```ts
 import { isActive } from "@ilha/router";
 
 isActive("/about"); // → true / false
@@ -437,25 +435,21 @@ Folders wrapped in parentheses — `(name)` — organise files without contribut
 
 A `+layout.tsx` wraps every page in its directory and all subdirectories. Layouts compose inside-out — nearest layout is innermost. (`.ts` is also supported if you do not need JSX.)
 
-```tsx twoslash
-/** @jsxImportSource ilha */
-// ---cut---
+```tsx
 // src/pages/+layout.tsx
 import { defineLayout } from "@ilha/router";
-import ilha from "ilha";
+import ilha, { html } from "ilha";
 
 export default defineLayout((Children) =>
-  ilha.render(() => (
-    <>
+  ilha.render(
+    () => html`
       <nav>
         <a href="/">Home</a>
         <a href="/about">About</a>
       </nav>
-      <main>
-        <Children />
-      </main>
-    </>
-  )),
+      <main>${Children}</main>
+    `,
+  ),
 );
 ```
 
@@ -484,9 +478,7 @@ export default ilha.input<{ user: User }>().render(({ input }) => <h1>{input.use
 
 A `+error.tsx` catches rendering errors for pages in its directory. The nearest boundary wins. If it re-throws, the next outer boundary takes over. (`.ts` is also supported if you do not need JSX.)
 
-```tsx twoslash
-/** @jsxImportSource ilha */
-// ---cut---
+```tsx
 // src/pages/+error.tsx
 import type { ErrorHandler } from "@ilha/router";
 import ilha from "ilha";
@@ -514,12 +506,10 @@ The plugin exposes three virtual modules:
 
 Options are the same for every bundler entry (`vite`, `rspack`, `rolldown`):
 
-```ts twoslash
-import { pages } from "@ilha/router/vite";
-// ---cut---
+```ts
 pages({
   dir: "src/pages", // default
-  generated: ".ilha/routes.ts", // default
+  outDir: ".ilha", // default
 });
 ```
 
