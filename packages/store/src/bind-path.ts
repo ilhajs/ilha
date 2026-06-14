@@ -7,10 +7,10 @@ export type PathSegment = string | number;
 const BIND_PATH_ERROR =
   "store.bind(selector) only supports property-path selectors like `s => s.user.name`.";
 
-function toPathSegment(prop: string | symbol): PathSegment | null {
+function toPathSegment(prop: string | symbol, isArray: boolean): PathSegment | null {
   if (typeof prop === "symbol") return null;
-  if (prop === "length") return null;
-  if (/^\d+$/.test(prop)) return Number(prop);
+  if (isArray && prop === "length") return null;
+  if (isArray && /^\d+$/.test(prop)) return Number(prop);
   return prop;
 }
 
@@ -45,7 +45,7 @@ function trackPropertyPath<T, S>(rootState: T, selector: (state: T) => S): reado
     }
     return new Proxy(value as object, {
       get(target, prop, receiver) {
-        const seg = toPathSegment(prop);
+        const seg = toPathSegment(prop, Array.isArray(target));
         if (seg != null) path.push(seg);
         const next = Reflect.get(target, prop, receiver);
         return seg != null && next !== null && typeof next === "object" ? track(next) : next;
@@ -64,7 +64,7 @@ export function capturePropertyPath<T extends object, S>(
   const path = trackPropertyPath(state, selector);
   const selected = selector(state);
   const resolved = path.length === 0 ? state : getAtPath(state, path);
-  if (!Object.is(selected, resolved) || path.length === 0) {
+  if (typeof selected === "function" || !Object.is(selected, resolved) || path.length === 0) {
     throw new Error(BIND_PATH_ERROR);
   }
   return path;

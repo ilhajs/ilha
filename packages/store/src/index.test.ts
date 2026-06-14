@@ -798,9 +798,22 @@ describe("bind(selector) — bindable accessor", () => {
   });
 
   it("throws for unsupported selector shapes", () => {
-    const store = createStore({ query: "  x  " });
+    const store = createStore({ query: "  x  " }, (set) => ({
+      inc: () => set((s) => ({ query: s.query + "!" })),
+    }));
     expect(() => store.bind((s) => s.query.trim())).toThrow(/property-path selectors/);
     expect(() => store.bind((s) => s.query + "!")).toThrow(/property-path selectors/);
+    expect(() => store.bind((s) => s.inc)).toThrow(/property-path selectors/);
+  });
+
+  it("allows object keys named length or digit-like strings", () => {
+    const store = createStore({ meta: { length: "short", "0": "zero" } });
+    const length = store.bind((s) => s.meta.length);
+    const zero = store.bind((s) => s.meta["0"]);
+    length("long");
+    zero("nil");
+    expect(store.getState().meta.length).toBe("long");
+    expect(store.getState().meta["0"]).toBe("nil");
   });
 
   it("preserves actions after bind writes", () => {

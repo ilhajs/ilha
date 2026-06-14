@@ -172,7 +172,10 @@ Returns a **read/write accessor** for a property path in store state, compatible
 `select()` stays **read-only** — use it for derived values and list rendering inside `html\`\``.
 
 ```ts
-const searchStore = createStore({ search: { query: "", open: false } });
+const searchStore = createStore({
+  search: { query: "", open: false },
+  results: [] as string[],
+});
 
 const query = searchStore.bind((s) => s.search.query);
 const open = searchStore.bind((s) => s.search.open);

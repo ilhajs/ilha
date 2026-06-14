@@ -193,7 +193,7 @@ stop();
 
 ## Usage with ilha islands
 
-Prefer `store.select()` inside `.render()` so the island subscribes to the store through the same reactive graph as island state — no manual `.effect()` bridge unless you need imperative sync.
+Prefer reading the accessor inside `.render()` so the island subscribes to the store through the same reactive graph as island state — no manual `.effect()` bridge unless you need imperative sync.
 
 ```tsx
 /** @jsxImportSource ilha */
