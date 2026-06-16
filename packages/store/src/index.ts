@@ -2,7 +2,7 @@
 // @ilha/store — shared reactive store for Ilha islands (alien-signals)
 // =============================================================================
 
-import { signal, computed, effect } from "alien-signals";
+import { computed, effect, signal } from "alien-signals";
 
 import { capturePropertyPath, patchStateAtPath } from "./bind-path";
 
@@ -71,7 +71,7 @@ export interface StoreApi<T extends object> {
 
 type ActionsCreator<TState extends object, TActions extends object> = (
   set: SetState<TState>,
-  get: GetState<any>,
+  get: GetState<TState>,
   getInitialState: () => TState,
 ) => TActions;
 
@@ -79,14 +79,10 @@ type ActionsCreator<TState extends object, TActions extends object> = (
 // createStore
 // ---------------------------------------------------------------------------
 
-export function createStore<TState extends object>(initialState: TState): StoreApi<TState>;
-
-export function createStore<TState extends object, TActions extends object>(
-  initialState: TState,
-  actions: ActionsCreator<TState, TActions>,
-): StoreApi<TState & TActions>;
-
-export function createStore<TState extends object, TActions extends object = Record<never, never>>(
+export function createStore<
+  TState extends object,
+  TActions extends object = Record<string, unknown>,
+>(
   initialState: TState,
   actionsCreator?: ActionsCreator<TState, TActions>,
 ): StoreApi<TState & TActions> {
@@ -176,7 +172,7 @@ export function createStore<TState extends object, TActions extends object = Rec
   const resolvedActions = actionsCreator
     ? actionsCreator(
         setState as unknown as SetState<TState>,
-        getState as GetState<any>,
+        getState as GetState<TState>,
         () => resolvedInitialState as unknown as TState,
       )
     : ({} as TActions);
