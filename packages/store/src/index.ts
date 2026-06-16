@@ -81,7 +81,7 @@ type ActionsCreator<TState extends object, TActions extends object> = (
 
 export function createStore<
   TState extends object,
-  TActions extends object = Record<string, unknown>,
+  TActions extends object = Record<never, never>,
 >(
   initialState: TState,
   actionsCreator?: ActionsCreator<TState, TActions>,
