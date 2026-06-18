@@ -1,0 +1,67 @@
+---
+title: .effect()
+description: Tutorial — run reactive side effects whenever state changes with the .effect() builder method.
+order: 105
+---
+
+# Effect
+
+Use the `.effect()` method to run a side effect whenever reactive state changes.
+The callback receives the component context — giving you access to `state`,
+`derived`, and more — and runs automatically after every state update.
+
+```ts
+.effect(({ state, derived }) => { ... })
+```
+
+Effects are the right place for logic that needs to _react_ to state but doesn't
+belong in an event handler. This includes enforcing constraints, syncing to
+external systems, triggering animations, or logging.
+
+In the example below, the effect watches `count` and resets it to `0` the moment
+it exceeds `3`. Because the reset itself is a state update, Ilha re-runs the effect
+to confirm the new value satisfies the condition — so your constraints are always
+guaranteed.
+
+Effects run synchronously after each state change. If you need to interact with the
+DOM after a render — for example, to measure an element or focus an input — use
+`queueMicrotask()` or `requestAnimationFrame()` inside the callback to defer
+execution until the render is complete.
+
+```tsx preview
+import ilha from "ilha";
+import { Button, Input, Label } from "areia";
+
+export default ilha
+  .state("count", 0)
+  .derived("doubled", ({ state }) => state.count() * 2)
+  .on("[data-action=increase]@click", ({ state }) => {
+    state.count(state.count() + 1);
+  })
+  .effect(({ state }) => {
+    if (state.count() > 3) {
+      state.count(0);
+    }
+  })
+  .render(({ state, derived }) => (
+    <>
+      <p>Count: {state.count()}</p>
+      <p>Doubled: {derived.doubled()}</p>
+      <Input
+        id="count"
+        type="number"
+        label="Current count"
+        bind:value={state.count}
+      />
+      <Button variant="primary" data-action="increase">
+        Increase
+      </Button>
+    </>
+  ));
+```
+
+## Similar concepts
+
+- React: `useEffect`
+- Vue: `watch` / `watchEffect`
+- Svelte: `$effect()`

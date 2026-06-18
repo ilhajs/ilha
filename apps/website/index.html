@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Ilha is a lightweight UI framework under 2,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Ilha — The most versatile web UI library" />
+    <meta
+      property="og:description"
+      content="Ilha is a lightweight UI framework under 2,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Ilha — The most versatile web UI library" />
+    <meta
+      name="twitter:description"
+      content="Ilha is a lightweight UI framework under 2,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way."
+    />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <meta name="generator" content="Imprensa" />
+    <script>
+      (function () {
+        var stored = localStorage.getItem("imprensa:theme");
+        var dark =
+          stored === "dark" ||
+          (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        document.documentElement.dataset.themeReady = "";
+      })();
+    </script>
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("imprensa:sidebar-layout");
+          if (!raw) return;
+          var layout = JSON.parse(raw);
+          if (!Array.isArray(layout) || layout.length !== 2) return;
+          var a = layout[0],
+            b = layout[1];
+          if (typeof a !== "number" || typeof b !== "number") return;
+          var root = document.documentElement;
+          root.dataset.imprensaSidebarLayout = "1";
+          root.style.setProperty("--imprensa-sidebar-pct", String(a));
+          root.style.setProperty("--imprensa-content-pct", String(b));
+        } catch (e) {}
+      })();
+    </script>
+    <style id="imprensa-sidebar-layout-boot">
+      html[data-imprensa-sidebar-layout]
+        [data-slot="resizable"]
+        > [data-slot="resizable-panel"]:first-child {
+        flex-grow: var(--imprensa-sidebar-pct) !important;
+      }
+      html[data-imprensa-sidebar-layout]
+        [data-slot="resizable"]
+        > [data-slot="resizable-panel"]:last-child {
+        flex-grow: var(--imprensa-content-pct) !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

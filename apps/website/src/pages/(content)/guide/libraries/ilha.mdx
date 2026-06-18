@@ -1,0 +1,113 @@
+---
+title: ilha
+description: Compact reference for the public exports from the ilha package.
+order: 400
+---
+
+# ilha
+
+Maps public `ilha` exports to the guide pages that explain them in depth. For narrative tutorials, use [Introduction](/guide/getting-started/introduction) and the [island API](/guide/island/input) sections first.
+
+## Builder chain
+
+Start every island with the default export:
+
+```ts
+import ilha from "ilha";
+```
+
+| API                                      | Purpose                                      | Learn more                             |
+| ---------------------------------------- | -------------------------------------------- | -------------------------------------- |
+| `ilha.input<T>()` / `ilha.input(schema)` | Define typed or validated props.             | [Input](/guide/island/input)           |
+| `.state(key, initial?)`                  | Add local island state.                      | [State](/guide/island/state)           |
+| `.derived(key, fn)`                      | Add computed or async derived state.         | [Derived](/guide/island/derived)       |
+| `.on(selector, handler)`                 | Add delegated event handlers.                | [On](/guide/island/on)                 |
+| `.effect(fn)`                            | Run reactive side effects.                   | [Effect](/guide/island/effect)         |
+| `.onMount(fn)`                           | Run mount-only client effects.               | [On Mount](/guide/island/onmount)      |
+| `.onError(fn)`                           | Catch async/event/effect errors.             | [On Error](/guide/island/onerror)      |
+| `.transition(options)`                   | Enter/leave animations on mount and unmount. | [Transition](/guide/island/transition) |
+| `.css(styles)`                           | Attach scoped styles.                        | [CSS](/guide/island/css)               |
+| `.render(fn)`                            | Produce an island from JSX/HTML.             | [Render](/guide/island/render)         |
+| `.hydratable(options?)`                  | Mark an island for SSR hydration.            | [Hydratable](/guide/island/hydratable) |
+
+## Helpers from `ilha`
+
+```ts
+import {
+  mount,
+  html,
+  raw,
+  css,
+  signal,
+  context,
+  batch,
+  untrack,
+  from,
+} from "ilha";
+```
+
+| Export                      | Purpose                                     | Learn more                        |
+| --------------------------- | ------------------------------------------- | --------------------------------- |
+| `mount(registry, options?)` | Mount islands in the browser.               | [Mount](/guide/helpers/mount)     |
+| `html\`...\``               | Create escaped HTML template output.        | [HTML](/guide/helpers/html)       |
+| `raw(value)`                | Mark trusted HTML as unescaped.             | [Raw](/guide/helpers/raw)         |
+| `css\`...\``                | Create CSS template output.                 | [CSS helper](/guide/helpers/css)  |
+| `signal(initial)`           | Create a shared reactive accessor.          | [Signals](/guide/helpers/signals) |
+| `context(key, initial)`     | Create a keyed shared signal.               | [Signals](/guide/helpers/signals) |
+| `batch(fn)`                 | Batch multiple writes into one update.      | [Signals](/guide/helpers/signals) |
+| `untrack(fn)`               | Read signals without tracking dependencies. | [Signals](/guide/helpers/signals) |
+| `from(source)`              | Adapt external signal-like values for Ilha. | [Signals](/guide/helpers/signals) |
+
+## JSX runtime
+
+Use the automatic runtime with a pragma or `tsconfig.json`:
+
+```tsx
+/** @jsxImportSource ilha */
+```
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "ilha"
+  }
+}
+```
+
+Build tools will resolve `ilha/jsx-runtime` in production and `ilha/jsx-dev-runtime` in development.
+
+## Common public types
+
+```ts
+import type {
+  Island,
+  KeyedIsland,
+  HydratableOptions,
+  IslandState,
+  IslandDerived,
+  HandlerContext,
+  EffectContext,
+  OnMountContext,
+  ErrorContext,
+} from "ilha";
+```
+
+| Type                | Use it for                                           |
+| ------------------- | ---------------------------------------------------- |
+| `Island`            | A renderable/mountable island value.                 |
+| `KeyedIsland`       | A registry entry with a stable hydration key.        |
+| `HydratableOptions` | Options accepted by `.hydratable()`.                 |
+| `IslandState`       | State accessors passed to render/handlers/effects.   |
+| `IslandDerived`     | Derived accessors passed to render/handlers/effects. |
+| `HandlerContext`    | Event handler context.                               |
+| `EffectContext`     | Reactive effect context.                             |
+| `OnMountContext`    | Mount hook context.                                  |
+| `ErrorContext`      | Error handler context.                               |
+
+## Related packages
+
+| Package        | Guide                             |
+| -------------- | --------------------------------- |
+| `@ilha/router` | [Router](/guide/libraries/router) |
+| `@ilha/store`  | [Store](/guide/libraries/store)   |

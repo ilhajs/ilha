@@ -1,0 +1,64 @@
+---
+title: Showcase
+description: A collection of websites and projects built with ilha.
+order: 501
+---
+
+import { LayerCard } from "areia";
+
+export const SHOWCASE = [
+  {
+    title: "Ilha Website",
+    image: "/showcase-ilha.jpg",
+    link: "https://ilha.build",
+  },
+  {
+    title: "Areia UI",
+    image: "/showcase-areia.jpg",
+    link: "https://areia.ilha.build",
+  },
+  {
+    title: "thojensen.com",
+    image: "/showcase-thojensen.jpg",
+    link: "https://thojensen.com",
+  },
+  {
+    title: "Imprensa",
+    image: "/showcase-imprensa.jpg",
+    link: "https://imprensa.ilha.build",
+  },
+];
+
+# Showcase
+
+<div class="not-prose grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  {SHOWCASE.map((item) => (
+    <LayerCard
+      key={item.title}
+      class="overflow-hidden rounded-xl border border-areia-border bg-areia-background"
+    >
+      <LayerCard.Content>
+        <a
+          href={item.link}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <img
+            loading="lazy"
+            class="aspect-video object-cover rounded"
+            src={item.image}
+          />
+        </a>
+      </LayerCard.Content>
+      <LayerCard.Title>
+        <a
+          href={item.link}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {item.title}
+        </a>
+      </LayerCard.Title>
+    </LayerCard>
+  ))}
+</div>

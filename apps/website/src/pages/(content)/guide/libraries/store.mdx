@@ -1,0 +1,411 @@
+---
+title: "@ilha/store"
+description: Shared reactive store for Ilha islands (alien-signals). Includes /form helpers for type-safe, schema-validated forms.
+order: 402
+---
+
+import { MultiCopy } from "imprensa/components";
+
+# Store
+
+`@ilha/store` is shared reactive state for ilha apps. It sits outside any island and uses [alien-signals](https://github.com/stackblitz/alien-signals) — the same engine as island [`.state()`](/guide/island/state) — so stores and islands share one reactive graph without bridging.
+
+The `@ilha/store/form` import path adds small helpers on [Standard Schema](https://standardschema.dev) (Zod, Valibot, ArkType, and others). See [Forms](#forms) below.
+
+Island [`.state()`](/guide/island/state) is **local** to one component. Use `@ilha/store` when state must be **shared** across islands or updated from non-island code (`getState`, `setState`, `subscribe`, `select`, `bind` for `bind:*` fields).
+
+## Install
+
+<MultiCopy
+  values={{
+    npm: "npm install @ilha/store ilha",
+    pnpm: "pnpm add @ilha/store ilha",
+    bun: "bun add @ilha/store ilha",
+  }}
+/>
+
+`ilha` is a peer dependency. Install both so `select` and `bind` work in templates.
+
+## Import paths
+
+| Import path        | Use it for                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| `@ilha/store`      | `createStore`, store types, subscriptions, `select`, `bind`, and `effectScope`.            |
+| `@ilha/store/form` | Form extraction, Standard Schema validation, async validation, and issue-to-error mapping. |
+
+## Quick start
+
+```ts
+import { createStore } from "@ilha/store";
+
+const store = createStore({ count: 0 });
+
+store.setState({ count: 1 });
+store.getState(); // → { count: 1 }
+```
+
+With encapsulated actions:
+
+```ts
+const store = createStore({ count: 0 }, (set, get) => ({
+  increment() {
+    set({ count: get().count + 1 });
+  },
+  reset() {
+    set({ count: 0 });
+  },
+}));
+
+store.getState().increment();
+store.getState().count; // → 1
+```
+
+## When to use
+
+ilha's built-in `.state()` is the right choice when only one island reads and writes a piece of state. Use `@ilha/store` when state needs to be:
+
+- **Shared across multiple islands** — e.g. a cart, auth session, or active theme
+- **Updated from outside an island** — e.g. from a WebSocket handler or global event bus
+- **Persisted or derived globally** — e.g. synced to `localStorage` via a `subscribe` listener
+- **Form state** — pair `createStore` with `@ilha/store/form` helpers for typed validation, error mapping, and submission handling
+
+## API
+
+### `createStore(initialState, actions?)`
+
+Creates a store. Optionally accepts an actions creator for encapsulating mutations.
+
+```ts
+// State only
+const store = createStore({ count: 0, name: "Ada" });
+
+// State + actions
+const store = createStore(
+  { count: 0 },
+  (set, get, getInitialState) => ({
+    increment() {
+      set({ count: get().count + 1 });
+    },
+    reset() {
+      set(getInitialState());
+    },
+  }),
+);
+```
+
+The actions creator receives:
+
+| Argument            | Description                                                       |
+| ------------------- | ----------------------------------------------------------------- |
+| `set(patch \| fn)`  | Merge a partial patch or apply an updater function                |
+| `get()`             | Read the current live state, including other actions              |
+| `getInitialState()` | Read the frozen initial state snapshot as it was at creation time |
+
+Actions are live functions that survive `setState` calls and are accessible directly on the state object:
+
+```ts
+store.getState().increment(); // calls set internally
+```
+
+### `store.setState(update)`
+
+Merges a shallow partial update. Accepts a plain object or an updater function. Keys not included in the patch are preserved.
+
+```ts
+store.setState({ count: 5 });
+store.setState((s) => ({ count: s.count + 1 }));
+```
+
+### `store.getState()`
+
+Returns the current state snapshot. When state has not changed, returns a stable reference.
+
+```ts
+store.getState(); // → { count: 5, increment: [Function], reset: [Function] }
+```
+
+### `store.getInitialState()`
+
+Returns the frozen initial state as it was at construction time. Not affected by subsequent `setState` calls. Useful for reset actions.
+
+```ts
+store.getInitialState(); // → { count: 0 }
+
+// Reset from outside an action:
+store.setState(store.getInitialState());
+```
+
+### `store.subscribe(listener)`
+
+Subscribes to all state changes. The listener receives `(newState, prevState)` and is **not** called on initial subscription. Returns an unsubscribe function.
+
+```ts
+const unsub = store.subscribe((state, prev) => {
+  console.log(state.count, prev.count);
+});
+
+unsub(); // stop listening
+```
+
+### `store.subscribe(selector, listener)` — slice subscription
+
+Subscribes to a derived slice. The listener only fires when the selected value changes (compared with `Object.is`), so unrelated state updates are ignored.
+
+```ts
+const unsub = store.subscribe(
+  (s) => s.count,
+  (count, prev) =>
+    console.log("count changed:", prev, "→", count),
+);
+```
+
+### `store.select(selector)` — reactive read
+
+Projects a slice into a signal-shaped `() => S` accessor. Use inside island `.render()` (or `.derived()` / `.effect()`) so Ilha tracks store changes and re-renders automatically.
+
+```ts
+const count = store.select((s) => s.count);
+count(); // read; reactive in render scopes
+```
+
+Hoist `select` (and `bind`) at module scope — each call allocates a fresh computed.
+
+### `store.bind(selector)` — two-way `bind:*`
+
+Returns a read/write accessor for a **property path** only (`s => s.search.query`), marked for Ilha `bind:value`, `bind:checked`, `bind:open`, etc. Use `select` for read-only lists and derived UI.
+
+```tsx
+const cartStore = createStore({ name: "" });
+const name = cartStore.bind((s) => s.name);
+
+export const Field = ilha.render(() => (
+  <input bind:value={name} />
+));
+```
+
+`bind(selector)` does not render HTML into arbitrary DOM nodes — use islands + `select` for display.
+
+## `effectScope`
+
+Re-exported from alien-signals. Runs a setup function inside a reactive scope and returns `stop()` to tear down every `subscribe` effect registered inside it.
+
+```ts
+import { createStore, effectScope } from "@ilha/store";
+
+const stop = effectScope(() => {
+  store.subscribe((s) => console.log(s.count));
+});
+
+stop();
+```
+
+## Usage with ilha islands
+
+Prefer reading the accessor inside `.render()` so the island subscribes to the store through the same reactive graph as island state — no manual `.effect()` bridge unless you need imperative sync.
+
+```tsx
+import { createStore } from "@ilha/store";
+import ilha from "ilha";
+
+export const cartStore = createStore(
+  { items: [] as string[] },
+  (set, get) => ({
+    add(item: string) {
+      set({ items: [...get().items, item] });
+    },
+    remove(item: string) {
+      set({ items: get().items.filter((i) => i !== item) });
+    },
+  }),
+);
+
+const items = cartStore.select((s) => s.items);
+
+export const CartIsland = ilha.render(() => (
+  <ul>
+    {items().map((item) => (
+      <li>{item}</li>
+    ))}
+  </ul>
+));
+```
+
+When the store updates, accessors read in render re-run the island and Ilha updates the DOM.
+
+## Forms
+
+Three small helpers for building typed, validated forms with any [Standard Schema](https://standardschema.dev)-compatible library. They are **unopinionated** — you compose them with `createStore` however you like; nothing is imposed about your form's state shape.
+
+```ts
+import {
+  extractFormData,
+  validateWithSchema,
+  validateWithSchemaAsync,
+  issuesToErrors,
+} from "@ilha/store/form";
+```
+
+### `extractFormData(source)`
+
+Turns an `HTMLFormElement` (or a `FormData` instance) into a plain object. Single fields stay scalar; repeated keys (checkbox groups, multi-selects) collapse to arrays. File inputs pass through as `File` values.
+
+```ts
+const data = extractFormData(event.target as HTMLFormElement);
+// → { email: "ada@example.com", role: ["admin", "editor"] }
+```
+
+### `validateWithSchema(schema, data)`
+
+Runs a Standard Schema synchronously and returns a discriminated union — **never throws**.
+
+```ts
+const result = validateWithSchema(SignInSchema, data);
+if (result.ok) {
+  result.data; // ← fully typed schema output
+} else {
+  result.issues; // ← ReadonlyArray<StandardSchemaV1.Issue>
+}
+```
+
+If your schema has async refinements (e.g. server-side uniqueness checks), use `validateWithSchemaAsync` instead — same return shape, always returns a `Promise`.
+
+### `validateWithSchemaAsync(schema, data)`
+
+Runs any Standard Schema and awaits the result. Use it for async refinements, server-backed checks, or when you want one validation path that supports both sync and async schemas.
+
+```ts
+const result = await validateWithSchemaAsync(
+  SignUpSchema,
+  data,
+);
+if (result.ok) {
+  await createAccount(result.data);
+} else {
+  formStore.setState({ errors: issuesToErrors(result.issues) });
+}
+```
+
+### `issuesToErrors(issues)`
+
+Flattens Standard Schema issues into a per-field error map keyed by dot-separated path. Form-level errors (issues with no path) land under the `""` key.
+
+```ts
+issuesToErrors([
+  { message: "Required", path: ["email"] },
+  { message: "Invalid", path: ["user", "email"] },
+]);
+// → { email: ["Required"], "user.email": ["Invalid"] }
+```
+
+### Full example — contact form
+
+These three helpers form a straight pipeline from DOM event → typed data → error state. The store holds errors; the schema drives types.
+
+```tsx
+import { createStore } from "@ilha/store";
+import {
+  extractFormData,
+  validateWithSchema,
+  issuesToErrors,
+} from "@ilha/store/form";
+import type { FormErrors } from "@ilha/store/form";
+import ilha from "ilha";
+import { z } from "zod";
+
+const ContactSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.email("Invalid email"),
+  message: z
+    .string()
+    .min(10, "Message must be at least 10 characters"),
+});
+
+const formStore = createStore(
+  { errors: {} as FormErrors },
+  (set) => ({
+    submit(event: SubmitEvent) {
+      const result = validateWithSchema(
+        ContactSchema,
+        extractFormData(event.target as HTMLFormElement),
+      );
+      if (result.ok) {
+        console.log("submitting:", result.data);
+        set({ errors: {} });
+      } else {
+        set({ errors: issuesToErrors(result.issues) });
+      }
+    },
+  }),
+);
+
+export default ilha
+  .on("form@submit", ({ event }) => {
+    event.preventDefault();
+    formStore.getState().submit(event);
+  })
+  .render(() => {
+    const errors = formStore.getState().errors;
+    return (
+      <form>
+        <label>
+          Name
+          <input name="name" />
+          {errors.name ? (
+            <p role="alert">{errors.name.join(", ")}</p>
+          ) : (
+            ""
+          )}
+        </label>
+        <label>
+          Email
+          <input name="email" type="email" />
+          {errors.email ? (
+            <p role="alert">{errors.email.join(", ")}</p>
+          ) : (
+            ""
+          )}
+        </label>
+        <label>
+          Message
+          <textarea name="message"></textarea>
+          {errors.message ? (
+            <p role="alert">{errors.message.join(", ")}</p>
+          ) : (
+            ""
+          )}
+        </label>
+        <button type="submit">Send</button>
+      </form>
+    );
+  });
+```
+
+## TypeScript
+
+All types are inferred from the initial state and actions creator. Key exported types:
+
+```ts
+import type {
+  StoreApi, // the store instance interface
+  SetState, // (patch | updater) => void
+  GetState, // () => T
+  Listener, // (state, prevState) => void
+  SliceListener, // (slice, prevSlice) => void
+  RenderResult, // string | RawHtml
+  Unsub, // () => void
+} from "@ilha/store";
+
+import type {
+  StandardSchemaV1, // the Standard Schema spec interface
+  FormResult, // { ok: true, data } | { ok: false, issues }
+  FormErrors, // Record<string, string[]>
+} from "@ilha/store/form";
+```
+
+## Related
+
+| Topic              | Guide                             |
+| ------------------ | --------------------------------- |
+| Core `ilha` API    | [ilha](/guide/libraries/ilha)     |
+| Island-local state | [State](/guide/island/state)      |
+| Multi-page apps    | [Router](/guide/libraries/router) |

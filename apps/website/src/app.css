@@ -1,34 +1,10 @@
-@import "@fontsource-variable/geist";
-@import "@fontsource-variable/geist-mono";
-@import "tailwindcss";
-@plugin "areia";
-@plugin "@tailwindcss/typography";
+@import "imprensa/default.css";
+@source "./src/pages/**/*.{tsx,mdx}";
 
-@theme {
+/* Legacy RSPress site tokens (apps/website-legacy/src/app.css) */
+* {
   --font-sans: "Geist Variable", sans-serif;
   --font-mono: "Geist Mono Variable", monospace;
-  --radius-md: 0;
-  --radius-lg: 0;
-  --radius-xl: 0;
-}
-
-:root {
-  --rp-c-brand: #0095ff; /* hsl(205deg 100% 50%) */
-  --rp-c-brand-dark: #0086e6; /* hsl(205deg 100% 45%) */
-  --rp-c-brand-darker: #0077cc; /* hsl(205deg 100% 40%) */
-  --rp-c-brand-light: #33aaff; /* hsl(205deg 100% 60%) */
-  --rp-c-brand-lighter: #66bfff; /* hsl(205deg 100% 70%) */
-  --rp-c-brand-tint: rgba(0, 149, 255, 0.15);
-  --rp-radius-small: 0;
-  --rp-radius: 0;
-}
-
-.rp-llms-button {
-  @apply rounded-none!;
-}
-
-.rp-sidebar-item {
-  @apply rounded-none!;
 }
 
 [data-ilha-slot] {
@@ -36,7 +12,7 @@
 }
 
 .code-surface,
-.shiki {
+.code-surface .shiki {
   background-color: #fbfbfb;
 }
 
@@ -44,20 +20,18 @@
   min-height: 100%;
 }
 
-.shiki {
-  @apply p-0 pt-4;
+.code-surface .shiki {
+  padding: 0;
+  padding-top: 1rem;
 }
 
 html.dark .code-surface,
-html.rp-dark .code-surface,
-html.dark .code-surface .shiki,
-html.rp-dark .code-surface .shiki {
+html.dark .code-surface .shiki {
   background-color: var(--shiki-dark-bg) !important;
   color: var(--shiki-dark) !important;
 }
 
-html.dark .code-surface .shiki span,
-html.rp-dark .code-surface .shiki span {
+html.dark .code-surface .shiki span {
   color: var(--shiki-dark) !important;
   font-style: var(--shiki-dark-font-style) !important;
   font-weight: var(--shiki-dark-font-weight) !important;

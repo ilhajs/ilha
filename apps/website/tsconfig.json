@@ -1,27 +1,8 @@
 {
+  "extends": "imprensa/tsconfig.json",
   "compilerOptions": {
-    "lib": ["DOM", "ES2020"],
-    "jsx": "react-jsx",
-    "target": "ES2020",
-    "noEmit": true,
-    "skipLibCheck": true,
-    "useDefineForClassFields": true,
-    "module": "ESNext",
-    "moduleDetection": "force",
-    "moduleResolution": "bundler",
-    "verbatimModuleSyntax": true,
-    "resolveJsonModule": true,
-    "allowImportingTsExtensions": true,
-    "isolatedModules": true,
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "paths": {
-      "$src/*": ["./src/*"]
-    }
+    "noUnusedLocals": false
   },
-  "include": ["docs", "theme", "rspress.config.ts", "../../packages/ilha/src/index.ts"],
-  "mdx": {
-    "checkMdx": true
-  }
+  "include": ["src", "vite.config.ts"],
+  "exclude": [".ilha", "dist", "node_modules"]
 }

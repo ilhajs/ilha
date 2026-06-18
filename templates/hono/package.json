@@ -7,11 +7,11 @@
     "start": "node dist/server.mjs"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.2",
-    "@ilha/router": "^0.6.3",
-    "areia": "^0.1.21",
-    "hono": "^4.12.18",
-    "ilha": "^0.8.0",
+    "@hono/node-server": "^2.0.5",
+    "@ilha/router": "^0.6.4",
+    "areia": "^0.1.28",
+    "hono": "^4.12.26",
+    "ilha": "^0.8.1",
     "quando": "^0.1.6"
   },
   "devDependencies": {

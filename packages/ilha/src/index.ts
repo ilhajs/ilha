@@ -2441,7 +2441,7 @@ class IlhaBuilder<
           updateProps: (props?: Record<string, unknown>) => void;
         }
       >();
-      const leavingSlots = new Map<string, { el: Element; token: symbol }>();
+      const leavingSlots = new Map<string, { el: Element; token: symbol; stub?: Element }>();
 
       function teardownMountedSlot(
         id: string,
@@ -2450,7 +2450,7 @@ class IlhaBuilder<
           unmount: () => void | Promise<void>;
           updateProps: (props?: Record<string, unknown>) => void;
         },
-      ): void {
+      ): void | Promise<void> {
         mountedSlots.delete(id);
         const token = Symbol();
         const result = entry.unmount();
@@ -2462,17 +2462,13 @@ class IlhaBuilder<
           leavingSlots.delete(id);
         };
         if (result instanceof Promise) {
-          let stub: Element | undefined;
-          if (entry.el.isConnected) {
-            stub = document.createElement(entry.el.tagName.toLowerCase());
-            stub.setAttribute(SLOT_ATTR, id);
-            entry.el.replaceWith(stub);
-          }
+          // Keep the child subtree connected so transition.leave (e.g. WAAPI) can
+          // paint. Replacing with a stub immediately detached the host and made
+          // leave animations invisible.
           leavingSlots.set(id, { el: entry.el, token });
-          void result.finally(() => remove(stub));
-        } else {
-          entry.el.remove();
+          return result.finally(() => remove());
         }
+        entry.el.remove();
       }
 
       function findSlot(id: string): Element | null {
@@ -2840,67 +2836,70 @@ class IlhaBuilder<
         stopBindings();
 
         const prevMountedCount = mountedSlots.size;
-        const removedSlotIds: string[] = [];
+        const leavingPromises: Promise<unknown>[] = [];
 
         // Unmount slots that are no longer present BEFORE morphInner mutates
         // the DOM. This ensures unmount hooks (transition.leave, effect
         // cleanups, etc.) execute while the elements are still connected.
         for (const [id, entry] of mountedSlots) {
           if (!newSlotMap.has(id)) {
-            teardownMountedSlot(id, entry);
-            removedSlotIds.push(id);
-          }
-        }
-        for (const id of removedSlotIds) {
-          if (leavingSlots.has(id)) continue;
-          const escaped =
-            typeof CSS !== "undefined" && CSS.escape
-              ? CSS.escape(id)
-              : id.replace(/["\\]/g, "\\$&");
-          for (const el of host.querySelectorAll(`[${SLOT_ATTR}="${escaped}"]`)) {
-            el.remove();
+            const r = teardownMountedSlot(id, entry);
+            if (r instanceof Promise) leavingPromises.push(r);
           }
         }
 
-        // Detach preserved slot elements from the live DOM, replacing each
-        // with an empty stub that matches what the template emitted.
-        const preserved = new Map<string, Element>();
-        const listShrunk = newSlotMap.size < prevMountedCount;
-        for (const [id, entry] of mountedSlots) {
-          if (!newSlotMap.has(id)) continue;
-          if (!entry.el.isConnected) continue;
-          // Positional ids (p:N) are reused when a list item is removed. After
-          // any shrink, do not preserve positional slots — controller-driven DOM
-          // (e.g. Areia checkbox) may diverge from the template and rehome
-          // would leave orphaned subtrees. Fresh mount from the stub is safer.
-          if (listShrunk && id.startsWith("p:")) {
-            teardownMountedSlot(id, entry);
-            continue;
+        const applyMorph = () => {
+          // Detach preserved slot elements from the live DOM, replacing each
+          // with an empty stub that matches what the template emitted.
+          const preserved = new Map<string, Element>();
+          const listShrunk = newSlotMap.size < prevMountedCount;
+          for (const [id, entry] of mountedSlots) {
+            if (!newSlotMap.has(id)) continue;
+            if (!entry.el.isConnected) continue;
+            // Positional ids (p:N) are reused when a list item is removed. After
+            // any shrink, do not preserve positional slots — controller-driven DOM
+            // (e.g. Areia checkbox) may diverge from the template and rehome
+            // would leave orphaned subtrees. Fresh mount from the stub is safer.
+            if (listShrunk && id.startsWith("p:")) {
+              teardownMountedSlot(id, entry);
+              continue;
+            }
+            const stubTag = entry.el.tagName.toLowerCase();
+            const stub = document.createElement(stubTag);
+            stub.setAttribute(SLOT_ATTR, id);
+            const incomingProps = serializeSlotProps(newSlotMap.get(id)?.props);
+            if (incomingProps !== "") stub.setAttribute(PROPS_ATTR, incomingProps);
+            entry.el.replaceWith(stub);
+            preserved.set(id, entry.el);
           }
-          const stubTag = entry.el.tagName.toLowerCase();
-          const stub = document.createElement(stubTag);
-          stub.setAttribute(SLOT_ATTR, id);
-          const incomingProps = serializeSlotProps(newSlotMap.get(id)?.props);
-          if (incomingProps !== "") stub.setAttribute(PROPS_ATTR, incomingProps);
-          entry.el.replaceWith(stub);
-          preserved.set(id, entry.el);
+
+          const tpl = document.createElement("template");
+          const morphRootTag = host.tagName.toLowerCase();
+          tpl.innerHTML = `<${morphRootTag}>${html}</${morphRootTag}>`;
+          morphInner(host, tpl.content.firstElementChild as Element);
+
+          // Rehome preserved slots: swap post-morph stubs back to live elements.
+          for (const [id, liveEl] of preserved) {
+            const stub = findSlot(id);
+            if (!stub) continue;
+            stub.replaceWith(liveEl);
+          }
+
+          attachListeners();
+          stopBindings = applyTemplateBindings(host, newBinds);
+          mountSlots(newSlotMap);
+        };
+
+        if (leavingPromises.length > 0) {
+          void Promise.all(leavingPromises)
+            .then(applyMorph)
+            .catch((err) => {
+              console.error(err);
+              applyMorph();
+            });
+        } else {
+          applyMorph();
         }
-
-        const tpl = document.createElement("template");
-        const morphRootTag = host.tagName.toLowerCase();
-        tpl.innerHTML = `<${morphRootTag}>${html}</${morphRootTag}>`;
-        morphInner(host, tpl.content.firstElementChild as Element);
-
-        // Rehome preserved slots: swap post-morph stubs back to live elements.
-        for (const [id, liveEl] of preserved) {
-          const stub = findSlot(id);
-          if (!stub) continue;
-          stub.replaceWith(liveEl);
-        }
-
-        attachListeners();
-        stopBindings = applyTemplateBindings(host, newBinds);
-        mountSlots(newSlotMap);
       });
 
       let tornDown = false;
