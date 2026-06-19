@@ -95,7 +95,7 @@ store({ count: 0 })
   .build();
 ```
 
-Derived accessors expose an envelope — `()`/`.value`, `.loading`, `.error`. For syncveds, `.loading` is always `false`.
+Derived accessors expose an envelope — `()`/`.value`, `.loading`, `.error`. For sync deriveds, `.loading` is always `false`.
 
 **Async derived** — `fn` can be `async`. It re-runs when its `ctx.get()` dependencies change, aborts stale runs via `ctx.signal`, and surfaces the async lifecycle:
 

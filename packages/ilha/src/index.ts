@@ -105,6 +105,13 @@ function safeParseSnapshot(raw: string, label: string): unknown {
     warn(`${label} nesting exceeds depth ${MAX_SNAPSHOT_DEPTH} — snapshot ignored.`);
     return undefined;
   }
+  // Hydration callers treat the snapshot as a plain object (props/state).
+  // Reject scalars, arrays, and null so a malformed payload degrades to the
+  // empty-snapshot fallback instead of being spread as state/props.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    warn(`${label} is not an object — snapshot ignored.`);
+    return undefined;
+  }
   return parsed;
 }
 

@@ -1776,6 +1776,7 @@ describe("Island mount", () => {
       const unmount = Counter.mount(el, { count: 7 });
       // Snapshot ignored — falls back to input props.
       expect(el.querySelector("p")!.textContent).toBe("7");
+      expect(warnSpy).toHaveBeenCalled();
 
       unmount();
       cleanup(el);
@@ -1796,6 +1797,7 @@ describe("Island mount", () => {
 
       const unmount = Counter.mount(el, { count: 3 });
       expect(el.querySelector("p")!.textContent).toBe("3");
+      expect(warnSpy).toHaveBeenCalled();
 
       unmount();
       cleanup(el);
@@ -1817,6 +1819,27 @@ describe("Island mount", () => {
 
       const unmount = Counter.mount(el, { count: 5 });
       expect(el.querySelector("p")!.textContent).toBe("5");
+      expect(warnSpy).toHaveBeenCalled();
+
+      unmount();
+      cleanup(el);
+      warnSpy.mockRestore();
+    });
+
+    it("ignores a non-object (scalar/array) data-ilha-state snapshot", () => {
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+      const Counter = ilha
+        .input(z.object({ count: z.number().default(0) }))
+        .state("count", ({ count }) => count)
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      // Valid JSON, but an array — not a usable state snapshot.
+      el.setAttribute("data-ilha-state", JSON.stringify([1, 2, 3]));
+
+      const unmount = Counter.mount(el, { count: 8 });
+      expect(el.querySelector("p")!.textContent).toBe("8");
+      expect(warnSpy).toHaveBeenCalled();
 
       unmount();
       cleanup(el);
