@@ -22,7 +22,8 @@ const HERO_STATS = [
 ];
 
 const PREVIEW_CODE = `import ilha from "ilha";
-import { Button, Checkbox, Input } from "areia";
+import { Button, Checkbox, Input, LayerCard } from "areia";
+import { each } from "quando";
 
 let nextId = 4;
 
@@ -33,47 +34,63 @@ export default ilha
     { id: 3, label: "Update README", done: false },
   ])
   .state("draft", "")
+  .derived("pending", ({ state }) =>
+    state.tasks().filter((t) => !t.done)
+  )
   .on("form@submit", ({ state, event }) => {
     event.preventDefault();
     const label = state.draft().trim();
     if (!label) return;
-    state.tasks([...state.tasks(), { id: nextId++, label, done: false }]);
+    state.tasks([
+      ...state.tasks(),
+      { id: nextId++, label, done: false }
+    ]);
     state.draft("");
   })
-  .on("[data-remove]@click", ({ state, event }) => {
-    const id = Number((event.target as HTMLElement).closest("[data-remove]")?.getAttribute("data-remove"));
+  .on("[data-remove]@click", ({ state, target }) => {
+    const id = Number(target.dataset.remove);
     state.tasks(state.tasks().filter((t) => t.id !== id));
   })
-  .render(({ state }) => (
-    <div class="flex min-h-full items-center justify-center bg-areia-background p-6">
-      <div class="w-full max-w-sm rounded-xl border border-areia-border shadow-sm">
-        <div class="border-b border-areia-border px-4 py-3">
-          <h2 class="text-sm font-semibold">
-            My Tasks
-            <span class="ml-2 rounded-full bg-areia-control-background px-2 py-0.5 text-xs font-normal text-areia-subtle">
-              {state.tasks().filter((t) => !t.done).length} left
-            </span>
-          </h2>
-        </div>
+  .render(({ state, derived }) => (
+    <LayerCard>
+      <LayerCard.Title>
+        My Tasks ({derived.pending().length})
+      </LayerCard.Title>
+      <LayerCard.Content class="p-0">
         <ul class="divide-y divide-areia-border">
-          {state.tasks().map((task, i) => (
-            <li key={task.id} class="flex items-center gap-2 px-4 py-2.5">
-              <div class="flex-1">
-                <Checkbox
-                  bind:checked={state.tasks.select((tasks) => tasks[i].done)}
-                  label={task.label}
-                />
-              </div>
-              <Button data-remove={task.id} variant="ghost" size="sm">✕</Button>
-            </li>
-          ))}
+          {each(state.tasks())
+            .as((task, i) => (
+              <li
+                key={task.id}
+                class="flex items-center gap-2 p-2"
+              >
+                <div class="flex-1">
+                  <Checkbox
+                    bind:checked={state.tasks.select((tasks) => tasks[i].done)}
+                    label={task.label}
+                  />
+                </div>
+                <Button data-remove={task.id} size="sm">
+                  ✕
+                </Button>
+              </li>
+            ))
+            .else(<div class="p-2">No tasks</div>)}
         </ul>
-        <form class="flex gap-2 border-t border-areia-border p-3">
-          <Input placeholder="New task…" bind:value={state.draft} class="flex-1" />
-          <Button type="submit">Add</Button>
+        <form
+          class="flex gap-2 border-t border-areia-border p-2"
+        >
+          <Input
+            placeholder="New task…"
+            bind:value={state.draft}
+            class="flex-1"
+          />
+          <Button type="submit" disabled={state.draft.length}>
+            Add
+          </Button>
         </form>
-      </div>
-    </div>
+      </LayerCard.Content>
+    </LayerCard>
   ));
 `;
 
