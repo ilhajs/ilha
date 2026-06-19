@@ -1,16 +1,23 @@
 name: Continuous Integration
+
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  install:
-    name: Install dependencies
+  build-test-publish:
+    name: Build, test & publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      - name: Cache node_modules
+
+      - name: Cache dependencies
         uses: actions/cache@v4
         with:
           path: |
@@ -18,33 +25,25 @@ jobs:
             packages/*/node_modules
             apps/*/node_modules
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+
       - name: Install dependencies
         run: bun install
 
-  build-test-publish:
-    name: Build, Test & Publish
-    runs-on: ubuntu-latest
-    needs: install
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - name: Restore node_modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            node_modules
-            packages/*/node_modules
-            apps/*/node_modules
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-      - name: Build libs
+      - name: Build packages
         run: bun run build
+
       - name: Test
         run: bun run test
-      - name: Publish nightly release
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Publish preview packages
         run: |
           echo "gitdir: $(pwd)/.git" > packages/ilha/.git
           bunx pkg-pr-new publish './packages/*'
-      - name: Upload build artifact
+
+      - name: Upload package dist
         uses: actions/upload-artifact@v4
         with:
           name: lib-dist
@@ -52,7 +51,7 @@ jobs:
           retention-days: 1
 
   docs:
-    name: Build docs
+    name: Deploy docs
     runs-on: ubuntu-latest
     needs: build-test-publish
     permissions:
@@ -64,7 +63,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-      - name: Restore node_modules
+
+      - name: Cache dependencies
         uses: actions/cache@v4
         with:
           path: |
@@ -72,17 +72,25 @@ jobs:
             packages/*/node_modules
             apps/*/node_modules
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-      - name: Download build artifact
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Download package dist
         uses: actions/download-artifact@v4
         with:
           name: lib-dist
           path: packages/
-      - name: Build Website
+
+      - name: Build website
         run: bun run build
         working-directory: apps/website
-      - name: Upload static files as artifact
+
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/website/doc_build/
+          path: apps/website/dist/
+
       - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
