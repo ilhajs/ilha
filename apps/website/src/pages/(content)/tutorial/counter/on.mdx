@@ -4,6 +4,26 @@ description: Tutorial — attach event listeners to elements inside your compone
 order: 102
 ---
 
+import { Preview } from "$lib/components/preview";
+
+export const example = `import ilha from "ilha";
+import { Button } from "areia";
+
+export default ilha
+  .state("count", 0)
+  .on("[data-action=increase]@click", ({ state }) => {
+    state.count(state.count() + 1);
+  })
+  .render(({ state }) => (
+    <>
+      <p>Count: {state.count()}</p>
+      <Button variant="primary" data-action="increase">
+        Increase
+      </Button>
+    </>
+  ));
+`
+
 # On
 
 Use the `.on()` method to attach event listeners to elements inside your component.
@@ -22,24 +42,7 @@ Inside the callback, updating state is as simple as calling the state property a
 function with a new value. Ilha will re-render only what changed — so clicking the
 button below updates the count without touching anything else in the DOM.
 
-```tsx preview
-import ilha from "ilha";
-import { Button } from "areia";
-
-export default ilha
-  .state("count", 0)
-  .on("[data-action=increase]@click", ({ state }) => {
-    state.count(state.count() + 1);
-  })
-  .render(({ state }) => (
-    <>
-      <p>Count: {state.count()}</p>
-      <Button variant="primary" data-action="increase">
-        Increase
-      </Button>
-    </>
-  ));
-```
+<Preview code={example} size="lg" />
 
 ## Similar concepts
 

@@ -4,6 +4,28 @@ description: Tutorial — compute values from state automatically with the .deri
 order: 103
 ---
 
+import { Preview } from "$lib/components/preview";
+
+export const example = `import ilha from "ilha";
+import { Button } from "areia";
+
+export default ilha
+  .state("count", 1)
+  .derived("doubled", ({ state }) => state.count() * 2)
+  .on("[data-action=increase]@click", ({ state }) => {
+    state.count(state.count() + 1);
+  })
+  .render(({ state, derived }) => (
+    <>
+      <p>Count: {state.count()}</p>
+      <p>Doubled: {derived.doubled()}</p>
+      <Button variant="primary" data-action="increase">
+        Increase
+      </Button>
+    </>
+  ));
+`
+
 # Derived
 
 Now that you can mutate state with `.on()`, derived properties let you compute
@@ -25,26 +47,7 @@ derived function runs, it overwrites with the computed result.
 Async derived values expose `loading`, `value`, and `error` on the accessor — so
 you get built-in async state without reaching for SWR or TanStack Query.
 
-```tsx preview
-import ilha from "ilha";
-import { Button } from "areia";
-
-export default ilha
-  .state("count", 1)
-  .derived("doubled", ({ state }) => state.count() * 2)
-  .on("[data-action=increase]@click", ({ state }) => {
-    state.count(state.count() + 1);
-  })
-  .render(({ state, derived }) => (
-    <>
-      <p>Count: {state.count()}</p>
-      <p>Doubled: {derived.doubled()}</p>
-      <Button variant="primary" data-action="increase">
-        Increase
-      </Button>
-    </>
-  ));
-```
+<Preview code={example} size="lg" />
 
 ## Similar concepts
 

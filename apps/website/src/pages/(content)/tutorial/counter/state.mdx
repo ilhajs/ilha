@@ -4,6 +4,15 @@ description: Tutorial — define reactive state properties that trigger UI updat
 order: 101
 ---
 
+import { Preview } from "$lib/components/preview";
+
+export const example = `import ilha from "ilha";
+
+export default ilha
+  .state("count", 0)
+  .render(({ state }) => <p>Count: {state.count()}</p>);
+`
+
 # State
 
 Ilha uses Signals to make your components reactive. Use the `.state()` builder method
@@ -11,13 +20,7 @@ to define state - any property declared here will automatically trigger UI updat
 Pass the property name and its initial value. All state properties are then available
 inside `.render()` via the `state` property.
 
-```tsx preview
-import ilha from "ilha";
-
-export default ilha
-  .state("count", 0)
-  .render(({ state }) => <p>Count: {state.count()}</p>);
-```
+<Preview code={example} size="lg" />
 
 ## Similar concepts
 
