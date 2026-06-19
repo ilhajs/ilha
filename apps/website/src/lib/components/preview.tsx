@@ -33,13 +33,26 @@ export const Preview = ilha
     } catch {
       // cross-origin — rely on load event or fallback below
     }
+  })
+  .effect(({ host, state, derived }) => {
+    state.loaded(false);
+    const url = derived.url();
+    void url;
+
+    const markLoaded = () => state.loaded(true);
+    const frame = host.querySelector("iframe");
+    if (frame) {
+      try {
+        if (frame.contentWindow?.document?.readyState === "complete") {
+          markLoaded();
+        }
+      } catch {
+        // cross-origin — rely on load event or fallback below
+      }
+    }
 
     const fallback = window.setTimeout(markLoaded, 2500);
     return () => window.clearTimeout(fallback);
-  })
-  .effect(({ state, derived }) => {
-    state.loaded(false);
-    void derived.url();
   })
   .render(({ derived, state, input }) => (
     <div

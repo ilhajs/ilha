@@ -2775,7 +2775,9 @@ class IlhaBuilder<
       // re-paint. Without this, the DOM stays stuck on the initial-render
       // value because the effect's first run short-circuits.
       const initialRenderedHtml = initial.html;
+      let renderEpoch = 0;
       const stopRender = effect(() => {
+        const epoch = ++renderEpoch;
         // Re-render produces empty stubs for every child island site (see
         // emitIslandSlot). The full strategy for preserving mounted children
         // across parent re-renders:
@@ -2849,6 +2851,7 @@ class IlhaBuilder<
         }
 
         const applyMorph = () => {
+          if (epoch !== renderEpoch) return;
           // Detach preserved slot elements from the live DOM, replacing each
           // with an empty stub that matches what the template emitted.
           const preserved = new Map<string, Element>();
@@ -2891,12 +2894,12 @@ class IlhaBuilder<
         };
 
         if (leavingPromises.length > 0) {
-          void Promise.all(leavingPromises)
-            .then(applyMorph)
-            .catch((err) => {
-              console.error(err);
-              applyMorph();
-            });
+          void Promise.allSettled(leavingPromises).then((results) => {
+            for (const r of results) {
+              if (r.status === "rejected") console.error(r.reason);
+            }
+            applyMorph();
+          });
         } else {
           applyMorph();
         }

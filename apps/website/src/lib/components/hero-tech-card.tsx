@@ -43,14 +43,14 @@ export function bindHeroTechCardTracking(root: ParentNode) {
   const container = root.querySelector<HTMLElement>("[data-hero-cards]");
   if (!container) return;
 
+  const cards = container.querySelectorAll<HTMLElement>("[data-hero-card]");
+
   const handleMouseMove = (event: MouseEvent) => {
-    container
-      .querySelectorAll<HTMLElement>("[data-hero-card]")
-      .forEach((card) => updateCard(card, event));
+    cards.forEach((card) => updateCard(card, event));
   };
 
   const handleMouseLeave = () => {
-    container.querySelectorAll<HTMLElement>("[data-hero-card]").forEach((card) => {
+    cards.forEach((card) => {
       card.style.setProperty("--hero-card-opacity", "0");
     });
   };

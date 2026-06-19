@@ -14,11 +14,11 @@ export default ilha
   .state("changes", [] as string[])
   .state("label", "Hello")
   .effect(({ state }) => {
-    if (!state.label()) return;
-    state.changes([
-      state.label(),
-      ...state.changes(),
-    ]);
+    const label = state.label();
+    if (!label) return;
+    const head = state.changes()[0];
+    if (head === label) return;
+    state.changes([label, ...state.changes()]);
   })
   .render(({ state }) => (
     <div class="flex flex-col gap-2">

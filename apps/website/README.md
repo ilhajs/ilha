@@ -66,7 +66,7 @@ Add optional frontmatter to control navigation, search, SEO, and AI exports:
 ```mdx
 ---
 title: Getting Started
-description: Create a Imprensa documentation site.
+description: Create an Imprensa documentation site.
 order: 1
 tags: [setup, starter]
 ---
@@ -106,7 +106,7 @@ imprensa({
 });
 ```
 
-Content pages use `DocArticle` from `imprensa/doc` (already wired in `[...slug].tsx`) to show an **Open** menu above the page title (copy markdown, GitHub, view as markdown, ChatGPT, Claude).
+Content pages use `DocArticle` from `imprensa/doc` (already wired in `[...slug].tsx`) to show an **Open** menu above the page title (copy Markdown, GitHub, view as Markdown, ChatGPT, Claude).
 
 ## Dependencies
 

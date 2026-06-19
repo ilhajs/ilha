@@ -10,7 +10,7 @@ const LazyDocArticle = ilha
   .render(({ derived, input }) => {
     const mdxContent = derived.mdxContent();
 
-    if (mdxContent) return <DocArticle path={input.path}>{mdxContent}</DocArticle>;
+    if (mdxContent != null) return <DocArticle path={input.path}>{mdxContent}</DocArticle>;
 
     if (mdxContent === null) {
       return (
@@ -40,7 +40,7 @@ export default ilha.render(() => {
   const pathname = path();
   const prerendered = getMdxContent(pathname);
 
-  if (prerendered) return <DocArticle path={pathname}>{prerendered}</DocArticle>;
+  if (prerendered != null) return <DocArticle path={pathname}>{prerendered}</DocArticle>;
 
   return <LazyDocArticle path={pathname} />;
 });

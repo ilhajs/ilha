@@ -38,7 +38,7 @@ const Search = ilha
   .state("query", "")
   .derived("results", async ({ state, signal }) => {
     if (!state.query()) return [];
-    const res = await fetch(\`/api/search?q=\${state.query()}\`, { signal });
+    const res = await fetch(\`/api/search?q=\${encodeURIComponent(state.query())}\`, { signal });
     return res.json() as Promise<string[]>;
   })
   .render(({ state, derived }) => (

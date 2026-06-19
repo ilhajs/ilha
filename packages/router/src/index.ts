@@ -201,13 +201,20 @@ function nextDivToken(
     }
     const slice = html.slice(i);
     const skip = slice.match(K_PAGE_RAW_OPEN_RE);
-    if (skip && skip.index === 0) {
-      const tag = skip[1]!.toLowerCase();
-      const afterOpen = i + skip[0].length;
-      const end = skipRawElement(html, afterOpen, tag);
-      if (end === null) return null;
-      i = end;
-      continue;
+    if (skip && skip.index != null && skip.index >= 0) {
+      const rawStart = i + skip.index;
+      const nextOpen = html.indexOf("<div", i);
+      const nextClose = html.indexOf("</div>", i);
+      const divBeforeRaw =
+        (nextOpen !== -1 && nextOpen < rawStart) || (nextClose !== -1 && nextClose < rawStart);
+      if (!divBeforeRaw) {
+        const tag = skip[1]!.toLowerCase();
+        const afterOpen = rawStart + skip[0].length;
+        const end = skipRawElement(html, afterOpen, tag);
+        if (end === null) return null;
+        i = end;
+        continue;
+      }
     }
     const nextOpen = html.indexOf("<div", i);
     const nextClose = html.indexOf("</div>", i);
