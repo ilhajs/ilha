@@ -1,0 +1,193 @@
+---
+title: .css()
+description: Attach scoped styles to an island using CSS @scope rules that stay local and do not leak.
+order: 209
+---
+
+import { Preview } from "$lib/components/preview";
+
+export const example = `import ilha from "ilha";
+
+export default ilha
+  .css\`
+    .card {
+      border-radius: 0.5rem;
+      border: 1px solid #86efac;
+      background: #ecfdf5;
+      padding: 1rem;
+    }
+    .card__title {
+      font-weight: 700;
+      color: #166534;
+      margin: 0 0 0.75rem;
+    }
+    .card__button {
+      background: #0d9488;
+      color: white;
+      border-radius: 0.375rem;
+      border: none;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+    }
+    .card__button:hover {
+      background: #0f766e;
+    }
+  \`
+  .render(() => (
+    <div class="card">
+      <p class="card__title">Scoped card</p>
+      <button type="button" class="card__button">Styled by island CSS</button>
+    </div>
+  ));
+`
+
+# CSS
+
+Attaches scoped styles to the island. Styles are automatically wrapped in a `@scope` rule bounded to the island host, so they apply only within the island and do not leak into child islands.
+
+## Basic usage
+
+<Preview code={example} size="lg" />
+
+The preview runs the same `.css` tagged-template form as in the snippet below; styles stay scoped to the island host.
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Card = ilha.css`
+    // [!code highlight:9]
+    .card__title {
+        font-weight: 700;
+    }
+    .card__button {
+        background: teal;
+        color: white;
+    }
+  `.render(() => (
+  <div class="card">
+    <p class="card__title">Hello</p>
+    <button type="button" class="card__button">
+      Click me
+    </button>
+  </div>
+));
+```
+
+## Plain string form
+
+`.css()` also accepts a plain string, which is useful when importing styles from an external file:
+
+```tsx
+import ilha from "ilha";
+import styles from "./card.css?raw";
+
+const Card = ilha.css(styles).render(() => (
+  <div class="card">
+    <p class="card__title">…</p>
+  </div>
+));
+```
+
+## Interpolations
+
+When using the tagged template form, interpolations work as normal string concatenation:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const accent = "coral"; // [!code highlight]
+
+const Button = ilha.css`
+    .btn {
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 0.375rem;
+    }
+    .btn--accent {
+      background: ${accent}; // [!code highlight]
+    }
+  `.render(() => (
+  <button type="button" class="btn btn--accent">
+    Go
+  </button>
+));
+```
+
+## Using the `css` tagged template
+
+ilha ships a named `css` export that works as a passthrough tag for editor tooling. It enables LSP syntax highlighting and Prettier formatting for CSS strings without any runtime transformation. Use it to author styles outside the builder chain and pass the result in:
+
+```tsx twoslash
+import ilha, { css } from "ilha";
+
+const styles = css`
+  .card__title {
+    font-weight: 700;
+  }
+  .card__action {
+    background: teal;
+    color: white;
+  }
+`;
+
+const Card = ilha.css(styles).render(() => (
+  <div class="card">
+    <p class="card__title">Title</p>
+    <button type="button" class="card__action">
+      Action
+    </button>
+  </div>
+));
+```
+
+> `css` (named export) is a plain passthrough tag for tooling. `.css()` (builder method) is what actually attaches styles to the island. They are intentionally separate.
+
+## How scoping works
+
+ilha wraps your styles in a `@scope` rule that constrains them to the island host and punches a hole at any nested `[data-ilha]` element:
+
+```css
+@scope (:scope) to ([data-ilha]) {
+  .card__title {
+    font-weight: 700;
+  }
+  .card__button {
+    background: teal;
+    color: white;
+  }
+}
+```
+
+This means:
+
+- Styles apply to descendants of the island host.
+- Styles do not leak into child islands nested inside.
+- Selectors use low specificity and do not win unnecessary cascade wars with utility classes.
+
+## SSR output
+
+During SSR, a `<style>` tag is prepended as the first child of the island's rendered HTML:
+
+```html
+<style data-ilha-css>
+  @scope (:scope) to ([data-ilha]) {
+    .card__title {
+      font-weight: 700;
+    }
+  }
+</style>
+<div class="card">
+  <p class="card__title">Hello</p>
+</div>
+```
+
+## Client mount
+
+On the client, the style element is injected once as the first child of the host. It is preserved across re-renders — morph never replaces it. During hydration, the SSR-emitted `<style>` node is reused and not duplicated.
+
+## Notes
+
+- Calling `.css()` more than once on the same builder chain is not supported. In dev mode a warning is logged and only the last stylesheet is used. Compose all styles into a single `.css()` call.
+- `.css()` is compatible with [`.hydratable()`](/guide/island/hydratable) — the style tag is included inside the `data-ilha` wrapper regardless of the `snapshot` option.
+- Browser support for `@scope` is required. Check [caniuse.com/css-cascade-scope](https://caniuse.com/css-cascade-scope) for current coverage if you need to support older browsers.

@@ -1,0 +1,52 @@
+---
+title: .onMount()
+description: Tutorial — run one-time setup logic after a component first renders with the .onMount() builder method.
+order: 106
+---
+
+# On Mount
+
+Use .onMount() to run logic once, immediately after the component renders for the first time. Unlike .effect(), it does not re-run on state changes — making it the right place for one-time setup work.
+
+The callback receives the full component context, so you have direct access to state and derived. This makes .onMount() ideal for seeding initial data: fetch a resource, resolve its result, and write it into state — Ilha will re-render automatically once the data arrives.
+
+```tsx preview
+import ilha from "ilha";
+import { Button, Input, Label } from "areia";
+
+export default ilha
+  .state("count", 0)
+  .derived("doubled", ({ state }) => state.count() * 2)
+  .on("[data-action=increase]@click", ({ state }) => {
+    state.count(state.count() + 1);
+  })
+  .onMount(({ state }) => {
+    state.count(2);
+  })
+  .effect(({ state }) => {
+    if (state.count() > 3) {
+      state.count(0);
+    }
+  })
+  .render(({ state, derived }) => (
+    <>
+      <p>Count: {state.count()}</p>
+      <p>Doubled: {derived.doubled()}</p>
+      <Input
+        id="count"
+        type="number"
+        label="Current count"
+        bind:value={state.count}
+      />
+      <Button variant="primary" data-action="increase">
+        Increase
+      </Button>
+    </>
+  ));
+```
+
+## Similar concepts
+
+- React: `useEffect` with an empty dependency array
+- Vue: `onMounted()`
+- Svelte: `onMount()`

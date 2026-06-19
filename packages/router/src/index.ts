@@ -147,6 +147,7 @@ export function composeLoaders<Ls extends readonly Loader<any>[]>(
 // ─────────────────────────────────────────────
 
 const WRAP_LAYOUT_LEAF = Symbol.for("ilha.router.wrapLayout.leaf");
+const WRAP_LAYOUT_HANDLER = Symbol.for("ilha.router.wrapLayout.handler");
 
 function extractHydratableInnerHtml(block: string): string {
   const m = block.match(/^<([a-zA-Z][\w-]*)\s[^>]*>([\s\S]*)<\/\1>\s*$/);
@@ -159,6 +160,88 @@ function parseHydratableOpenTag(block: string): { tag: string; attrs: string } |
   return { tag: m[1]!, attrs: m[2]! };
 }
 
+const K_PAGE_RAW_OPEN_RE = /<(pre|script|style|textarea)\b/i;
+
+/** Skip through matching close tag, allowing nested `<pre>` (twoslash popups inside code blocks). */
+function skipRawElement(html: string, i: number, tag: string): number | null {
+  const openRe = new RegExp(`<${tag}\\b`, "gi");
+  const closeRe = new RegExp(`</${tag}>`, "gi");
+  let depth = 1;
+  let pos = i;
+  while (depth > 0 && pos < html.length) {
+    openRe.lastIndex = pos;
+    closeRe.lastIndex = pos;
+    const openM = openRe.exec(html);
+    const closeM = closeRe.exec(html);
+    if (!closeM) return null;
+    if (openM && openM.index < closeM.index) {
+      depth += 1;
+      pos = openM.index + openM[0].length;
+    } else {
+      depth -= 1;
+      if (depth === 0) return closeM.index + closeM[0].length;
+      pos = closeM.index + closeM[0].length;
+    }
+  }
+  return pos;
+}
+
+/** Next `<div` or `</div>` outside raw/pre/script regions (MDX + twoslash often contain `</div>` / nested `<pre>`). */
+function nextDivToken(
+  html: string,
+  from: number,
+): { kind: "open" | "close"; index: number } | null {
+  let i = from;
+  while (i < html.length) {
+    if (html.startsWith("<!--", i)) {
+      const end = html.indexOf("-->", i);
+      if (end === -1) return null;
+      i = end + 3;
+      continue;
+    }
+    const slice = html.slice(i);
+    const skip = slice.match(K_PAGE_RAW_OPEN_RE);
+    if (skip && skip.index != null && skip.index >= 0) {
+      const rawStart = i + skip.index;
+      let skipComment = false;
+      let search = i;
+      while (search < rawStart) {
+        const commentStart = html.indexOf("<!--", search);
+        if (commentStart === -1 || commentStart >= rawStart) break;
+        const commentEnd = html.indexOf("-->", commentStart);
+        if (commentEnd === -1) return null;
+        if (rawStart < commentEnd + 3) {
+          i = commentEnd + 3;
+          skipComment = true;
+          break;
+        }
+        search = commentEnd + 3;
+      }
+      if (skipComment) continue;
+      const nextOpen = html.indexOf("<div", i);
+      const nextClose = html.indexOf("</div>", i);
+      const divBeforeRaw =
+        (nextOpen !== -1 && nextOpen < rawStart) || (nextClose !== -1 && nextClose < rawStart);
+      if (!divBeforeRaw) {
+        const tag = skip[1]!.toLowerCase();
+        const afterOpen = rawStart + skip[0].length;
+        const end = skipRawElement(html, afterOpen, tag);
+        if (end === null) return null;
+        i = end;
+        continue;
+      }
+    }
+    const nextOpen = html.indexOf("<div", i);
+    const nextClose = html.indexOf("</div>", i);
+    if (nextClose === -1 && nextOpen === -1) return null;
+    if (nextOpen === -1 || (nextClose !== -1 && nextClose < nextOpen)) {
+      return { kind: "close", index: nextClose };
+    }
+    return { kind: "open", index: nextOpen };
+  }
+  return null;
+}
+
 function findKPageSlotSpans(layoutHtml: string): Array<{ openEnd: number; closeStart: number }> {
   const spans: Array<{ openEnd: number; closeStart: number }> = [];
   const openRe = /<div\s[^>]*data-ilha-slot="k:page"[^>]*>/g;
@@ -166,20 +249,19 @@ function findKPageSlotSpans(layoutHtml: string): Array<{ openEnd: number; closeS
     const openEnd = m.index! + m[0].length;
     let depth = 1;
     let i = openEnd;
-    while (i < layoutHtml.length && depth > 0) {
-      const nextOpen = layoutHtml.indexOf("<div", i);
-      const nextClose = layoutHtml.indexOf("</div>", i);
-      if (nextClose === -1) break;
-      if (nextOpen !== -1 && nextOpen < nextClose) {
+    while (depth > 0) {
+      const token = nextDivToken(layoutHtml, i);
+      if (!token) break;
+      if (token.kind === "open") {
         depth += 1;
-        i = nextOpen + 4;
+        i = token.index + 4;
       } else {
         depth -= 1;
         if (depth === 0) {
-          spans.push({ openEnd, closeStart: nextClose });
+          spans.push({ openEnd, closeStart: token.index });
           break;
         }
-        i = nextClose + 6;
+        i = token.index + 6;
       }
     }
   }
@@ -198,6 +280,24 @@ function injectKPageSlot(
   return layoutHtml.slice(0, target.openEnd) + slotInnerHtml + layoutHtml.slice(target.closeStart);
 }
 
+/** Layout shell HTML with an empty `k:page` — avoids scanning MDX/twoslash inside `Wrapped.toString()`. */
+function layoutHtmlWithEmptyKPage(
+  wrappedLayout: Island<any, any>,
+  props: Record<string, unknown>,
+): string {
+  const handler = (wrappedLayout as unknown as Record<symbol, LayoutHandler>)[WRAP_LAYOUT_HANDLER];
+  if (!handler) return wrappedLayout.toString(props as never);
+  const leaf =
+    ((wrappedLayout as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] as
+      | Island<any, any>
+      | undefined) ?? wrappedLayout;
+  const emptyPage = Object.assign(leaf.key("page"), { toString: () => "" }) as unknown as Island<
+    any,
+    any
+  >;
+  return handler(emptyPage).toString(props as never);
+}
+
 async function wrapLayoutSlotMarkup(
   innerWrapped: Island<any, any>,
   leafPage: Island<any, any>,
@@ -206,8 +306,12 @@ async function wrapLayoutSlotMarkup(
 ): Promise<string> {
   const pageBlock = await leafPage.hydratable(props, opts);
   const pageInner = extractHydratableInnerHtml(pageBlock);
-  const layoutInner = innerWrapped.toString(props as never);
-  return injectKPageSlot(layoutInner, pageInner, "innermost");
+  const layoutWithEmptyPage = injectKPageSlot(
+    layoutHtmlWithEmptyKPage(innerWrapped, props),
+    "",
+    "innermost",
+  );
+  return injectKPageSlot(layoutWithEmptyPage, pageInner, "innermost");
 }
 
 export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Island<any, any> {
@@ -225,6 +329,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   const Wrapped = layout(KeyedPage);
 
   (Wrapped as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] = leafPage;
+  (Wrapped as unknown as Record<symbol, LayoutHandler>)[WRAP_LAYOUT_HANDLER] = layout;
 
   function pageMountHost(host: Element): Element {
     const slots = [...host.querySelectorAll('[data-ilha-slot="k:page"]')].filter((slot) => {
@@ -297,12 +402,17 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
     if (!open) return pageBlock;
 
     const pageInner = extractHydratableInnerHtml(pageBlock);
-    const slotContent = childWrapped
-      ? await wrapLayoutSlotMarkup(childWrapped, leafPage, resolvedProps, opts)
-      : pageInner;
+    let slotContent = pageInner;
+    if (childWrapped) {
+      slotContent = await wrapLayoutSlotMarkup(childWrapped, leafPage, resolvedProps, opts);
+    }
 
-    const layoutInner = Wrapped.toString(resolvedProps as never);
-    const layoutInnerOut = injectKPageSlot(layoutInner, slotContent, "first");
+    const layoutWithEmptyPage = injectKPageSlot(
+      layoutHtmlWithEmptyKPage(Wrapped, resolvedProps),
+      "",
+      "first",
+    );
+    const layoutInnerOut = injectKPageSlot(layoutWithEmptyPage, slotContent, "first");
 
     return `<${open.tag} ${open.attrs}>${layoutInnerOut}</${open.tag}>`;
   };

@@ -2046,6 +2046,56 @@ describe("wrapError / wrapLayout hydration", () => {
     unmount();
   });
 
+  it("nested wrapLayout hydratable ignores </div> and nested <pre> in twoslash when locating k:page close", async () => {
+    const Page = ilha.render(
+      () =>
+        html`
+          <article>
+            <pre class="shiki twoslash">
+              <code>
+                <span class="twoslash-hover"
+                  ><span class="twoslash-popup-container"
+                    ><code class="twoslash-popup-code"
+                      ><pre class="shiki"><code>&lt;div data-ilha="x"&gt;&lt;/div&gt;</code></pre></code
+                    ></span
+                  ></span
+                >
+              </code>
+            </pre>
+            <p data-page-marker>page</p>
+          </article>
+        `,
+    );
+
+    const InnerLayout = defineLayout((children) =>
+      ilha.render(
+        () => html`
+          <div data-inner-layout>
+            <section>${children()}</section>
+          </div>
+        `,
+      ),
+    );
+
+    const OuterLayout = defineLayout((children) =>
+      ilha.render(
+        () => html`
+          <div data-outer-layout>${children()}</div>
+        `,
+      ),
+    );
+
+    const Wrapped = wrapLayout(OuterLayout, wrapLayout(InnerLayout, Page));
+    const result = await Wrapped.hydratable({}, { name: "slug", snapshot: true });
+
+    expect((result.match(/data-inner-layout/g) ?? []).length).toBe(1);
+    expect((result.match(/data-page-marker/g) ?? []).length).toBe(1);
+    expect((result.match(/data-ilha-slot="k:page"/g) ?? []).length).toBe(2);
+    expect(result).toMatch(
+      /data-ilha-slot="k:page"[^>]*>[\s\S]*data-inner-layout[\s\S]*data-ilha-slot="k:page"[^>]*>[\s\S]*data-page-marker/,
+    );
+  });
+
   it("wrapLayout mount wires page handlers through outer hydratable shell", async () => {
     const Page = ilha
       .state("count", 0)

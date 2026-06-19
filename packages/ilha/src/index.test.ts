@@ -971,6 +971,43 @@ describe("Island mount", () => {
       expect(true).toBe(true);
     });
 
+    it("combined @load fires for an iframe rendered after mount", async () => {
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+      const calls: string[] = [];
+      const Island = ilha
+        .state("mounted", false)
+        .state("loaded", false)
+        .onMount(({ state }) => {
+          state.mounted(true);
+        })
+        .on("iframe@load", ({ event, target, state }) => {
+          calls.push(target.tagName);
+          expect(event.type).toBe("load");
+          state.loaded(true);
+        })
+        .render(({ state }) =>
+          state.mounted()
+            ? `<iframe data-frame></iframe><p>${state.loaded()}</p>`
+            : `<div data-placeholder></div><p>${state.loaded()}</p>`,
+        );
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      await Promise.resolve();
+
+      const frame = el.querySelector("iframe") as HTMLIFrameElement;
+      expect(frame).toBeTruthy();
+
+      frame.dispatchEvent(new Event("load"));
+
+      expect(calls).toEqual(["IFRAME"]);
+      expect(el.querySelector("p")!.textContent).toBe("true");
+
+      unmount();
+      cleanup(el);
+      warnSpy.mockRestore();
+    });
+
     it("combined and legacy forms coexist on the same Island", () => {
       const log: string[] = [];
       const Island = ilha
@@ -1647,6 +1684,43 @@ describe("Island mount", () => {
 
       await new Promise((r) => setTimeout(r, 20));
       expect(log).toContain("leave-done");
+
+      cleanup(el);
+    });
+
+    it("child async leave runs while slot element stays connected", async () => {
+      const log: string[] = [];
+
+      const Child = ilha
+        .transition({
+          leave: (host) =>
+            new Promise<void>((resolve) =>
+              setTimeout(() => {
+                log.push(host.isConnected ? "connected" : "detached");
+                resolve();
+              }, 15),
+            ),
+        })
+        .render(
+          () =>
+            html`
+              <p class="child">child</p>
+            `,
+        );
+
+      const Parent = ilha
+        .state("open", true)
+        .on("button@click", ({ state }) => state.open(false))
+        .render(
+          ({ state }) => html`<div><button>close</button>${state.open() ? Child() : ""}</div>`,
+        );
+
+      const el = makeEl();
+      Parent.mount(el);
+      (el.querySelector("button") as HTMLButtonElement).click();
+
+      await new Promise((r) => setTimeout(r, 30));
+      expect(log).toEqual(["connected"]);
 
       cleanup(el);
     });

@@ -1,0 +1,26 @@
+---
+title: .state()
+description: Tutorial — define reactive state properties that trigger UI updates with the .state() builder method.
+order: 101
+---
+
+# State
+
+Ilha uses Signals to make your components reactive. Use the `.state()` builder method
+to define state - any property declared here will automatically trigger UI updates when it changes.
+Pass the property name and its initial value. All state properties are then available
+inside `.render()` via the `state` property.
+
+```tsx preview
+import ilha from "ilha";
+
+export default ilha
+  .state("count", 0)
+  .render(({ state }) => <p>Count: {state.count()}</p>);
+```
+
+## Similar concepts
+
+- React: `useState`
+- Vue: `reactive()`
+- Svelte: `$state()`

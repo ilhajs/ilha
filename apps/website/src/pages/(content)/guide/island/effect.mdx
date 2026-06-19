@@ -1,0 +1,194 @@
+---
+title: .effect()
+description: Register reactive side effects that run after mount and re-run when signal dependencies change.
+order: 205
+---
+
+import { Preview } from "$lib/components/preview";
+
+export const example = `import ilha from "ilha";
+import { Input } from "areia";
+import { each } from "quando";
+
+export default ilha
+  .state("changes", [] as string[])
+  .state("label", "Hello")
+  .effect(({ state }) => {
+    const label = state.label();
+    if (!label) return;
+    const head = state.changes()[0];
+    if (head === label) return;
+    state.changes([label, ...state.changes()]);
+  })
+  .render(({ state }) => (
+    <div class="flex flex-col gap-2">
+      <Input bind:value={state.label} />
+      {each(state.changes())
+        .as((change, index) => (
+          <p key={index}>{change}</p>
+        ))
+        .else(<p>No changes yet.</p>)}
+    </div>
+  ));
+`
+
+# Effect
+
+Registers a reactive side effect that runs after the island mounts and re-runs automatically whenever any signal it reads changes. Use it to sync state to the outside world — the DOM, browser APIs, timers, or external systems.
+
+[Interactive Tutorial](/tutorial/counter/effect)
+
+## Basic usage
+
+<Preview code={example} size="lg" />
+
+Every time `state.title` changes, the effect re-runs and updates `document.title`.
+
+## Cleanup
+
+Return a function from the effect to clean up before the next run or on unmount:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Island = ilha
+  .state("delay", 1000)
+  .effect(({ state }) => {
+    const id = setInterval(() => {
+      console.log("tick");
+    }, state.delay());
+    return () => clearInterval(id); // [!code highlight]
+  })
+  .render(({ state }) => <p>Interval: {state.delay()}ms</p>);
+```
+
+The cleanup runs before the effect re-runs with new values, and once more on unmount. This prevents stale timers, subscriptions, or event listeners from accumulating.
+
+## Cancelling async work with `ctx.signal`
+
+Unlike `.on()`, race-cancellation is the **default** behaviour for effects (no modifier needed). When a dependency changes, the previous run's signal aborts automatically. Pass `signal` to async work to bail out of stale invocations:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Island = ilha
+  .state("userId", 1)
+  .state("user", null as { name: string } | null)
+  .effect(({ state, signal }) => {
+    fetch(`/api/users/${state.userId()}`, { signal })
+      .then((res) => {
+        if (signal.aborted) return;
+        return res.json();
+      })
+      .then((data) => {
+        if (signal.aborted) return;
+        state.user(data as { name: string });
+      })
+      .catch((err) => {
+        if (err && err.name === "AbortError") return;
+        throw err;
+      });
+  })
+  .render(({ state }) => (
+    <p>{state.user()?.name ?? "Loading…"}</p>
+  ));
+```
+
+Both the user-supplied cleanup function (if any) and the signal abort fire when the effect re-runs, so you can mix patterns.
+
+## Effect context
+
+The effect function receives an `EffectContext`:
+
+```ts
+{
+  state: IslandState; // reactive state signals
+  derived: IslandDerived; // derived signal accessors (same as render / .on())
+  input: TInput; // resolved input props
+  host: Element; // island root element
+  signal: AbortSignal; // aborts when the effect re-runs or the island unmounts
+}
+```
+
+Reading `derived.name()` subscribes the effect, like state. Writing `derived.name(value)` for optimistic UI does **not** subscribe — only reads and envelope property access (`.loading`, `.value`, `.error`) are tracked.
+
+## Multiple effects
+
+Chain `.effect()` as many times as needed. Each runs independently with its own dependency tracking:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Island = ilha
+  .state("title", "Hello")
+  .state("color", "teal")
+  .effect(({ state }) => {
+    document.title = state.title();
+  })
+  .effect(({ state }) => {
+    document.body.style.backgroundColor = state.color();
+  })
+  .render(({ state }) => <p>{state.title()}</p>);
+```
+
+## Implicit batching
+
+Multiple synchronous state writes inside an effect run propagate atomically — dependents see the final state and run once instead of once per write:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Island = ilha
+  .state("a", 0)
+  .state("b", 0)
+  .effect(({ state }) => {
+    // These two writes produce a single re-render.
+    state.a(state.a() + 1);
+    state.b(state.b() + 1);
+    console.log(state.a(), state.b());
+  })
+  .render(({ state }) => (
+    <p>
+      {state.a()} {state.b()}
+    </p>
+  ));
+```
+
+## Conditional reads
+
+Dependencies are tracked based on which signals are actually read during a run. Signals inside a branch that does not execute are not tracked:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Island = ilha
+  .state("enabled", false)
+  .state("value", 0)
+  .effect(({ state }) => {
+    if (!state.enabled()) return; // if false, state.value is never read
+    console.log(state.value()); // only tracked when enabled is true
+  })
+  .render(({ state }) => <p>{state.value()}</p>);
+```
+
+This means the effect only re-runs when `state.value` changes if `state.enabled` was `true` during the last run.
+
+## `.effect()` vs `.onMount()`
+
+Both run after mount, but they serve different purposes:
+
+|                    | `.effect()`                    | `.onMount()`   |
+| ------------------ | ------------------------------ | -------------- |
+| Re-runs            | Yes, when dependencies change  | No, runs once  |
+| Tracks signals     | Yes                            | No             |
+| Receives `derived` | Yes                            | Yes            |
+| Cleanup support    | Yes                            | Yes            |
+| Use for            | Reactive sync to external APIs | One-time setup |
+
+If you need something to happen only once after mount, use [`.onMount()`](/guide/island/onmount). If you need it to stay in sync with state over time, use `.effect()`.
+
+## Notes
+
+- Effects run client-side only. They are not called during SSR.
+- The effect runs synchronously after the first mount, before the browser paints. Keep effects fast to avoid blocking rendering.
+- Avoid writing to signals inside an effect that reads those same signals — this creates an infinite loop.
