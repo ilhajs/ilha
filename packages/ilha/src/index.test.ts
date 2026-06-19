@@ -1762,6 +1762,89 @@ describe("Island mount", () => {
       unmount();
       cleanup(el);
     });
+
+    it("ignores malformed data-ilha-state JSON and degrades gracefully", () => {
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+      const Counter = ilha
+        .input(z.object({ count: z.number().default(0) }))
+        .state("count", ({ count }) => count)
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      el.setAttribute("data-ilha-state", "{not valid json");
+
+      const unmount = Counter.mount(el, { count: 7 });
+      // Snapshot ignored — falls back to input props.
+      expect(el.querySelector("p")!.textContent).toBe("7");
+      expect(warnSpy).toHaveBeenCalled();
+
+      unmount();
+      cleanup(el);
+      warnSpy.mockRestore();
+    });
+
+    it("ignores an oversized data-ilha-state snapshot", () => {
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+      const Counter = ilha
+        .input(z.object({ count: z.number().default(0) }))
+        .state("count", ({ count }) => count)
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      // Valid JSON but past the size cap — must be rejected before parse.
+      const huge = "x".repeat(256 * 1024 + 1);
+      el.setAttribute("data-ilha-state", JSON.stringify({ count: 99, pad: huge }));
+
+      const unmount = Counter.mount(el, { count: 3 });
+      expect(el.querySelector("p")!.textContent).toBe("3");
+      expect(warnSpy).toHaveBeenCalled();
+
+      unmount();
+      cleanup(el);
+      warnSpy.mockRestore();
+    });
+
+    it("ignores a pathologically deep data-ilha-state snapshot", () => {
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+      const Counter = ilha
+        .input(z.object({ count: z.number().default(0) }))
+        .state("count", ({ count }) => count)
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      // Build a 40-level-deep nested object (cap is 32).
+      let deep: Record<string, unknown> = { count: 99 };
+      for (let i = 0; i < 40; i++) deep = { nested: deep };
+      el.setAttribute("data-ilha-state", JSON.stringify(deep));
+
+      const unmount = Counter.mount(el, { count: 5 });
+      expect(el.querySelector("p")!.textContent).toBe("5");
+      expect(warnSpy).toHaveBeenCalled();
+
+      unmount();
+      cleanup(el);
+      warnSpy.mockRestore();
+    });
+
+    it("ignores a non-object (scalar/array) data-ilha-state snapshot", () => {
+      const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+      const Counter = ilha
+        .input(z.object({ count: z.number().default(0) }))
+        .state("count", ({ count }) => count)
+        .render(({ state }) => `<p>${state.count()}</p>`);
+
+      const el = makeEl();
+      // Valid JSON, but an array — not a usable state snapshot.
+      el.setAttribute("data-ilha-state", JSON.stringify([1, 2, 3]));
+
+      const unmount = Counter.mount(el, { count: 8 });
+      expect(el.querySelector("p")!.textContent).toBe("8");
+      expect(warnSpy).toHaveBeenCalled();
+
+      unmount();
+      cleanup(el);
+      warnSpy.mockRestore();
+    });
   });
 
   // ---------------------------------------------
@@ -2830,6 +2913,52 @@ describe("child islands (render-time composition)", () => {
       const Parent = ilha.derived("ready", async () => true).render(() => html`<p>${Child}</p>`);
 
       await expect(Parent()).resolves.toBe(`<p><span data-ilha-slot="p:0">resolved</span></p>`);
+    });
+
+    it("concurrent async-SSR renders do not interleave their render contexts", async () => {
+      // Two independent parents, each with an async derived and an async child,
+      // rendered concurrently via Promise.all. The child resolutions are
+      // staggered so the two renders' async phases overlap in time. The render
+      // context is popped synchronously (before awaiting child resolution), so
+      // each parent must collect only its own slot — no cross-contamination.
+      const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+      const ChildA = ilha
+        .as("span")
+        .derived("msg", async () => {
+          await delay(20);
+          return "A-child";
+        })
+        .render(({ derived }) => html`${derived.msg.loading ? "" : derived.msg.value}`);
+
+      const ChildB = ilha
+        .as("em")
+        .derived("msg", async () => {
+          await delay(5);
+          return "B-child";
+        })
+        .render(({ derived }) => html`${derived.msg.loading ? "" : derived.msg.value}`);
+
+      const ParentA = ilha
+        .derived("ready", async () => {
+          await delay(10);
+          return true;
+        })
+        .render(() => html`<p>A:${ChildA}</p>`);
+
+      const ParentB = ilha
+        .derived("ready", async () => {
+          await delay(2);
+          return true;
+        })
+        .render(() => html`<div>B:${ChildB}</div>`);
+
+      const [a, b] = await Promise.all([ParentA(), ParentB()]);
+
+      // Each parent's wrapper tag, slot tag, and resolved child content must be
+      // exactly its own — a leaked context would swap slot tags or content.
+      expect(a).toBe(`<p>A:<span data-ilha-slot="p:0">A-child</span></p>`);
+      expect(b).toBe(`<div>B:<em data-ilha-slot="p:0">B-child</em></div>`);
     });
 
     it("span slot is preserved while prop updates re-render the child", () => {
@@ -5908,6 +6037,165 @@ describe(".onError()", () => {
 
     unmount();
     cleanup(el);
+  });
+
+  it("routes throwing .onMount() callbacks through .onError() with source 'mount'", () => {
+    const captured: { error: Error; source: string }[] = [];
+    const Island = ilha
+      .onMount(() => {
+        throw new Error("mount-boom");
+      })
+      .onError(({ error, source }) => captured.push({ error, source }))
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+
+    expect(captured.length).toBe(1);
+    expect(captured[0]!.error.message).toBe("mount-boom");
+    expect(captured[0]!.source).toBe("mount");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("routes throwing onMount cleanups through .onError() with source 'mount'", () => {
+    const captured: { error: Error; source: string }[] = [];
+    const Island = ilha
+      .onMount(() => () => {
+        throw new Error("cleanup-boom");
+      })
+      .onError(({ error, source }) => captured.push({ error, source }))
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(captured.length).toBe(0);
+    unmount();
+
+    expect(captured.length).toBe(1);
+    expect(captured[0]!.error.message).toBe("cleanup-boom");
+    expect(captured[0]!.source).toBe("mount");
+
+    cleanup(el);
+  });
+
+  it("routes throwing transition.enter through .onError() with source 'transition'", () => {
+    const captured: { error: Error; source: string }[] = [];
+    const Island = ilha
+      .transition({
+        enter: () => {
+          throw new Error("enter-boom");
+        },
+      })
+      .onError(({ error, source }) => captured.push({ error, source }))
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+
+    expect(captured.length).toBe(1);
+    expect(captured[0]!.error.message).toBe("enter-boom");
+    expect(captured[0]!.source).toBe("transition");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("routes rejecting transition.leave through .onError() with source 'transition'", async () => {
+    const captured: { error: Error; source: string }[] = [];
+    const Island = ilha
+      .transition({
+        leave: () => Promise.reject(new Error("leave-boom")),
+      })
+      .onError(({ error, source }) => captured.push({ error, source }))
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    await unmount();
+
+    expect(captured.length).toBe(1);
+    expect(captured[0]!.error.message).toBe("leave-boom");
+    expect(captured[0]!.source).toBe("transition");
+
+    cleanup(el);
+  });
+
+  it("falls back to the global onUncaughtError sink when no .onError() is registered", () => {
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const captured: { error: Error; source: string }[] = [];
+    const off = ilha.onUncaughtError((error, source) => captured.push({ error, source }));
+
+    const Island = ilha
+      .on("@click", () => {
+        throw new Error("global-boom");
+      })
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    (el as HTMLElement).click();
+
+    expect(captured.length).toBe(1);
+    expect(captured[0]!.error.message).toBe("global-boom");
+    expect(captured[0]!.source).toBe("on");
+    // Global sink handled it, so console.error must NOT also fire.
+    expect(errSpy).not.toHaveBeenCalled();
+
+    off();
+    unmount();
+    cleanup(el);
+    errSpy.mockRestore();
+  });
+
+  it("local .onError() takes precedence over the global sink", () => {
+    const local: string[] = [];
+    const global: string[] = [];
+    const off = ilha.onUncaughtError((error) => global.push(error.message));
+
+    const Island = ilha
+      .on("@click", () => {
+        throw new Error("precedence");
+      })
+      .onError(({ error }) => local.push(error.message))
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    (el as HTMLElement).click();
+
+    expect(local).toEqual(["precedence"]);
+    expect(global).toEqual([]);
+
+    off();
+    unmount();
+    cleanup(el);
+  });
+
+  it("onUncaughtError returns an unsubscribe that stops further delivery", () => {
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const captured: string[] = [];
+    const off = ilha.onUncaughtError((error) => captured.push(error.message));
+    off();
+
+    const Island = ilha
+      .on("@click", () => {
+        throw new Error("after-off");
+      })
+      .render(() => `<p>x</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    (el as HTMLElement).click();
+
+    expect(captured).toEqual([]);
+    // No global handler left — falls back to console.error.
+    expect(errSpy).toHaveBeenCalledTimes(1);
+
+    unmount();
+    cleanup(el);
+    errSpy.mockRestore();
   });
 });
 

@@ -12,52 +12,56 @@ import { MultiCopy } from "imprensa/components";
 
 The `@ilha/store/form` import path adds small helpers on [Standard Schema](https://standardschema.dev) (Zod, Valibot, ArkType, and others). See [Forms](#forms) below.
 
-Island [`.state()`](/guide/island/state) is **local** to one component. Use `@ilha/store` when state must be **shared** across islands or updated from non-island code (`getState`, `setState`, `subscribe`, `select`, `bind` for `bind:*` fields).
+Island [`.state()`](/guide/island/state) is **local** to one component. Use `@ilha/store` when state must be **shared** across islands or updated from non-island code.
 
 ## Install
 
 <MultiCopy
   values={{
-    npm: "npm install @ilha/store ilha",
-    pnpm: "pnpm add @ilha/store ilha",
-    bun: "bun add @ilha/store ilha",
+    npm: "npm install @ilha/store",
+    pnpm: "pnpm add @ilha/store",
+    bun: "bun add @ilha/store",
   }}
 />
 
-`ilha` is a peer dependency. Install both so `select` and `bind` work in templates.
+`ilha` is an optional peer dependency. Install both so `bind:*` directives and signal tracking work in templates.
 
 ## Import paths
 
-| Import path        | Use it for                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------------------ |
-| `@ilha/store`      | `createStore`, store types, subscriptions, `select`, `bind`, and `effectScope`.            |
-| `@ilha/store/form` | Form extraction, Standard Schema validation, async validation, and issue-to-error mapping. |
+| Import path        | Use it for                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| `@ilha/store`      | `store`, store types, subscriptions, `select`, `bind`, and `effectScope`              |
+| `@ilha/store/form` | Form extraction, Standard Schema validation, async validation, issue-to-error mapping |
 
 ## Quick start
 
 ```ts
-import { createStore } from "@ilha/store";
+import { store } from "@ilha/store";
 
-const store = createStore({ count: 0 });
+const counterStore = store({ count: 0, label: "counter" })
+  .derived("doubled", (ctx) => ctx.get().count * 2)
+  .middleware((patch, ctx, next) => {
+    // guard: floor count at zero
+    if (patch.count !== undefined && patch.count < 0) return;
+    next(patch);
+  })
+  .action("increment", (_, ctx) => ({
+    count: ctx.get().count + 1,
+  }))
+  .action("decrement", (_, ctx) => ({
+    count: ctx.get().count - 1,
+  }))
+  .action("setLabel", (label: string) => ({ label }))
+  .on("change", (state) => {
+    localStorage.setItem("counter", JSON.stringify(state));
+  })
+  .build();
 
-store.setState({ count: 1 });
-store.getState(); // → { count: 1 }
-```
-
-With encapsulated actions:
-
-```ts
-const store = createStore({ count: 0 }, (set, get) => ({
-  increment() {
-    set({ count: get().count + 1 });
-  },
-  reset() {
-    set({ count: 0 });
-  },
-}));
-
-store.getState().increment();
-store.getState().count; // → 1
+counterStore.count(); // 0  — reactive read
+counterStore.count(5); // write → goes through middleware
+counterStore.doubled(); // 10 — reactive derived
+counterStore.increment(); // 6
+counterStore.getState(); // { count: 6, label: "counter" }
 ```
 
 ## When to use
@@ -66,134 +70,177 @@ ilha's built-in `.state()` is the right choice when only one island reads and wr
 
 - **Shared across multiple islands** — e.g. a cart, auth session, or active theme
 - **Updated from outside an island** — e.g. from a WebSocket handler or global event bus
-- **Persisted or derived globally** — e.g. synced to `localStorage` via a `subscribe` listener
-- **Form state** — pair `createStore` with `@ilha/store/form` helpers for typed validation, error mapping, and submission handling
+- **Persisted or derived globally** — e.g. synced to `localStorage` via `.on("change", …)`
+- **Form state** — pair with `@ilha/store/form` helpers for typed validation and error mapping
 
 ## API
 
-### `createStore(initialState, actions?)`
+### `store(initialState)`
 
-Creates a store. Optionally accepts an actions creator for encapsulating mutations.
+Returns a `StoreBuilder`. Chain builder methods then call `.build()` to get a live reactive store. `.build()` throws if any key collides across state, derived, actions, and built-in method names.
 
 ```ts
-// State only
-const store = createStore({ count: 0, name: "Ada" });
-
-// State + actions
-const store = createStore(
-  { count: 0 },
-  (set, get, getInitialState) => ({
-    increment() {
-      set({ count: get().count + 1 });
-    },
-    reset() {
-      set(getInitialState());
-    },
-  }),
-);
+const s = store({ count: 0 }).build();
 ```
 
-The actions creator receives:
+Builder methods are **immutable** — each returns a new `StoreBuilder`.
 
-| Argument            | Description                                                       |
-| ------------------- | ----------------------------------------------------------------- |
-| `set(patch \| fn)`  | Merge a partial patch or apply an updater function                |
-| `get()`             | Read the current live state, including other actions              |
-| `getInitialState()` | Read the frozen initial state snapshot as it was at creation time |
+### `.derived(key, fn)`
 
-Actions are live functions that survive `setState` calls and are accessible directly on the state object:
+Registers a computed value. `fn` receives `ctx`; `ctx.get()` returns the current raw state.
 
 ```ts
-store.getState().increment(); // calls set internally
+store({ count: 0 })
+  .derived("doubled", (ctx) => ctx.get().count * 2)
+  .build();
 ```
 
-### `store.setState(update)`
+Derived accessors expose an envelope — `()`/`.value`, `.loading`, `.error`. For sync deriveds, `.loading` is always `false`.
 
-Merges a shallow partial update. Accepts a plain object or an updater function. Keys not included in the patch are preserved.
+**Async derived** — `fn` can be `async`. It re-runs when its `ctx.get()` dependencies change, aborts stale runs via `ctx.signal`, and surfaces the async lifecycle:
 
 ```ts
-store.setState({ count: 5 });
-store.setState((s) => ({ count: s.count + 1 }));
+const userStore = store({ id: 1 })
+  .derived("user", async (ctx) => {
+    const res = await fetch(`/api/users/${ctx.get().id}`, {
+      signal: ctx.signal,
+    });
+    return res.json();
+  })
+  .build();
+
+userStore.user.loading; // true while fetching
+userStore.user(); // User | undefined
+userStore.user.error; // Error | undefined on rejection
 ```
 
-### `store.getState()`
+Re-running (when `id` changes) keeps the previous `.value` visible while `.loading` is `true`.
 
-Returns the current state snapshot. When state has not changed, returns a stable reference.
+### `.action(key, fn)`
+
+Registers a named mutation. `fn` receives props and `ctx`; return a `Partial` patch that merges into state through middleware.
 
 ```ts
-store.getState(); // → { count: 5, increment: [Function], reset: [Function] }
+// Zero-arg — omit or leave first param unannotated
+.action("increment", (_, ctx) => ({ count: ctx.get().count + 1 }))
+
+// Typed props — annotate the first parameter
+.action("setLabel", (label: string) => ({ label }))
 ```
 
-### `store.getInitialState()`
-
-Returns the frozen initial state as it was at construction time. Not affected by subsequent `setState` calls. Useful for reset actions.
+`ctx` exposes `{ get(), getInitial(), set(patch) }`. Use `ctx.set` for async/multi-step actions and `return {}`:
 
 ```ts
-store.getInitialState(); // → { count: 0 }
-
-// Reset from outside an action:
-store.setState(store.getInitialState());
+.action("load", (_, ctx) => {
+  ctx.set({ loading: true });
+  fetchUser(ctx.get().id).then((user) => ctx.set({ user, loading: false }));
+  return {};
+})
 ```
 
-### `store.subscribe(listener)`
+### `.middleware(fn)`
 
-Subscribes to all state changes. The listener receives `(newState, prevState)` and is **not** called on initial subscription. Returns an unsubscribe function.
+Intercepts every state mutation before it commits. Receives `(patch, ctx, next)`. Call `next(patch)` to continue or return early to block. Applies to accessor writes, `setState`, actions, and `bind` writes.
 
 ```ts
-const unsub = store.subscribe((state, prev) => {
-  console.log(state.count, prev.count);
+store({ count: 0 }).middleware((patch, ctx, next) => {
+  console.log("before:", ctx.get().count);
+  next(patch);
 });
-
-unsub(); // stop listening
 ```
 
-### `store.subscribe(selector, listener)` — slice subscription
+Multiple middlewares compose in registration order.
 
-Subscribes to a derived slice. The listener only fires when the selected value changes (compared with `Object.is`), so unrelated state updates are ignored.
+### `.on(event, handler)`
+
+Registers a lifecycle listener. `handler` receives `(nextState, prevState)`.
+
+| Event      | When it fires                                    |
+| ---------- | ------------------------------------------------ |
+| `"init"`   | Once, synchronously inside `.build()`            |
+| `"change"` | After every committed mutation (post-middleware) |
+
+### `.build()`
+
+Finalizes the builder and returns a live reactive store.
+
+---
+
+### Built-in store methods
+
+#### State accessors
+
+Every state key is a **signal-shaped accessor** on the built store — call to read, call with a value to write:
 
 ```ts
-const unsub = store.subscribe(
-  (s) => s.count,
-  (count, prev) =>
-    console.log("count changed:", prev, "→", count),
+s.count(); // reactive read
+s.count(5); // write → goes through middleware
+```
+
+Writes are reactive: any ilha render or derived that called `s.count()` re-runs. Accessors carry `[SIGNAL_ACCESSOR]` so they work directly in `html\`\``templates and`bind:\*` directives.
+
+#### `store.setState(patch)`
+
+Atomic multi-key write — one commit, one `"change"`, one re-render. Routes through middleware.
+
+```ts
+s.setState({ a: 1, b: 2 });
+```
+
+#### `store.reset()`
+
+Resets to the initial state captured at `.build()` time. Routes through middleware; no-op if already at initial state.
+
+#### `store.getState()` / `store.getInitialState()`
+
+Raw `TState` snapshots — no derived values, no actions. `getInitialState()` is frozen at `.build()` time.
+
+#### `store.subscribe(listener)` / `store.subscribe(selector, listener)`
+
+Full-state and slice forms. Neither fires on initial subscription. Both return an unsubscribe function.
+
+```ts
+const unsub = s.subscribe((state, prev) =>
+  console.log(state, prev),
 );
+const unsub2 = s.subscribe(
+  (s) => s.count,
+  (count, prev) => {
+    /* … */
+  },
+);
+unsub();
 ```
 
-### `store.select(selector)` — reactive read
+#### `store.select(selector)` — reactive read accessor
 
-Projects a slice into a signal-shaped `() => S` accessor. Use inside island `.render()` (or `.derived()` / `.effect()`) so Ilha tracks store changes and re-renders automatically.
+Projects a slice into a `() => S` signal accessor. Hoist outside render functions — each call allocates a fresh `computed`.
 
 ```ts
-const count = store.select((s) => s.count);
-count(); // read; reactive in render scopes
+const count = s.select((st) => st.count);
+count(); // reactive
 ```
 
-Hoist `select` (and `bind`) at module scope — each call allocates a fresh computed.
+Use state accessors directly (`s.count()`) instead of `select` when you don't need an ad-hoc projection.
 
-### `store.bind(selector)` — two-way `bind:*`
+#### `store.bind(selector)` — two-way `bind:*`
 
-Returns a read/write accessor for a **property path** only (`s => s.search.query`), marked for Ilha `bind:value`, `bind:checked`, `bind:open`, etc. Use `select` for read-only lists and derived UI.
+Returns a read/write accessor for ilha's `bind:*` directives. Accepts property-path selectors only (`s => s.user.name`). Writes go through middleware.
 
-```tsx
-const cartStore = createStore({ name: "" });
-const name = cartStore.bind((s) => s.name);
-
-export const Field = ilha.render(() => (
-  <input bind:value={name} />
-));
+```ts
+const query = s.bind((st) => st.search.query);
+// <input bind:value={query} />
 ```
-
-`bind(selector)` does not render HTML into arbitrary DOM nodes — use islands + `select` for display.
 
 ## `effectScope`
 
 Re-exported from alien-signals. Runs a setup function inside a reactive scope and returns `stop()` to tear down every `subscribe` effect registered inside it.
 
 ```ts
-import { createStore, effectScope } from "@ilha/store";
+import { store, effectScope } from "@ilha/store";
 
 const stop = effectScope(() => {
-  store.subscribe((s) => console.log(s.count));
+  myStore.subscribe((s) => console.log(s.count));
 });
 
 stop();
@@ -201,40 +248,39 @@ stop();
 
 ## Usage with ilha islands
 
-Prefer reading the accessor inside `.render()` so the island subscribes to the store through the same reactive graph as island state — no manual `.effect()` bridge unless you need imperative sync.
+State and derived accessors are signal-shaped — use them **directly** inside `.render()`, `.derived()`, and `.effect()` without `.select()` wrappers:
 
 ```tsx
-import { createStore } from "@ilha/store";
-import ilha from "ilha";
+import { store } from "@ilha/store";
+import ilha, { html } from "ilha";
 
-export const cartStore = createStore(
-  { items: [] as string[] },
-  (set, get) => ({
-    add(item: string) {
-      set({ items: [...get().items, item] });
-    },
-    remove(item: string) {
-      set({ items: get().items.filter((i) => i !== item) });
-    },
-  }),
+const cartStore = store({ items: [] as string[] })
+  .action("add", (item: string, ctx) => ({
+    items: [...ctx.get().items, item],
+  }))
+  .derived("count", (ctx) => ctx.get().items.length)
+  .build();
+
+// State and derived read directly — no .select() needed
+export const CartBadge = ilha.render(
+  () => html`<span>${cartStore.count()}</span>`,
 );
 
-const items = cartStore.select((s) => s.items);
-
-export const CartIsland = ilha.render(() => (
-  <ul>
-    {items().map((item) => (
-      <li>{item}</li>
-    ))}
-  </ul>
-));
+export const CartList = ilha.render(
+  () =>
+    html`<ul>
+      ${cartStore.items().map((item) => html`<li>${item}</li>`)}
+    </ul>`,
+);
 ```
 
-When the store updates, accessors read in render re-run the island and Ilha updates the DOM.
+Both islands stay in sync. `CartBadge` re-renders only when `count` changes; `CartList` only when `items` changes.
+
+Use `.select()` for ad-hoc projections not worth a named `.derived()`, and `.bind()` for two-way form fields.
 
 ## Forms
 
-Three small helpers for building typed, validated forms with any [Standard Schema](https://standardschema.dev)-compatible library. They are **unopinionated** — you compose them with `createStore` however you like; nothing is imposed about your form's state shape.
+Three small helpers for building typed, validated forms with any [Standard Schema](https://standardschema.dev)-compatible library.
 
 ```ts
 import {
@@ -247,7 +293,7 @@ import {
 
 ### `extractFormData(source)`
 
-Turns an `HTMLFormElement` (or a `FormData` instance) into a plain object. Single fields stay scalar; repeated keys (checkbox groups, multi-selects) collapse to arrays. File inputs pass through as `File` values.
+Turns an `HTMLFormElement` (or `FormData`) into a plain object. Single fields stay scalar; repeated keys collapse to arrays. File inputs pass through as `File` values.
 
 ```ts
 const data = extractFormData(event.target as HTMLFormElement);
@@ -256,38 +302,11 @@ const data = extractFormData(event.target as HTMLFormElement);
 
 ### `validateWithSchema(schema, data)`
 
-Runs a Standard Schema synchronously and returns a discriminated union — **never throws**.
-
-```ts
-const result = validateWithSchema(SignInSchema, data);
-if (result.ok) {
-  result.data; // ← fully typed schema output
-} else {
-  result.issues; // ← ReadonlyArray<StandardSchemaV1.Issue>
-}
-```
-
-If your schema has async refinements (e.g. server-side uniqueness checks), use `validateWithSchemaAsync` instead — same return shape, always returns a `Promise`.
-
-### `validateWithSchemaAsync(schema, data)`
-
-Runs any Standard Schema and awaits the result. Use it for async refinements, server-backed checks, or when you want one validation path that supports both sync and async schemas.
-
-```ts
-const result = await validateWithSchemaAsync(
-  SignUpSchema,
-  data,
-);
-if (result.ok) {
-  await createAccount(result.data);
-} else {
-  formStore.setState({ errors: issuesToErrors(result.issues) });
-}
-```
+Runs a Standard Schema synchronously. Never throws. Returns `{ ok: true, data }` or `{ ok: false, issues }`. Use `validateWithSchemaAsync` for async refinements.
 
 ### `issuesToErrors(issues)`
 
-Flattens Standard Schema issues into a per-field error map keyed by dot-separated path. Form-level errors (issues with no path) land under the `""` key.
+Flattens Standard Schema issues into `Record<string, string[]>` keyed by dot-separated path. Form-level errors (no path) land under `""`.
 
 ```ts
 issuesToErrors([
@@ -299,104 +318,78 @@ issuesToErrors([
 
 ### Full example — contact form
 
-These three helpers form a straight pipeline from DOM event → typed data → error state. The store holds errors; the schema drives types.
-
 ```tsx
-import { createStore } from "@ilha/store";
+import { store } from "@ilha/store";
 import {
   extractFormData,
   validateWithSchema,
   issuesToErrors,
 } from "@ilha/store/form";
 import type { FormErrors } from "@ilha/store/form";
-import ilha from "ilha";
+import ilha, { html } from "ilha";
 import { z } from "zod";
 
 const ContactSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.email("Invalid email"),
-  message: z
-    .string()
-    .min(10, "Message must be at least 10 characters"),
+  message: z.string().min(10, "Too short"),
 });
 
-const formStore = createStore(
-  { errors: {} as FormErrors },
-  (set) => ({
-    submit(event: SubmitEvent) {
-      const result = validateWithSchema(
-        ContactSchema,
-        extractFormData(event.target as HTMLFormElement),
-      );
-      if (result.ok) {
-        console.log("submitting:", result.data);
-        set({ errors: {} });
-      } else {
-        set({ errors: issuesToErrors(result.issues) });
-      }
-    },
-  }),
-);
+const formStore = store({ errors: {} as FormErrors })
+  .action("submit", (event: SubmitEvent) => {
+    const result = validateWithSchema(
+      ContactSchema,
+      extractFormData(event.target as HTMLFormElement),
+    );
+    return {
+      errors: result.ok ? {} : issuesToErrors(result.issues),
+    };
+  })
+  .build();
+
+const errors = formStore.errors; // state accessor — reactive
 
 export default ilha
   .on("form@submit", ({ event }) => {
     event.preventDefault();
-    formStore.getState().submit(event);
+    formStore.submit(event);
   })
-  .render(() => {
-    const errors = formStore.getState().errors;
-    return (
+  .render(
+    () => html`
       <form>
-        <label>
-          Name
-          <input name="name" />
-          {errors.name ? (
-            <p role="alert">{errors.name.join(", ")}</p>
-          ) : (
-            ""
-          )}
-        </label>
-        <label>
-          Email
-          <input name="email" type="email" />
-          {errors.email ? (
-            <p role="alert">{errors.email.join(", ")}</p>
-          ) : (
-            ""
-          )}
-        </label>
-        <label>
-          Message
-          <textarea name="message"></textarea>
-          {errors.message ? (
-            <p role="alert">{errors.message.join(", ")}</p>
-          ) : (
-            ""
-          )}
-        </label>
+        <input name="name" />
+        ${errors().name
+          ? html`<p role="alert">${errors().name![0]}</p>`
+          : ""}
+        <input name="email" type="email" />
+        ${errors().email
+          ? html`<p role="alert">${errors().email![0]}</p>`
+          : ""}
         <button type="submit">Send</button>
       </form>
-    );
-  });
+    `,
+  );
 ```
 
 ## TypeScript
 
-All types are inferred from the initial state and actions creator. Key exported types:
-
 ```ts
 import type {
-  StoreApi, // the store instance interface
-  SetState, // (patch | updater) => void
-  GetState, // () => T
+  StoreBuilder, // the builder type
+  BuiltStore, // the built store type
+  StateAccessor, // <T>: () => T and (value: T) => void
+  DerivedAccessor, // <T>: () => T | undefined, .loading, .value, .error
+  DerivedValue, // <T>: { loading, value, error } — the derived envelope
+  DerivedCtx, // { get(), signal } — passed to .derived()
+  ActionCtx, // { get(), getInitial(), set() } — passed to .action()
+  MiddlewareCtx, // { get(), getInitial() } — passed to .middleware()
+  StoreBindable, // <S>: read/write accessor for bind:*
   Listener, // (state, prevState) => void
   SliceListener, // (slice, prevSlice) => void
-  RenderResult, // string | RawHtml
   Unsub, // () => void
 } from "@ilha/store";
 
 import type {
-  StandardSchemaV1, // the Standard Schema spec interface
   FormResult, // { ok: true, data } | { ok: false, issues }
   FormErrors, // Record<string, string[]>
 } from "@ilha/store/form";

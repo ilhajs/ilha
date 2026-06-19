@@ -43,10 +43,76 @@ declare namespace StandardSchemaV1 {
 // Dev-mode warning helper
 // ---------------------------------------------
 
-const __DEV__ = typeof process !== "undefined" ? process.env?.["NODE_ENV"] !== "production" : true;
+declare const __ILHA_DEV__: boolean | undefined;
+
+const __DEV__ =
+  typeof __ILHA_DEV__ !== "undefined"
+    ? __ILHA_DEV__
+    : typeof process !== "undefined"
+      ? process.env?.["NODE_ENV"] !== "production"
+      : true;
 
 function warn(msg: string): void {
   if (__DEV__) console.warn(`[ilha] ${msg}`);
+}
+
+// ---------------------------------------------
+// SSR snapshot deserialization guards
+// ---------------------------------------------
+
+// Upper bound on the size of a single data-ilha-* JSON attribute (in chars).
+// SSR snapshots are author-generated and normally tiny; a payload past this
+// is almost certainly malformed or hostile, so we reject rather than hand it
+// to JSON.parse. 256 KB is generous for legitimate island props/state.
+const MAX_SNAPSHOT_CHARS = 256 * 1024;
+
+// Upper bound on nesting depth of a parsed snapshot. Deeply nested input can
+// trigger pathological work in downstream resolveInput / shallow comparisons,
+// so we cap it. 32 comfortably exceeds any reasonable props/state shape.
+const MAX_SNAPSHOT_DEPTH = 32;
+
+function exceedsMaxDepth(value: unknown, depth: number): boolean {
+  if (depth > MAX_SNAPSHOT_DEPTH) return true;
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) {
+    for (const item of value) if (exceedsMaxDepth(item, depth + 1)) return true;
+    return false;
+  }
+  for (const key in value as Record<string, unknown>) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    if (exceedsMaxDepth((value as Record<string, unknown>)[key], depth + 1)) return true;
+  }
+  return false;
+}
+
+// Parse a data-ilha-* JSON attribute defensively: cap size, parse, cap depth.
+// Returns undefined (and warns) on any failure so callers degrade gracefully
+// instead of throwing or accepting a pathological payload. `label` is used in
+// the warning to identify which attribute failed.
+function safeParseSnapshot(raw: string, label: string): unknown {
+  if (raw.length > MAX_SNAPSHOT_CHARS) {
+    warn(`${label} exceeds ${MAX_SNAPSHOT_CHARS} chars — snapshot ignored.`);
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    warn(`Failed to parse ${label} — invalid JSON, snapshot ignored.`);
+    return undefined;
+  }
+  if (exceedsMaxDepth(parsed, 1)) {
+    warn(`${label} nesting exceeds depth ${MAX_SNAPSHOT_DEPTH} — snapshot ignored.`);
+    return undefined;
+  }
+  // Hydration callers treat the snapshot as a plain object (props/state).
+  // Reject scalars, arrays, and null so a malformed payload degrades to the
+  // empty-snapshot fallback instead of being spread as state/props.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    warn(`${label} is not an object — snapshot ignored.`);
+    return undefined;
+  }
+  return parsed;
 }
 
 // Shallow equality on two resolved-input objects. Used to short-circuit
@@ -342,7 +408,9 @@ const CSS_ATTR = "data-ilha-css";
 // and `to` sides of the morph, `morphChildren` sees a matching <style> and
 // leaves it alone — no flicker, no re-parse, no special-case code in the morph.
 function buildScopedStyle(css: string): string {
-  return `<style ${CSS_ATTR}>@scope (:scope) to ([data-ilha]){${css}}</style>`;
+  // Prevent a stray "</style" in author CSS from breaking out of the element.
+  const safeCss = css.replace(/<\/style/gi, "<\\/style");
+  return `<style ${CSS_ATTR}>@scope (:scope) to ([data-ilha]){${safeCss}}</style>`;
 }
 
 export interface RawHtml {
@@ -542,7 +610,10 @@ function emitIslandSlot(
 // After the parent's render function has produced HTML with placeholder stubs
 // for async children, await each pending child and substitute its resolved
 // HTML into the parent's output. Returns the final HTML string.
-async function resolveAsyncChildren(html: string, ctx: IslandRenderCtx): Promise<string> {
+async function resolveAsyncChildren(
+  html: string,
+  ctx: Pick<IslandRenderCtx, "pending" | "slotTags">,
+): Promise<string> {
   for (const [id, promise] of ctx.pending!) {
     const inner = await promise;
     const tag = ctx.slotTags.get(id) ?? "div";
@@ -1859,7 +1930,45 @@ interface EffectEntry<
 /** Where the error originated. `"on"` covers sync throws and async rejections
  *  from `.on()` handlers; `"effect"` covers sync throws from `.effect()` runs
  *  (async work spawned inside an effect is not awaited by the runtime). */
-export type ErrorSource = "on" | "effect";
+// Where a reported error originated.
+//  - "on"         : a .on() handler threw (sync) or rejected (async)
+//  - "effect"     : a .effect() body or its cleanup threw
+//  - "mount"      : a .onMount() callback or its returned cleanup threw
+//  - "transition" : transition.enter / transition.leave threw or rejected
+// Derived errors are intentionally NOT reported here: they are surfaced as
+// first-class state via derived.x.error(). Malformed SSR snapshots are not
+// reported either — they degrade gracefully (see safeParseSnapshot).
+export type ErrorSource = "on" | "effect" | "mount" | "transition";
+
+// Global error handlers, invoked when an island reports an error and has no
+// local .onError() handler registered. Lets apps install a single app-wide
+// sink (logging/telemetry) without wiring .onError() on every island.
+const globalErrorHandlers = new Set<(error: Error, source: ErrorSource) => void>();
+
+function reportToGlobal(error: Error, source: ErrorSource): boolean {
+  if (globalErrorHandlers.size === 0) return false;
+  for (const handler of globalErrorHandlers) {
+    try {
+      handler(error, source);
+    } catch (handlerErr) {
+      console.error(handlerErr);
+    }
+  }
+  return true;
+}
+
+/**
+ * Register a global error handler invoked when any island reports an error
+ * (from .on, .effect, .onMount, or transitions) and has no local .onError()
+ * handler. Returns an unsubscribe function. Islands with their own .onError()
+ * are handled locally and do not reach the global sink.
+ */
+export function onUncaughtError(fn: (error: Error, source: ErrorSource) => void): () => void {
+  globalErrorHandlers.add(fn);
+  return () => {
+    globalErrorHandlers.delete(fn);
+  };
+}
 
 export type ErrorContext<
   TInput,
@@ -2131,29 +2240,28 @@ class IlhaBuilder<
       asyncChildren?: boolean,
     ): RenderOut | Promise<RenderOut> {
       const ctx = pushRenderCtx(liveHost, asyncChildren);
-      let isAsync = false;
       try {
         const html = unwrapHtml(fn());
+        // slots/binds are fully populated synchronously by fn(); capture them
+        // so the render context can be popped within this synchronous frame
+        // (resolveAsyncChildren only does string substitution and never reads
+        // the active render context). This balances the stack eagerly and
+        // avoids interleaving when two async islands render concurrently.
+        const slots = ctx.slots;
+        const binds = ctx.binds;
 
         if (ctx.pending && ctx.pending.size > 0) {
-          isAsync = true;
-          // Children with async derived were found — await them and substitute
-          // their resolved HTML into the parent output before returning.
+          const pending = ctx.pending;
+          const slotTags = ctx.slotTags;
           return (async () => {
-            try {
-              const resolvedHtml = await resolveAsyncChildren(html, ctx);
-              return { html: resolvedHtml, slots: ctx.slots, binds: ctx.binds };
-            } finally {
-              popRenderCtx();
-            }
+            const resolvedHtml = await resolveAsyncChildren(html, { pending, slotTags });
+            return { html: resolvedHtml, slots, binds };
           })();
         }
 
-        return { html, slots: ctx.slots, binds: ctx.binds };
+        return { html, slots, binds };
       } finally {
-        if (!isAsync) {
-          popRenderCtx();
-        }
+        popRenderCtx();
       }
     }
 
@@ -2310,11 +2418,8 @@ class IlhaBuilder<
       if (props === undefined) {
         const rawProps = host.getAttribute(PROPS_ATTR);
         if (rawProps) {
-          try {
-            props = JSON.parse(rawProps) as Partial<TInput>;
-          } catch {
-            warn("Failed to parse data-ilha-props — invalid JSON, falling back to empty props.");
-          }
+          const parsed = safeParseSnapshot(rawProps, PROPS_ATTR);
+          if (parsed !== undefined) props = parsed as Partial<TInput>;
         }
       }
 
@@ -2354,11 +2459,8 @@ class IlhaBuilder<
       let snapshotRaw: Record<string, unknown> | undefined;
       const rawState = host.getAttribute(STATE_ATTR);
       if (rawState) {
-        try {
-          snapshotRaw = JSON.parse(rawState) as Record<string, unknown>;
-        } catch {
-          warn("Failed to parse data-ilha-state — invalid JSON, snapshot ignored.");
-        }
+        const parsed = safeParseSnapshot(rawState, STATE_ATTR);
+        if (parsed !== undefined) snapshotRaw = parsed as Record<string, unknown>;
       }
 
       const stateSnapshot = snapshotRaw
@@ -2393,11 +2495,6 @@ class IlhaBuilder<
       const unmountController = new AbortController();
       cleanups.push(() => unmountController.abort());
 
-      if (transition?.enter) {
-        const result = transition.enter(host);
-        if (result instanceof Promise) result.catch(console.error);
-      }
-
       // Create derived proxy early (envelopes with initial values)
       const { proxy: derived, setup: setupDerived } = createDerivedProxy<
         TInput,
@@ -2409,12 +2506,15 @@ class IlhaBuilder<
       // Centralized error sink. Errors thrown by .on() handlers (sync or async)
       // and .effect() runs are routed through here. If any .onError() handlers
       // are registered, they run in declaration order; otherwise we fall back
-      // to console.error so errors are never silently swallowed. An error
-      // thrown by an onError handler itself is logged (we don't recurse).
+      // to the global sink, then console.error so errors are never silently
+      // swallowed. An error thrown by an onError handler itself is logged (we
+      // don't recurse).
       function reportError(err: unknown, source: ErrorSource): void {
         const error = err instanceof Error ? err : new Error(String(err));
         if (onErrors.length === 0) {
-          console.error(error);
+          // No local handler — try the app-wide sink, else log so errors are
+          // never silently swallowed.
+          if (!reportToGlobal(error, source)) console.error(error);
           return;
         }
         for (const entry of onErrors) {
@@ -2423,6 +2523,18 @@ class IlhaBuilder<
           } catch (handlerErr) {
             console.error(handlerErr);
           }
+        }
+      }
+
+      // Mount-time enter transition. Routed through reportError so a throwing
+      // or rejecting enter() surfaces via .onError()/global sink instead of an
+      // unhandled rejection.
+      if (transition?.enter) {
+        try {
+          const result = transition.enter(host);
+          if (result instanceof Promise) result.catch((err) => reportError(err, "transition"));
+        } catch (err) {
+          reportError(err, "transition");
         }
       }
 
@@ -2471,25 +2583,31 @@ class IlhaBuilder<
         entry.el.remove();
       }
 
-      function findSlot(id: string): Element | null {
-        const leavingEls = new Set([...leavingSlots.values()].map((l) => l.el));
-        // Use CSS.escape when available (DOM environments always have it); fall
-        // back to a simple attribute-safe escape for edge environments.
-        const escaped =
-          typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
-        const candidates = host.querySelectorAll(`[${SLOT_ATTR}="${escaped}"]`);
-        for (const candidate of candidates) {
-          if (leavingEls.has(candidate)) continue;
-          // Walk up from the candidate, ensuring we don't cross a [data-ilha]
-          // child-island boundary. If we reach `host`, the slot belongs to us.
-          let el: Element | null = candidate;
-          while (el && el !== host) {
-            if (el.hasAttribute("data-ilha")) break;
-            el = el.parentElement;
-          }
-          if (el === host) return candidate;
+      // Returns true if `candidate` is a slot owned by this host, i.e. walking
+      // up does not cross a [data-ilha] child-island boundary before reaching
+      // host.
+      function slotBelongsToHost(candidate: Element): boolean {
+        let el: Element | null = candidate;
+        while (el && el !== host) {
+          if (el.hasAttribute("data-ilha")) return false;
+          el = el.parentElement;
         }
-        return null;
+        return el === host;
+      }
+
+      // Single-pass index of all owned slots, keyed by id. Building this once
+      // and reusing it across a mount/rehome loop turns the previous O(n) per
+      // findSlot (and O(n²) per render for keyed lists) into O(n) total.
+      function buildSlotIndex(): Map<string, Element> {
+        const leavingEls = new Set([...leavingSlots.values()].map((l) => l.el));
+        const index = new Map<string, Element>();
+        for (const candidate of host.querySelectorAll(`[${SLOT_ATTR}]`)) {
+          if (leavingEls.has(candidate)) continue;
+          const id = candidate.getAttribute(SLOT_ATTR);
+          if (id === null || index.has(id)) continue;
+          if (slotBelongsToHost(candidate)) index.set(id, candidate);
+        }
+        return index;
       }
 
       function mountSlots(slotMap: IslandRenderCtx["slots"]) {
@@ -2502,6 +2620,7 @@ class IlhaBuilder<
 
         // Mount new slot ids that aren't yet mounted; push updated props
         // into slots that are.
+        let slotIndex: Map<string, Element> | null = null;
         for (const [id, { island: childIsland, props }] of slotMap) {
           const existing = mountedSlots.get(id);
           if (existing) {
@@ -2512,7 +2631,8 @@ class IlhaBuilder<
             continue;
           }
 
-          const slotEl = findSlot(id);
+          if (slotIndex === null) slotIndex = buildSlotIndex();
+          const slotEl = slotIndex.get(id) ?? null;
           if (!slotEl) continue;
 
           // Props may have been encoded on the slot element during SSR/hydration
@@ -2523,11 +2643,8 @@ class IlhaBuilder<
           if (slotProps === undefined) {
             const rawProps = slotEl.getAttribute(PROPS_ATTR) ?? slotEl.getAttribute("data-props");
             if (rawProps) {
-              try {
-                slotProps = JSON.parse(rawProps) as Record<string, unknown>;
-              } catch {
-                warn(`Failed to parse props on [${SLOT_ATTR}="${id}"] — invalid JSON ignored.`);
-              }
+              const parsed = safeParseSnapshot(rawProps, `props on [${SLOT_ATTR}="${id}"]`);
+              if (parsed !== undefined) slotProps = parsed as Record<string, unknown>;
             }
           }
 
@@ -2709,13 +2826,26 @@ class IlhaBuilder<
       if (!shouldSkipOnMount) {
         for (const entry of onMounts) {
           const prevSub = setActiveSub(undefined);
-          let userCleanup: (() => void) | void;
+          let userCleanup: (() => void) | void = undefined;
           try {
             userCleanup = entry.fn({ state, derived, input, host, hydrated });
+          } catch (err) {
+            reportError(err, "mount");
           } finally {
             setActiveSub(prevSub);
           }
-          if (userCleanup) cleanups.push(userCleanup);
+          if (userCleanup) {
+            // Guard the user-provided teardown so a throwing cleanup doesn't
+            // abort the rest of the unmount sequence.
+            const teardown = userCleanup;
+            cleanups.push(() => {
+              try {
+                teardown();
+              } catch (err) {
+                reportError(err, "mount");
+              }
+            });
+          }
         }
       }
 
@@ -2882,10 +3012,13 @@ class IlhaBuilder<
           morphInner(host, tpl.content.firstElementChild as Element);
 
           // Rehome preserved slots: swap post-morph stubs back to live elements.
-          for (const [id, liveEl] of preserved) {
-            const stub = findSlot(id);
-            if (!stub) continue;
-            stub.replaceWith(liveEl);
+          if (preserved.size > 0) {
+            const rehomeIndex = buildSlotIndex();
+            for (const [id, liveEl] of preserved) {
+              const stub = rehomeIndex.get(id);
+              if (!stub) continue;
+              stub.replaceWith(liveEl);
+            }
           }
 
           attachListeners();
@@ -2925,8 +3058,12 @@ class IlhaBuilder<
         }
 
         if (transition?.leave) {
-          const result = transition.leave(host);
-          if (result instanceof Promise) pending.push(result);
+          try {
+            const result = transition.leave(host);
+            if (result instanceof Promise) pending.push(result);
+          } catch (err) {
+            reportError(err, "transition");
+          }
         }
 
         const finish = () => {
@@ -2937,7 +3074,7 @@ class IlhaBuilder<
           return Promise.all(pending)
             .then(finish)
             .catch((err) => {
-              console.error(err);
+              reportError(err, "transition");
               finish();
             });
         }
@@ -3150,11 +3287,8 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
     let props: Record<string, unknown> = {};
     const rawProps = host.getAttribute(PROPS_ATTR);
     if (rawProps) {
-      try {
-        props = JSON.parse(rawProps) as Record<string, unknown>;
-      } catch {
-        warn(`Failed to parse ${PROPS_ATTR} on [data-ilha="${name}"] — invalid JSON ignored.`);
-      }
+      const parsed = safeParseSnapshot(rawProps, `${PROPS_ATTR} on [data-ilha="${name}"]`);
+      if (parsed !== undefined) props = parsed as Record<string, unknown>;
     }
 
     unmounts.push(island.mount(host, props));
@@ -3226,6 +3360,7 @@ const ilha = Object.assign(rootBuilder, {
   signal: ilhaSignal,
   batch,
   untrack,
+  onUncaughtError,
 });
 
 /** @internal Used by the separate JSX runtime entry to preserve island slot composition. */

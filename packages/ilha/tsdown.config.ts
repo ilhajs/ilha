@@ -5,4 +5,5 @@ export default defineConfig({
   platform: "neutral",
   dts: true,
   minify: true,
+  define: { __ILHA_DEV__: JSON.stringify(false) },
 });
