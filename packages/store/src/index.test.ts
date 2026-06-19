@@ -924,6 +924,31 @@ describe("ilha integration", () => {
     unmount();
     el.remove();
   });
+
+  it("bind:value on input updates form.name() in sibling <p> (html)", () => {
+    const form = store({ name: "", email: "" }).build();
+    const name = form.bind((f) => f.name);
+    const Island = ilha.render(
+      () => html`
+        <div class="flex flex-col gap-2">
+          <input bind:value=${name} />
+          <p>${form.name()}</p>
+        </div>
+      `,
+    );
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const unmount = Island.mount(el);
+    const input = el.querySelector("input")!;
+    const p = el.querySelector("p")!;
+    expect(p.textContent).toBe("");
+    input.value = "Ada";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(form.name()).toBe("Ada");
+    expect(p.textContent).toBe("Ada");
+    unmount();
+    el.remove();
+  });
 });
 
 // ---------------------------------------------------------------------------

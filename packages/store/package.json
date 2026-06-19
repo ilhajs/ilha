@@ -1,6 +1,6 @@
 {
   "name": "@ilha/store",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Shared reactive store for Ilha islands.",
   "keywords": [
     "forms",
