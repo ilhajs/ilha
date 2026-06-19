@@ -83,18 +83,19 @@ import { pageRouter } from "ilha:pages";
 pageRouter.start();`;
 
 export const ILHA_STORE_CODE = `// src/lib/cart.ts
-import { createStore } from "@ilha/store";
+import { store } from "@ilha/store";
 
-export const cart = createStore({ items: [] }, (set, get) => ({
-  add(product) {
-    set({ items: [...get().items, product] });
-  },
-  remove(id) {
-    set({ items: get().items.filter((p) => p.id !== id) });
-  },
-  clear() {
-    set({ items: [] });
-  },
-}));
+export const cart = store({ items: [] as Item[] })
+  .action("add", (product: Item, ctx) => ({
+    items: [...ctx.get().items, product],
+  }))
+  .action("remove", (id: string, ctx) => ({
+    items: ctx.get().items.filter((p) => p.id !== id),
+  }))
+  .action("clear", () => ({ items: [] }))
+  .on("change", (state) => {
+    localStorage.setItem("cart", JSON.stringify(state));
+  })
+  .build();
 
-cart.getState().add({ id: "pro", name: "Pro plan" });`;
+cart.add({ id: "pro", name: "Pro plan" });`;
