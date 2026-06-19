@@ -1,6 +1,6 @@
 // =============================================================================
 // @ilha/store/form — typed form helpers via Standard Schema
-// Unopinionated building blocks. Compose them with createStore however you like.
+// Unopinionated building blocks. Compose them with a store however you like.
 // [https://standardschema.dev](https://standardschema.dev)
 // =============================================================================
 

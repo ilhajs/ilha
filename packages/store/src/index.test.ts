@@ -1,6 +1,6 @@
 // =============================================================================
-// @ilha/store — test suite
-// Run with: bun test --dom (happy-dom needed for bind() tests)
+// @ilha/store — test suite (fluent builder API)
+// Run with: bun test --dom (happy-dom needed for bind()/island tests)
 // =============================================================================
 
 import { describe, it, expect, mock, beforeEach } from "bun:test";
@@ -8,388 +8,831 @@ import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { effect } from "alien-signals";
 import ilha, { html } from "ilha";
 
-import { createStore, effectScope } from "./index";
+import { store, effectScope } from "./index";
 
 beforeEach(() => {
   document.body.innerHTML = "";
 });
 
 // ---------------------------------------------------------------------------
-// createStore()
+// store() factory + builder
 // ---------------------------------------------------------------------------
 
-describe("createStore()", () => {
-  it("returns an object with the expected API", () => {
-    const store = createStore({ count: 0 });
-    expect(typeof store.getState).toBe("function");
-    expect(typeof store.setState).toBe("function");
-    expect(typeof store.getInitialState).toBe("function");
-    expect(typeof store.subscribe).toBe("function");
-    expect(typeof store.bind).toBe("function");
+describe("store() builder", () => {
+  it("store(initial) returns a builder, not a built store", () => {
+    const builder = store({ count: 0 });
+    expect(typeof (builder as { build?: unknown }).build).toBe("function");
+    // A builder is not callable as a state accessor.
+    expect((builder as unknown as { count?: unknown }).count).toBeUndefined();
   });
 
-  it("initialises state from the initial state object", () => {
-    const store = createStore({ count: 42, name: "Ada" });
-    expect(store.getState().count).toBe(42);
-    expect(store.getState().name).toBe("Ada");
+  it(".build() returns a flat store with state/derived/action/builtins", () => {
+    const s = store({ count: 0 })
+      .derived("doubled", (ctx) => ctx.get().count * 2)
+      .action("inc", (_, ctx) => ({ count: ctx.get().count + 1 }))
+      .build();
+
+    expect(typeof s.count).toBe("function");
+    expect(typeof s.doubled).toBe("function");
+    expect(typeof s.inc).toBe("function");
+    expect(typeof s.setState).toBe("function");
+    expect(typeof s.subscribe).toBe("function");
+    expect(typeof s.select).toBe("function");
+    expect(typeof s.bind).toBe("function");
+    expect(typeof s.getState).toBe("function");
+    expect(typeof s.getInitialState).toBe("function");
   });
 
-  it("passes set and get to the actions creator", () => {
-    const store = createStore({ count: 0 }, (set, get) => ({
-      double: () => get().count * 2,
-      inc: () => set((s) => ({ count: s.count + 1 })),
-    }));
-    store.getState().inc();
-    expect(store.getState().count).toBe(1);
-    expect(store.getState().double()).toBe(2);
-  });
-
-  it("actions can reference getInitialState to reset", () => {
-    const store = createStore({ count: 5 }, (set, _get, getInitialState) => ({
-      reset: () => set(getInitialState()),
-    }));
-    store.setState({ count: 99 });
-    store.getState().reset();
-    expect(store.getState().count).toBe(5);
+  it("builder methods are immutable — each returns a new builder", () => {
+    const b0 = store({ count: 0 });
+    const b1 = b0.action("inc", (_, ctx) => ({ count: ctx.get().count + 1 }));
+    expect(b1).not.toBe(b0);
+    // b0 has no actions; building it yields a store without inc.
+    const s0 = b0.build();
+    expect((s0 as unknown as { inc?: unknown }).inc).toBeUndefined();
   });
 
   it("two independent stores do not share state", () => {
-    const a = createStore({ count: 0 });
-    const b = createStore({ count: 0 });
-    a.setState({ count: 10 });
-    expect(b.getState().count).toBe(0);
+    const a = store({ count: 0 })
+      .action("inc", (_, ctx) => ({ count: ctx.get().count + 1 }))
+      .build();
+    const b = store({ count: 0 })
+      .action("inc", (_, ctx) => ({ count: ctx.get().count + 1 }))
+      .build();
+    a.inc();
+    expect(a.count()).toBe(1);
+    expect(b.count()).toBe(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// getState()
+// State accessors
 // ---------------------------------------------------------------------------
 
-describe("getState()", () => {
-  it("returns the current state", () => {
-    const store = createStore({ x: 1 });
-    expect(store.getState().x).toBe(1);
+describe("state accessors", () => {
+  it("read with no args, write with a value", () => {
+    const s = store({ count: 0, label: "x" }).build();
+    expect(s.count()).toBe(0);
+    s.count(5);
+    expect(s.count()).toBe(5);
+    s.label("y");
+    expect(s.label()).toBe("y");
   });
 
-  it("reflects the latest setState", () => {
-    const store = createStore({ x: 1 });
-    store.setState({ x: 99 });
-    expect(store.getState().x).toBe(99);
+  it("returns the same accessor reference on each access (cached)", () => {
+    const s = store({ count: 0 }).build();
+    expect(s.count).toBe(s.count);
   });
 
-  it("returns a stable reference when state has not changed", () => {
-    const store = createStore({ x: 1 });
-    const a = store.getState();
-    const b = store.getState();
-    expect(a).toBe(b);
+  it("carries the SIGNAL_ACCESSOR symbol", () => {
+    const s = store({ count: 0 }).build();
+    const sym = Symbol.for("ilha.signalAccessor");
+    expect((s.count as unknown as Record<symbol, unknown>)[sym]).toBe(true);
+  });
+
+  it("writes go through the commit pipeline (reactive)", () => {
+    const s = store({ count: 0 }).build();
+    const seen: number[] = [];
+    const stop = effect(() => {
+      seen.push(s.count());
+    });
+    s.count(1);
+    s.count(2);
+    stop();
+    expect(seen).toEqual([0, 1, 2]);
+  });
+
+  it("setting the same value does not re-commit", () => {
+    const s = store({ count: 0 }).build();
+    const listener = mock();
+    s.subscribe(listener);
+    s.count(0);
+    expect(listener).not.toHaveBeenCalled();
   });
 });
 
 // ---------------------------------------------------------------------------
-// getInitialState()
+// setState (atomic multi-key)
 // ---------------------------------------------------------------------------
 
-describe("getInitialState()", () => {
-  it("returns the original state passed to createStore", () => {
-    const store = createStore({ count: 7 });
-    store.setState({ count: 99 });
-    expect(store.getInitialState().count).toBe(7);
+describe("setState() built-in", () => {
+  it("merges multiple keys in a single commit", () => {
+    const s = store({ a: 1, b: 2, c: 3 }).build();
+    const listener = mock();
+    s.subscribe(listener);
+    s.setState({ a: 10, b: 20 });
+    expect(s.getState()).toEqual({ a: 10, b: 20, c: 3 });
+    expect(listener).toHaveBeenCalledTimes(1); // one commit, not two
   });
 
-  it("is not affected by subsequent setState calls", () => {
-    const store = createStore({ a: 1, b: 2 });
-    store.setState({ a: 100 });
-    store.setState({ b: 200 });
-    expect(store.getInitialState().a).toBe(1);
-    expect(store.getInitialState().b).toBe(2);
+  it("preserves keys not in the patch", () => {
+    const s = store({ a: 1, b: 2 }).build();
+    s.setState({ a: 9 });
+    expect(s.getState()).toEqual({ a: 9, b: 2 });
   });
 
-  it("can be used to reset state", () => {
-    const store = createStore({ count: 0 });
-    store.setState({ count: 50 });
-    store.setState(store.getInitialState());
-    expect(store.getState().count).toBe(0);
+  it("a no-op patch does not fire change", () => {
+    const s = store({ a: 1, b: 2 }).build();
+    const listener = mock();
+    s.subscribe(listener);
+    s.setState({ a: 1, b: 2 });
+    expect(listener).not.toHaveBeenCalled();
   });
 });
 
 // ---------------------------------------------------------------------------
-// setState()
+// derived
 // ---------------------------------------------------------------------------
 
-describe("setState()", () => {
-  it("merges a plain object shallowly", () => {
-    const store = createStore({ a: 1, b: 2 });
-    store.setState({ a: 10 });
-    expect(store.getState().a).toBe(10);
-    expect(store.getState().b).toBe(2);
+describe(".derived()", () => {
+  it("computes from raw state and is read-only reactive", () => {
+    const s = store({ count: 2 })
+      .derived("doubled", (ctx) => ctx.get().count * 2)
+      .build();
+    expect(s.doubled()).toBe(4);
+    s.count(5);
+    expect(s.doubled()).toBe(10);
   });
 
-  it("accepts an updater function", () => {
-    const store = createStore({ count: 3 });
-    store.setState((s) => ({ count: s.count * 2 }));
-    expect(store.getState().count).toBe(6);
+  it("re-runs an enclosing effect when its inputs change", () => {
+    const s = store({ count: 0 })
+      .derived("doubled", (ctx) => ctx.get().count * 2)
+      .build();
+    const seen: Array<number | undefined> = [];
+    const stop = effect(() => {
+      seen.push(s.doubled());
+    });
+    s.count(3);
+    stop();
+    expect(seen).toEqual([0, 6]);
   });
 
-  it("updater receives the latest state", () => {
-    const store = createStore({ count: 0 });
-    store.setState({ count: 5 });
-    store.setState((s) => ({ count: s.count + 1 }));
-    expect(store.getState().count).toBe(6);
+  it("derived accessor is cached (same reference)", () => {
+    const s = store({ count: 0 })
+      .derived("doubled", (ctx) => ctx.get().count * 2)
+      .build();
+    expect(s.doubled).toBe(s.doubled);
   });
 
-  it("preserves keys not included in the partial update", () => {
-    const store = createStore({ x: 1, y: 2, z: 3 });
-    store.setState({ z: 99 });
-    expect(store.getState().x).toBe(1);
-    expect(store.getState().y).toBe(2);
-    expect(store.getState().z).toBe(99);
-  });
-
-  it("applies multiple updates in sequence — last write wins per key", () => {
-    const store = createStore({ count: 0 });
-    store.setState({ count: 1 });
-    store.setState({ count: 2 });
-    store.setState({ count: 3 });
-    expect(store.getState().count).toBe(3);
-  });
-
-  it("setting the same value does not change the state reference", () => {
-    const store = createStore({ count: 1 });
-    store.getState();
-    store.setState({ count: 1 });
-    expect(store.getState().count).toBe(1);
+  it("sync derived exposes a non-loading, error-free envelope", () => {
+    const s = store({ count: 2 })
+      .derived("doubled", (ctx) => ctx.get().count * 2)
+      .build();
+    expect(s.doubled()).toBe(4);
+    expect(s.doubled.loading).toBe(false);
+    expect(s.doubled.error).toBeUndefined();
+    expect(s.doubled.value).toBe(4);
   });
 });
 
 // ---------------------------------------------------------------------------
-// subscribe() — full-state form
+// async derived (envelope)
+// ---------------------------------------------------------------------------
+
+describe(".derived() — async (envelope)", () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it("starts loading, then resolves into value", async () => {
+    const s = store({ id: 1 })
+      .derived("user", async (ctx) => {
+        const id = ctx.get().id;
+        await tick();
+        return `user-${id}`;
+      })
+      .build();
+
+    expect(s.user.loading).toBe(true);
+    expect(s.user()).toBeUndefined();
+    expect(s.user.error).toBeUndefined();
+
+    await tick();
+    await tick();
+
+    expect(s.user.loading).toBe(false);
+    expect(s.user()).toBe("user-1");
+    expect(s.user.value).toBe("user-1");
+  });
+
+  it("re-runs when a state dependency changes", async () => {
+    const s = store({ id: 1 })
+      .derived("user", async (ctx) => {
+        const id = ctx.get().id;
+        await tick();
+        return `user-${id}`;
+      })
+      .build();
+    await tick();
+    await tick();
+    expect(s.user()).toBe("user-1");
+
+    s.id(2);
+    expect(s.user.loading).toBe(true);
+    // keeps the previous value visible while reloading
+    expect(s.user.value).toBe("user-1");
+    await tick();
+    await tick();
+    expect(s.user()).toBe("user-2");
+    expect(s.user.loading).toBe(false);
+  });
+
+  it("surfaces rejections via .error", async () => {
+    const s = store({ n: 0 })
+      .derived("thing", async () => {
+        await tick();
+        throw new Error("boom");
+      })
+      .build();
+    await tick();
+    await tick();
+    expect(s.thing.loading).toBe(false);
+    expect(s.thing.error).toBeInstanceOf(Error);
+    expect(s.thing.error?.message).toBe("boom");
+    expect(s.thing()).toBeUndefined();
+  });
+
+  it("aborts the previous run on re-run (stale resolution dropped)", async () => {
+    const seen: number[] = [];
+    const s = store({ id: 1 })
+      .derived("user", async (ctx) => {
+        const id = ctx.get().id;
+        // first call (id=1) resolves slower than the second (id=2)
+        await new Promise((r) => setTimeout(r, id === 1 ? 30 : 5));
+        if (!ctx.signal.aborted) seen.push(id);
+        return `user-${id}`;
+      })
+      .build();
+
+    s.id(2); // supersedes the in-flight id=1 run
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect(s.user()).toBe("user-2");
+    // the aborted id=1 run did not push (its signal was aborted)
+    expect(seen).toEqual([2]);
+  });
+
+  it("is reactive inside an effect", async () => {
+    const s = store({ id: 1 })
+      .derived("user", async (ctx) => {
+        const id = ctx.get().id;
+        await tick();
+        return `user-${id}`;
+      })
+      .build();
+    const seen: Array<string | undefined> = [];
+    const stop = effect(() => {
+      seen.push(s.user());
+    });
+    await tick();
+    await tick();
+    stop();
+    expect(seen).toContain("user-1");
+  });
+
+  it("a sync derived that returns a Promise is treated as async", async () => {
+    const s = store({ id: 1 })
+      .derived("user", (ctx) => Promise.resolve(`user-${ctx.get().id}`))
+      .build();
+    expect(s.user.loading).toBe(true);
+    await tick();
+    await tick();
+    expect(s.user()).toBe("user-1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// actions
+// ---------------------------------------------------------------------------
+
+describe(".action()", () => {
+  it("zero-arg action computes from get()", () => {
+    const s = store({ count: 0 })
+      .action("inc", (_, ctx) => ({ count: ctx.get().count + 1 }))
+      .build();
+    s.inc();
+    s.inc();
+    expect(s.count()).toBe(2);
+  });
+
+  it("parameterised action receives typed props", () => {
+    const s = store({ label: "" })
+      .action("setLabel", (label: string) => ({ label }))
+      .build();
+    s.setLabel("hello");
+    expect(s.label()).toBe("hello");
+  });
+
+  it("typed via parameter annotation", () => {
+    const s = store({ n: 0 })
+      .action("add", (delta: number, ctx) => ({ n: ctx.get().n + delta }))
+      .build();
+    s.add(5);
+    expect(s.n()).toBe(5);
+  });
+
+  it("action change fires listeners", () => {
+    const s = store({ count: 0 })
+      .action("inc", (_, ctx) => ({ count: ctx.get().count + 1 }))
+      .build();
+    const listener = mock();
+    s.subscribe(listener);
+    s.inc();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("a no-op action does not fire change", () => {
+    const s = store({ count: 0 })
+      .action("noop", (_, ctx) => ({ count: ctx.get().count }))
+      .build();
+    const listener = mock();
+    s.subscribe(listener);
+    s.noop();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("ctx.getInitial() reads the initial snapshot", () => {
+    const s = store({ count: 5 })
+      .action("resetCount", (_, ctx) => ({ count: ctx.getInitial().count }))
+      .build();
+    s.count(99);
+    s.resetCount();
+    expect(s.count()).toBe(5);
+  });
+
+  it("ctx.set() is an imperative write escape hatch (async/multi-step)", async () => {
+    const s = store({ count: 0, loading: false })
+      .action("load", (_, ctx) => {
+        ctx.set({ loading: true });
+        // simulate async resolve
+        queueMicrotask(() => ctx.set({ count: 42, loading: false }));
+        return {}; // no-op return; writes happen via ctx.set
+      })
+      .build();
+    s.load();
+    expect(s.loading()).toBe(true);
+    await Promise.resolve();
+    expect(s.count()).toBe(42);
+    expect(s.loading()).toBe(false);
+  });
+
+  it("ctx.set() routes through middleware", () => {
+    const seen: Array<Partial<{ count: number }>> = [];
+    const s = store({ count: 0 })
+      .middleware((patch, _ctx, next) => {
+        seen.push(patch);
+        next(patch);
+      })
+      .action("viaSet", (_, ctx) => {
+        ctx.set({ count: 7 });
+        return {};
+      })
+      .build();
+    s.viaSet();
+    expect(seen).toEqual([{ count: 7 }]);
+    expect(s.count()).toBe(7);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// middleware
+// ---------------------------------------------------------------------------
+
+describe(".middleware()", () => {
+  it("intercepts every mutation and can block it", () => {
+    const s = store({ count: 0 })
+      .middleware((patch, _ctx, next) => {
+        if (patch.count !== undefined && patch.count < 0) return; // block negatives
+        next(patch);
+      })
+      .build();
+    s.count(5);
+    expect(s.count()).toBe(5);
+    s.count(-1); // blocked
+    expect(s.count()).toBe(5);
+  });
+
+  it("runs for accessor writes, setState, and actions alike", () => {
+    const seen: Array<Partial<{ count: number }>> = [];
+    const s = store({ count: 0 })
+      .middleware((patch, _ctx, next) => {
+        seen.push(patch);
+        next(patch);
+      })
+      .action("inc", (_, ctx) => ({ count: ctx.get().count + 1 }))
+      .build();
+    s.count(1); // accessor
+    s.setState({ count: 2 }); // setState
+    s.inc(); // action
+    expect(seen).toEqual([{ count: 1 }, { count: 2 }, { count: 3 }]);
+  });
+
+  it("ctx exposes pre-commit get() and getInitial()", () => {
+    const seen: Array<{ before: number; initial: number }> = [];
+    const s = store({ count: 10 })
+      .middleware((patch, ctx, next) => {
+        seen.push({ before: ctx.get().count, initial: ctx.getInitial().count });
+        next(patch);
+      })
+      .build();
+    s.count(20);
+    s.count(30);
+    // ctx.get() is the pre-commit state each time; getInitial() is constant.
+    expect(seen).toEqual([
+      { before: 10, initial: 10 },
+      { before: 20, initial: 10 },
+    ]);
+  });
+
+  it("composes in registration order", () => {
+    const order: string[] = [];
+    const s = store({ count: 0 })
+      .middleware((patch, _s, next) => {
+        order.push("m0-before");
+        next(patch);
+        order.push("m0-after");
+      })
+      .middleware((patch, _s, next) => {
+        order.push("m1-before");
+        next(patch);
+        order.push("m1-after");
+      })
+      .build();
+    s.count(1);
+    expect(order).toEqual(["m0-before", "m1-before", "m1-after", "m0-after"]);
+  });
+
+  it("a middleware can transform the patch", () => {
+    const s = store({ count: 0 })
+      .middleware((patch, _s, next) => next({ ...patch, count: (patch.count ?? 0) * 10 }))
+      .build();
+    s.count(5);
+    expect(s.count()).toBe(50);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// lifecycle .on()
+// ---------------------------------------------------------------------------
+
+describe(".on()", () => {
+  it("init fires synchronously during build()", () => {
+    const seen: Array<{ count: number }> = [];
+    store({ count: 7 })
+      .on("init", (state) => seen.push(state))
+      .build();
+    expect(seen).toEqual([{ count: 7 }]);
+  });
+
+  it("change fires after every committed mutation with (next, prev)", () => {
+    const calls: Array<[number, number]> = [];
+    const s = store({ count: 0 })
+      .on("change", (next, prev) => calls.push([next.count, prev.count]))
+      .build();
+    s.count(1);
+    s.count(2);
+    expect(calls).toEqual([
+      [1, 0],
+      [2, 1],
+    ]);
+  });
+
+  it("multiple handlers for the same event fire in registration order", () => {
+    const order: string[] = [];
+    const s = store({ count: 0 })
+      .on("change", () => order.push("first"))
+      .on("change", () => order.push("second"))
+      .build();
+    s.count(1);
+    expect(order).toEqual(["first", "second"]);
+  });
+
+  it("change does not fire for a blocked or no-op mutation", () => {
+    const listener = mock();
+    const s = store({ count: 0 })
+      .middleware((patch, _s, next) => {
+        if (patch.count === 99) return;
+        next(patch);
+      })
+      .on("change", listener)
+      .build();
+    s.count(99); // blocked by middleware
+    s.count(0); // no-op
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// key collisions
+// ---------------------------------------------------------------------------
+
+describe("key collisions", () => {
+  it("derived vs state", () => {
+    expect(() =>
+      store({ count: 0 })
+        .derived("count", (ctx) => ctx.get().count)
+        .build(),
+    ).toThrow(/key collision — "count" is already defined as a state key/);
+  });
+
+  it("action vs state", () => {
+    expect(() =>
+      store({ count: 0 })
+        .action("count", () => ({}))
+        .build(),
+    ).toThrow(/"count" is already defined as a state key/);
+  });
+
+  it("action vs derived", () => {
+    expect(() =>
+      store({ count: 0 })
+        .derived("doubled", (ctx) => ctx.get().count * 2)
+        .action("doubled", () => ({}))
+        .build(),
+    ).toThrow(/"doubled" is already defined as a derived key/);
+  });
+
+  it("key vs built-in", () => {
+    expect(() => store({ subscribe: 1 }).build()).toThrow(
+      /"subscribe" is already defined as a built-in key/,
+    );
+    expect(() =>
+      store({ count: 0 })
+        .action("getState", () => ({}))
+        .build(),
+    ).toThrow(/"getState" is already defined as a built-in key/);
+  });
+
+  it("duplicate action keys", () => {
+    expect(() =>
+      store({ count: 0 })
+        .action("inc", () => ({}))
+        .action("inc", () => ({}))
+        .build(),
+    ).toThrow(/"inc" is already defined as an? action key/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Proxy semantics
+// ---------------------------------------------------------------------------
+
+describe("Proxy semantics", () => {
+  it("direct assignment is disabled (throws in strict module mode)", () => {
+    const s = store({ count: 0 }).build();
+    expect(() => {
+      (s as unknown as { count: number }).count = 5;
+    }).toThrow();
+    expect(s.count()).toBe(0);
+  });
+
+  it("symbol access returns undefined without throwing", () => {
+    const s = store({ count: 0 }).build();
+    expect((s as unknown as Record<symbol, unknown>)[Symbol("x")]).toBeUndefined();
+  });
+
+  it("`in` reflects the real key set (has trap)", () => {
+    const s = store({ count: 0 })
+      .derived("doubled", (ctx) => ctx.get().count * 2)
+      .action("inc", () => ({}))
+      .build();
+    expect("count" in s).toBe(true);
+    expect("doubled" in s).toBe(true);
+    expect("inc" in s).toBe(true);
+    expect("subscribe" in s).toBe(true);
+    expect("nope" in s).toBe(false);
+  });
+
+  it("Object.keys enumerates state + derived + action + builtin keys (ownKeys trap)", () => {
+    const s = store({ count: 0 })
+      .derived("doubled", (ctx) => ctx.get().count * 2)
+      .action("inc", () => ({}))
+      .build();
+    const keys = Object.keys(s);
+    expect(keys).toContain("count");
+    expect(keys).toContain("doubled");
+    expect(keys).toContain("inc");
+    expect(keys).toContain("getState");
+  });
+
+  it("priority: built-in > action > derived > state would-be collisions are rejected at build", () => {
+    // Collisions throw, so the only way a key resolves is unambiguously.
+    const s = store({ count: 0 }).build();
+    expect(typeof s.getState).toBe("function");
+    expect(s.getState()).toEqual({ count: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getState / getInitialState
+// ---------------------------------------------------------------------------
+
+describe("getState() / getInitialState()", () => {
+  it("getState returns raw state (no derived, no actions)", () => {
+    const s = store({ count: 1 })
+      .derived("doubled", (ctx) => ctx.get().count * 2)
+      .action("inc", (_, ctx) => ({ count: ctx.get().count + 1 }))
+      .build();
+    expect(s.getState()).toEqual({ count: 1 });
+  });
+
+  it("getState returns a stable reference when state is unchanged", () => {
+    const s = store({ count: 0 }).build();
+    expect(s.getState()).toBe(s.getState());
+  });
+
+  it("getInitialState is captured once and unaffected by mutations", () => {
+    const s = store({ count: 0 }).build();
+    s.count(99);
+    expect(s.getInitialState()).toEqual({ count: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reset
+// ---------------------------------------------------------------------------
+
+describe("reset()", () => {
+  it("restores initial state", () => {
+    const s = store({ count: 5, label: "x" }).build();
+    s.count(99);
+    s.label("y");
+    s.reset();
+    expect(s.getState()).toEqual({ count: 5, label: "x" });
+  });
+
+  it("routes through middleware", () => {
+    const seen: Array<Partial<{ count: number }>> = [];
+    const s = store({ count: 0 })
+      .middleware((patch, _ctx, next) => {
+        seen.push(patch);
+        next(patch);
+      })
+      .build();
+    s.count(3);
+    seen.length = 0;
+    s.reset();
+    expect(seen).toEqual([{ count: 0 }]);
+  });
+
+  it("fires change listener", () => {
+    const listener = mock();
+    const s = store({ count: 1 }).build();
+    s.count(2);
+    s.subscribe(listener);
+    s.reset();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("is a no-op when state already equals initial", () => {
+    const listener = mock();
+    const s = store({ count: 0 }).build();
+    s.subscribe(listener);
+    s.reset();
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// subscribe
 // ---------------------------------------------------------------------------
 
 describe("subscribe() — full-state form", () => {
-  it("returns an unsubscribe function", () => {
-    const store = createStore({ count: 0 });
-    const unsub = store.subscribe(mock());
-    expect(typeof unsub).toBe("function");
-    unsub();
-  });
-
-  it("fires the listener when state changes", () => {
-    const store = createStore({ count: 0 });
-    const listener = mock();
-    store.subscribe(listener);
-    store.setState({ count: 1 });
-    expect(listener).toHaveBeenCalledTimes(1);
-  });
-
   it("does NOT fire on initial subscription", () => {
-    const store = createStore({ count: 0 });
+    const s = store({ count: 0 }).build();
     const listener = mock();
-    store.subscribe(listener);
+    s.subscribe(listener);
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it("passes (newState, prevState) to the listener", () => {
-    const store = createStore({ count: 0 });
-    const listener = mock();
-    store.subscribe(listener);
-    store.setState({ count: 5 });
-    const [newState, prevState] = listener.mock.calls[0] as [{ count: number }, { count: number }];
-    expect(newState.count).toBe(5);
-    expect(prevState.count).toBe(0);
+  it("fires with (next, prev) on change", () => {
+    const s = store({ count: 0 }).build();
+    const received: Array<[{ count: number }, { count: number }]> = [];
+    s.subscribe((next, prev) => {
+      received.push([next, prev]);
+    });
+    s.count(1);
+    expect(received).toEqual([[{ count: 1 }, { count: 0 }]]);
   });
 
-  it("fires for every setState call", () => {
-    const store = createStore({ count: 0 });
+  it("stops firing after unsubscribe (idempotent)", () => {
+    const s = store({ count: 0 }).build();
     const listener = mock();
-    store.subscribe(listener);
-    store.setState({ count: 1 });
-    store.setState({ count: 2 });
-    store.setState({ count: 3 });
-    expect(listener).toHaveBeenCalledTimes(3);
-  });
-
-  it("stops firing after unsubscribe", () => {
-    const store = createStore({ count: 0 });
-    const listener = mock();
-    const unsub = store.subscribe(listener);
-    store.setState({ count: 1 });
+    const unsub = s.subscribe(listener);
+    s.count(1);
     unsub();
-    store.setState({ count: 2 });
-    store.setState({ count: 3 });
+    unsub();
+    s.count(2);
     expect(listener).toHaveBeenCalledTimes(1);
   });
-
-  it("unsubscribe is idempotent", () => {
-    const store = createStore({ count: 0 });
-    const unsub = store.subscribe(mock());
-    expect(() => {
-      unsub();
-      unsub();
-    }).not.toThrow();
-  });
-
-  it("multiple independent subscribers all receive changes", () => {
-    const store = createStore({ count: 0 });
-    const a = mock();
-    const b = mock();
-    store.subscribe(a);
-    store.subscribe(b);
-    store.setState({ count: 1 });
-    expect(a).toHaveBeenCalledTimes(1);
-    expect(b).toHaveBeenCalledTimes(1);
-  });
-
-  it("unsubscribing one does not affect others", () => {
-    const store = createStore({ count: 0 });
-    const a = mock();
-    const b = mock();
-    const unsubA = store.subscribe(a);
-    store.subscribe(b);
-    unsubA();
-    store.setState({ count: 1 });
-    expect(a).not.toHaveBeenCalled();
-    expect(b).toHaveBeenCalledTimes(1);
-  });
 });
-
-// ---------------------------------------------------------------------------
-// subscribe() — selector form
-// ---------------------------------------------------------------------------
 
 describe("subscribe() — selector form", () => {
-  it("fires only when the selected slice changes", () => {
-    const store = createStore({ count: 0, name: "Ada" });
-    const listener = mock();
-    store.subscribe((s) => s.count, listener);
-    store.setState({ name: "Grace" });
-    expect(listener).not.toHaveBeenCalled();
-    store.setState({ count: 1 });
-    expect(listener).toHaveBeenCalledTimes(1);
-  });
-
-  it("passes (newSlice, prevSlice) to the listener", () => {
-    const store = createStore({ count: 0 });
-    const listener = mock();
-    store.subscribe((s) => s.count, listener);
-    store.setState({ count: 7 });
-    const [newSlice, prevSlice] = listener.mock.calls[0] ?? [];
-    expect(newSlice).toBe(7);
-    expect(prevSlice).toBe(0);
+  it("fires only when the selected slice changes, with (slice, prev)", () => {
+    const s = store({ a: 0, b: 0 }).build();
+    const calls: Array<[number, number]> = [];
+    s.subscribe(
+      (st) => st.a,
+      (slice, prev) => calls.push([slice, prev]),
+    );
+    s.b(1); // unrelated — no fire
+    s.a(5);
+    s.a(5); // same value — no fire
+    expect(calls).toEqual([[5, 0]]);
   });
 
   it("does NOT fire on initial subscription", () => {
-    const store = createStore({ count: 0 });
+    const s = store({ a: 1 }).build();
     const listener = mock();
-    store.subscribe((s) => s.count, listener);
+    s.subscribe((st) => st.a, listener);
     expect(listener).not.toHaveBeenCalled();
-  });
-
-  it("fires for each distinct value change", () => {
-    const store = createStore({ count: 0 });
-    const listener = mock();
-    store.subscribe((s) => s.count, listener);
-    store.setState({ count: 1 });
-    store.setState({ count: 2 });
-    store.setState({ count: 3 });
-    expect(listener).toHaveBeenCalledTimes(3);
-  });
-
-  it("does NOT fire when the selected value is set to the same reference", () => {
-    const obj = { id: 1 };
-    const store = createStore({ obj, other: 0 });
-    const listener = mock();
-    store.subscribe((s) => s.obj, listener);
-    store.setState({ other: 99 });
-    expect(listener).not.toHaveBeenCalled();
-  });
-
-  it("stops firing after unsubscribe", () => {
-    const store = createStore({ count: 0 });
-    const listener = mock();
-    const unsub = store.subscribe((s) => s.count, listener);
-    store.setState({ count: 1 });
-    unsub();
-    store.setState({ count: 2 });
-    expect(listener).toHaveBeenCalledTimes(1);
-  });
-
-  it("multiple selectors on the same store are independent", () => {
-    const store = createStore({ a: 0, b: 0 });
-    const listenerA = mock();
-    const listenerB = mock();
-    store.subscribe((s) => s.a, listenerA);
-    store.subscribe((s) => s.b, listenerB);
-    store.setState({ a: 1 });
-    expect(listenerA).toHaveBeenCalledTimes(1);
-    expect(listenerB).not.toHaveBeenCalled();
-    store.setState({ b: 1 });
-    expect(listenerA).toHaveBeenCalledTimes(1);
-    expect(listenerB).toHaveBeenCalledTimes(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Actions
+// select
 // ---------------------------------------------------------------------------
 
-describe("actions", () => {
-  it("actions can call set", () => {
-    const store = createStore({ count: 0 }, (set) => ({
-      inc: () => set((s) => ({ count: s.count + 1 })),
-      dec: () => set((s) => ({ count: s.count - 1 })),
-    }));
-    store.getState().inc();
-    store.getState().inc();
-    store.getState().dec();
-    expect(store.getState().count).toBe(1);
+describe("select()", () => {
+  it("returns a reactive read accessor", () => {
+    const s = store({ count: 0 }).build();
+    const count = s.select((st) => st.count);
+    expect(count()).toBe(0);
+    s.count(3);
+    expect(count()).toBe(3);
   });
 
-  it("actions can read state via get", () => {
-    const store = createStore({ count: 10 }, (_set, get) => ({
-      double: () => get().count * 2,
-    }));
-    store.setState({ count: 6 });
-    expect(store.getState().double()).toBe(12);
+  it("re-runs an enclosing effect only on slice change", () => {
+    const s = store({ a: 0, b: 0 }).build();
+    const a = s.select((st) => st.a);
+    const seen: number[] = [];
+    const stop = effect(() => {
+      seen.push(a());
+    });
+    s.b(1); // unrelated
+    s.a(2);
+    stop();
+    expect(seen).toEqual([0, 2]);
   });
 
-  it("actions can call other actions via get", () => {
-    const store = createStore({ count: 0 }, (set, get) => ({
-      inc: () => set((s) => ({ count: s.count + 1 })),
-      incThenDouble: () => {
-        get().inc();
-        set((s) => ({ count: s.count * 2 }));
-      },
-    }));
-    store.getState().incThenDouble();
-    expect(store.getState().count).toBe(2); // (0+1)*2
+  it("each call returns a fresh accessor", () => {
+    const s = store({ count: 0 }).build();
+    expect(s.select((st) => st.count)).not.toBe(s.select((st) => st.count));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bind
+// ---------------------------------------------------------------------------
+
+describe("bind()", () => {
+  it("reads with no args, writes via accessor call (through middleware)", () => {
+    const s = store({ label: "x" }).build();
+    const labelBind = s.bind((st) => st.label);
+    expect(labelBind()).toBe("x");
+    labelBind("y");
+    expect(s.label()).toBe("y");
   });
 
-  it("actions are preserved after setState", () => {
-    const store = createStore({ count: 0 }, (set) => ({
-      inc: () => set((s) => ({ count: s.count + 1 })),
-    }));
-    store.setState({ count: 5 });
-    store.getState().inc();
-    expect(store.getState().count).toBe(6);
+  it("write path is intercepted by middleware", () => {
+    const seen: unknown[] = [];
+    const s = store({ name: "a" })
+      .middleware((patch, _ctx, next) => {
+        seen.push(patch);
+        next(patch);
+      })
+      .build();
+    const nameBind = s.bind((st) => st.name);
+    nameBind("b");
+    expect(seen).toEqual([{ name: "b" }]);
+    expect(s.name()).toBe("b");
   });
 
-  it("listeners fire when an action calls set", () => {
-    const store = createStore({ count: 0 }, (set) => ({
-      inc: () => set((s) => ({ count: s.count + 1 })),
-    }));
-    const listener = mock();
-    store.subscribe(listener);
-    store.getState().inc();
-    expect(listener).toHaveBeenCalledTimes(1);
+  it("updates nested path immutably", () => {
+    const s = store({ user: { name: "a", age: 1 } }).build();
+    const nameBind = s.bind((st) => st.user.name);
+    const before = s.getState().user;
+    nameBind("b");
+    expect(s.getState().user.name).toBe("b");
+    expect(s.getState().user.age).toBe(1);
+    expect(s.getState().user).not.toBe(before); // immutable update
   });
 
-  it("getInitialState resets state from within an action", () => {
-    const store = createStore({ count: 5 }, (set, _get, getInitialState) => ({
-      reset: () => set(getInitialState()),
-    }));
-    store.setState({ count: 99 });
-    store.getState().reset();
-    expect(store.getState().count).toBe(5);
+  it("carries SIGNAL_ACCESSOR and is reactive", () => {
+    const s = store({ label: "x" }).build();
+    const labelBind = s.bind((st) => st.label);
+    const sym = Symbol.for("ilha.signalAccessor");
+    expect((labelBind as unknown as Record<symbol, unknown>)[sym]).toBe(true);
+    const seen: string[] = [];
+    const stop = effect(() => {
+      seen.push(labelBind());
+    });
+    s.label("y");
+    stop();
+    expect(seen).toEqual(["x", "y"]);
+  });
+
+  it("throws for unsupported (non-path) selectors", () => {
+    const s = store({ count: 3 }).build();
+    expect(() => s.bind((st) => st.count * 2)).toThrow();
   });
 });
 
@@ -398,99 +841,61 @@ describe("actions", () => {
 // ---------------------------------------------------------------------------
 
 describe("effectScope", () => {
-  it("is exported from @ilha/store", () => {
+  it("is re-exported from @ilha/store", () => {
     expect(typeof effectScope).toBe("function");
   });
 
-  it("stops all subscribe effects inside the scope", () => {
-    const store = createStore({ count: 0 });
+  it("stops subscribe effects registered inside the scope", () => {
+    const s = store({ count: 0 }).build();
     const listener = mock();
     const stop = effectScope(() => {
-      store.subscribe(listener);
+      s.subscribe(listener);
     });
-    store.setState({ count: 1 });
+    s.count(1);
     expect(listener).toHaveBeenCalledTimes(1);
     stop();
-    store.setState({ count: 2 });
-    store.setState({ count: 3 });
-    expect(listener).toHaveBeenCalledTimes(1);
-  });
-
-  it("stops slice subscribe effects registered inside the scope", () => {
-    const store = createStore({ count: 0 });
-    const listener = mock();
-    const stop = effectScope(() => {
-      store.subscribe((s) => s.count, listener);
-    });
-    store.setState({ count: 5 });
-    expect(listener).toHaveBeenCalledTimes(1);
-    stop();
-    store.setState({ count: 99 });
+    s.count(2);
     expect(listener).toHaveBeenCalledTimes(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Integration
+// ilha integration
 // ---------------------------------------------------------------------------
 
-describe("integration", () => {
-  it("store-driven error state renders in an island via select", () => {
-    const store = createStore({ errors: {} as Record<string, string> }, (set) => ({
-      setErrors: (errors: Record<string, string>) => set({ errors }),
-      clearErrors: () => set({ errors: {} }),
-    }));
-    const errors = store.select((s) => s.errors);
-    const Island = ilha.render(
-      () => html`${Object.entries(errors()).map(([f, m]) => html`<p data-field="${f}">${m}</p>`)}`,
-    );
-    const el = document.createElement("div");
-    document.body.appendChild(el);
-    const unmount = Island.mount(el);
-    expect(el.querySelectorAll("p").length).toBe(0);
-    store.getState().setErrors({ email: "Invalid email", name: "Required" });
-    expect(el.querySelectorAll("p").length).toBe(2);
-    expect(el.querySelector("[data-field='email']")?.textContent).toBe("Invalid email");
-    store.getState().clearErrors();
-    expect(el.querySelector("p")).toBeNull();
-    unmount();
-    el.remove();
-  });
-
-  it("counter label renders in an island via select", () => {
-    const store = createStore({ count: 0 }, (set) => ({
-      inc: () => set((s) => ({ count: s.count + 1 })),
-    }));
-    const count = store.select((s) => s.count);
-    const Island = ilha.render(() => html`<span>Count: ${count()}</span>`);
+describe("ilha integration", () => {
+  it("state accessor used directly in a render (no select needed)", () => {
+    const s = store({ count: 0 }).build();
+    const Island = ilha.render(() => html`<span>Count: ${s.count()}</span>`);
     const el = document.createElement("div");
     document.body.appendChild(el);
     const unmount = Island.mount(el);
     expect(el.textContent).toContain("Count: 0");
-    store.getState().inc();
-    store.getState().inc();
+    s.count(2);
     expect(el.textContent).toContain("Count: 2");
     unmount();
     el.remove();
   });
 
-  it("island subscribes to store slice and drives its own signal", () => {
-    const store = createStore({ theme: "light" });
-    const themes: string[] = [];
-    store.subscribe(
-      (s) => s.theme,
-      (theme) => themes.push(theme),
-    );
-    store.setState({ theme: "dark" });
-    store.setState({ theme: "light" });
-    expect(themes).toEqual(["dark", "light"]);
+  it("derived accessor used directly in a render", () => {
+    const s = store({ count: 1 })
+      .derived("doubled", (ctx) => ctx.get().count * 2)
+      .build();
+    const Island = ilha.render(() => html`<p>${s.count()} × 2 = ${s.doubled()}</p>`);
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const unmount = Island.mount(el);
+    expect(el.textContent).toContain("1 × 2 = 2");
+    s.count(5);
+    expect(el.textContent).toContain("5 × 2 = 10");
+    unmount();
+    el.remove();
   });
 
-  it("store shared across two islands — both stay in sync via select", () => {
-    const store = createStore({ value: "hello" });
-    const value = store.select((s) => s.value);
-    const A = ilha.render(() => html`<p>${value()}</p>`);
-    const B = ilha.render(() => html`<em>${value()}</em>`);
+  it("store shared across two islands stays in sync", () => {
+    const s = store({ value: "hello" }).build();
+    const A = ilha.render(() => html`<p>${s.value()}</p>`);
+    const B = ilha.render(() => html`<em>${s.value()}</em>`);
     const root = document.createElement("div");
     document.body.appendChild(root);
     const slotA = document.createElement("div");
@@ -498,7 +903,7 @@ describe("integration", () => {
     root.append(slotA, slotB);
     const unmountA = A.mount(slotA);
     const unmountB = B.mount(slotB);
-    store.setState({ value: "ilha" });
+    s.value("ilha");
     expect(slotA.querySelector("p")?.textContent).toBe("ilha");
     expect(slotB.querySelector("em")?.textContent).toBe("ilha");
     unmountA();
@@ -506,343 +911,83 @@ describe("integration", () => {
     root.remove();
   });
 
-  it("unsubscribing one slice listener does not affect another", () => {
-    const store = createStore({ count: 0 });
-    const a = mock();
-    const b = mock();
-    const unsubA = store.subscribe((s) => s.count, a);
-    store.subscribe((s) => s.count, b);
-    store.setState({ count: 1 });
-    unsubA();
-    store.setState({ count: 2 });
-    expect(a).toHaveBeenCalledTimes(1);
-    expect(b).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("store.select() — reads", () => {
-  it("returns the current selected slice on call", () => {
-    const store = createStore({ count: 7, name: "Ada" });
-    const count = store.select((s) => s.count);
-    expect(count()).toBe(7);
-  });
-
-  it("reflects subsequent state changes when called again", () => {
-    const store = createStore({ count: 0 });
-    const count = store.select((s) => s.count);
-    expect(count()).toBe(0);
-    store.setState({ count: 5 });
-    expect(count()).toBe(5);
-    store.setState({ count: 9 });
-    expect(count()).toBe(9);
-  });
-
-  it("supports projections that compute derived values", () => {
-    const store = createStore({ items: [1, 2, 3] as number[] });
-    const total = store.select((s) => s.items.reduce((a, b) => a + b, 0));
-    expect(total()).toBe(6);
-    store.setState({ items: [10, 20] });
-    expect(total()).toBe(30);
-  });
-
-  it("supports projections that return objects/arrays", () => {
-    const store = createStore({ user: { name: "Ada", age: 30 } });
-    const user = store.select((s) => s.user);
-    expect(user()).toEqual({ name: "Ada", age: 30 });
-    store.setState({ user: { name: "Grace", age: 40 } });
-    expect(user()).toEqual({ name: "Grace", age: 40 });
-  });
-
-  it("works with stores that have actions", () => {
-    const store = createStore({ count: 0 }, (set, get) => ({
-      increment: () => set({ count: get().count + 1 }),
-    }));
-    const count = store.select((s) => s.count);
-    expect(count()).toBe(0);
-    store.getState().increment();
-    expect(count()).toBe(1);
-    store.getState().increment();
-    expect(count()).toBe(2);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// .select() — reactivity
-// ---------------------------------------------------------------------------
-
-describe("store.select() — reactivity", () => {
-  it("re-runs an enclosing effect when the selected slice changes", () => {
-    const store = createStore({ count: 0 });
-    const count = store.select((s) => s.count);
-
-    const seen: number[] = [];
-    const stop = effect(() => {
-      seen.push(count());
-    });
-
-    expect(seen).toEqual([0]);
-
-    store.setState({ count: 1 });
-    store.setState({ count: 2 });
-    store.setState({ count: 3 });
-
-    expect(seen).toEqual([0, 1, 2, 3]);
-    stop();
-  });
-
-  it("does NOT re-run an enclosing effect when an unrelated slice changes", () => {
-    const store = createStore({ count: 0, label: "hi" });
-    const count = store.select((s) => s.count);
-
-    const seen: number[] = [];
-    const stop = effect(() => {
-      seen.push(count());
-    });
-
-    expect(seen).toEqual([0]);
-
-    // Mutating an unrelated field should not cause `count` slice to fire.
-    store.setState({ label: "bye" });
-    store.setState({ label: "again" });
-
-    expect(seen).toEqual([0]);
-
-    // But a relevant change still does.
-    store.setState({ count: 5 });
-    expect(seen).toEqual([0, 5]);
-
-    stop();
-  });
-
-  it("does NOT re-run an enclosing effect when the slice value is unchanged", () => {
-    // setState always replaces the top-level state object, but the computed
-    // memoizes on Object.is, so derived effects should only see real changes.
-    const store = createStore({ count: 0, label: "hi" });
-    const count = store.select((s) => s.count);
-
-    const seen: number[] = [];
-    const stop = effect(() => {
-      seen.push(count());
-    });
-
-    expect(seen).toEqual([0]);
-
-    // Re-set count to the same value — top-level state object changes, but
-    // count slice does not.
-    store.setState({ count: 0 });
-    store.setState({ count: 0 });
-
-    expect(seen).toEqual([0]);
-    stop();
-  });
-
-  it("returns stable identity for object slices when state is shallow-merged unchanged", () => {
-    const initial = { user: { name: "Ada" } };
-    const store = createStore(initial);
-    const user = store.select((s) => s.user);
-
-    const a = user();
-    // Touching another field doesn't reallocate the inner object.
-    store.setState({} as Partial<typeof initial>);
-    const b = user();
-    expect(a).toBe(b);
-  });
-
-  it("supports multiple independent selectors over the same store", () => {
-    const store = createStore({ a: 1, b: 10 });
-    const aSel = store.select((s) => s.a);
-    const bSel = store.select((s) => s.b);
-
-    const aSeen: number[] = [];
-    const bSeen: number[] = [];
-    const stopA = effect(() => {
-      aSeen.push(aSel());
-    });
-    const stopB = effect(() => {
-      bSeen.push(bSel());
-    });
-
-    expect(aSeen).toEqual([1]);
-    expect(bSeen).toEqual([10]);
-
-    store.setState({ a: 2 });
-    expect(aSeen).toEqual([1, 2]);
-    expect(bSeen).toEqual([10]); // b untouched
-
-    store.setState({ b: 20 });
-    expect(aSeen).toEqual([1, 2]); // a untouched
-    expect(bSeen).toEqual([10, 20]);
-
-    stopA();
-    stopB();
-  });
-
-  it("each .select() call returns a fresh accessor (no global caching by selector identity)", () => {
-    const store = createStore({ count: 0 });
-    const sel = (s: { count: number }) => s.count;
-    const a = store.select(sel);
-    const b = store.select(sel);
-    // Different accessor instances...
-    expect(a).not.toBe(b);
-    // ...but observing the same underlying value.
-    expect(a()).toBe(b());
-    store.setState({ count: 42 });
-    expect(a()).toBe(42);
-    expect(b()).toBe(42);
-  });
-
-  it("composes — a selector can read another selector's output", () => {
-    const store = createStore({ items: [1, 2, 3] as number[] });
-    const items = store.select((s) => s.items);
-    // Outer selector reads through the inner accessor; the inner closes over
-    // `store` directly, so the outer just composes pure JS functions.
-    const count = store.select((s) => s.items.length);
-
-    const seen: number[] = [];
-    const stop = effect(() => {
-      seen.push(count());
-    });
-
-    expect(seen).toEqual([3]);
-    store.setState({ items: [...items(), 4] });
-    expect(seen).toEqual([3, 4]);
-    stop();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// .select() — type-level checks (compile-time, exercised at runtime)
-// ---------------------------------------------------------------------------
-
-describe("store.select() — type inference", () => {
-  it("infers the selected value type from the projection", () => {
-    const store = createStore({ count: 0, name: "Ada" });
-
-    const count = store.select((s) => s.count);
-    const name = store.select((s) => s.name);
-    const upper = store.select((s) => s.name.toUpperCase());
-
-    // These calls must satisfy the inferred return type at compile time.
-    const c: number = count();
-    const n: string = name();
-    const u: string = upper();
-
-    expect(c).toBe(0);
-    expect(n).toBe("Ada");
-    expect(u).toBe("ADA");
-  });
-
-  it("includes action keys in the state shape passed to the selector", () => {
-    const store = createStore({ count: 0 }, (set) => ({
-      reset: () => set({ count: 0 }),
-    }));
-    // Selector sees both state and action keys — `reset` is a function.
-    const reset = store.select((s) => s.reset);
-    expect(typeof reset()).toBe("function");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// bind(selector) — Ilha bind:* accessor
-// ---------------------------------------------------------------------------
-
-describe("bind(selector) — bindable accessor", () => {
-  it("returns a function", () => {
-    const store = createStore({ query: "" });
-    const query = store.bind((s) => s.query);
-    expect(typeof query).toBe("function");
-  });
-
-  it("reads current value with no args", () => {
-    const store = createStore({ query: "ilha" });
-    const query = store.bind((s) => s.query);
-    expect(query()).toBe("ilha");
-  });
-
-  it("writes value via accessor call", () => {
-    const store = createStore({ query: "" });
-    const query = store.bind((s) => s.query);
-    query("abc");
-    expect(store.getState().query).toBe("abc");
-  });
-
-  it("updates nested path immutably", () => {
-    const other = { x: 1 };
-    const store = createStore({ search: { query: "" }, other });
-    const query = store.bind((s) => s.search.query);
-    const before = store.getState().search;
-    query("abc");
-    expect(store.getState().search.query).toBe("abc");
-    expect(store.getState().search).not.toBe(before);
-    expect(store.getState().other).toBe(other);
-  });
-
-  it("updates array index path", () => {
-    const store = createStore({ items: [{ title: "Old" }] });
-    const title = store.bind((s) => s.items[0].title);
-    title("New");
-    expect(store.getState().items[0].title).toBe("New");
-  });
-
-  it("is reactive in alien-signals effect", () => {
-    const store = createStore({ count: 0 });
-    const count = store.bind((s) => s.count);
-    const seen: number[] = [];
-    const stop = effect(() => {
-      seen.push(count());
-    });
-    expect(seen).toEqual([0]);
-    store.setState({ count: 2 });
-    expect(seen).toEqual([0, 2]);
-    stop();
-  });
-
-  it("throws for unsupported selector shapes", () => {
-    const store = createStore({ query: "  x  " }, (set) => ({
-      inc: () => set((s) => ({ query: s.query + "!" })),
-    }));
-    expect(() => store.bind((s) => s.query.trim())).toThrow(/property-path selectors/);
-    expect(() => store.bind((s) => s.query + "!")).toThrow(/property-path selectors/);
-    expect(() => store.bind((s) => s.inc)).toThrow(/property-path selectors/);
-  });
-
-  it("allows object keys named length or digit-like strings", () => {
-    const store = createStore({ meta: { length: "short", "0": "zero" } });
-    const length = store.bind((s) => s.meta.length);
-    const zero = store.bind((s) => s.meta["0"]);
-    length("long");
-    zero("nil");
-    expect(store.getState().meta.length).toBe("long");
-    expect(store.getState().meta["0"]).toBe("nil");
-  });
-
-  it("preserves actions after bind writes", () => {
-    const store = createStore({ count: 0 }, (set) => ({
-      inc: () => set((s) => ({ count: s.count + 1 })),
-    }));
-    const count = store.bind((s) => s.count);
-    count(5);
-    expect(store.getState().count).toBe(5);
-    store.getState().inc();
-    expect(store.getState().count).toBe(6);
-  });
-});
-
-describe("bind(selector) — Ilha integration", () => {
   it("bind:value updates store from input event", () => {
-    const store = createStore({ query: "" });
-    const query = store.bind((s) => s.query);
-    const Island = ilha.render(() => html`<input data-q bind:value=${query}><p>${query()}</p>`);
-
+    const s = store({ query: "" }).build();
+    const Island = ilha.render(() => html`<input bind:value=${s.bind((st) => st.query)} />`);
     const el = document.createElement("div");
     document.body.appendChild(el);
     const unmount = Island.mount(el);
-    const input = el.querySelector<HTMLInputElement>("[data-q]")!;
+    const input = el.querySelector("input")!;
     input.value = "typed";
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(store.getState().query).toBe("typed");
-    expect(el.querySelector("p")!.textContent).toBe("typed");
+    expect(s.query()).toBe("typed");
     unmount();
     el.remove();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Type-level tests (compile-time assertions — must typecheck)
+// ---------------------------------------------------------------------------
+
+describe("type inference", () => {
+  it("action forms resolve to correct call signatures", () => {
+    const s = store({ count: 0, label: "" })
+      .action("inc", (_, ctx) => ({ count: ctx.get().count + 1 })) // zero-arg
+      .action("setLabel", (label: string) => ({ label })) // annotated param
+      .action("add", (delta: number, ctx) => ({ count: ctx.get().count + delta })) // annotated param
+      .build();
+
+    // @ts-expect-error — zero-arg action takes no props
+    s.inc(123);
+    s.inc();
+
+    // @ts-expect-error — setLabel requires a string
+    s.setLabel(123);
+    s.setLabel("ok");
+
+    // @ts-expect-error — add requires a number
+    s.add("nope");
+    s.add(5);
+
+    // The calls above are compile-time assertions; assert the runtime shape
+    // rather than mutated state (the @ts-expect-error lines still execute).
+    expect(typeof s.inc).toBe("function");
+    expect(typeof s.setLabel).toBe("function");
+    expect(typeof s.add).toBe("function");
+  });
+
+  it("state and derived accessors are typed", () => {
+    const s = store({ count: 0 })
+      .derived("doubled", (ctx) => ctx.get().count * 2)
+      .build();
+    const n: number = s.count();
+    const d: number | undefined = s.doubled();
+    const loading: boolean = s.doubled.loading;
+    const err: Error | undefined = s.doubled.error;
+
+    // @ts-expect-error — state write must match the value type
+    s.count("nope");
+    // @ts-expect-error — derived is read-only (no write overload)
+    s.doubled(5);
+
+    expect(typeof n).toBe("number");
+    void d;
+    void loading;
+    void err;
+  });
+
+  it("getState excludes actions and derived from the type", () => {
+    const s = store({ count: 0 })
+      .derived("doubled", (ctx) => ctx.get().count * 2)
+      .action("inc", (_, ctx) => ({ count: ctx.get().count + 1 }))
+      .build();
+    const st = s.getState();
+    const n: number = st.count;
+    // @ts-expect-error — derived is not part of the state snapshot
+    void st.doubled;
+    // @ts-expect-error — actions are not part of the state snapshot
+    void st.inc;
+    expect(n).toBe(0);
   });
 });
