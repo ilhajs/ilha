@@ -1,5 +1,6 @@
 import { Footer } from "$lib/components/footer";
 import { bindHeroTechCardTracking, HeroTechCards } from "$lib/components/hero-tech-card";
+import { Preview } from "$lib/components/preview";
 import { Topbar } from "$lib/components/topbar";
 import {
   PRIMARY_ILHA_CARDS,
@@ -11,7 +12,70 @@ import {
 import { URLS } from "$lib/landing-const";
 import { Badge, ClipboardText, Icon, LayerCard, LinkButton } from "areia";
 import ilha, { raw } from "ilha";
-import { Book } from "lucide";
+import { Book, FileType, Package, Scale, Star, Zap } from "lucide";
+
+const HERO_STATS = [
+  { icon: Scale, label: "< 2,500 LOC core" },
+  { icon: Package, label: "Zero dependencies" },
+  { icon: FileType, label: "TypeScript-first" },
+  { icon: Zap, label: "No virtual DOM" },
+];
+
+const PREVIEW_CODE = `import ilha from "ilha";
+import { Button, Checkbox, Input } from "areia";
+
+let nextId = 4;
+
+export default ilha
+  .state("tasks", [
+    { id: 1, label: "Ship the landing page", done: true },
+    { id: 2, label: "Write unit tests", done: false },
+    { id: 3, label: "Update README", done: false },
+  ])
+  .state("draft", "")
+  .on("form@submit", ({ state, event }) => {
+    event.preventDefault();
+    const label = state.draft().trim();
+    if (!label) return;
+    state.tasks([...state.tasks(), { id: nextId++, label, done: false }]);
+    state.draft("");
+  })
+  .on("[data-remove]@click", ({ state, event }) => {
+    const id = Number((event.target as HTMLElement).closest("[data-remove]")?.getAttribute("data-remove"));
+    state.tasks(state.tasks().filter((t) => t.id !== id));
+  })
+  .render(({ state }) => (
+    <div class="flex min-h-full items-center justify-center bg-areia-background p-6">
+      <div class="w-full max-w-sm rounded-xl border border-areia-border shadow-sm">
+        <div class="border-b border-areia-border px-4 py-3">
+          <h2 class="text-sm font-semibold">
+            My Tasks
+            <span class="ml-2 rounded-full bg-areia-control-background px-2 py-0.5 text-xs font-normal text-areia-subtle">
+              {state.tasks().filter((t) => !t.done).length} left
+            </span>
+          </h2>
+        </div>
+        <ul class="divide-y divide-areia-border">
+          {state.tasks().map((task, i) => (
+            <li key={task.id} class="flex items-center gap-2 px-4 py-2.5">
+              <div class="flex-1">
+                <Checkbox
+                  bind:checked={state.tasks.select((tasks) => tasks[i].done)}
+                  label={task.label}
+                />
+              </div>
+              <Button data-remove={task.id} variant="ghost" size="sm">✕</Button>
+            </li>
+          ))}
+        </ul>
+        <form class="flex gap-2 border-t border-areia-border p-3">
+          <Input placeholder="New task…" bind:value={state.draft} class="flex-1" />
+          <Button type="submit">Add</Button>
+        </form>
+      </div>
+    </div>
+  ));
+`;
 
 const NITRO_SANDBOX = `${URLS.SANDBOX.replace("{template}", "nitro")}?file=src%2Fpages%2Findex.tsx`;
 
@@ -22,7 +86,7 @@ export default ilha
       <Topbar />
 
       <main class="flex-1">
-        <section class="container mx-auto mt-20 max-w-6xl px-5 pt-6 pb-12 sm:mt-0 sm:px-6 sm:pt-14 sm:pb-20 md:pt-16 lg:px-8 lg:pt-24 lg:pb-28 xl:pt-28">
+        <section class="container mx-auto mt-20 max-w-6xl px-5 pt-6 pb-16 sm:mt-0 sm:px-6 sm:pt-14 sm:pb-24 md:pt-16 lg:px-8 lg:pt-24 lg:pb-32 xl:pt-28">
           <div class="mx-auto flex max-w-4xl flex-col items-center gap-6 text-center sm:gap-8 lg:gap-10">
             <Badge variant="beta">Beta is live</Badge>
             <div class="space-y-4 px-0.5 sm:space-y-5 sm:px-0 lg:space-y-6">
@@ -38,28 +102,65 @@ export default ilha
                 are included when you need them.
               </p>
             </div>
-            <div class="flex flex-wrap items-center justify-center gap-3">
-              <LinkButton
-                href="/guide/getting-started/introduction"
-                variant="primary"
-                icon={<Icon icon={Book} />}
-              >
-                Get Started
-              </LinkButton>
-              <LinkButton variant="outline" href={NITRO_SANDBOX} external>
-                Open Sandbox
-              </LinkButton>
+            <div class="flex w-full max-w-md flex-col items-center gap-2.5">
+              <ClipboardText
+                text="npx giget@latest gh:ilhajs/ilha/templates/vite my-app"
+                tooltip
+                class="w-full px-0.5 text-left sm:px-0"
+              />
+              <div class="flex w-full flex-wrap items-center justify-center gap-3">
+                <LinkButton
+                  href="/guide/getting-started/introduction"
+                  variant="primary"
+                  icon={<Icon icon={Book} />}
+                  class="flex-1 justify-center sm:flex-none"
+                >
+                  Get Started
+                </LinkButton>
+                <LinkButton
+                  variant="outline"
+                  href={NITRO_SANDBOX}
+                  external
+                  class="flex-1 justify-center sm:flex-none"
+                >
+                  Open Sandbox
+                </LinkButton>
+              </div>
             </div>
-            <ClipboardText
-              text="npx giget@latest gh:ilhajs/ilha/templates/vite my-app"
-              tooltip
-              class="w-full max-w-md px-0.5 text-left sm:px-0"
-            />
+            <ul class="text-areia-subtle flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
+              {HERO_STATS.map((stat) => (
+                <li class="flex items-center gap-1.5">
+                  <Icon icon={stat.icon} class="text-areia-primary size-4 shrink-0" />
+                  <span>{stat.label}</span>
+                </li>
+              ))}
+              <li class="flex items-center gap-1.5">
+                <Icon icon={Star} class="text-areia-primary size-4 shrink-0" />
+                <a
+                  href={URLS.GITHUB}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="hover:text-areia-foreground underline-offset-4 transition hover:underline"
+                >
+                  Star on GitHub
+                </a>
+              </li>
+            </ul>
             <HeroTechCards />
           </div>
         </section>
 
-        <section class="container mx-auto max-w-6xl px-5 pt-4 pb-16 sm:px-6 sm:pt-0 sm:pb-24 lg:px-8">
+        <section class="container mx-auto max-w-6xl px-5 pb-16 sm:px-6 sm:pb-24 lg:px-8 lg:pb-32">
+          <div class="mx-auto mb-6 max-w-2xl text-center sm:mb-8">
+            <Badge variant="outline">Live demo</Badge>
+            <p class="text-areia-subtle mt-3 text-[0.9375rem] leading-[1.65] text-balance sm:text-base">
+              One island — state, events, and markup together. Edit the code and watch it run.
+            </p>
+          </div>
+          <Preview code={PREVIEW_CODE} size="lg" />
+        </section>
+
+        <section class="container mx-auto max-w-6xl px-5 pb-20 sm:px-6 sm:pb-28 lg:px-8 lg:pb-32">
           <div class="mb-8 max-w-2xl space-y-3 sm:mb-10 sm:space-y-4 md:mb-12">
             <Badge variant="outline">Why Ilha</Badge>
             <h2 class="text-xl leading-snug font-semibold tracking-tight sm:text-3xl sm:leading-tight">
@@ -88,7 +189,7 @@ export default ilha
                       </li>
                     ))}
                   </ul>
-                  <div class="code-surface border-areia-border overflow-auto rounded-lg border text-xs [&_pre]:!m-0 [&_pre]:!p-3">
+                  <div class="code-surface border-areia-border overflow-auto rounded-lg border text-xs [&_pre]:!m-0 [&_pre]:!p-4">
                     {raw(whyIlhaCodeHtml[tab.id] ?? "")}
                   </div>
                 </LayerCard.Content>

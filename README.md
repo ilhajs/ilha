@@ -5,7 +5,7 @@
 ![Bundlephobia](https://badgen.net/bundlephobia/minzip/ilha)
 [![Discord](https://img.shields.io/discord/1428724223756472373)](https://discord.gg/WnVTMCTz74)
 
-> Alpha is live
+> Beta is live
 
 **Ilha** is a tiny, isomorphic web UI library built around the [islands architecture](https://www.patterns.dev/vanilla/islands-architecture/) — ship minimal JavaScript, hydrate only what matters.
 
