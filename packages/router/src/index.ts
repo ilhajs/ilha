@@ -203,6 +203,21 @@ function nextDivToken(
     const skip = slice.match(K_PAGE_RAW_OPEN_RE);
     if (skip && skip.index != null && skip.index >= 0) {
       const rawStart = i + skip.index;
+      let skipComment = false;
+      let search = i;
+      while (search < rawStart) {
+        const commentStart = html.indexOf("<!--", search);
+        if (commentStart === -1 || commentStart >= rawStart) break;
+        const commentEnd = html.indexOf("-->", commentStart);
+        if (commentEnd === -1) return null;
+        if (rawStart < commentEnd + 3) {
+          i = commentEnd + 3;
+          skipComment = true;
+          break;
+        }
+        search = commentEnd + 3;
+      }
+      if (skipComment) continue;
       const nextOpen = html.indexOf("<div", i);
       const nextClose = html.indexOf("</div>", i);
       const divBeforeRaw =
