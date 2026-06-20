@@ -87,12 +87,12 @@ export type EventHandlerContext = { event: Event };
  *   }))
  *   .render(...);
  */
-export function preventDefault<C extends EventHandlerContext, This = unknown>(
-  fn: (this: This, ctx: C) => void,
-): (this: This, ctx: C) => void {
+export function preventDefault<C extends EventHandlerContext, This = unknown, R = void>(
+  fn: (this: This, ctx: C) => R,
+): (this: This, ctx: C) => R {
   return function (this: This, ctx: C) {
     ctx.event.preventDefault();
-    fn.call(this, ctx);
+    return fn.call(this, ctx);
   };
 }
 

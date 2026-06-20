@@ -96,17 +96,18 @@ import type {
 } from "ilha";
 ```
 
-| Type                | Use it for                                           |
-| ------------------- | ---------------------------------------------------- |
-| `Island`            | A renderable/mountable island value.                 |
-| `KeyedIsland`       | A registry entry with a stable hydration key.        |
-| `HydratableOptions` | Options accepted by `.hydratable()`.                 |
-| `IslandState`       | State accessors passed to render/handlers/effects.   |
-| `IslandDerived`     | Derived accessors passed to render/handlers/effects. |
-| `HandlerContext`    | Event handler context.                               |
-| `EffectContext`     | Reactive effect context.                             |
-| `OnMountContext`    | Mount hook context.                                  |
-| `ErrorContext`      | Error handler context.                               |
+| Type                | Use it for                                                                   |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `Island`            | A renderable/mountable island value.                                         |
+| `KeyedIsland`       | A registry entry with a stable hydration key.                                |
+| `HydratableOptions` | Options accepted by `.hydratable()`.                                         |
+| `IslandState`       | State accessors passed to render/handlers/effects.                           |
+| `IslandDerived`     | Derived accessors passed to render/handlers/effects.                         |
+| `HandlerContext`    | Event handler context.                                                       |
+| `EffectContext`     | Reactive effect context.                                                     |
+| `OnMountContext`    | Mount hook context.                                                          |
+| `ErrorContext`      | Error handler context.                                                       |
+| `ErrorSource`       | Where an error originated: `"on"`, `"effect"`, `"mount"`, or `"transition"`. |
 
 ## Related packages
 

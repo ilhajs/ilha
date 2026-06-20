@@ -80,6 +80,18 @@ describe("preventDefault()", () => {
 
     receiver.run.call(receiver, { event });
   });
+
+  it("returns the wrapped handler's sync value", () => {
+    const event = new Event("submit", { cancelable: true });
+    const handler = preventDefault(() => 42);
+    expect(handler({ event })).toBe(42);
+  });
+
+  it("returns the wrapped handler's Promise", async () => {
+    const event = new Event("submit", { cancelable: true });
+    const handler = preventDefault(async () => "ok");
+    await expect(handler({ event })).resolves.toBe("ok");
+  });
 });
 
 // ---------------------------------------------------------------------------

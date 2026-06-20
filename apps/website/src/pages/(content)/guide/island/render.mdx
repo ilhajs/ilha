@@ -377,7 +377,7 @@ const List = ilha
   ));
 ```
 
-The tag must be a non-empty [valid HTML element name](https://html.spec.whatwg.org/multipage/custom-elements.html#valid-custom-element-name) (for example `span`, `li`, `section`). Invalid names throw at builder time.
+The tag must be a non-empty name matching ilha’s rule: start with an ASCII letter, then letters, digits, or hyphens (same idea as built-in tags like `span`, `li`, `section` — not arbitrary strings). Invalid names throw at builder time.
 
 `.as()` on the ilha builder is **only** for child island slot wrappers. List helpers such as **`each()`** (for example from [Quando](https://github.com/ilhajs/quando)) use a separate `.as((item, index) => …)` API for mapping items to JSX — not the same method.
 

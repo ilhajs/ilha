@@ -242,7 +242,7 @@ After the first render is in the DOM, slots are mounted, and event listeners are
 2. **[`.onMount()`](/guide/island/onmount)** callbacks (unless skipped via hydration `skipOnMount`).
 3. **[`.effect()`](/guide/island/effect)** and derived watchers — then the render effect keeps the host in sync with signals.
 
-Enter animations therefore start **before** `.onMount()` and `.effect()`. If you need the DOM fully wired (including child islands) before animating, do that work in `enter` after a `requestAnimationFrame`, or run one-time setup in `.onMount()` knowing it runs after `enter` begins (await `enter` first if `enter` is async and you chain work there).
+**`.effect()` callbacks are not registered until after `enter` and `.onMount()` finish** — nothing in the effect system runs during `enter`. Use `enter` for the animation itself; use `.onMount()` for one-time setup that must run after `enter` completes (when `enter` is async, await your animation inside `enter` before returning). If you need child slots mounted before measuring or animating, the DOM is already rendered and slots are mounted before step 1 — only effects and the ongoing render loop start later.
 
 ## Notes
 
