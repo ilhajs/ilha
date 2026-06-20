@@ -126,7 +126,7 @@ userStore.user.error; // Error | undefined if it rejected
 
 #### `.action(key, fn)`
 
-Registers a named mutation. `fn` receives the props and a context object, and returns a `Partial` state patch that is merged in via `setState`.
+Registers a named mutation. `fn` receives the props and a context object. Return a `Partial` patch to merge via `setState`, or return nothing when all writes go through `ctx.set` or the action is side-effect-only.
 
 ```ts
 // Zero-arg action — omit or leave first param unannotated
@@ -150,7 +150,6 @@ The returned patch is the primary write path. Use `ctx.set` for async actions th
 .action("load", (_, ctx) => {
   ctx.set({ loading: true });
   fetchUser().then((user) => ctx.set({ user, loading: false }));
-  return {}; // writes happen via ctx.set
 })
 ```
 

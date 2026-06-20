@@ -62,7 +62,7 @@
     },
     "packages/store": {
       "name": "@ilha/store",
-      "version": "0.5.2",
+      "version": "0.5.3",
       "dependencies": {
         "alien-signals": "3.2.1",
       },
