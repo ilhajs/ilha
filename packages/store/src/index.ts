@@ -83,8 +83,8 @@ export interface MiddlewareCtx<TState> {
 /** A derived entry: `(ctx) => V`. */
 type DerivedFn<TState, V = unknown> = (ctx: DerivedCtx<TState>) => V;
 
-/** An action entry: `(props, ctx) => Partial<TState>`. */
-type ActionFn<TState, P = any> = (props: P, ctx: ActionCtx<TState>) => Partial<TState>;
+/** An action entry: `(props, ctx) => Partial<TState> | void`. */
+type ActionFn<TState, P = any> = (props: P, ctx: ActionCtx<TState>) => Partial<TState> | void;
 
 type Middleware<TState> = (
   patch: Partial<TState>,
@@ -253,7 +253,7 @@ export class StoreBuilder<
 
   action<K extends string, P = undefined>(
     key: K,
-    fn: (props: P, ctx: ActionCtx<TState>) => Partial<TState>,
+    fn: (props: P, ctx: ActionCtx<TState>) => Partial<TState> | void,
   ): StoreBuilder<TState, D, A & Record<K, typeof fn>> {
     return new StoreBuilder({
       ...this._cfg,
@@ -535,7 +535,8 @@ function buildStore<
   const actionHandlers = new Map<string, (props?: unknown) => void>();
   for (const { key, fn } of cfg.actions) {
     actionHandlers.set(key, (props?: unknown) => {
-      setState(fn(props as never, actionCtx));
+      const patch = fn(props as never, actionCtx);
+      if (patch !== undefined) setState(patch);
     });
   }
 

@@ -118,7 +118,7 @@ Re-running (when `id` changes) keeps the previous `.value` visible while `.loadi
 
 ### `.action(key, fn)`
 
-Registers a named mutation. `fn` receives props and `ctx`; return a `Partial` patch that merges into state through middleware.
+Registers a named mutation. `fn` receives props and `ctx`. Return a `Partial` patch to merge through middleware, or return nothing when writes use `ctx.set` only or the action has no state updates.
 
 ```ts
 // Zero-arg — omit or leave first param unannotated
@@ -128,13 +128,12 @@ Registers a named mutation. `fn` receives props and `ctx`; return a `Partial` pa
 .action("setLabel", (label: string) => ({ label }))
 ```
 
-`ctx` exposes `{ get(), getInitial(), set(patch) }`. Use `ctx.set` for async/multi-step actions and `return {}`:
+`ctx` exposes `{ get(), getInitial(), set(patch) }`. Use `ctx.set` for async/multi-step actions (no return value needed):
 
 ```ts
 .action("load", (_, ctx) => {
   ctx.set({ loading: true });
   fetchUser(ctx.get().id).then((user) => ctx.set({ user, loading: false }));
-  return {};
 })
 ```
 

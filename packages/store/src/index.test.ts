@@ -349,6 +349,26 @@ describe(".action()", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it("void return skips setState (side effects via ctx.set only)", () => {
+    const s = store({ count: 0 })
+      .action("bump", (_, ctx) => {
+        ctx.set({ count: ctx.get().count + 1 });
+      })
+      .build();
+    s.bump();
+    expect(s.count()).toBe(1);
+  });
+
+  it("implicit void return does not fire change", () => {
+    const s = store({ count: 0 })
+      .action("sideEffect", () => {})
+      .build();
+    const listener = mock();
+    s.subscribe(listener);
+    s.sideEffect();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it("ctx.getInitial() reads the initial snapshot", () => {
     const s = store({ count: 5 })
       .action("resetCount", (_, ctx) => ({ count: ctx.getInitial().count }))
@@ -364,7 +384,6 @@ describe(".action()", () => {
         ctx.set({ loading: true });
         // simulate async resolve
         queueMicrotask(() => ctx.set({ count: 42, loading: false }));
-        return {}; // no-op return; writes happen via ctx.set
       })
       .build();
     s.load();
@@ -383,7 +402,6 @@ describe(".action()", () => {
       })
       .action("viaSet", (_, ctx) => {
         ctx.set({ count: 7 });
-        return {};
       })
       .build();
     s.viaSet();
