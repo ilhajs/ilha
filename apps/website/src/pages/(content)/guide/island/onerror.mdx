@@ -1,6 +1,6 @@
 ---
 title: .onError()
-description: Register error handlers that catch throws and rejections from .on() handlers and .effect() runs.
+description: Per-island .onError() handlers and app-wide onUncaughtError() for errors from .on(), .effect(), .onMount(), and transitions.
 order: 207
 ---
 
@@ -31,7 +31,16 @@ export default ilha
 
 # On Error
 
-Registers an error handler that catches errors thrown by [`.on()`](/guide/island/on) handlers (sync throws and async rejections) and [`.effect()`](/guide/island/effect) runs (sync throws). If no `.onError()` handler is registered, errors fall back to `console.error` so they are never silently swallowed.
+Registers a **per-island** error handler. The runtime routes uncaught errors through a central sink: **local `.onError()` handlers first** (in declaration order), then the app-wide **[`onUncaughtError()`](#global-error-sink-onuncaughterror)** sink if the island has none, then **`console.error`** so nothing is swallowed silently.
+
+Island errors that reach the sink include:
+
+- [`.on()`](/guide/island/on) — sync throws and async rejections (except filtered `AbortError`)
+- [`.effect()`](/guide/island/effect) — sync throws from the effect body or its cleanup
+- [`.onMount()`](/guide/island/onmount) — throws from the mount callback or its returned cleanup
+- [`.transition()`](/guide/island/transition) — throws or rejections from `enter` / `leave`
+
+**Derived** failures are not reported here — they surface on `derived.key.error`. Malformed hydration snapshots degrade gracefully and are not routed to `.onError()`.
 
 ## Basic usage
 
@@ -76,7 +85,7 @@ The handler receives an `ErrorContext`:
 ```ts
 {
   error: Error; // always wrapped to Error if a non-Error was thrown
-  source: "on" | "effect"; // where the error originated
+  source: "on" | "effect" | "mount" | "transition";
   state: IslandState; // reactive state signals
   derived: IslandDerived; // current derived values
   input: TInput; // resolved input props
@@ -84,7 +93,7 @@ The handler receives an `ErrorContext`:
 }
 ```
 
-Use `source` to distinguish between `.on()` handler errors and `.effect()` run errors:
+Use `source` to branch logging or UX:
 
 ```tsx twoslash
 import ilha from "ilha";
@@ -94,11 +103,53 @@ const Island = ilha
     throw new Error("click failed");
   })
   .onError(({ error, source }) => {
-    if (source === "on") {
-      console.error("Handler error:", error);
-    } else {
-      console.error("Effect error:", error);
-    }
+    const label =
+      source === "on"
+        ? "Handler"
+        : source === "effect"
+          ? "Effect"
+          : source === "mount"
+            ? "Mount"
+            : "Transition";
+    console.error(`${label}:`, error);
+  })
+  .render(() => <button>Go</button>);
+```
+
+## Global error sink — `onUncaughtError()`
+
+Import **`onUncaughtError`** from `ilha` (not chained on the builder). Register it once in your client entry — for example logging, toast, or telemetry — for **any island that has no local `.onError()`**:
+
+```ts
+import ilha, { onUncaughtError } from "ilha";
+
+const off = onUncaughtError((error, source) => {
+  console.error(`[ilha:${source}]`, error);
+});
+
+// later: off() stops delivery
+```
+
+The callback receives `(error, source)` only — not full `ErrorContext` (`state`, `host`, etc.). Use per-island `.onError()` when you need that context.
+
+| Behavior         | Detail                                                                                                                |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Precedence       | Islands with `.onError()` handle errors locally; the global sink is **not** called for those errors.                  |
+| Fallback order   | No local handlers → global sink(s) → `console.error` if no global handler is registered.                              |
+| Multiple globals | Each `onUncaughtError()` registration runs; a throw inside one global handler is logged and does not stop the others. |
+| Unsubscribe      | The returned function removes that handler from the global set.                                                       |
+
+```tsx twoslash
+import ilha, { onUncaughtError } from "ilha";
+
+onUncaughtError((error, source) => {
+  if (source === "on") console.error("[click]", error);
+});
+
+// This island has no .onError() — clicks reach the global sink.
+const Loose = ilha
+  .on("button@click", () => {
+    throw new Error("oops");
   })
   .render(() => <button>Go</button>);
 ```
@@ -168,7 +219,8 @@ const Island = ilha
 
 ## Notes
 
-- If no `.onError()` handler is registered, errors fall back to `console.error`.
-- `AbortError` rejections from cancelled `.on()` work are always filtered out.
-- Errors thrown inside `.onError()` handlers are logged but do not break subsequent handlers.
-- `.onError()` runs client-side only and is never called during SSR.
+- Fallback order: local `.onError()` → `onUncaughtError()` → `console.error`.
+- `AbortError` rejections from cancelled `.on()` work are always filtered out (not errors).
+- Errors thrown inside `.onError()` or global handlers are logged but do not break other handlers in the same tier.
+- `.onError()` and `onUncaughtError()` run **client-side only** — not during SSR.
+- Rejected promises from fire-and-forget async work inside `.effect()` are not awaited by the runtime; handle them inside the effect (`.catch()` / `await`), not via `.onError()`.

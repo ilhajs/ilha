@@ -68,6 +68,35 @@ export type FormResult<T> =
 export type FormErrors = Record<string, string[]>;
 
 // ---------------------------------------------------------------------------
+// preventDefault
+// ---------------------------------------------------------------------------
+
+/** Minimal context shape ilha passes to `.on()` handlers. */
+export type EventHandlerContext = { event: Event };
+
+/**
+ * Wrap an ilha `.on()` handler so the DOM event is cancelled before your logic runs.
+ *
+ * @example
+ * import { preventDefault } from "@ilha/store/form";
+ *
+ * ilha
+ *   .on("form@submit", preventDefault(({ event, state }) => {
+ *     const data = extractFormData(event.target as HTMLFormElement);
+ *     // ...
+ *   }))
+ *   .render(...);
+ */
+export function preventDefault<C extends EventHandlerContext, This = unknown>(
+  fn: (this: This, ctx: C) => void,
+): (this: This, ctx: C) => void {
+  return function (this: This, ctx: C) {
+    ctx.event.preventDefault();
+    fn.call(this, ctx);
+  };
+}
+
+// ---------------------------------------------------------------------------
 // extractFormData
 // ---------------------------------------------------------------------------
 

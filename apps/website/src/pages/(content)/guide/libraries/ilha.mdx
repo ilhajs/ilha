@@ -24,7 +24,7 @@ import ilha from "ilha";
 | `.on(selector, handler)`                 | Add delegated event handlers.                | [On](/guide/island/on)                 |
 | `.effect(fn)`                            | Run reactive side effects.                   | [Effect](/guide/island/effect)         |
 | `.onMount(fn)`                           | Run mount-only client effects.               | [On Mount](/guide/island/onmount)      |
-| `.onError(fn)`                           | Catch async/event/effect errors.             | [On Error](/guide/island/onerror)      |
+| `.onError(fn)`                           | Per-island error handler.                    | [On Error](/guide/island/onerror)      |
 | `.transition(options)`                   | Enter/leave animations on mount and unmount. | [Transition](/guide/island/transition) |
 | `.css(styles)`                           | Attach scoped styles.                        | [CSS](/guide/island/css)               |
 | `.render(fn)`                            | Produce an island from JSX/HTML.             | [Render](/guide/island/render)         |
@@ -43,20 +43,22 @@ import {
   batch,
   untrack,
   from,
+  onUncaughtError,
 } from "ilha";
 ```
 
-| Export                      | Purpose                                     | Learn more                        |
-| --------------------------- | ------------------------------------------- | --------------------------------- |
-| `mount(registry, options?)` | Mount islands in the browser.               | [Mount](/guide/helpers/mount)     |
-| `html\`...\``               | Create escaped HTML template output.        | [HTML](/guide/helpers/html)       |
-| `raw(value)`                | Mark trusted HTML as unescaped.             | [Raw](/guide/helpers/raw)         |
-| `css\`...\``                | Create CSS template output.                 | [CSS helper](/guide/helpers/css)  |
-| `signal(initial)`           | Create a shared reactive accessor.          | [Signals](/guide/helpers/signals) |
-| `context(key, initial)`     | Create a keyed shared signal.               | [Signals](/guide/helpers/signals) |
-| `batch(fn)`                 | Batch multiple writes into one update.      | [Signals](/guide/helpers/signals) |
-| `untrack(fn)`               | Read signals without tracking dependencies. | [Signals](/guide/helpers/signals) |
-| `from(source)`              | Adapt external signal-like values for Ilha. | [Signals](/guide/helpers/signals) |
+| Export                      | Purpose                                             | Learn more                                                          |
+| --------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- |
+| `onUncaughtError(fn)`       | App-wide error sink when islands lack `.onError()`. | [On Error](/guide/island/onerror#global-error-sink-onuncaughterror) |
+| `mount(registry, options?)` | Mount islands in the browser.                       | [Mount](/guide/helpers/mount)                                       |
+| `html\`...\``               | Create escaped HTML template output.                | [HTML](/guide/helpers/html)                                         |
+| `raw(value)`                | Mark trusted HTML as unescaped.                     | [Raw](/guide/helpers/raw)                                           |
+| `css\`...\``                | Create CSS template output.                         | [CSS helper](/guide/helpers/css)                                    |
+| `signal(initial)`           | Create a shared reactive accessor.                  | [Signals](/guide/helpers/signals)                                   |
+| `context(key, initial)`     | Create a keyed shared signal.                       | [Signals](/guide/helpers/signals)                                   |
+| `batch(fn)`                 | Batch multiple writes into one update.              | [Signals](/guide/helpers/signals)                                   |
+| `untrack(fn)`               | Read signals without tracking dependencies.         | [Signals](/guide/helpers/signals)                                   |
+| `from(source)`              | Adapt external signal-like values for Ilha.         | [Signals](/guide/helpers/signals)                                   |
 
 ## JSX runtime
 
@@ -90,6 +92,7 @@ import type {
   EffectContext,
   OnMountContext,
   ErrorContext,
+  ErrorSource,
 } from "ilha";
 ```
 

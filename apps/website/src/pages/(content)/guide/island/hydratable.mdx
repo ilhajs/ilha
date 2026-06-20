@@ -183,8 +183,7 @@ If the island uses [`.css()`](/guide/island/css), the `<style>` tag is included 
 When using file-system routing, `.hydratable()` is called internally by `renderHydratable()` and `renderResponse()`. You typically do not call it directly — the router handles it:
 
 ```ts
-import { pageRouter } from "ilha:pages";
-import { registry } from "ilha:registry";
+import { pageRouter, registry } from "ilha:pages/server";
 
 // The router calls .hydratable() internally for the matched island
 const html = await pageRouter.renderHydratable(
@@ -192,6 +191,8 @@ const html = await pageRouter.renderHydratable(
   registry,
 );
 ```
+
+On the client, import from `ilha:pages/client` (see [Router — virtual modules](/guide/libraries/router#virtual-modules)).
 
 For manual setups without the router, call `.hydratable()` directly in your SSR handler.
 

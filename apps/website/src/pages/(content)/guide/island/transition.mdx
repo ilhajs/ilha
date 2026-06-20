@@ -165,7 +165,7 @@ const Island = ilha
   .render(() => <div>content</div>);
 ```
 
-If `leave` throws or rejects, cleanup still runs — the transition error is logged to the console but does not prevent unmounting.
+If `leave` throws or rejects, cleanup still runs — the error is routed to [`.onError()` / `onUncaughtError()`](/guide/island/onerror) with `source: "transition"` but does not prevent unmounting.
 
 ## Combining enter and leave
 
@@ -234,16 +234,15 @@ const Island = ilha
   .render(() => <div>content</div>);
 ```
 
-## Interaction with [`.onMount()`](/guide/island/onmount)
+## Mount order
 
-The enter transition and [`.onMount()`](/guide/island/onmount) both run after mount, but in a specific order:
+After the first render is in the DOM, slots are mounted, and event listeners are attached, ilha runs client setup in this order:
 
-1. Island mounts and renders into the DOM.
-2. Effects are set up.
-3. [`.onMount()`](/guide/island/onmount) callbacks run.
-4. Enter transition runs.
+1. **`enter` transition** (if [`.transition()`](/guide/island/transition) is set) — may be sync or async; rejections are reported to [`.onError()` / `onUncaughtError()`](/guide/island/onerror) with `source: "transition"`.
+2. **[`.onMount()`](/guide/island/onmount)** callbacks (unless skipped via hydration `skipOnMount`).
+3. **[`.effect()`](/guide/island/effect)** and derived watchers — then the render effect keeps the host in sync with signals.
 
-This means [`.onMount()`](/guide/island/onmount) always completes before the enter animation starts.
+Enter animations therefore start **before** `.onMount()` and `.effect()`. If you need the DOM fully wired (including child islands) before animating, do that work in `enter` after a `requestAnimationFrame`, or run one-time setup in `.onMount()` knowing it runs after `enter` begins (await `enter` first if `enter` is async and you chain work there).
 
 ## Notes
 

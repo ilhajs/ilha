@@ -170,7 +170,7 @@ Race-cancellation is scoped per-target — clicking button A does not cancel an 
 
 ## Async handlers and errors
 
-Async errors (and sync throws) are caught automatically and routed to [`.onError()`](/guide/island/onerror) handlers if any are registered. `AbortError` rejections from cancelled work are filtered out and do not reach `.onError()` or `console.error`.
+Async errors (and sync throws) are caught automatically and routed through the [error sink](/guide/island/onerror): per-island [`.onError()`](/guide/island/onerror), then [`onUncaughtError()`](/guide/island/onerror#global-error-sink-onuncaughterror), then `console.error`. `AbortError` rejections from cancelled work are filtered out and do not reach any of those handlers.
 
 ```tsx twoslash
 import ilha from "ilha";
