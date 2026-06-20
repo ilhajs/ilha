@@ -75,10 +75,9 @@ return new Response(
 ### SSR + hydration (recommended)
 
 ```ts
-// server entry
-import { pageRouter } from "ilha:pages";
-import { registry } from "ilha:registry";
-import "ilha:loaders"; // wires server-only loaders
+// server entry — SSR / Nitro
+import { pageRouter, registry } from "ilha:pages/server";
+import "ilha:loaders"; // wires server-only loaders onto pageRouter
 
 export default defineEventHandler(async (event) => {
   const html = await pageRouter.renderHydratable(
@@ -96,8 +95,7 @@ export default defineEventHandler(async (event) => {
 
 ```ts
 // client entry
-import { pageRouter } from "ilha:pages";
-import { registry } from "ilha:registry";
+import { pageRouter, registry } from "ilha:pages/client";
 
 pageRouter.hydrate(registry);
 ```
@@ -206,7 +204,7 @@ The loader receives a `LoaderContext`:
 }
 ```
 
-On the server, loaders run inside `.renderHydratable()`. On the client, navigations fetch loader data from the `/__ilha/loader` endpoint before mounting the next island.
+On the server, loaders run inside `.renderHydratable()`. You can also call **`.runLoader(url, request?)`** on the builder to execute a loader without rendering HTML. On the client, navigations fetch loader data from the `/__ilha/loader` endpoint before mounting the next island.
 
 ### `redirect(to, status?)`
 
@@ -260,6 +258,27 @@ prefetch("/dashboard?tab=overview");
 ```
 
 `RouterLink` calls this automatically on `mouseenter` for links with the `data-prefetch` attribute.
+
+## Hash mode
+
+By default the router uses the HTML5 History API (`location.pathname`). That needs a server or host that serves your SPA shell for every URL. When that is not possible — `file://`, Electron, or hosts without SPA fallback — use **hash mode** so the route lives in `location.hash`:
+
+```ts
+import { setHistoryMode, router } from "@ilha/router";
+
+setHistoryMode("hash"); // once, before .mount() / .hydrate() / prime()
+
+router()
+  .route("/", HomePage)
+  .route("/about", AboutPage)
+  .mount("#app");
+```
+
+URLs look like `index.html#/about` or `index.html#/user/42?tab=1`. `navigate("/about")` still takes a logical path (no `#` prefix). `<RouterLink>` emits `href="#/…"` in hash mode.
+
+**SSR + hydration is not supported in hash mode** — the hash is never sent to the server. Use plain `.mount("#app")` without `{ hydrate: true }`. Loaders can still run on the client via `/__ilha/loader` or `runLoader()`.
+
+History mode is **process-global** (`navigate`, `RouterLink`, and `prefetch` share it). Set it once at app entry.
 
 ## Route context
 
@@ -516,13 +535,21 @@ export default ((err, route) =>
 
 ### Virtual modules
 
-The plugin exposes three virtual modules:
+Use the **explicit** `/server` or `/client` suffix — they resolve to different generated files (raw imports for SSR vs `?client` imports for the browser bundle).
 
-| Module          | Export       | Description                                  |
-| --------------- | ------------ | -------------------------------------------- |
-| `ilha:pages`    | `pageRouter` | `RouterBuilder` with all routes registered   |
-| `ilha:registry` | `registry`   | `Record<string, Island>` for hydration       |
-| `ilha:loaders`  | —            | Side-effect import that wires server loaders |
+| Module              | Exports                  | Use for                                |
+| ------------------- | ------------------------ | -------------------------------------- |
+| `ilha:pages/server` | `pageRouter`, `registry` | SSR, prerender, Nitro handlers         |
+| `ilha:pages/client` | `pageRouter`, `registry` | Browser hydration entry                |
+| `ilha:loaders`      | —                        | Server-only side-effect: wires loaders |
+
+For **`mode: "static"`** (MPA / pre-rendered HTML), hydrate per page with:
+
+```ts
+import { pageRouter, registry } from "ilha:pages/client";
+
+pageRouter.hydrateStatic(registry);
+```
 
 ### Plugin options
 
@@ -532,8 +559,14 @@ Options are the same for every bundler entry (`vite`, `rspack`, `rolldown`):
 pages({
   dir: "src/pages", // default
   outDir: ".ilha", // default
+  mode: "spa", // "spa" | "static" (default: "spa")
+  interceptLinks: true, // spa only — false = full page loads on <a> clicks
 });
 ```
+
+- **`mode: "spa"`** — full route graph, SSR/hydration, client navigation.
+- **`mode: "spa", interceptLinks: false`** — SSR/hydration, but internal links reload the document.
+- **`mode: "static"`** — registry only on the client; no bundled route graph — use `hydrateStatic`.
 
 For advanced use, import `ilhaPages` from any bundler entry and call `.vite()`, `.rspack()`, or `.rolldown()` on the shared factory.
 
@@ -575,8 +608,10 @@ import type {
 
 ## Related
 
-| Topic                      | Guide                             |
-| -------------------------- | --------------------------------- |
-| Core `ilha` API            | [ilha](/guide/libraries/ilha)     |
-| Shared state across routes | [Store](/guide/libraries/store)   |
-| Route context signals      | [Signals](/guide/helpers/signals) |
+| Topic                      | Guide                                                            |
+| -------------------------- | ---------------------------------------------------------------- |
+| Core `ilha` API            | [ilha](/guide/libraries/ilha)                                    |
+| Shared state across routes | [Store](/guide/libraries/store)                                  |
+| Form submit handlers       | [Store — Forms](/guide/libraries/store#forms) (`preventDefault`) |
+| Route context signals      | [Signals](/guide/helpers/signals)                                |
+| Hydratable SSR             | [Hydratable](/guide/island/hydratable)                           |

@@ -190,5 +190,7 @@ If you need something to happen only once after mount, use [`.onMount()`](/guide
 ## Notes
 
 - Effects run client-side only. They are not called during SSR.
-- The effect runs synchronously after the first mount, before the browser paints. Keep effects fast to avoid blocking rendering.
+- Effects are registered **after** [`.onMount()`](/guide/island/onmount) (and after any `enter` transition). See [Transition — mount order](/guide/island/transition#mount-order).
+- Sync throws from an effect (or its cleanup) go to [`.onError()`](/guide/island/onerror) with `source: "effect"`. Unhandled promise rejections from fire-and-forget async inside an effect are **not** caught — use `await` or `.catch()` inside the effect.
+- The first effect run happens soon after mount; keep effect bodies fast to avoid blocking rendering.
 - Avoid writing to signals inside an effect that reads those same signals — this creates an infinite loop.

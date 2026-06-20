@@ -165,5 +165,6 @@ If you need something to stay in sync with state over time, use [`.effect()`](/g
 ## Notes
 
 - `.onMount()` runs client-side only and is never called during SSR.
-- The mount function runs after the first render and after all effects have been set up.
+- On mount, **`.onMount()` runs after the `enter` transition** (if any) and **before** [`.effect()`](/guide/island/effect) callbacks are registered. See [Transition — mount order](/guide/island/transition#mount-order).
+- Throws from `.onMount()` (or its returned cleanup) are reported to [`.onError()` / `onUncaughtError()`](/guide/island/onerror) with `source: "mount"`.
 - Writing to signals inside `.onMount()` is safe and will trigger a re-render.

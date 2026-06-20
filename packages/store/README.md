@@ -315,11 +315,20 @@ Runs a Standard Schema synchronously. Never throws. Returns `{ ok: true, data }`
 
 Flattens Standard Schema issues into a `Record<string, string[]>` keyed by dot-separated path. Form-level errors (no path) land under `""`.
 
+### `preventDefault(fn)` → handler
+
+Wraps an ilha `.on()` callback so `event.preventDefault()` runs first, then your function receives the same context (`event`, `state`, `target`, …).
+
 ### Full example
 
 ```ts
 import { store } from "@ilha/store";
-import { extractFormData, validateWithSchema, issuesToErrors } from "@ilha/store/form";
+import {
+  extractFormData,
+  validateWithSchema,
+  issuesToErrors,
+  preventDefault,
+} from "@ilha/store/form";
 import type { FormErrors } from "@ilha/store/form";
 import ilha, { html } from "ilha";
 import { z } from "zod";
@@ -340,10 +349,10 @@ const formStore = store({ errors: {} as FormErrors })
   .build();
 
 export default ilha
-  .on("form@submit", ({ event }) => {
-    event.preventDefault();
-    formStore.submit(event);
-  })
+  .on(
+    "form@submit",
+    preventDefault(({ event }) => formStore.submit(event)),
+  )
   .render(
     () => html`
       <form>

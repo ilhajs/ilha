@@ -11,6 +11,7 @@ import {
   validateWithSchema,
   validateWithSchemaAsync,
   issuesToErrors,
+  preventDefault,
 } from "./form";
 
 // ---------------------------------------------------------------------------
@@ -31,6 +32,67 @@ function fd(entries: Array<[string, FormDataEntryValue]>): FormData {
   for (const [key, value] of entries) data.append(key, value);
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// preventDefault()
+// ---------------------------------------------------------------------------
+
+describe("preventDefault()", () => {
+  it("calls event.preventDefault() before the wrapped handler", () => {
+    const order: string[] = [];
+    const event = new Event("submit", { cancelable: true });
+    const original = event.preventDefault.bind(event);
+    event.preventDefault = () => {
+      order.push("prevent");
+      original();
+    };
+
+    const handler = preventDefault(() => {
+      order.push("fn");
+    });
+
+    handler({ event });
+    expect(order).toEqual(["prevent", "fn"]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("passes the full handler context to the callback", () => {
+    const event = new Event("submit", { cancelable: true });
+    const state = { count: 1 };
+    let received: { event: Event; state: typeof state } | undefined;
+
+    const handler = preventDefault((ctx: { event: Event; state: typeof state }) => {
+      received = ctx;
+    });
+
+    handler({ event, state });
+    expect(received).toEqual({ event, state });
+  });
+
+  it("forwards `this` to the wrapped function", () => {
+    const event = new Event("click", { cancelable: true });
+    const receiver = {
+      run: preventDefault(function (this: { tag: string }) {
+        expect(this.tag).toBe("receiver");
+      }),
+      tag: "receiver",
+    };
+
+    receiver.run.call(receiver, { event });
+  });
+
+  it("returns the wrapped handler's sync value", () => {
+    const event = new Event("submit", { cancelable: true });
+    const handler = preventDefault(() => 42);
+    expect(handler({ event })).toBe(42);
+  });
+
+  it("returns the wrapped handler's Promise", async () => {
+    const event = new Event("submit", { cancelable: true });
+    const handler = preventDefault(async () => "ok");
+    await expect(handler({ event })).resolves.toBe("ok");
+  });
+});
 
 // ---------------------------------------------------------------------------
 // extractFormData()

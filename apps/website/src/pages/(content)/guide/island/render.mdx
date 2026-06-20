@@ -305,6 +305,82 @@ const List = ilha.render(() => (
 ));
 ```
 
+### Slot wrapper — `.as(tag)`
+
+Embedded child islands are wrapped in a host element so ilha can hydrate and morph them independently of the parent. By default that wrapper is a `<div>` with a `data-ilha-slot` attribute:
+
+```html
+<div data-ilha-slot="p:0">…child markup…</div>
+```
+
+Call **`.as(tag)`** on the **child** island builder (anywhere before `.render()`) to use a different HTML tag — for valid structure (`<li>` inside `<ul>`), semantics, or styling:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Age = ilha
+  .as("span")
+  .state("age", 0)
+  .render(({ state }) => <>{state.age()}</>);
+
+const Parent = ilha.render(() => <p>Age: {Age}</p>);
+// → <p>Age: <span data-ilha-slot="p:0">0</span></p>
+```
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Row = ilha
+  .as("li")
+  .input<{ label: string }>()
+  .render(({ input }) => <>{input.label}</>);
+
+const List = ilha.render(() => (
+  <ul>
+    {["a", "b"].map((label) => (
+      <Row key={label} label={label} />
+    ))}
+  </ul>
+));
+```
+
+For list items that keep local state across reorders, combine **`.as("li")`** with **`.key(id)`** on the child (see [keyed child islands](#child-islands) above):
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Item = ilha
+  .as("li")
+  .input<{ label: string }>()
+  .state("n", 0)
+  .on("[data-bump]@click", ({ state }) => {
+    state.n(state.n() + 1);
+  })
+  .render(({ input, state }) => (
+    <>
+      {input.label}:{state.n()}
+      <button type="button" data-bump>
+        +
+      </button>
+    </>
+  ));
+
+const List = ilha
+  .state("order", ["a", "b"] as string[])
+  .render(({ state }) => (
+    <ul>
+      {state.order().map((k) => {
+        const Keyed = Item.key(k);
+        return <Keyed label={k} />;
+      })}
+    </ul>
+  ));
+```
+
+The tag must be a non-empty name matching ilha’s rule: start with an ASCII letter, then letters, digits, or hyphens (same idea as built-in tags like `span`, `li`, `section` — not arbitrary strings). Invalid names throw at builder time.
+
+`.as()` on the ilha builder is **only** for child island slot wrappers. List helpers such as **`each()`** (for example from [Quando](https://github.com/ilhajs/quando)) use a separate `.as((item, index) => …)` API for mapping items to JSX — not the same method.
+
 ## Function components
 
 Small JSX helper components can return JSX or strings. They receive an object even when no props are passed, so destructuring is safe:

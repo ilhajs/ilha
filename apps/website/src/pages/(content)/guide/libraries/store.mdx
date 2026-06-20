@@ -28,10 +28,10 @@ Island [`.state()`](/guide/island/state) is **local** to one component. Use `@il
 
 ## Import paths
 
-| Import path        | Use it for                                                                            |
-| ------------------ | ------------------------------------------------------------------------------------- |
-| `@ilha/store`      | `store`, store types, subscriptions, `select`, `bind`, and `effectScope`              |
-| `@ilha/store/form` | Form extraction, Standard Schema validation, async validation, issue-to-error mapping |
+| Import path        | Use it for                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| `@ilha/store`      | `store`, store types, subscriptions, `select`, `bind`, and `effectScope`                   |
+| `@ilha/store/form` | Form extraction, validation, issue-to-error mapping, `preventDefault` for `.on()` handlers |
 
 ## Quick start
 
@@ -177,7 +177,7 @@ s.count(); // reactive read
 s.count(5); // write → goes through middleware
 ```
 
-Writes are reactive: any ilha render or derived that called `s.count()` re-runs. Accessors carry `[SIGNAL_ACCESSOR]` so they work directly in `html\`\``templates and`bind:\*` directives.
+Writes are reactive: any ilha render or derived that called `s.count()` re-runs. Accessors carry `[SIGNAL_ACCESSOR]` so they work directly in `html` templates and `bind:*` directives.
 
 #### `store.setState(patch)`
 
@@ -278,6 +278,8 @@ Both islands stay in sync. `CartBadge` re-renders only when `count` changes; `Ca
 
 Use `.select()` for ad-hoc projections not worth a named `.derived()`, and `.bind()` for two-way form fields.
 
+**Note:** `state.todos.select((t) => t[i].done)` in island templates is ilha’s nested [`.select()` for `bind:*`](/guide/island/render#nested-fields-with-select) — not `store.select()` on `@ilha/store`.
+
 ## Forms
 
 Three small helpers for building typed, validated forms with any [Standard Schema](https://standardschema.dev)-compatible library.
@@ -288,6 +290,7 @@ import {
   validateWithSchema,
   validateWithSchemaAsync,
   issuesToErrors,
+  preventDefault,
 } from "@ilha/store/form";
 ```
 
@@ -316,6 +319,22 @@ issuesToErrors([
 // → { email: ["Required"], "user.email": ["Invalid"] }
 ```
 
+### `preventDefault(fn)`
+
+Wraps an ilha `.on()` handler so `event.preventDefault()` runs first, then your callback receives the same context (`event`, `state`, `target`, …).
+
+```ts
+ilha.on(
+  "form@submit",
+  preventDefault(({ event }) => {
+    const data = extractFormData(
+      event.target as HTMLFormElement,
+    );
+    // ...
+  }),
+);
+```
+
 ### Full example — contact form
 
 ```tsx
@@ -324,6 +343,7 @@ import {
   extractFormData,
   validateWithSchema,
   issuesToErrors,
+  preventDefault,
 } from "@ilha/store/form";
 import type { FormErrors } from "@ilha/store/form";
 import ilha, { html } from "ilha";
@@ -350,10 +370,10 @@ const formStore = store({ errors: {} as FormErrors })
 const errors = formStore.errors; // state accessor — reactive
 
 export default ilha
-  .on("form@submit", ({ event }) => {
-    event.preventDefault();
-    formStore.submit(event);
-  })
+  .on(
+    "form@submit",
+    preventDefault(({ event }) => formStore.submit(event)),
+  )
   .render(
     () => html`
       <form>
