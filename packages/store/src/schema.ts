@@ -48,14 +48,22 @@ export function assertStoreStateObject(value: unknown, label: string): asserts v
 export function parseInitialStateFromSchema<S extends StandardSchemaV1>(
   schema: S,
 ): StandardSchemaV1.InferOutput<S> {
-  for (const seed of [{}, undefined] as const) {
+  // `{}` / `undefined` resolve plain objects with `.default()`; step-only seeds help
+  // discriminated unions used in multi-step login flows.
+  const seeds: readonly unknown[] = [
+    {},
+    undefined,
+    { step: "requestOtp" },
+    { step: "REQUEST_OTP" },
+  ];
+  for (const seed of seeds) {
     const result = validateWithSchema(schema, seed);
     if (result.ok) return result.data;
   }
   const failed = validateWithSchema(schema, {});
   const detail = failed.ok ? "" : JSON.stringify(issuesToErrors(failed.issues));
   throw new Error(
-    `@ilha/store: could not derive initial state from schema (tried {} and undefined). ${detail}`,
+    `@ilha/store: could not derive initial state from schema (tried ${seeds.length} seeds including {}, undefined, and common step discriminators). ${detail}`,
   );
 }
 

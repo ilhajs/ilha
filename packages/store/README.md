@@ -83,7 +83,7 @@ const s = store({ count: 0 }).build();
 const typed = store<{ foo: string }>({ foo: "bar" }).build();
 ```
 
-Pass a [Standard Schema](https://standardschema.dev) (Zod, Valibot, ArkType, …) to validate **every commit** — accessor writes, `setState`, `bind:*`, and action patches. Initial state is parsed from the schema (`.default()` fields apply when seeding with `{}`).
+Pass a [Standard Schema](https://standardschema.dev) (Zod, Valibot, ArkType, …) to validate **every commit** — accessor writes, `setState`, `bind:*`, and action patches. Initial state is parsed from the schema (`.default()` on the schema or its branches; outer `.default()` often needs `undefined` as a seed). Before validation, own keys with value `undefined` are omitted from the merged snapshot so partial action patches (e.g. `{ step: "verify" }` only) do not fail unions because a stale optional field was left as `undefined`. **Multi-step flows** (login OTP, wizards): each step’s branch must accept the snapshot you have _at that moment_ — e.g. allow empty `otp` on the verify step until the user submits the code, then enforce `min(6)` on the second submit.
 
 ```ts
 import { z } from "zod";
@@ -164,7 +164,7 @@ Registers a named mutation. `fn` receives the props and a context object. Return
 | `ctx.getInitial()` | Read the initial state (e.g. for reset-style actions)        |
 | `ctx.set(patch)`   | Imperative write escape hatch for async / multi-step actions |
 
-Actions may be **async**; return `Partial<TState>`, `void`, or `Promise` of either (e.g. `return void toast.error(...)` after `await`). Patches from returned promises are applied when the promise settles; sync returns still commit immediately.
+Actions may be **async**; return `Partial<TState>`, `void`, or `Promise` of either (e.g. `return void toast.error(...)` after `await`). Patches from returned promises are applied when the promise settles; sync returns still commit immediately. Use **`navigate()`** (or your app router) for client redirects after a successful action — do not `return redirect()` from `@ilha/router` loaders inside a store action (it throws and is reported as `source: "action"`).
 
 The returned patch is the primary write path. Use `ctx.set` for multi-step writes inside an async action — you can return nothing when all updates go through `ctx.set`:
 
