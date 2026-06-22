@@ -19,6 +19,7 @@ import {
   parseInitialStateFromSchema,
   primaryIssuePath,
   StoreValidationError,
+  shapeSnapshotForSchemaValidation,
   validateStateSnapshot,
   type StoreErrorSource,
 } from "./schema";
@@ -426,15 +427,19 @@ function buildStore<
     }
   }
 
+  type CommitOptions = { validateSchema?: boolean };
+
   // --- mutation pipeline ----------------------------------------------------
-  const committed = (patch: Partial<TState>): void => {
+  const committed = (patch: Partial<TState>, options?: CommitOptions): void => {
     const prev = stateSignal();
     if (isNoopPatch(prev, patch)) return;
     const candidate = { ...prev, ...patch } as TState;
 
     let next: TState = candidate;
-    if (cfg.schema) {
-      const result = validateStateSnapshot(cfg.schema, omitUndefinedOwnKeys(candidate));
+    const validateSchema = options?.validateSchema !== false;
+    if (cfg.schema && validateSchema) {
+      const shaped = shapeSnapshotForSchemaValidation(prev, patch, candidate);
+      const result = validateStateSnapshot(cfg.schema, omitUndefinedOwnKeys(shaped));
       if (!result.ok) {
         reportStoreError(new StoreValidationError(result.issues, patch), "validate", patch);
         return;
@@ -457,19 +462,23 @@ function buildStore<
 
   // reduceRight folds right-to-left so the resulting chain invokes middlewares
   // in registration order: [m0, m1] => m0 -> m1 -> committed.
-  const chain = cfg.middlewares.reduceRight<(patch: Partial<TState>) => void>(
-    (next, mw) => (patch) => mw(patch, middlewareCtx, next),
-    committed,
-  );
+  const chain = cfg.middlewares.reduceRight<
+    (patch: Partial<TState>, options?: CommitOptions) => void
+  >((next, mw) => (patch, options) => mw(patch, middlewareCtx, (p) => next(p, options)), committed);
 
   // Single internal mutation entry point. Empty patches are skipped before the
   // chain so an action that writes via `ctx.set` and returns `{}` doesn't push
   // a spurious no-op through middleware. Untracked so a write performed inside a
   // tracking scope can't subscribe that scope to stateSignal.
-  const setState = (patch: Partial<TState>): void => {
+  const setState = (patch: Partial<TState>, options?: CommitOptions): void => {
     if (patch == null || typeof patch !== "object") return;
     if (Object.keys(patch).length === 0) return;
-    untrackRun(() => chain(patch));
+    untrackRun(() => chain(patch, options));
+  };
+
+  /** bind:* / per-keystroke field writes — skip full-schema validation so drafts (e.g. partial email) still commit. */
+  const setStateField = (patch: Partial<TState>): void => {
+    setState(patch, cfg.schema ? { validateSchema: false } : undefined);
   };
 
   // --- built-ins ------------------------------------------------------------
@@ -517,7 +526,7 @@ function buildStore<
   }
 
   function bind<S>(selector: (state: TState) => S): StoreBindable<S> {
-    return createStoreBindAccessor(getState, setState, selector, select(selector));
+    return createStoreBindAccessor(getState, setState, setStateField, selector, select(selector));
   }
 
   const builtins: StoreBuiltins<TState> = {
@@ -538,7 +547,7 @@ function buildStore<
     const accessor = createStoreKeyAccessor<TState, Key>(
       k,
       () => (stateSignal() as TState)[k],
-      (value) => setState({ [k]: value } as unknown as Partial<TState>),
+      (value) => setStateField({ [k]: value } as unknown as Partial<TState>),
       bind,
     );
     stateAccessors.set(key, accessor as StateAccessor<unknown>);

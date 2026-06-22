@@ -402,7 +402,7 @@ describe(".action()", () => {
       z.object({
         step: z.literal(STEP.VERIFY_OTP),
         email: z.email(),
-        otp: z.string().min(6).default(""),
+        otp: z.union([z.literal(""), z.string().min(6)]),
       }),
     ]);
 
@@ -428,6 +428,46 @@ describe(".action()", () => {
     expect(validateErrors).toBe(0);
     expect(form.step()).toBe(STEP.VERIFY_OTP);
     expect(form.getState().email).toBe("ada@example.com");
+  });
+
+  it("submit() advances step with REQUEST_OTP / VERIFY_OTP login schema", async () => {
+    const STEP = { REQUEST_OTP: "REQUEST_OTP", VERIFY_OTP: "VERIFY_OTP" } as const;
+    const LoginSchema = z
+      .discriminatedUnion("step", [
+        z.object({
+          step: z.literal(STEP.REQUEST_OTP),
+          email: z.email(),
+          otp: z.string(),
+        }),
+        z.object({
+          step: z.literal(STEP.VERIFY_OTP),
+          email: z.email(),
+          // Required for step transition while otp is still "": plain .min(6) rejects "".
+          otp: z.union([z.literal(""), z.string().min(6).max(6)]),
+        }),
+      ])
+      .default({ step: STEP.REQUEST_OTP, email: "", otp: "" });
+
+    let validateErrors = 0;
+    const form = store(LoginSchema)
+      .onError(({ source }) => {
+        if (source === "validate") validateErrors++;
+      })
+      .action("submit", async (_, { get }) => {
+        if (get().step === STEP.REQUEST_OTP) {
+          await Promise.resolve();
+          return { step: STEP.VERIFY_OTP };
+        }
+      })
+      .build();
+
+    form.email("ryuzer@proton.me");
+    form.submit();
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(validateErrors).toBe(0);
+    expect(form.step()).toBe(STEP.VERIFY_OTP);
+    expect(form.email()).toBe("ryuzer@proton.me");
   });
 
   it("submit() advances step when verify branch allows empty otp until user fills (login UI pattern)", async () => {
@@ -1278,7 +1318,7 @@ describe("store(Standard Schema)", () => {
     expect(s.n()).toBe(42);
   });
 
-  it("bind write rejects invalid value and leaves state unchanged", () => {
+  it("bind write accepts draft values without full-schema validation", () => {
     const Schema = z.object({ email: z.email().default("ada@example.com") });
     let errors = 0;
     const s = store(Schema)
@@ -1288,8 +1328,11 @@ describe("store(Standard Schema)", () => {
       .build();
     const email = s.bind((st) => st.email);
     email("bad");
+    expect(errors).toBe(0);
+    expect(email()).toBe("bad");
+    s.setState({ email: "not-an-email" });
     expect(errors).toBe(1);
-    expect(email()).toBe("ada@example.com");
+    expect(email()).toBe("bad");
   });
 
   it("bind write accepts valid email", () => {
@@ -1300,7 +1343,7 @@ describe("store(Standard Schema)", () => {
     expect(email()).toBe("ada@example.com");
   });
 
-  it("ilha bind:value rejects invalid email without updating state", () => {
+  it("ilha bind:value commits draft email while typing (validate on setState/submit)", () => {
     const Schema = z.object({ email: z.email().default("ok@example.com") });
     let n = 0;
     const formStore = store(Schema)
@@ -1315,8 +1358,8 @@ describe("store(Standard Schema)", () => {
     const input = el.querySelector("input")!;
     input.value = "not-email";
     input.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(n).toBe(1);
-    expect(formStore.email()).toBe("ok@example.com");
+    expect(n).toBe(0);
+    expect(formStore.email()).toBe("not-email");
     unmount();
     el.remove();
   });

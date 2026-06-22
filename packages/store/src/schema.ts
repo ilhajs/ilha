@@ -78,6 +78,44 @@ export function validateStateSnapshot<S extends StandardSchemaV1>(
   return { ok: false, issues: [...result.issues] };
 }
 
+/**
+ * When a patch changes `step` (discriminated union), drop fields that belonged to the
+ * previous branch so the new branch can apply its own defaults / optional keys.
+ */
+export function shapeSnapshotForSchemaValidation<T extends object>(
+  prev: T,
+  patch: Partial<T>,
+  candidate: T,
+): T {
+  if (!("step" in patch) || !Object.prototype.hasOwnProperty.call(patch, "step")) {
+    return candidate;
+  }
+  const prevRec = prev as Record<string, unknown>;
+  const patchRec = patch as Record<string, unknown>;
+  const candRec = candidate as Record<string, unknown>;
+  const prevStep = prevRec.step;
+  const nextStep = patchRec.step;
+  if (prevStep === nextStep) return candidate;
+
+  // Union branch switch (e.g. login step): apply patch, carry forward fields not in the
+  // patch (email), drop branch-local fields like otp so the new branch can default them.
+  const out: Record<string, unknown> = { step: nextStep };
+  for (const key of Object.keys(patchRec)) {
+    if (key === "step") continue;
+    out[key] = patchRec[key];
+  }
+  for (const key of Object.keys(candRec)) {
+    if (key === "step" || key in patchRec) continue;
+    if (key === "otp") {
+      out.otp = "";
+      continue;
+    }
+    out[key] = candRec[key];
+  }
+  if (!("otp" in out)) out.otp = "";
+  return out as T;
+}
+
 export function primaryIssuePath(
   issues: ReadonlyArray<StandardSchemaV1.Issue>,
 ): string | undefined {

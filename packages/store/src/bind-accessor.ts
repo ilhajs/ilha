@@ -42,14 +42,16 @@ export function createStoreKeyAccessor<TState extends object, K extends keyof TS
  */
 export function createStoreBindAccessor<TState extends object, S>(
   getState: () => TState,
-  setState: (patch: Partial<TState>) => void,
+  _setState: (patch: Partial<TState>) => void,
+  setStateField: (patch: Partial<TState>) => void,
   selector: (state: TState) => S,
   read: () => S,
 ): SignalAccessor<S> {
   const path = capturePropertyPath(getState, selector);
   const fn = ((...args: [value: S] | []): S => {
     if (args.length === 0) return read();
-    setState(patchStateAtPath(getState(), path, args[0]) as Partial<TState>);
+    const patch = patchStateAtPath(getState(), path, args[0]) as Partial<TState>;
+    setStateField(patch);
     return read();
   }) as { (): S; (value: S): void };
   return markStoreSignalAccessor(fn);
