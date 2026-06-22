@@ -2779,6 +2779,51 @@ describe("child islands (render-time composition)", () => {
     cleanup(el);
   });
 
+  it("conditional List/Edit swap via external signal remounts child at same p:0 slot", async () => {
+    const view = signal<"list" | "edit">("list");
+
+    const List = ilha
+      .on("[data-action=select]@click", () => view("edit"))
+      .render(
+        () =>
+          html`
+            <button data-action="select">Edit</button>
+          `,
+      );
+
+    const Edit = ilha
+      .on("[data-action=select]@click", () => view("list"))
+      .render(
+        () =>
+          html`
+            <button data-action="select">List</button>
+          `,
+      );
+
+    const Parent = ilha.render(() =>
+      view() === "list" ? html`<div>${List}</div>` : html`<div>${Edit}</div>`,
+    );
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+    const btn = () => el.querySelector<HTMLButtonElement>("[data-action=select]")!;
+
+    expect(btn().textContent).toBe("Edit");
+    btn().click();
+    expect(view()).toBe("edit");
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(btn().textContent).toBe("List");
+    btn().click();
+    expect(view()).toBe("list");
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(btn().textContent).toBe("Edit");
+
+    unmount();
+    cleanup(el);
+  });
+
   it("client Child Island is interactive independently", () => {
     const Child = ilha
       .state("count", 0)
