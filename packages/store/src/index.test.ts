@@ -378,6 +378,35 @@ describe(".action()", () => {
     expect(s.count()).toBe(1);
   });
 
+  it("async action can return a patch after await", async () => {
+    const s = store({ step: "a" as "a" | "b" })
+      .action("advance", async (_, ctx) => {
+        await Promise.resolve();
+        if (ctx.get().step === "a") return { step: "b" as const };
+      })
+      .build();
+    s.advance();
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(s.step()).toBe("b");
+  });
+
+  it("async action can return void (e.g. return void sideEffect())", async () => {
+    let toast = 0;
+    const s = store({ count: 0 })
+      .action("fail", async () => {
+        await Promise.resolve();
+        return void toast++;
+      })
+      .build();
+    const listener = mock();
+    s.subscribe(listener);
+    s.fail();
+    await Promise.resolve();
+    expect(toast).toBe(1);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it("implicit void return does not fire change", () => {
     const s = store({ count: 0 })
       .action("sideEffect", () => {})
