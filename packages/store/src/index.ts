@@ -9,6 +9,7 @@ import { signal, computed, effect, setActiveSub } from "alien-signals";
 import { capturePropertyPath, patchStateAtPath } from "./bind-path";
 import type { StandardSchemaV1 } from "./form";
 import {
+  assertStoreStateObject,
   isStandardSchema,
   parseInitialStateFromSchema,
   primaryIssuePath,
@@ -285,7 +286,9 @@ export class StoreBuilder<
   }
 
   static createWithSchema<S extends StandardSchemaV1>(schema: S): StoreBuilder<SchemaState<S>> {
-    const initialState = parseInitialStateFromSchema(schema) as SchemaState<S>;
+    const parsed = parseInitialStateFromSchema(schema);
+    assertStoreStateObject(parsed, "initial state from schema");
+    const initialState = parsed as SchemaState<S>;
     return new StoreBuilder<SchemaState<S>>({
       initialState,
       schema,
@@ -424,6 +427,7 @@ function buildStore<
         reportStoreError(new StoreValidationError(result.issues, patch), "validate", patch);
         return;
       }
+      assertStoreStateObject(result.data, "validated state");
       next = result.data as TState;
     }
 

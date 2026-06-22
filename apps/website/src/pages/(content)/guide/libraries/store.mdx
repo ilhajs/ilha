@@ -424,7 +424,7 @@ import type {
   DerivedCtx, // { get(), signal } — passed to .derived()
   ActionCtx, // { get(), getInitial(), set() } — passed to .action()
   MiddlewareCtx, // { get(), getInitial() } — passed to .middleware()
-  StoreErrorContext, // { error, source, patch?, issues?, get() } — .onError()
+  StoreErrorContext, // { error, source, path?, patch?, issues?, get() } — .onError()
   StoreValidationError,
   StoreBindable, // <S>: read/write accessor for bind:*
   Listener, // (state, prevState) => void

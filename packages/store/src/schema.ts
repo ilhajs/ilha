@@ -33,6 +33,14 @@ export function isStandardSchema(value: unknown): value is StandardSchemaV1 {
   return std != null && typeof std.validate === "function" && std.version === 1;
 }
 
+/** Store state must be a non-null plain object (not array/primitive). */
+export function assertStoreStateObject(value: unknown, label: string): asserts value is object {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    const kind = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+    throw new Error(`@ilha/store: ${label} must be a plain object, got ${kind}.`);
+  }
+}
+
 /**
  * Derive initial store state from a Standard Schema (defaults, coercion).
  * Tries `{}` then `undefined` so Zod/Valibot `.default()` fields resolve.
