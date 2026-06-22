@@ -25,6 +25,27 @@ Declares the island's external props and their types. Two forms are supported: a
 
 <Preview code={example} size="sm" />
 
+**Default props object** — inference plus runtime defaults (shallow merge, no validator):
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Greeting = ilha
+  .input({ name: "World" })
+  .render(({ input }) => <p>Hello, {input.name}!</p>);
+
+Greeting(); // → <p>Hello, World!</p>
+Greeting({ name: "ilha" }); // → <p>Hello, ilha!</p>
+```
+
+```tsx twoslash
+import ilha from "ilha";
+
+ilha
+  .input<{ name: string }>({ name: "World" })
+  .render(({ input }) => <p>{input.name}</p>);
+```
+
 **With a schema** — inference plus runtime validation and coercion:
 
 ```tsx twoslash
@@ -49,18 +70,20 @@ Without `.input()`, any props passed to an island are untyped and unvalidated. A
 
 ## Choosing a form
 
-|                      | `.input<T>()` | `.input(schema)`       |
-| -------------------- | ------------- | ---------------------- |
-| TypeScript inference | ✓             | ✓                      |
-| Runtime validation   | —             | ✓                      |
-| Default values       | —             | ✓ (via schema)         |
-| Extra dependency     | —             | ✓ (Zod, Valibot, etc.) |
+|                      | `.input<T>()` | `.input({ … })` / `.input<T>({ … })` | `.input(schema)`       |
+| -------------------- | ------------- | ------------------------------------ | ---------------------- |
+| TypeScript inference | ✓             | ✓                                    | ✓                      |
+| Runtime validation   | —             | —                                    | ✓                      |
+| Default values       | —             | ✓ (shallow merge)                    | ✓ (via schema)         |
+| Extra dependency     | —             | —                                    | ✓ (Zod, Valibot, etc.) |
 
-Use `.input<T>()` for simple islands where you control the call sites and don't need validation. Use `.input(schema)` when you need defaults, coercion, or validation — especially for islands that are hydrated from serialized server props.
+Use `.input<T>()` when callers always pass props. Use `.input({ … })` for lightweight defaults without a schema (same idea as `store({ … })`). Use `.input(schema)` when you need coercion or validation — especially for islands hydrated from serialized server props.
 
 ## Using defaults
 
-Defaults are defined in the schema, not in ilha. Any Standard Schema validator that supports defaults will apply them automatically when a prop is omitted.
+**POJO form** — pass a defaults object to `.input({ … })`. Ilha shallow-merges `{ ...defaults, ...props }` on each call.
+
+**Schema form** — defaults live in the schema (Zod `.default()`, etc.). Validation runs on the merged props object.
 
 ```tsx twoslash
 import ilha from "ilha";

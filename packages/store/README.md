@@ -72,12 +72,32 @@ counterStore.reset(); // restores to initial state
 
 ## API
 
-### `store(initialState)`
+### `store(initialState)` · `store(schema)`
 
 Returns a `StoreBuilder`. Chain builder methods, then call `.build()` to get a live reactive store.
 
 ```ts
 const s = store({ count: 0 }).build();
+
+// explicit state type when inference is too wide
+const typed = store<{ foo: string }>({ foo: "bar" }).build();
+```
+
+Pass a [Standard Schema](https://standardschema.dev) (Zod, Valibot, ArkType, …) to validate **every commit** — accessor writes, `setState`, `bind:*`, and action patches. Initial state is parsed from the schema (`.default()` fields apply when seeding with `{}`).
+
+```ts
+import { z } from "zod";
+
+const s = store(
+  z.object({
+    email: z.email().default(""),
+    age: z.coerce.number().min(0).default(0),
+  }),
+)
+  .onError(({ error, issues, patch }) => {
+    // invalid bind / setState — state is unchanged
+  })
+  .build();
 ```
 
 `.build()` throws if any key collides — state vs derived vs action vs built-in names (`setState`, `subscribe`, `select`, `bind`, `getState`, `getInitialState`).
@@ -179,6 +199,10 @@ Registers a lifecycle listener. `handler` receives `(nextState, prevState)`.
 | ---------- | ------------------------------------------------ |
 | `"init"`   | Once, synchronously inside `.build()`            |
 | `"change"` | After every committed mutation (post-middleware) |
+
+#### `.onError(handler)`
+
+When the store was created with a Standard Schema, invalid commits are **rejected** (state unchanged). `handler` receives `{ error, source, patch?, path?, issues?, get() }`. `error` is a `StoreValidationError` with `.issues` and `.fieldErrors`. Without `.onError()`, failures log to `console.error`.
 
 ```ts
 store({ count: 0 })

@@ -75,12 +75,30 @@ ilha's built-in `.state()` is the right choice when only one island reads and wr
 
 ## API
 
-### `store(initialState)`
+### `store(initialState)` · `store(schema)`
 
 Returns a `StoreBuilder`. Chain builder methods then call `.build()` to get a live reactive store. `.build()` throws if any key collides across state, derived, actions, and built-in method names.
 
 ```ts
 const s = store({ count: 0 }).build();
+
+store<{ foo: string }>({ foo: "bar" }).build(); // explicit POJO type
+```
+
+Or pass a [Standard Schema](https://standardschema.dev) so **every write** (accessors, `setState`, `bind:*`, actions) validates the merged state. Invalid commits are rejected; use `.onError()` to handle them. Initial state is parsed from the schema (use `.default()` on fields you want at startup).
+
+```ts
+import { z } from "zod";
+
+const s = store(
+  z.object({
+    email: z.email().default("ada@example.com"),
+  }),
+)
+  .onError(({ error, issues }) => {
+    /* toast, fieldErrors: error.fieldErrors */
+  })
+  .build();
 ```
 
 Builder methods are **immutable** — each returns a new `StoreBuilder`.
@@ -158,6 +176,10 @@ Registers a lifecycle listener. `handler` receives `(nextState, prevState)`.
 | ---------- | ------------------------------------------------ |
 | `"init"`   | Once, synchronously inside `.build()`            |
 | `"change"` | After every committed mutation (post-middleware) |
+
+### `.onError(handler)`
+
+Schema-backed stores only. Runs when a commit fails validation — state stays at the last good snapshot. Context: `{ error, source: "validate", patch?, path?, issues?, get() }`. `error` is a `StoreValidationError` (`issues`, `fieldErrors`). Without a handler, `console.error` is used.
 
 ### `.build()`
 
@@ -402,6 +424,8 @@ import type {
   DerivedCtx, // { get(), signal } — passed to .derived()
   ActionCtx, // { get(), getInitial(), set() } — passed to .action()
   MiddlewareCtx, // { get(), getInitial() } — passed to .middleware()
+  StoreErrorContext, // { error, source, patch?, issues?, get() } — .onError()
+  StoreValidationError,
   StoreBindable, // <S>: read/write accessor for bind:*
   Listener, // (state, prevState) => void
   SliceListener, // (slice, prevSlice) => void

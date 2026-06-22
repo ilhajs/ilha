@@ -294,6 +294,50 @@ describe("raw()", () => {
 // Island — SSR
 // ---------------------------------------------
 
+describe(".input() POJO defaults", () => {
+  it("merges defaults when island is called with no args", () => {
+    const Island = ilha
+      .input({ name: "World" })
+      .render(({ input }) => `<p>Hello, ${input.name}</p>`);
+
+    expect(Island()).toBe("<p>Hello, World</p>");
+  });
+
+  it("props override defaults", () => {
+    const Island = ilha.input({ name: "World" }).render(({ input }) => `<p>${input.name}</p>`);
+
+    expect(Island({ name: "ilha" })).toBe("<p>ilha</p>");
+  });
+
+  it("initializes state from merged input", () => {
+    const Island = ilha
+      .input({ start: 3 })
+      .state("count", ({ start }) => start)
+      .render(({ state }) => `<p>${state.count()}</p>`);
+
+    expect(Island()).toBe("<p>3</p>");
+    expect(Island({ start: 9 })).toBe("<p>9</p>");
+  });
+
+  it("explicit generic widens the input type", () => {
+    type Props = { foo: string; extra?: number };
+    const Island = ilha
+      .input<Props>({ foo: "bar" })
+      .render(({ input }) => `<span>${input.foo}</span>`);
+
+    expect(Island()).toBe("<span>bar</span>");
+    expect(Island({ foo: "baz", extra: 1 })).toBe("<span>baz</span>");
+  });
+
+  it("type-only .input<T>() still uses empty props when no defaults", () => {
+    const Island = ilha
+      .input<{ name?: string }>()
+      .render(({ input }) => `<p>${input.name ?? "none"}</p>`);
+
+    expect(Island()).toBe("<p>none</p>");
+  });
+});
+
 describe("Island SSR", () => {
   it("renders with schema defaults when called with no args", () => {
     const Counter = ilha

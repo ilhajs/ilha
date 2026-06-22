@@ -335,6 +335,12 @@ function morphInner(from: Element, to: Element): void {
 // Internal helpers
 // ---------------------------------------------
 
+function isStandardSchema(value: unknown): value is StandardSchemaV1 {
+  if (value == null || typeof value !== "object") return false;
+  const std = (value as StandardSchemaV1)["~standard"];
+  return std != null && typeof std.validate === "function" && std.version === 1;
+}
+
 function validateSchema<S extends StandardSchemaV1>(
   schema: S,
   value: unknown,
@@ -2023,6 +2029,8 @@ interface BuilderConfig<
   TDerivedMap extends Record<string, unknown>,
 > {
   schema: StandardSchemaV1 | null;
+  /** Shallow defaults merged before props (POJO `.input({ ... })` only). */
+  defaultInput: Record<string, unknown> | null;
   states: StateEntry<TInput>[];
   deriveds: DerivedEntry<TInput, TStateMap>[];
   ons: OnEntry<TInput, TStateMap, TDerivedMap>[];
@@ -2068,9 +2076,21 @@ class IlhaBuilder<
     Record<never, never>,
     Record<never, never>
   >;
-  input(schema?: StandardSchemaV1): IlhaBuilder<Record<string, unknown>, Record<never, never>> {
+  input<T extends Record<string, unknown>>(
+    defaults: T,
+  ): IlhaBuilder<T, Record<never, never>, Record<never, never>>;
+  input(
+    initialOrSchema?: StandardSchemaV1 | Record<string, unknown>,
+  ): IlhaBuilder<Record<string, unknown>, Record<never, never>, Record<never, never>> {
+    let schema: StandardSchemaV1 | null = null;
+    let defaultInput: Record<string, unknown> | null = null;
+    if (initialOrSchema !== undefined) {
+      if (isStandardSchema(initialOrSchema)) schema = initialOrSchema;
+      else defaultInput = initialOrSchema;
+    }
     return new IlhaBuilder({
-      schema: schema ?? null,
+      schema,
+      defaultInput,
       states: [],
       deriveds: [],
       ons: [],
@@ -2194,6 +2214,7 @@ class IlhaBuilder<
   ): Island<TInput, TStateMap> {
     const {
       schema,
+      defaultInput,
       states,
       deriveds,
       ons,
@@ -2209,9 +2230,12 @@ class IlhaBuilder<
     const configuredSlotTag = slotAs ?? "div";
 
     function resolveInput(props?: Partial<TInput>): TInput {
-      const value = props ?? {};
-      if (!schema) return value as TInput;
-      return validateSchema(schema, value) as TInput;
+      const merged = {
+        ...(defaultInput ?? {}),
+        ...(props ?? {}),
+      } as Record<string, unknown>;
+      if (!schema) return merged as TInput;
+      return validateSchema(schema, merged) as TInput;
     }
 
     // Run fn inside a fresh render context so any interpolated ${Island}
@@ -3338,6 +3362,7 @@ const EMPTY_CFG: BuilderConfig<
   Record<never, never>
 > = {
   schema: null,
+  defaultInput: null,
   states: [],
   deriveds: [],
   ons: [],
