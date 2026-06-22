@@ -1,6 +1,6 @@
 {
   "name": "@ilha/router",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "A tiny SPA router for Ilha",
   "keywords": [
     "frontend",
@@ -60,7 +60,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "ilha": "0.8.3",
+    "ilha": "0.8.4",
     "rou3": "0.8.1",
     "unplugin": "3.0.0"
   },

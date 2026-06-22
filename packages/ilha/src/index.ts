@@ -2573,6 +2573,7 @@ class IlhaBuilder<
         string,
         {
           el: Element;
+          island: AnyIsland;
           unmount: () => void | Promise<void>;
           updateProps: (props?: Record<string, unknown>) => void;
         }
@@ -2642,6 +2643,14 @@ class IlhaBuilder<
           }
         }
 
+        // Same slot id, different child island (e.g. conditional `${List}` vs `${Edit}` at p:0).
+        for (const [id, entry] of mountedSlots) {
+          const next = slotMap.get(id);
+          if (next && next.island !== entry.island) {
+            teardownMountedSlot(id, entry);
+          }
+        }
+
         // Mount new slot ids that aren't yet mounted; push updated props
         // into slots that are.
         let slotIndex: Map<string, Element> | null = null;
@@ -2703,7 +2712,7 @@ class IlhaBuilder<
           } finally {
             setActiveSub(prevSub);
           }
-          mountedSlots.set(id, { el: slotEl, ...handle });
+          mountedSlots.set(id, { el: slotEl, island: childIsland, ...handle });
         }
       }
 
@@ -2999,6 +3008,14 @@ class IlhaBuilder<
         // cleanups, etc.) execute while the elements are still connected.
         for (const [id, entry] of mountedSlots) {
           if (!newSlotMap.has(id)) {
+            const r = teardownMountedSlot(id, entry);
+            if (r instanceof Promise) leavingPromises.push(r);
+          }
+        }
+
+        for (const [id, entry] of mountedSlots) {
+          const next = newSlotMap.get(id);
+          if (next && next.island !== entry.island) {
             const r = teardownMountedSlot(id, entry);
             if (r instanceof Promise) leavingPromises.push(r);
           }
