@@ -110,8 +110,13 @@ export interface MiddlewareCtx<TState> {
 /** A derived entry: `(ctx) => V`. */
 type DerivedFn<TState, V = unknown> = (ctx: DerivedCtx<TState>) => V;
 
-/** An action entry: `(props, ctx) => Partial<TState> | void`. */
-type ActionFn<TState, P = any> = (props: P, ctx: ActionCtx<TState>) => Partial<TState> | void;
+type MaybePromise<T> = T | Promise<T>;
+
+/** An action entry: sync or async; return a patch, or void when using `ctx.set` / side effects only. */
+type ActionFn<TState, P = any> = (
+  props: P,
+  ctx: ActionCtx<TState>,
+) => MaybePromise<Partial<TState> | void>;
 
 type Middleware<TState> = (
   patch: Partial<TState>,
@@ -310,7 +315,7 @@ export class StoreBuilder<
 
   action<K extends string, P = undefined>(
     key: K,
-    fn: (props: P, ctx: ActionCtx<TState>) => Partial<TState> | void,
+    fn: (props: P, ctx: ActionCtx<TState>) => MaybePromise<Partial<TState> | void>,
   ): StoreBuilder<TState, D, A & Record<K, typeof fn>> {
     return new StoreBuilder({
       ...this._cfg,
@@ -631,8 +636,17 @@ function buildStore<
   const actionHandlers = new Map<string, (props?: unknown) => void>();
   for (const { key, fn } of cfg.actions) {
     actionHandlers.set(key, (props?: unknown) => {
-      const patch = fn(props as never, actionCtx);
-      if (patch !== undefined) setState(patch);
+      const ret = fn(props as never, actionCtx);
+      const apply = (patch: Partial<TState> | void | undefined) => {
+        if (patch !== undefined) setState(patch);
+      };
+      if (ret != null && typeof (ret as Promise<unknown>).then === "function") {
+        void (ret as Promise<Partial<TState> | void>).then(apply).catch((reason: unknown) => {
+          reportStoreError(reason instanceof Error ? reason : new Error(String(reason)), "action");
+        });
+      } else {
+        apply(ret as Partial<TState> | void);
+      }
     });
   }
 

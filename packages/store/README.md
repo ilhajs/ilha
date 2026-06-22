@@ -164,7 +164,9 @@ Registers a named mutation. `fn` receives the props and a context object. Return
 | `ctx.getInitial()` | Read the initial state (e.g. for reset-style actions)        |
 | `ctx.set(patch)`   | Imperative write escape hatch for async / multi-step actions |
 
-The returned patch is the primary write path. Use `ctx.set` for async actions that resolve after the call returns — return `{}` when all writes go through `ctx.set`:
+Actions may be **async**; return `Partial<TState>`, `void`, or `Promise` of either (e.g. `return void toast.error(...)` after `await`). Patches from returned promises are applied when the promise settles; sync returns still commit immediately.
+
+The returned patch is the primary write path. Use `ctx.set` for multi-step writes inside an async action — you can return nothing when all updates go through `ctx.set`:
 
 ```ts
 .action("load", (_, ctx) => {

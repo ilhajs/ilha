@@ -136,7 +136,7 @@ Re-running (when `id` changes) keeps the previous `.value` visible while `.loadi
 
 ### `.action(key, fn)`
 
-Registers a named mutation. `fn` receives props and `ctx`. Return a `Partial` patch to merge through middleware, or return nothing when writes use `ctx.set` only or the action has no state updates.
+Registers a named mutation. `fn` may be sync or `async`. Return a `Partial` patch (or `Promise` of one) to merge through middleware, or `void` / `Promise<void>` when writes use `ctx.set` only or you only run side effects (e.g. `return void toast.error(...)` after `await`).
 
 ```ts
 // Zero-arg — omit or leave first param unannotated
