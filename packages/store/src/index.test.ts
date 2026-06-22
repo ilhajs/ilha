@@ -94,6 +94,15 @@ describe("state accessors", () => {
     expect(s.count).toBe(s.count);
   });
 
+  it("state key accessor has .select for nested bind paths", () => {
+    const s = store({ user: { name: "a" } }).build();
+    expect(typeof s.user.select).toBe("function");
+    const name = s.user.select((u) => u.name);
+    expect(name()).toBe("a");
+    name("b");
+    expect(s.user().name).toBe("b");
+  });
+
   it("carries the SIGNAL_ACCESSOR symbol", () => {
     const s = store({ count: 0 }).build();
     const sym = Symbol.for("ilha.signalAccessor");
