@@ -641,7 +641,9 @@ function buildStore<
         if (patch !== undefined) setState(patch);
       };
       if (ret != null && typeof (ret as Promise<unknown>).then === "function") {
-        void (ret as Promise<Partial<TState> | void>).then(apply);
+        void (ret as Promise<Partial<TState> | void>).then(apply).catch((reason: unknown) => {
+          reportStoreError(reason instanceof Error ? reason : new Error(String(reason)), "action");
+        });
       } else {
         apply(ret as Partial<TState> | void);
       }

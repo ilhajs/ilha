@@ -391,6 +391,26 @@ describe(".action()", () => {
     expect(s.step()).toBe("b");
   });
 
+  it("rejected async action is handled (no unhandled rejection)", async () => {
+    const errors: Error[] = [];
+    const s = store({ count: 0 })
+      .onError(({ error, source }) => {
+        errors.push(error);
+        expect(source).toBe("action");
+      })
+      .action("boom", async () => {
+        await Promise.resolve();
+        throw new Error("action failed");
+      })
+      .build();
+    s.boom();
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.message).toBe("action failed");
+    expect(s.count()).toBe(0);
+  });
+
   it("async action can return void (e.g. return void sideEffect())", async () => {
     let toast = 0;
     const s = store({ count: 0 })
