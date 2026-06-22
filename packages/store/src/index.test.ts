@@ -7,8 +7,9 @@ import { describe, it, expect, mock, beforeEach } from "bun:test";
 
 import { effect } from "alien-signals";
 import ilha, { html } from "ilha";
+import { z } from "zod";
 
-import { store, effectScope } from "./index";
+import { store, effectScope, StoreValidationError } from "./index";
 
 beforeEach(() => {
   document.body.innerHTML = "";
@@ -50,6 +51,15 @@ describe("store() builder", () => {
     // b0 has no actions; building it yields a store without inc.
     const s0 = b0.build();
     expect((s0 as unknown as { inc?: unknown }).inc).toBeUndefined();
+  });
+
+  it("accepts an explicit type argument for POJO stores", () => {
+    type Model = { foo: string; n: number };
+    const s = store<Model>({ foo: "bar", n: 0 }).build();
+    s.foo("baz");
+    expect(s.foo()).toBe("baz");
+    // @ts-expect-error — foo must be string
+    s.foo(1);
   });
 
   it("two independent stores do not share state", () => {
@@ -1032,5 +1042,112 @@ describe("type inference", () => {
     // @ts-expect-error — actions are not part of the state snapshot
     void st.inc;
     expect(n).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Standard Schema store + .onError()
+// ---------------------------------------------------------------------------
+
+describe("store(Standard Schema)", () => {
+  it("derives initial state from schema defaults", () => {
+    const Schema = z.object({
+      label: z.string().default("hello"),
+      n: z.number().default(2),
+    });
+    const s = store(Schema).build();
+    expect(s.getState()).toEqual({ label: "hello", n: 2 });
+  });
+
+  it("rejects invalid setState and does not mutate", () => {
+    const Schema = z.object({ email: z.email().default("ada@example.com") });
+    const s = store(Schema)
+      .onError(() => {})
+      .build();
+    s.setState({ email: "not-an-email" });
+    expect(s.getState().email).toBe("ada@example.com");
+  });
+
+  it(".onError receives StoreValidationError with issues", () => {
+    const Schema = z.object({ age: z.number().min(0).default(0) });
+    const seen: Array<{ message: string; issuesLen: number }> = [];
+    const s = store(Schema)
+      .onError(({ error, source, issues, patch }) => {
+        expect(source).toBe("validate");
+        expect(error).toBeInstanceOf(StoreValidationError);
+        expect(patch).toEqual({ age: -1 });
+        seen.push({
+          message: error.message,
+          issuesLen: issues?.length ?? 0,
+        });
+      })
+      .build();
+    s.setState({ age: -1 });
+    expect(seen.length).toBe(1);
+    expect(seen[0]!.issuesLen).toBeGreaterThan(0);
+  });
+
+  it("applies coercion on successful commit", () => {
+    const Schema = z.object({ n: z.coerce.number().default(0) });
+    const s = store(Schema).build();
+    s.setState({ n: "42" as unknown as number });
+    expect(s.n()).toBe(42);
+  });
+
+  it("bind write rejects invalid value and leaves state unchanged", () => {
+    const Schema = z.object({ email: z.email().default("ada@example.com") });
+    let errors = 0;
+    const s = store(Schema)
+      .onError(() => {
+        errors++;
+      })
+      .build();
+    const email = s.bind((st) => st.email);
+    email("bad");
+    expect(errors).toBe(1);
+    expect(email()).toBe("ada@example.com");
+  });
+
+  it("bind write accepts valid email", () => {
+    const Schema = z.object({ email: z.email().default("ada@example.com") });
+    const s = store(Schema).build();
+    const email = s.bind((st) => st.email);
+    email("ada@example.com");
+    expect(email()).toBe("ada@example.com");
+  });
+
+  it("ilha bind:value rejects invalid email without updating state", () => {
+    const Schema = z.object({ email: z.email().default("ok@example.com") });
+    let n = 0;
+    const formStore = store(Schema)
+      .onError(() => {
+        n++;
+      })
+      .build();
+    const Island = ilha.render(() => html`<input bind:value=${formStore.bind((s) => s.email)} />`);
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const unmount = Island.mount(el);
+    const input = el.querySelector("input")!;
+    input.value = "not-email";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(n).toBe(1);
+    expect(formStore.email()).toBe("ok@example.com");
+    unmount();
+    el.remove();
+  });
+
+  it("falls back to console.error when no .onError()", () => {
+    const errSpy = mock(() => {});
+    const orig = console.error;
+    console.error = errSpy as typeof console.error;
+    try {
+      const Schema = z.object({ x: z.number().default(0) });
+      const s = store(Schema).build();
+      s.setState({ x: "nope" as unknown as number });
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      console.error = orig;
+    }
   });
 });

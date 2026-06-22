@@ -7,6 +7,21 @@
 import { signal, computed, effect, setActiveSub } from "alien-signals";
 
 import { capturePropertyPath, patchStateAtPath } from "./bind-path";
+import type { StandardSchemaV1 } from "./form";
+import {
+  assertStoreStateObject,
+  isStandardSchema,
+  parseInitialStateFromSchema,
+  primaryIssuePath,
+  StoreValidationError,
+  validateStateSnapshot,
+  type StoreErrorSource,
+} from "./schema";
+
+export type { StandardSchemaV1 } from "./form";
+export { isStandardSchema, StoreValidationError, type StoreErrorSource } from "./schema";
+
+export type SchemaState<S extends StandardSchemaV1> = StandardSchemaV1.InferOutput<S> & object;
 
 const SIGNAL_ACCESSOR = Symbol.for("ilha.signalAccessor");
 
@@ -51,6 +66,20 @@ export type DerivedAccessor<T> = {
 };
 
 export type StoreEvent = "change" | "init";
+
+/** Context passed to `.onError()` when a schema-backed commit is rejected. */
+export type StoreErrorContext<TState extends object> = {
+  error: Error;
+  source: StoreErrorSource;
+  /** Partial patch that was merged before validation (if any). */
+  patch?: Partial<TState>;
+  /** Dot path of the first issue, when available. */
+  path?: string;
+  issues?: ReadonlyArray<StandardSchemaV1.Issue>;
+  get(): TState;
+};
+
+type StoreErrorHandler<TState extends object> = (ctx: StoreErrorContext<TState>) => void;
 
 /** Context passed to `.derived()` callbacks. Read-only — derived must stay pure. */
 export interface DerivedCtx<TState> {
@@ -193,6 +222,18 @@ function isNoopPatch<T extends object>(prev: T, patch: Partial<T>): boolean {
   return true;
 }
 
+function shallowStateEqual<T extends object>(a: T, b: T): boolean {
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) {
+    if (!Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function collisionError(key: string, kind: "state" | "derived" | "action" | "built-in"): Error {
   return new Error(`@ilha/store: key collision — "${key}" is already defined as a ${kind} key.`);
 }
@@ -207,10 +248,12 @@ interface BuilderConfig<
   A extends Record<string, ActionFn<TState>>,
 > {
   initialState: TState;
+  schema?: StandardSchemaV1;
   deriveds: ReadonlyArray<{ key: string; fn: DerivedFn<TState> }>;
   actions: ReadonlyArray<{ key: string; fn: ActionFn<TState> }>;
   middlewares: ReadonlyArray<Middleware<TState>>;
   listeners: ReadonlyArray<{ event: StoreEvent; handler: Listener<TState> }>;
+  errorHandlers: ReadonlyArray<{ fn: StoreErrorHandler<TState> }>;
   // Phantom carriers so D/A flow through the chained return types.
   readonly _d?: D;
   readonly _a?: A;
@@ -238,6 +281,22 @@ export class StoreBuilder<
       actions: [],
       middlewares: [],
       listeners: [],
+      errorHandlers: [],
+    });
+  }
+
+  static createWithSchema<S extends StandardSchemaV1>(schema: S): StoreBuilder<SchemaState<S>> {
+    const parsed = parseInitialStateFromSchema(schema);
+    assertStoreStateObject(parsed, "initial state from schema");
+    const initialState = parsed as SchemaState<S>;
+    return new StoreBuilder<SchemaState<S>>({
+      initialState,
+      schema,
+      deriveds: [],
+      actions: [],
+      middlewares: [],
+      listeners: [],
+      errorHandlers: [],
     });
   }
 
@@ -272,6 +331,13 @@ export class StoreBuilder<
     return new StoreBuilder({
       ...this._cfg,
       listeners: [...this._cfg.listeners, { event, handler }],
+    });
+  }
+
+  onError(fn: StoreErrorHandler<TState>): StoreBuilder<TState, D, A> {
+    return new StoreBuilder({
+      ...this._cfg,
+      errorHandlers: [...this._cfg.errorHandlers, { fn }],
     });
   }
 
@@ -319,12 +385,53 @@ function buildStore<
 
   const changeListeners = cfg.listeners.filter((l) => l.event === "change").map((l) => l.handler);
   const initListeners = cfg.listeners.filter((l) => l.event === "init").map((l) => l.handler);
+  const onErrors = cfg.errorHandlers;
+
+  function getState(): TState {
+    return stateSignal();
+  }
+
+  function reportStoreError(error: Error, source: StoreErrorSource, patch?: Partial<TState>): void {
+    const issues = error instanceof StoreValidationError ? error.issues : undefined;
+    const ctx: StoreErrorContext<TState> = {
+      error,
+      source,
+      patch,
+      path: issues ? primaryIssuePath(issues) : undefined,
+      issues,
+      get: getState,
+    };
+    if (onErrors.length === 0) {
+      console.error(error);
+      return;
+    }
+    for (const { fn } of onErrors) {
+      try {
+        fn(ctx);
+      } catch (handlerErr) {
+        console.error(handlerErr);
+      }
+    }
+  }
 
   // --- mutation pipeline ----------------------------------------------------
   const committed = (patch: Partial<TState>): void => {
     const prev = stateSignal();
-    if (isNoopPatch(prev, patch)) return; // skip spurious commits
-    const next = { ...prev, ...patch };
+    if (isNoopPatch(prev, patch)) return;
+    const candidate = { ...prev, ...patch } as TState;
+
+    let next: TState = candidate;
+    if (cfg.schema) {
+      const result = validateStateSnapshot(cfg.schema, candidate);
+      if (!result.ok) {
+        reportStoreError(new StoreValidationError(result.issues, patch), "validate", patch);
+        return;
+      }
+      assertStoreStateObject(result.data, "validated state");
+      next = result.data as TState;
+    }
+
+    if (shallowStateEqual(prev, next)) return;
     stateSignal(next);
     for (const fn of changeListeners) fn(next, prev);
   };
@@ -351,10 +458,6 @@ function buildStore<
     if (Object.keys(patch).length === 0) return;
     untrackRun(() => chain(patch));
   };
-
-  function getState(): TState {
-    return stateSignal();
-  }
 
   // --- built-ins ------------------------------------------------------------
   function select<S>(selector: (state: TState) => S): () => S {
@@ -601,8 +704,14 @@ function buildStore<
 // store() factory
 // ---------------------------------------------------------------------------
 
-export function store<TState extends object>(initialState: TState): StoreBuilder<TState> {
-  return StoreBuilder.create(initialState);
+export function store<S extends StandardSchemaV1>(schema: S): StoreBuilder<SchemaState<S>>;
+/** Plain object initial state. Pass an explicit type argument when inference is too wide. */
+export function store<TState extends object>(initialState: TState): StoreBuilder<TState>;
+export function store(initialOrSchema: object): StoreBuilder<object> {
+  if (isStandardSchema(initialOrSchema)) {
+    return StoreBuilder.createWithSchema(initialOrSchema);
+  }
+  return StoreBuilder.create(initialOrSchema);
 }
 
 export { effectScope } from "alien-signals";

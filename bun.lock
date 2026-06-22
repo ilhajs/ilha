@@ -40,7 +40,7 @@
     },
     "packages/ilha": {
       "name": "ilha",
-      "version": "0.8.2",
+      "version": "0.8.3",
       "dependencies": {
         "alien-signals": "3.2.1",
       },
@@ -50,7 +50,7 @@
     },
     "packages/router": {
       "name": "@ilha/router",
-      "version": "0.6.5",
+      "version": "0.6.6",
       "dependencies": {
         "ilha": "0.8.2",
         "rou3": "0.8.1",
@@ -62,12 +62,12 @@
     },
     "packages/store": {
       "name": "@ilha/store",
-      "version": "0.5.3",
+      "version": "0.5.4",
       "dependencies": {
         "alien-signals": "3.2.1",
       },
       "devDependencies": {
-        "ilha": "0.8.2",
+        "ilha": "0.8.3",
         "zod": "^4.4.3",
       },
       "peerDependencies": {
