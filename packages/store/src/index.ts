@@ -5,8 +5,13 @@
 // =============================================================================
 
 import { signal, computed, effect, setActiveSub } from "alien-signals";
+import type { SignalAccessor } from "ilha";
 
-import { capturePropertyPath, patchStateAtPath } from "./bind-path";
+import {
+  createStoreBindAccessor,
+  createStoreKeyAccessor,
+  stampSignalAccessor,
+} from "./bind-accessor";
 import type { StandardSchemaV1 } from "./form";
 import {
   assertStoreStateObject,
@@ -23,12 +28,11 @@ export { isStandardSchema, StoreValidationError, type StoreErrorSource } from ".
 
 export type SchemaState<S extends StandardSchemaV1> = StandardSchemaV1.InferOutput<S> & object;
 
-const SIGNAL_ACCESSOR = Symbol.for("ilha.signalAccessor");
+/** Read-write accessor for a state key — compatible with ilha `bind:*` (`SignalAccessor`). */
+export type StateAccessor<T> = SignalAccessor<T>;
 
-export type StoreBindable<S> = {
-  (): S;
-  (value: S): void;
-};
+/** Read-write field accessor from `.bind()` — compatible with ilha `bind:*`. */
+export type StoreBindable<S> = SignalAccessor<S>;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -37,12 +41,6 @@ export type StoreBindable<S> = {
 export type Listener<T> = (state: T, prevState: T) => void;
 export type SliceListener<_T, S> = (slice: S, prevSlice: S) => void;
 export type Unsub = () => void;
-
-/** Read-write signal-shaped accessor for a state key. */
-export type StateAccessor<T> = {
-  (): T;
-  (value: T): void;
-};
 
 /** The reactive envelope for a derived value. Mirrors ilha core's `DerivedValue`. */
 export interface DerivedValue<T> {
@@ -201,7 +199,7 @@ function untrackRun<T>(fn: () => T): T {
 // `.value`, `.error` expose the envelope. Mirrors ilha core's accessor shape.
 function createDerivedAccessor<T>(read: () => DerivedValue<T>): DerivedAccessor<T> {
   const accessor = (() => read().value) as DerivedAccessor<T>;
-  (accessor as unknown as Record<symbol, boolean>)[SIGNAL_ACCESSOR] = true;
+  stampSignalAccessor(accessor);
   return new Proxy(accessor, {
     get(target, prop, receiver) {
       if (prop === "loading" || prop === "value" || prop === "error") {
@@ -504,14 +502,7 @@ function buildStore<
   }
 
   function bind<S>(selector: (state: TState) => S): StoreBindable<S> {
-    const path = capturePropertyPath(getState, selector);
-    const read = select(selector);
-    const accessor = ((...args: unknown[]): unknown => {
-      if (args.length === 0) return read();
-      setState(patchStateAtPath(stateSignal(), path, args[0]));
-    }) as StoreBindable<S>;
-    (accessor as unknown as Record<symbol, boolean>)[SIGNAL_ACCESSOR] = true;
-    return accessor;
+    return createStoreBindAccessor(getState, setState, selector, select(selector));
   }
 
   const builtins: StoreBuiltins<TState> = {
@@ -527,13 +518,15 @@ function buildStore<
   // --- cached accessors -----------------------------------------------------
   const stateAccessors = new Map<string, StateAccessor<unknown>>();
   for (const key of stateKeys) {
-    const accessor = ((...args: unknown[]): unknown => {
-      if (args.length === 0) return (stateSignal() as Record<string, unknown>)[key];
-      setState({ [key]: args[0] } as Partial<TState>);
-      return undefined;
-    }) as StateAccessor<unknown>;
-    (accessor as unknown as Record<symbol, boolean>)[SIGNAL_ACCESSOR] = true;
-    stateAccessors.set(key, accessor);
+    type Key = Extract<keyof TState, string>;
+    const k = key as Key;
+    const accessor = createStoreKeyAccessor<TState, Key>(
+      k,
+      () => (stateSignal() as TState)[k],
+      (value) => setState({ [k]: value } as unknown as Partial<TState>),
+      bind,
+    );
+    stateAccessors.set(key, accessor as StateAccessor<unknown>);
   }
 
   // --- derived (sync computed, or async envelope) ---------------------------

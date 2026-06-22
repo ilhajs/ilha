@@ -268,7 +268,7 @@ query("ilha"); // write — goes through middleware
 
 ## Usage with Ilha Islands
 
-State and derived accessors on the built store are **signal-shaped** — they carry `[SIGNAL_ACCESSOR]` and participate directly in ilha's reactive tracking. Use them inside `.render()`, `.derived()`, and `.effect()` without `.select()` wrappers.
+State and derived accessors on the built store are **signal-shaped** — they are typed as ilha `SignalAccessor` (including `.select()` on state keys) and carry `[SIGNAL_ACCESSOR]`, so they work with Areia/ilha `bind:*` props (e.g. `<Input bind:value={form.email} />`). Use them inside `.render()`, `.derived()`, and `.effect()` without extra wrappers.
 
 ```ts
 import { store } from "@ilha/store";
