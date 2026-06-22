@@ -391,6 +391,116 @@ describe(".action()", () => {
     expect(s.step()).toBe("b");
   });
 
+  it("submit() advances step after await (login-style discriminated union)", async () => {
+    const STEP = { REQUEST_OTP: "requestOtp", VERIFY_OTP: "verifyOtp" } as const;
+    const LoginSchema = z.discriminatedUnion("step", [
+      z.object({
+        step: z.literal(STEP.REQUEST_OTP),
+        email: z.email().default(""),
+        otp: z.string().optional(),
+      }),
+      z.object({
+        step: z.literal(STEP.VERIFY_OTP),
+        email: z.email(),
+        otp: z.string().min(6).default(""),
+      }),
+    ]);
+
+    let validateErrors = 0;
+    const form = store(LoginSchema)
+      .onError(({ source }) => {
+        if (source === "validate") validateErrors++;
+      })
+      .action("submit", async (_, { get }) => {
+        const { step } = get();
+        if (step === STEP.REQUEST_OTP) {
+          await Promise.resolve();
+          return { step: STEP.VERIFY_OTP };
+        }
+      })
+      .build();
+
+    form.email("ada@example.com");
+    expect(form.step()).toBe(STEP.REQUEST_OTP);
+    form.submit();
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(validateErrors).toBe(0);
+    expect(form.step()).toBe(STEP.VERIFY_OTP);
+    expect(form.getState().email).toBe("ada@example.com");
+  });
+
+  it("submit() advances step when verify branch allows empty otp until user fills (login UI pattern)", async () => {
+    const STEP = { REQUEST_OTP: "REQUEST_OTP", VERIFY_OTP: "VERIFY_OTP" } as const;
+    const LoginSchema = z
+      .discriminatedUnion("step", [
+        z.object({
+          step: z.literal(STEP.REQUEST_OTP),
+          email: z.email(),
+          otp: z.string().default(""),
+        }),
+        z.object({
+          step: z.literal(STEP.VERIFY_OTP),
+          email: z.email(),
+          otp: z.union([z.literal(""), z.string().min(6).max(6)]),
+        }),
+      ])
+      .default({ step: STEP.REQUEST_OTP, email: "", otp: "" });
+
+    let validateErrors = 0;
+    const form = store(LoginSchema)
+      .onError(({ source }) => {
+        if (source === "validate") validateErrors++;
+      })
+      .action("submit", async (_, { get }) => {
+        if (get().step === STEP.REQUEST_OTP) {
+          await Promise.resolve();
+          return { step: STEP.VERIFY_OTP };
+        }
+      })
+      .build();
+
+    form.email("ada@example.com");
+    form.submit();
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(validateErrors).toBe(0);
+    expect(form.step()).toBe(STEP.VERIFY_OTP);
+    expect(form.otp()).toBe("");
+  });
+
+  it("submit() does not advance step when async action returns void after error path", async () => {
+    const STEP = { REQUEST_OTP: "requestOtp", VERIFY_OTP: "verifyOtp" } as const;
+    const LoginSchema = z.discriminatedUnion("step", [
+      z.object({
+        step: z.literal(STEP.REQUEST_OTP),
+        email: z.email().default(""),
+        otp: z.string().optional(),
+      }),
+      z.object({
+        step: z.literal(STEP.VERIFY_OTP),
+        email: z.email(),
+        otp: z.string().min(6).default(""),
+      }),
+    ]);
+
+    const form = store(LoginSchema)
+      .action("submit", async (_, { get }) => {
+        const { step } = get();
+        if (step === STEP.REQUEST_OTP) {
+          await Promise.resolve();
+          return void 0;
+        }
+      })
+      .build();
+
+    form.email("ada@example.com");
+    form.submit();
+    await new Promise<void>((r) => queueMicrotask(r));
+    await new Promise<void>((r) => queueMicrotask(r));
+    expect(form.step()).toBe(STEP.REQUEST_OTP);
+  });
+
   it("rejected async action is handled (no unhandled rejection)", async () => {
     const errors: Error[] = [];
     const s = store({ count: 0 })
@@ -435,6 +545,14 @@ describe(".action()", () => {
     s.subscribe(listener);
     s.sideEffect();
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("action returning null does not throw or mutate", () => {
+    const s = store({ count: 0 })
+      .action("bad", () => null as unknown as Partial<{ count: number }>)
+      .build();
+    expect(() => s.bad()).not.toThrow();
+    expect(s.count()).toBe(0);
   });
 
   it("ctx.getInitial() reads the initial snapshot", () => {
@@ -774,6 +892,14 @@ describe("reset()", () => {
     s.subscribe(listener);
     s.reset();
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("schema-backed store reset() restores parsed initial state", () => {
+    const Schema = z.object({ email: z.email().default("ada@example.com") });
+    const s = store(Schema).build();
+    s.email("other@example.com");
+    s.reset();
+    expect(s.email()).toBe("ada@example.com");
   });
 });
 

@@ -14,7 +14,7 @@
     "@fontsource-variable/geist": "^5.2.9",
     "@fontsource-variable/geist-mono": "^5.2.8",
     "@ilha/router": "^0.6.7",
-    "@ilha/store": "^0.5.6",
+    "@ilha/store": "^0.5.8",
     "areia": "^0.1.29",
     "dedent": "^1.7.2",
     "ilha": "^0.8.4",

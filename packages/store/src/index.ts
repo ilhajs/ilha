@@ -237,6 +237,15 @@ function shallowStateEqual<T extends object>(a: T, b: T): boolean {
   return true;
 }
 
+/** Drop own keys whose value is `undefined` so schema validation (e.g. Zod unions) is not tripped by stale optional fields after a partial patch. */
+function omitUndefinedOwnKeys<T extends object>(snapshot: T): T {
+  const out = { ...snapshot } as Record<string, unknown>;
+  for (const key of Object.keys(out)) {
+    if (out[key] === undefined) delete out[key];
+  }
+  return out as T;
+}
+
 function collisionError(key: string, kind: "state" | "derived" | "action" | "built-in"): Error {
   return new Error(`@ilha/store: key collision — "${key}" is already defined as a ${kind} key.`);
 }
@@ -425,7 +434,7 @@ function buildStore<
 
     let next: TState = candidate;
     if (cfg.schema) {
-      const result = validateStateSnapshot(cfg.schema, candidate);
+      const result = validateStateSnapshot(cfg.schema, omitUndefinedOwnKeys(candidate));
       if (!result.ok) {
         reportStoreError(new StoreValidationError(result.issues, patch), "validate", patch);
         return;
@@ -458,6 +467,7 @@ function buildStore<
   // a spurious no-op through middleware. Untracked so a write performed inside a
   // tracking scope can't subscribe that scope to stateSignal.
   const setState = (patch: Partial<TState>): void => {
+    if (patch == null || typeof patch !== "object") return;
     if (Object.keys(patch).length === 0) return;
     untrackRun(() => chain(patch));
   };
@@ -637,8 +647,8 @@ function buildStore<
   for (const { key, fn } of cfg.actions) {
     actionHandlers.set(key, (props?: unknown) => {
       const ret = fn(props as never, actionCtx);
-      const apply = (patch: Partial<TState> | void | undefined) => {
-        if (patch !== undefined) setState(patch);
+      const apply = (patch: Partial<TState> | void | undefined | null) => {
+        if (patch != null) setState(patch);
       };
       if (ret != null && typeof (ret as Promise<unknown>).then === "function") {
         void (ret as Promise<Partial<TState> | void>).then(apply).catch((reason: unknown) => {
