@@ -5,6 +5,6 @@ export default defineConfig({
   platform: "browser",
   dts: true,
   minify: true,
-  // Must share one alien-signals instance with ilha (preview CDN + app bundlers).
-  external: ["alien-signals"],
+  // Share one alien-signals + ilha with the app (bind accessor brands, signals).
+  external: ["alien-signals", "ilha"],
 });

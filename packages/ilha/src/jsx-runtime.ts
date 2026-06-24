@@ -39,7 +39,11 @@ function isRawHtml(v: unknown): v is RawHtml {
 }
 
 function isSignalAccessor(v: unknown): boolean {
-  return typeof v === "function" && SIGNAL_ACCESSOR in (v as object);
+  if (typeof v !== "function") return false;
+  if (SIGNAL_ACCESSOR in (v as object)) return true;
+  return Object.getOwnPropertySymbols(v as object).some(
+    (s) => s.description === "ilha.signalAccessor",
+  );
 }
 
 function isIsland(v: unknown): boolean {

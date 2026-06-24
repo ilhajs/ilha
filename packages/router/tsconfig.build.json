@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "allowImportingTsExtensions": false,
+    "types": ["@types/bun", "vite/client"]
+  },
+  "include": [
+    "src/index.ts",
+    "src/ssr.ts",
+    "src/vite.ts",
+    "src/rspack.ts",
+    "src/rolldown.ts",
+    "src/virtual.d.ts"
+  ]
+}

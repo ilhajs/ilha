@@ -30,11 +30,10 @@ src/
   pages/            # File-based routes (+layout, index, learn, …)
   entry-server.ts   # SSR — renders pages to HTML
   entry-client.ts   # Client entry — hydrates islands
-  routes/api/       # Nitro API routes (e.g. server-island)
   app.css           # Tailwind + Areia styles
 ```
 
-The demo includes a todo island, a server-rendered island at `/api/server-island`, and [Areia](https://areia.ilha.build) UI components.
+The demo includes a todo island and [Areia](https://areia.ilha.build) UI components.
 
 ## Learn more
 

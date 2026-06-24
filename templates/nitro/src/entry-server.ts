@@ -1,45 +1,25 @@
 import "./app.css";
-import { pageRouter, registry } from "ilha:pages/server";
+import { IlhaHandler, appHead, mergeAssets } from "@ilha/router/ssr";
 
-import clientAssets from "./entry-client.ts?assets=client";
-import serverAssets from "./entry-server.ts?assets=ssr";
+import client from "./entry-client.ts?assets=client";
+import server from "./entry-server.ts?assets=ssr";
 
-async function handler(request: Request): Promise<Response> {
-  const url = new URL(request.url);
-  const href = url.href.slice(url.origin.length);
+const themeScript = `(function () {
+  var stored = localStorage.getItem("imprensa:theme");
+  var dark =
+    stored === "dark" ||
+    (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  if (dark) document.documentElement.classList.add("dark");
+  document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  document.documentElement.dataset.themeReady = "";
+})();`;
 
-  const body = await pageRouter.renderHydratable(href, registry);
+const handler = new IlhaHandler({
+  assets: mergeAssets({ client, server }),
+  head: appHead({
+    title: "Ilha + Nitro",
+    script: [{ children: themeScript }],
+  }),
+});
 
-  const assets = clientAssets.merge(serverAssets);
-  const entryPath = assets.entry ?? "/entry-client.js";
-  const styles = (assets.css ?? []).map((asset) => stylesheetTag(asset)).join("\n  ");
-
-  return new Response(htmlTemplate(body, entryPath, styles), {
-    headers: { "content-type": "text/html;charset=utf-8" },
-  });
-}
-
-function stylesheetTag(attrs: { href: string; "data-vite-dev-id"?: string }): string {
-  const devId = attrs["data-vite-dev-id"] ? ` data-vite-dev-id="${attrs["data-vite-dev-id"]}"` : "";
-
-  return `<link rel="stylesheet" href="${attrs.href}"${devId} />`;
-}
-
-function htmlTemplate(body: string, clientEntry: string, styles: string): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ilha + Nitro</title>
-  <link rel="icon" href="/favicon.svg" />
-  ${styles}
-</head>
-<body>
-  <div id="app">${body}</div>
-  <script type="module" src="${clientEntry}"></script>
-</body>
-</html>`;
-}
-
-export default { fetch: handler };
+export const fetch = (request: Request) => handler.handle(request);

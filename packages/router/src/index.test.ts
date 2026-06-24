@@ -24,6 +24,7 @@ import {
   composeLoaders,
   prefetch,
   RouterLink,
+  head,
 } from "./index";
 
 // ─────────────────────────────────────────────
@@ -975,11 +976,10 @@ describe("SSR → client hydration pipeline", () => {
     const unmount = router()
       .route("/", HomePage)
       .route("/about", AboutPage)
-      .mount(el, { hydrate: true });
+      .mount(el, { hydrate: true, registry });
 
     navigate("/about");
-    await Promise.resolve();
-    await Promise.resolve(); // two microtask ticks for queueMicrotask inside sentinel
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(el.textContent).toContain("about");
     unmount();
@@ -1259,6 +1259,7 @@ describe("composeLoaders()", () => {
     request: new Request("http://localhost/"),
     url: new URL("http://localhost/"),
     signal: new AbortController().signal,
+    head: () => {},
   });
 
   it("returns an empty object for an empty list", async () => {
@@ -1616,6 +1617,81 @@ describe("renderResponse()", () => {
     const res = await router().route("/", HomePage).renderResponse("/", registry);
     expect(res.kind).toBe("html");
     if (res.kind === "html") expect(res.html).toContain("home");
+  });
+
+  it("collects head() from layout and page during async hydratable SSR", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+
+    const Page = ilha.render(() => {
+      head({ title: "Home" });
+      return html`
+        <p>page</p>
+      `;
+    });
+    const Layout = defineLayout((children) =>
+      ilha.render(() => {
+        head({ titleTemplate: (t) => (t ? `${t} · App` : "App") });
+        return html`<main>${children()}</main>`;
+      }),
+    );
+    const Wrapped = wrapLayout(Layout, Page);
+
+    const res = await router().route("/", Wrapped).renderResponse("/", { Wrapped });
+    expect(res.kind).toBe("html");
+    if (res.kind === "html") {
+      expect(res.head?.headTags).toContain("<title>Home · App</title>");
+    }
+    expect(warn).not.toHaveBeenCalledWith(
+      "[ilha-router] head() called outside an SSR render window — ignored.",
+    );
+
+    warn.mockRestore();
+  });
+
+  it("updates document.title on client navigation when pages call head()", async () => {
+    const Home = ilha.render(() => {
+      head({ title: "Home" });
+      return html`
+        <p>home</p>
+      `;
+    });
+    const Learn = ilha.render(() => {
+      head({ title: "Learn" });
+      return html`
+        <p>learn</p>
+      `;
+    });
+    const Layout = defineLayout((children) =>
+      ilha.render(() => {
+        head({ titleTemplate: (t) => (t ? `${t} · App` : "App") });
+        return html`<main>${children()}</main>`;
+      }),
+    );
+    const WrappedHome = wrapLayout(Layout, Home);
+    const WrappedLearn = wrapLayout(Layout, Learn);
+    const reg = { home: WrappedHome, learn: WrappedLearn };
+
+    const ssrHtml = await router()
+      .route("/", WrappedHome)
+      .route("/learn", WrappedLearn)
+      .renderHydratable("/", reg);
+
+    setLocation("/");
+    const el = makeEl(ssrHtml);
+    document.title = "Home · App";
+
+    const unmount = router()
+      .route("/", WrappedHome)
+      .route("/learn", WrappedLearn)
+      .mount(el, { hydrate: true, registry: reg });
+
+    navigate("/learn");
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.title).toBe("Learn · App");
+    unmount();
+    cleanup(el);
   });
 });
 
@@ -1990,6 +2066,38 @@ describe("wrapError / wrapLayout hydration", () => {
     unmount();
   });
 
+  it("wrapLayout page onMount runs when k:page already has data-ilha-state (_derived only)", async () => {
+    const Layout = defineLayout((children) => ilha.render(() => html`<main>${children()}</main>`));
+
+    const Page = ilha
+      .derived("ready", () => true)
+      .onMount(({ host }) => {
+        host.setAttribute("data-page-mounted", "1");
+      })
+      .render(
+        () =>
+          html`
+            <p data-page-body>page</p>
+          `,
+      );
+
+    const Wrapped = wrapLayout(Layout, Page);
+    const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
+
+    el = makeEl(`<div data-router-view>${ssr}</div>`);
+    const outer = el.querySelector("[data-ilha]")!;
+    const pageSlot = [...outer.querySelectorAll('[data-ilha-slot="k:page"]')].at(-1)!;
+    pageSlot.setAttribute("data-ilha-state", JSON.stringify({ _derived: {} }));
+
+    const { unmount } = ilhaMount({ page: Wrapped }, { root: el });
+    await flushEffects();
+
+    expect(pageSlot.getAttribute("data-page-mounted")).toBe("1");
+    expect(el.querySelector("[data-page-body]")).not.toBeNull();
+
+    unmount();
+  });
+
   it("nested wrapLayout renderHydratable fills outer k:page with layout tree and inner k:page with page", async () => {
     const Page = ilha.render(
       () =>
@@ -2113,6 +2221,63 @@ describe("wrapError / wrapLayout hydration", () => {
     const { unmount } = ilhaMount({ page: Wrapped }, { root: el });
 
     el.querySelector<HTMLButtonElement>("[data-inc]")!.click();
+    await flushEffects();
+    expect(el.textContent).toContain("1");
+
+    unmount();
+  });
+
+  it("wrapLayout hydrates module store seeded from loader props on k:page (no innerHTML wipe)", async () => {
+    const external: { items: string[] } = { items: [] };
+    const Page = ilha
+      .input<{ todos: string[] }>()
+      .onMount(({ input }) => {
+        external.items = input.todos;
+      })
+      .render(() => html`<ul>${external.items.map((t) => html`<li>${t}</li>`)}</ul>`);
+
+    const Layout = defineLayout((children) =>
+      ilha.render(({ input }) => html`<main>${children(input)}</main>`),
+    );
+
+    const Wrapped = wrapLayout(Layout, Page);
+    const props = { todos: ["alpha", "beta"] };
+    const ssr = await Wrapped.hydratable(props, { name: "index", snapshot: true });
+
+    expect(ssr).toContain("alpha");
+    expect(ssr).toContain("beta");
+
+    el = makeEl(`<div data-router-view>${ssr}</div>`);
+    const { unmount } = ilhaMount({ index: Wrapped }, { root: el });
+
+    await flushEffects();
+    expect(el.textContent).toContain("alpha");
+    expect(el.textContent).toContain("beta");
+    expect(el.textContent).not.toContain("No todos");
+
+    unmount();
+  });
+
+  it("wrapLayout page .on handlers on k:page stay wired after hydrate (no first-pass morph)", async () => {
+    const Page = ilha
+      .state("n", 0)
+      .on("[data-bump]@click", ({ state }) => {
+        state.n(state.n() + 1);
+      })
+      .render(({ state }) => html`<button data-bump>${state.n()}</button>`);
+
+    const Layout = defineLayout((children) =>
+      ilha.render(({ input }) => html`<main>${children(input)}</main>`),
+    );
+
+    const Wrapped = wrapLayout(Layout, Page);
+    const ssr = await Wrapped.hydratable({}, { name: "index", snapshot: true });
+
+    el = makeEl(`<div data-router-view>${ssr}</div>`);
+    const { unmount } = ilhaMount({ index: Wrapped }, { root: el });
+
+    await flushEffects();
+    el.querySelector<HTMLButtonElement>("[data-bump]")!.click();
     await flushEffects();
     expect(el.textContent).toContain("1");
 

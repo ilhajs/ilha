@@ -34,7 +34,7 @@ src/
   app.css      # Tailwind + Areia styles
 ```
 
-The demo includes a todo island, a server-rendered island at `/server-island`, and [Areia](https://areia.ilha.build) UI components.
+The demo includes a todo island and [Areia](https://areia.ilha.build) UI components.
 
 ## Learn more
 

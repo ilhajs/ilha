@@ -2326,6 +2326,54 @@ class IlhaBuilder<
       return state as IslandState<TStateMap>;
     }
 
+    /** Detached host for SSR setup hooks; must not be `{}` (Areia/components call host.matches). */
+    function createSsrOnMountHost(): Element {
+      if (typeof document !== "undefined") return document.createElement("div");
+      const stub: Record<string, unknown> = {
+        matches: () => false,
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        setAttribute: () => {},
+        getAttribute: () => null,
+        removeAttribute: () => {},
+        appendChild: () => stub,
+      };
+      return stub as unknown as Element;
+    }
+
+    /** Run .onMount() before top-level SSR only (seed module/external state from `input`). */
+    function runOnMountForRender(
+      input: TInput,
+      state: IslandState<TStateMap>,
+      derived: RenderContext<TInput, TStateMap, TDerivedMap>["derived"],
+    ): void {
+      if (onMounts.length === 0) return;
+      // Child islands inlined via emitIslandSlot → island.toString() must not run onMount (DOM islands).
+      if (currentRenderCtx()) return;
+      const host = createSsrOnMountHost();
+      for (const entry of onMounts) {
+        const prevSub = setActiveSub(undefined);
+        try {
+          entry.fn({ state, derived, input, host, hydrated: false });
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          if (onErrors.length === 0) {
+            if (!reportToGlobal(error, "mount")) console.error(error);
+          } else {
+            for (const oe of onErrors) {
+              try {
+                oe.fn({ error, source: "mount", state, derived, input, host });
+              } catch (handlerErr) {
+                console.error(handlerErr);
+              }
+            }
+          }
+        } finally {
+          setActiveSub(prevSub);
+        }
+      }
+    }
+
     function renderToString(props?: Partial<TInput>, sync = false): string | Promise<string> {
       const input = resolveInput(props);
       const state = buildPlainState(input);
@@ -2360,6 +2408,7 @@ class IlhaBuilder<
           }
         }
         const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
+        if (!currentRenderCtx()) runOnMountForRender(input, state, derived);
         const prevSub = setActiveSub(undefined);
         try {
           const { html } = renderWithCtx(() => fn({ state, derived, input }));
@@ -2395,6 +2444,7 @@ class IlhaBuilder<
         const envelopes: Record<string, DerivedValue<unknown>> = {};
         for (const r of resolved) envelopes[r.key] = r.envelope;
         const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
+        if (!currentRenderCtx()) runOnMountForRender(input, state, derived);
         const prevSub = setActiveSub(undefined);
         try {
           const { html } = await renderWithCtx(
@@ -2510,7 +2560,12 @@ class IlhaBuilder<
       }
 
       const hydrated = snapshotRaw != null;
-      const shouldSkipOnMount = hydrated && snapshotRaw?.["_skipOnMount"] === true;
+      const snapshotHasIslandState = stateSnapshot != null && Object.keys(stateSnapshot).length > 0;
+      // _skipOnMount only skips when island .state() was snapshotted (hydration replay).
+      // Layout shells snapshot _skipOnMount without state keys — page onMount must still run
+      // (e.g. seed @ilha/store from loader input before the first client render).
+      const shouldSkipOnMount =
+        hydrated && snapshotRaw?.["_skipOnMount"] === true && snapshotHasIslandState;
       const state = buildSignalState(input, stateSnapshot);
       const cleanups: Array<() => void> = [];
 
@@ -2833,17 +2888,47 @@ class IlhaBuilder<
         listeners.length = 0;
       }
 
+      function invokeOnMounts(): void {
+        for (const entry of onMounts) {
+          const prevSub = setActiveSub(undefined);
+          let userCleanup: (() => void) | void = undefined;
+          try {
+            userCleanup = entry.fn({ state, derived, input, host, hydrated });
+          } catch (err) {
+            reportError(err, "mount");
+          } finally {
+            setActiveSub(prevSub);
+          }
+          if (userCleanup) {
+            const teardown = userCleanup;
+            cleanups.push(() => {
+              try {
+                teardown();
+              } catch (err) {
+                reportError(err, "mount");
+              }
+            });
+          }
+        }
+      }
+
+      const preserveSSRDom = hydrated && host.childNodes.length > 0;
+
+      // Seed external/module state before the first render walk (store is not snapshotted).
+      if (hydrated && onMounts.length > 0 && !shouldSkipOnMount) {
+        invokeOnMounts();
+      }
+
       // Initial render. If hydrating over existing SSR output, we still need
       // to walk the render function once to collect the slot map (so mountSlots
       // knows which islands to mount into the existing [data-ilha-slot]
       // elements). In that case we pass the host as liveHost so emitIslandSlot
       // reuses the existing subtrees instead of re-SSR-ing children.
-      const hasExistingContent = hydrated && host.childNodes.length > 0;
       const initial = renderWithCtx(
         () => fn({ state, derived, input }),
-        hasExistingContent ? host : undefined,
+        preserveSSRDom ? host : undefined,
       );
-      if (!hasExistingContent) {
+      if (!preserveSSRDom) {
         host.innerHTML = stylePrefix + initial.html;
       }
 
@@ -2856,30 +2941,8 @@ class IlhaBuilder<
       // Bind after slot islands mount so selector-based handlers see the final DOM.
       attachListeners();
 
-      if (!shouldSkipOnMount) {
-        for (const entry of onMounts) {
-          const prevSub = setActiveSub(undefined);
-          let userCleanup: (() => void) | void = undefined;
-          try {
-            userCleanup = entry.fn({ state, derived, input, host, hydrated });
-          } catch (err) {
-            reportError(err, "mount");
-          } finally {
-            setActiveSub(prevSub);
-          }
-          if (userCleanup) {
-            // Guard the user-provided teardown so a throwing cleanup doesn't
-            // abort the rest of the unmount sequence.
-            const teardown = userCleanup;
-            cleanups.push(() => {
-              try {
-                teardown();
-              } catch (err) {
-                reportError(err, "mount");
-              }
-            });
-          }
-        }
+      if (!hydrated && onMounts.length > 0) {
+        invokeOnMounts();
       }
 
       for (const entry of effects) {
@@ -2969,6 +3032,15 @@ class IlhaBuilder<
 
         if (!initialized) {
           initialized = true;
+          // Hydration: listeners/bindings were wired to SSR DOM — never morph
+          // on the first effect pass (layout + page slots both use this path).
+          if (preserveSSRDom) {
+            for (const [id, entry] of mountedSlots) {
+              const next = newSlotMap.get(id);
+              if (next) entry.updateProps(next.props);
+            }
+            return;
+          }
           // Fast path: render output matches the eager initial render. DOM
           // and slot map are already in sync — nothing more to do here. The
           // typical case: no onMount has run yet, or onMount hasn't written

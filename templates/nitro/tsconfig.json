@@ -3,6 +3,6 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "ilha",
-    "types": ["./.ilha/routes.d.ts"]
+    "types": ["./.ilha/pages.d.ts"]
   }
 }

@@ -9,12 +9,12 @@
     "start": "bun dist/server.mjs"
   },
   "dependencies": {
-    "@elysiajs/html": "^1.4.2",
     "@elysiajs/static": "^1.4.10",
-    "@ilha/router": "^0.6.7",
-    "areia": "^0.1.29",
+    "@ilha/router": "^0.6.8",
+    "@ilha/store": "^0.5.10",
+    "areia": "^0.1.33",
     "elysia": "^1.4.29",
-    "ilha": "^0.8.4",
+    "ilha": "^0.8.5",
     "quando": "^0.1.6"
   },
   "devDependencies": {
