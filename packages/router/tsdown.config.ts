@@ -6,5 +6,5 @@ export default defineConfig({
   dts: false,
   minify: true,
   // Share one `ilha` instance with the app (bind sentinels, mount, islands).
-  external: ["ilha", "ilha:pages/server", "ilha:loaders"],
+  external: ["ilha", "ilha:pages/server", "ilha:loaders", "node:async_hooks"],
 });

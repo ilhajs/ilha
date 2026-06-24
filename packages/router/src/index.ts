@@ -59,6 +59,10 @@ export interface HeadInput {
   titleTemplate?: string | ((title?: string) => string);
   meta?: Array<Record<string, string>>;
   link?: Array<Record<string, string>>;
+  /**
+   * Inline script bodies are emitted raw in SSR (`serializeHead`). Must be trusted
+   * app code and must not contain a literal `</script>` sequence.
+   */
   script?: Array<Record<string, string> & { children?: string }>;
   htmlAttrs?: Record<string, string>;
   bodyAttrs?: Record<string, string>;
@@ -1175,11 +1179,35 @@ interface HeadStore {
   entries: HeadInput[];
 }
 
-// Active store for render-time `head()` calls. Only ever set around the
-// *synchronous* render window via `withHeadStore`; loader writes never touch
-// this global (they go through the bound `ctx.head` closure). This keeps the
-// safe loader path race-free under concurrent SSR.
-let _activeHead: HeadStore | null = null;
+const ILHA_HEAD_ATTR = "data-ilha-head";
+
+/** Browser-only fallback; SSR uses AsyncLocalStorage (see `withHeadStore`). */
+let _browserHeadStore: HeadStore | null = null;
+
+type HeadAls = {
+  getStore(): HeadStore | undefined;
+  run<R>(store: HeadStore, fn: () => R): R;
+};
+
+let _headAls: HeadAls | null = null;
+let _headAlsInit: Promise<HeadAls> | null = null;
+
+/** ESM dynamic import — Nitro/Vite SSR workers have no `require`. */
+async function getHeadAlsAsync(): Promise<HeadAls> {
+  if (_headAls) return _headAls;
+  if (!_headAlsInit) {
+    _headAlsInit = import("node:async_hooks").then(({ AsyncLocalStorage }) => {
+      _headAls = new AsyncLocalStorage<HeadStore>();
+      return _headAls;
+    });
+  }
+  return _headAlsInit;
+}
+
+function activeHeadStore(): HeadStore | null {
+  if (isBrowser) return _browserHeadStore;
+  return _headAls?.getStore() ?? null;
+}
 
 /**
  * Contribute `<head>` data from inside an island's `.render()` body or a
@@ -1189,16 +1217,44 @@ let _activeHead: HeadStore | null = null;
  * for data that depends on the request.
  */
 export function head(input: HeadInput): void {
-  if (!_activeHead) {
+  const store = activeHeadStore();
+  if (!store) {
     if (!isBrowser) {
       console.warn("[ilha-router] head() called outside an SSR render window — ignored.");
     }
     return;
   }
-  _activeHead.entries.push(input);
+  store.entries.push(input);
 }
 
-/** Apply merged head entries to the live document (client navigations). */
+function cssEscapeAttr(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function headManagedMetaSelector(tag: Record<string, string>): string | null {
+  if ("charset" in tag) return `meta[charset][${ILHA_HEAD_ATTR}]`;
+  if ("name" in tag) return `meta[name="${cssEscapeAttr(tag.name)}"][${ILHA_HEAD_ATTR}]`;
+  if ("property" in tag)
+    return `meta[property="${cssEscapeAttr(tag.property)}"][${ILHA_HEAD_ATTR}]`;
+  if ("http-equiv" in tag)
+    return `meta[http-equiv="${cssEscapeAttr(tag["http-equiv"])}"][${ILHA_HEAD_ATTR}]`;
+  return null;
+}
+
+function headManagedLinkSelector(tag: Record<string, string>): string | null {
+  if (tag.rel && tag.href) {
+    return `link[rel="${cssEscapeAttr(tag.rel)}"][href="${cssEscapeAttr(tag.href)}"][${ILHA_HEAD_ATTR}]`;
+  }
+  return null;
+}
+
+/**
+ * Apply merged head entries on client navigations. Updates `document.title` and
+ * managed meta/link nodes (`data-ilha-head`). Script tags from HeadInput are
+ * SSR-only and are not re-injected here. Removes managed tags from the previous
+ * route that are not part of this navigation's set.
+ */
 function applyHeadEntriesToDocument(entries: HeadInput[]): void {
   if (!isBrowser || entries.length === 0) return;
 
@@ -1221,52 +1277,39 @@ function applyHeadEntriesToDocument(entries: HeadInput[]): void {
   const resolvedTitle = applyTitleTemplate(title, titleTemplate);
   if (resolvedTitle !== undefined) document.title = resolvedTitle;
 
-  for (const tag of dedupByKey(meta, metaDedupKey)) {
-    let el: HTMLMetaElement | null = null;
-    if ("charset" in tag) {
-      el = document.querySelector("meta[charset]") as HTMLMetaElement | null;
-      if (!el) {
-        el = document.createElement("meta");
-        document.head.appendChild(el);
-      }
-    } else if ("name" in tag) {
-      el = document.querySelector(`meta[name="${tag.name}"]`) as HTMLMetaElement | null;
-      if (!el) {
-        el = document.createElement("meta");
-        document.head.appendChild(el);
-      }
-    } else if ("property" in tag) {
-      el = document.querySelector(`meta[property="${tag.property}"]`) as HTMLMetaElement | null;
-      if (!el) {
-        el = document.createElement("meta");
-        document.head.appendChild(el);
-      }
-    } else if ("http-equiv" in tag) {
-      el = document.querySelector(
-        `meta[http-equiv="${tag["http-equiv"]}"]`,
-      ) as HTMLMetaElement | null;
-      if (!el) {
-        el = document.createElement("meta");
-        document.head.appendChild(el);
-      }
-    }
-    if (el) {
-      for (const [k, v] of Object.entries(tag)) el.setAttribute(k, v);
-    }
-  }
+  const metaTags = dedupByKey(meta, metaDedupKey);
+  const linkTags = dedupByKey(link, (t) => `${t.rel ?? ""}:${t.href ?? ""}`);
+  const keepManaged = new Set<Element>();
 
-  for (const tag of dedupByKey(link, (t) => `${t.rel ?? ""}:${t.href ?? ""}`)) {
-    let el: HTMLLinkElement | null = null;
-    if (tag.rel && tag.href) {
-      el = document.querySelector(
-        `link[rel="${tag.rel}"][href="${tag.href}"]`,
-      ) as HTMLLinkElement | null;
-    }
+  for (const tag of metaTags) {
+    const selector = headManagedMetaSelector(tag);
+    if (!selector) continue;
+    let el = document.querySelector(selector) as HTMLMetaElement | null;
     if (!el) {
-      el = document.createElement("link");
+      el = document.createElement("meta");
+      el.setAttribute(ILHA_HEAD_ATTR, "");
       document.head.appendChild(el);
     }
     for (const [k, v] of Object.entries(tag)) el.setAttribute(k, v);
+    keepManaged.add(el);
+  }
+
+  for (const tag of linkTags) {
+    const selector = headManagedLinkSelector(tag);
+    let el: HTMLLinkElement | null = selector
+      ? (document.querySelector(selector) as HTMLLinkElement | null)
+      : null;
+    if (!el) {
+      el = document.createElement("link");
+      el.setAttribute(ILHA_HEAD_ATTR, "");
+      document.head.appendChild(el);
+    }
+    for (const [k, v] of Object.entries(tag)) el.setAttribute(k, v);
+    keepManaged.add(el);
+  }
+
+  for (const el of [...document.head.querySelectorAll(`[${ILHA_HEAD_ATTR}]`)]) {
+    if (!keepManaged.has(el)) el.remove();
   }
 
   const htmlEl = document.documentElement;
@@ -1275,13 +1318,17 @@ function applyHeadEntriesToDocument(entries: HeadInput[]): void {
 }
 
 async function withHeadStore<T>(store: HeadStore, fn: () => T | Promise<T>): Promise<T> {
-  const prev = _activeHead;
-  _activeHead = store;
-  try {
-    return await fn();
-  } finally {
-    _activeHead = prev;
+  if (isBrowser) {
+    const prev = _browserHeadStore;
+    _browserHeadStore = store;
+    try {
+      return await fn();
+    } finally {
+      _browserHeadStore = prev;
+    }
   }
+  const als = await getHeadAlsAsync();
+  return await als.run(store, () => Promise.resolve(fn()));
 }
 
 const HEAD_ESC: Record<string, string> = {
@@ -1354,9 +1401,11 @@ export function serializeHead(entries: HeadInput[]): SerializedHead {
 
   const parts: string[] = [];
   if (resolvedTitle !== undefined) parts.push(`<title>${escapeHeadAttr(resolvedTitle)}</title>`);
-  for (const tag of dedupByKey(meta, metaDedupKey)) parts.push(`<meta${serializeAttrs(tag)} />`);
+  for (const tag of dedupByKey(meta, metaDedupKey)) {
+    parts.push(`<meta${serializeAttrs({ ...tag, [ILHA_HEAD_ATTR]: "" })} />`);
+  }
   for (const tag of dedupByKey(link, (t) => `${t.rel ?? ""}:${t.href ?? ""}`)) {
-    parts.push(`<link${serializeAttrs(tag)} />`);
+    parts.push(`<link${serializeAttrs({ ...tag, [ILHA_HEAD_ATTR]: "" })} />`);
   }
   for (const tag of script) {
     const { children, ...attrs } = tag;
@@ -1603,6 +1652,14 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         navHost.style.display = "none";
         host.appendChild(navHost);
         const unmountNavHandler = NavHandler.mount(navHost);
+
+        void (async () => {
+          const island = activeIsland();
+          if (!island) return;
+          const headStore: HeadStore = { entries: [] };
+          await withHeadStore(headStore, () => island.toString());
+          applyHeadEntriesToDocument(headStore.entries);
+        })();
 
         return () => {
           mounted = false;

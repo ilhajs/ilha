@@ -23,7 +23,6 @@ type Todo = { id: string; text: string; completed: boolean };
 const todos = store({ draft: "", items: [] as Todo[] })
   .derived("pending", ({ get }) => (get().items ?? []).filter((t) => !t.completed))
   .action("addItem", (_, { get }) => {
-    console.log(get());
     const item = { id: crypto.randomUUID(), text: get().draft, completed: false };
     return { items: [...get().items, item], draft: "" };
   })

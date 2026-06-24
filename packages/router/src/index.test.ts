@@ -1693,6 +1693,82 @@ describe("renderResponse()", () => {
     unmount();
     cleanup(el);
   });
+
+  it("removes route-specific managed meta on client navigation", async () => {
+    const Home = ilha.render(() => {
+      head({ title: "Home", meta: [{ name: "description", content: "Home page" }] });
+      return html`
+        <p>home</p>
+      `;
+    });
+    const About = ilha.render(() => {
+      head({ title: "About" });
+      return html`
+        <p>about</p>
+      `;
+    });
+    const reg = { home: Home, about: About };
+
+    const res = await router().route("/", Home).route("/about", About).renderResponse("/", reg);
+    expect(res.kind).toBe("html");
+    if (res.kind !== "html") return;
+
+    setLocation("/");
+    document.head.innerHTML = res.head?.headTags ?? "";
+    const el = makeEl(res.html);
+    const unmount = router()
+      .route("/", Home)
+      .route("/about", About)
+      .mount(el, { hydrate: true, registry: reg });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.querySelector('meta[name="description"][data-ilha-head]')).not.toBeNull();
+
+    navigate("/about");
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.querySelector('meta[name="description"][data-ilha-head]')).toBeNull();
+    unmount();
+    cleanup(el);
+    document.head.innerHTML = "";
+  });
+
+  it("does not cross-contaminate head() between concurrent SSR renders", async () => {
+    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    const SlowPage = ilha
+      .derived("ready", async () => {
+        await delay(5);
+        return "slow";
+      })
+      .render(({ derived }) => {
+        head({ title: "Slow" });
+        return html`<p>${derived.ready()}</p>`;
+      });
+
+    const FastPage = ilha.render(() => {
+      head({ title: "Fast" });
+      return html`
+        <p>fast</p>
+      `;
+    });
+
+    const r = router().route("/slow", SlowPage).route("/fast", FastPage);
+    const [slowRes, fastRes] = await Promise.all([
+      r.renderResponse("/slow", { slow: SlowPage }),
+      r.renderResponse("/fast", { fast: FastPage }),
+    ]);
+
+    expect(slowRes.kind).toBe("html");
+    expect(fastRes.kind).toBe("html");
+    if (slowRes.kind === "html" && fastRes.kind === "html") {
+      expect(slowRes.head?.headTags).toContain("<title>Slow</title>");
+      expect(fastRes.head?.headTags).toContain("<title>Fast</title>");
+      expect(slowRes.head?.headTags).not.toContain("<title>Fast</title>");
+      expect(fastRes.head?.headTags).not.toContain("<title>Slow</title>");
+    }
+  });
 });
 
 // ─────────────────────────────────────────────
