@@ -1373,6 +1373,19 @@ describe("router.runLoader()", () => {
     expect(result).toEqual({ kind: "data", data: { user: "alice" } });
   });
 
+  it("returns serialized head when loader calls ctx.head", async () => {
+    const load = loader(async ({ head: h }) => {
+      h({ title: "From loader", meta: [{ name: "x", content: "y" }] });
+      return {};
+    });
+    const r = router().route("/", HomePage, load);
+    const result = await r.runLoader("/");
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") return;
+    expect(result.head?.headTags).toContain("<title>From loader</title>");
+    expect(result.head?.headTags).toContain('name="x"');
+  });
+
   it("passes decoded params to the loader", async () => {
     const captured: any[] = [];
     const load = loader(async (c) => {

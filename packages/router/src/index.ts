@@ -718,7 +718,7 @@ export interface RouterBuilder {
     url: string | URL,
     request?: Request,
   ): Promise<
-    | { kind: "data"; data: Record<string, unknown> }
+    | { kind: "data"; data: Record<string, unknown>; head?: SerializedHead }
     | { kind: "redirect"; to: string; status: number }
     | { kind: "error"; status: number; message: string }
     | { kind: "not-found" }
@@ -1180,6 +1180,8 @@ interface HeadStore {
 }
 
 const ILHA_HEAD_ATTR = "data-ilha-head";
+const ILHA_ROUTER_HTML_ATTR = "data-ilha-router-html";
+const ILHA_ROUTER_BODY_ATTR = "data-ilha-router-body";
 
 /** Browser-only fallback; SSR uses AsyncLocalStorage (see `withHeadStore`). */
 let _browserHeadStore: HeadStore | null = null;
@@ -1256,7 +1258,7 @@ function headManagedLinkSelector(tag: Record<string, string>): string | null {
  * route that are not part of this navigation's set.
  */
 function applyHeadEntriesToDocument(entries: HeadInput[]): void {
-  if (!isBrowser || entries.length === 0) return;
+  if (!isBrowser) return;
 
   let title: string | undefined;
   let titleTemplate: HeadInput["titleTemplate"];
@@ -1313,8 +1315,24 @@ function applyHeadEntriesToDocument(entries: HeadInput[]): void {
   }
 
   const htmlEl = document.documentElement;
+  const prevHtmlKeys = (htmlEl.getAttribute(ILHA_ROUTER_HTML_ATTR) ?? "")
+    .split(/\s+/)
+    .filter(Boolean);
+  for (const k of prevHtmlKeys) htmlEl.removeAttribute(k);
+  const nextHtmlKeys = Object.keys(htmlAttrs);
   for (const [k, v] of Object.entries(htmlAttrs)) htmlEl.setAttribute(k, v);
-  for (const [k, v] of Object.entries(bodyAttrs)) document.body.setAttribute(k, v);
+  if (nextHtmlKeys.length) htmlEl.setAttribute(ILHA_ROUTER_HTML_ATTR, nextHtmlKeys.join(" "));
+  else htmlEl.removeAttribute(ILHA_ROUTER_HTML_ATTR);
+
+  const bodyEl = document.body;
+  const prevBodyKeys = (bodyEl.getAttribute(ILHA_ROUTER_BODY_ATTR) ?? "")
+    .split(/\s+/)
+    .filter(Boolean);
+  for (const k of prevBodyKeys) bodyEl.removeAttribute(k);
+  const nextBodyKeys = Object.keys(bodyAttrs);
+  for (const [k, v] of Object.entries(bodyAttrs)) bodyEl.setAttribute(k, v);
+  if (nextBodyKeys.length) bodyEl.setAttribute(ILHA_ROUTER_BODY_ATTR, nextBodyKeys.join(" "));
+  else bodyEl.removeAttribute(ILHA_ROUTER_BODY_ATTR);
 }
 
 async function withHeadStore<T>(store: HeadStore, fn: () => T | Promise<T>): Promise<T> {
@@ -1445,16 +1463,22 @@ async function executeLoader(
   signal: AbortSignal,
   onHead?: (input: HeadInput) => void,
 ): Promise<
-  | { kind: "data"; data: Record<string, unknown> }
+  | { kind: "data"; data: Record<string, unknown>; head?: SerializedHead }
   | { kind: "redirect"; to: string; status: number }
   | { kind: "error"; status: number; message: string }
 > {
   // Bind `ctx.head` to this request's collector — never the module global, so
   // concurrent loaders stay isolated.
-  const head = onHead ?? (() => {});
+  const headEntries: HeadInput[] = [];
+  const head = onHead ?? ((input: HeadInput) => headEntries.push(input));
   try {
     const data = await loader({ params, request, url, signal, head });
-    return { kind: "data", data: (data ?? {}) as Record<string, unknown> };
+    const out: { kind: "data"; data: Record<string, unknown>; head?: SerializedHead } = {
+      kind: "data",
+      data: (data ?? {}) as Record<string, unknown>,
+    };
+    if (headEntries.length > 0) out.head = serializeHead(headEntries);
+    return out;
   } catch (e: any) {
     if (e instanceof Redirect) return { kind: "redirect", to: e.to, status: e.status };
     if (e instanceof LoaderError) return { kind: "error", status: e.status, message: e.message };
@@ -1656,8 +1680,18 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         void (async () => {
           const island = activeIsland();
           if (!island) return;
+          const loc = getAdapter().readLocation();
+          const pathWithSearch = loc.pathname + loc.search;
+          const clientMatch = findRoute(_rou3, "GET", loc.pathname);
+          const hasLoader = !!clientMatch?.data?.hasLoader;
+          const loaderResult: LoaderFetchResult = hasLoader
+            ? await fetchLoaderData(pathWithSearch)
+            : { kind: "data", data: {} };
+          if (loaderResult.kind === "redirect" || loaderResult.kind === "error") return;
+          const props = loaderResult.kind === "data" ? loaderResult.data : {};
           const headStore: HeadStore = { entries: [] };
-          await withHeadStore(headStore, () => island.toString());
+          await withHeadStore(headStore, () => island.toString(props));
+          if (!mounted) return;
           applyHeadEntriesToDocument(headStore.entries);
         })();
 
@@ -1898,7 +1932,14 @@ export function router(options: RouterOptions = {}): RouterBuilder {
       const params = extractParams(match.params as Record<string, string> | undefined);
       const req = request ?? defaultRequest(parsed);
       const ctrl = new AbortController();
-      return executeLoader(match.data.loader, parsed, params, req, ctrl.signal);
+      const headStore: HeadStore = { entries: [] };
+      return executeLoader(match.data.loader, parsed, params, req, ctrl.signal, (input) =>
+        headStore.entries.push(input),
+      ).then((result) => {
+        if (result.kind !== "data") return result;
+        if (headStore.entries.length === 0) return result;
+        return { ...result, head: serializeHead(headStore.entries) };
+      });
     },
 
     hydrate(registry: Record<string, Island<any, any>>, options: HydrateOptions = {}): () => void {

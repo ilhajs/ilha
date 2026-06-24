@@ -16,7 +16,9 @@ type Todo = { id: string; text: string; completed: boolean };
 const todos = store({ draft: "", items: [] as Todo[] })
   .derived("pending", ({ get }) => (get().items ?? []).filter((t) => !t.completed))
   .action("addItem", (_, { get }) => {
-    const item = { id: crypto.randomUUID(), text: get().draft, completed: false };
+    const text = get().draft.trim();
+    if (!text) return;
+    const item = { id: crypto.randomUUID(), text, completed: false };
     return { items: [...get().items, item], draft: "" };
   })
   .action("deleteItem", (index: number, { get }) => {

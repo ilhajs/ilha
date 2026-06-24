@@ -72,6 +72,6 @@
     "vite": "^8.1.0"
   },
   "peerDependencies": {
-    "ilha": ">=0.8.0"
+    "ilha": ">=0.8.5"
   }
 }

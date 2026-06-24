@@ -2351,10 +2351,12 @@ class IlhaBuilder<
       // Child islands inlined via emitIslandSlot → island.toString() must not run onMount (DOM islands).
       if (currentRenderCtx()) return;
       const host = createSsrOnMountHost();
+      const ssrCleanups: Array<() => void> = [];
       for (const entry of onMounts) {
         const prevSub = setActiveSub(undefined);
+        let userCleanup: void | (() => void) = undefined;
         try {
-          entry.fn({ state, derived, input, host, hydrated: false });
+          userCleanup = entry.fn({ state, derived, input, host, hydrated: false });
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
           if (onErrors.length === 0) {
@@ -2371,12 +2373,23 @@ class IlhaBuilder<
         } finally {
           setActiveSub(prevSub);
         }
+        if (typeof userCleanup === "function") ssrCleanups.push(userCleanup);
+      }
+      for (const teardown of ssrCleanups.reverse()) {
+        try {
+          teardown();
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          if (onErrors.length === 0) {
+            if (!reportToGlobal(error, "mount")) console.error(error);
+          }
+        }
       }
     }
 
     function renderToString(props?: Partial<TInput>, sync = false): string | Promise<string> {
       const input = resolveInput(props);
-      const state = buildPlainState(input);
+      const state = buildSignalState(input);
 
       const results = deriveds.map((entry) => {
         const prevSub = setActiveSub(undefined);
@@ -3039,7 +3052,10 @@ class IlhaBuilder<
               const next = newSlotMap.get(id);
               if (next) entry.updateProps(next.props);
             }
-            return;
+            if (rendered === initialRenderedHtml) {
+              return;
+            }
+            // onMount or other setup changed output — morph to refresh SSR DOM.
           }
           // Fast path: render output matches the eager initial render. DOM
           // and slot map are already in sync — nothing more to do here. The

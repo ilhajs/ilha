@@ -123,8 +123,12 @@ export class IlhaHandler {
     // <title> only when nothing contributed one.
     const titleTag = head?.headTags.includes("<title") ? "" : `<title>Ilha</title>\n  `;
     const routeHead = head?.headTags ? `\n  ${head.headTags}` : "";
+    const htmlAttrsStr = head?.htmlAttrs ?? "";
+    const langFromHead = htmlAttrsStr.match(/\blang="([^"]*)"/)?.[1];
+    const langAttr = langFromHead != null ? langFromHead : this.lang;
+    const htmlAttrsWithoutLang = htmlAttrsStr.replace(/\s*lang="[^"]*"/, "");
     return `<!doctype html>
-<html lang="${this.lang}"${head?.htmlAttrs ?? ""}>
+<html lang="${langAttr}"${htmlAttrsWithoutLang}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
