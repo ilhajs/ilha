@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "generate:landing-code": "bun scripts/generate-landing-code-html.ts",
+    "predev": "bun run generate:landing-code",
+    "prebuild": "bun run generate:landing-code",
     "dev": "vite",
     "build": "vite build && tsc",
     "preview": "vite preview",

@@ -40,8 +40,8 @@ src/
   main.ts                 # client + export prerender (vite-prerender-plugin)
   app.css
   lib/
-    landing-snippets.ts   # optional; powers imprensa/landing-shiki
-    landing-previews.tsx  # raw() HTML from imprensa/landing-shiki
+    landing-highlight-snippets.ts  # source for landing tab code samples
+    landing-code-html.ts           # generated Shiki HTML (bun run generate:landing-code)
     components/           # landing / app UI
   pages/
     index.tsx, +layout.tsx, (content)/…

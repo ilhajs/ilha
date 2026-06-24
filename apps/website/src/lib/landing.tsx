@@ -1,3 +1,4 @@
+import { landingCodeHtml } from "$lib/landing-code-html";
 import {
   COUNTER_CODE,
   ILHA_ROUTER_CODE,
@@ -9,13 +10,6 @@ import {
 import { Badge, Button, Input, LayerCard, LinkButton, Radio, Switch, Tabs } from "areia";
 import { toast } from "areia/sonner";
 import ilha, { raw } from "ilha";
-import {
-  renderingHtml,
-  routingHtml,
-  signalsHtml,
-  storeHtml,
-  syntaxHtml,
-} from "imprensa/landing-shiki";
 
 const NITRO_SANDBOX = `${URLS.SANDBOX.replace("{template}", "nitro")}?file=src%2Fpages%2Findex.tsx`;
 
@@ -175,13 +169,7 @@ export const WHY_ILHA_TABS = [
   },
 ];
 
-export const whyIlhaCodeHtml: Record<string, string> = {
-  syntax: syntaxHtml,
-  signals: signalsHtml,
-  rendering: renderingHtml,
-  routing: routingHtml,
-  store: storeHtml,
-};
+export const whyIlhaCodeHtml: Record<string, string> = landingCodeHtml;
 
 export const PRIMARY_ILHA_CARDS = WHY_ILHA_TABS.filter(
   (tab) => tab.id !== "routing" && tab.id !== "store",
