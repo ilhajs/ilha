@@ -1,5 +1,5 @@
-import { watch } from "node:fs";
-import { basename, join, resolve, sep } from "node:path";
+import { existsSync, readFileSync, watch } from "node:fs";
+import { basename, dirname, join, resolve, sep } from "node:path";
 
 import { createUnplugin } from "unplugin";
 import type { UnpluginFactory } from "unplugin";
@@ -21,6 +21,55 @@ export const RESOLVED_VIRTUAL_IDS = [
 
 /** Query suffix used on page/layout imports in the client file. */
 export const CLIENT_QUERY = "?client";
+
+/** Read & parse a package.json, returning null on any error. */
+function readJson(path: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve a dependency's package.json by walking up node_modules from `root`. */
+function readDepPackageJson(root: string, name: string): Record<string, unknown> | null {
+  let dir = root;
+  for (;;) {
+    const candidate = join(dir, "node_modules", name, "package.json");
+    if (existsSync(candidate)) return readJson(candidate);
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/**
+ * Find app dependencies that bridge ilha primitives — i.e. declare `ilha` as a
+ * peer or dependency (e.g. a UI library like `areia`). They render islands with
+ * `bind:*`/slot directives, so they MUST share the app's single ilha instance.
+ * Returned here so the plugin can give them the same `dedupe` + `ssr.noExternal`
+ * treatment as the framework singletons; otherwise SSR externalizes them with
+ * their own ilha copy (a second renderCtxStack) and hydration silently breaks.
+ * Keeps app vite configs minimal — no manual `noExternal: ["areia"]` needed.
+ */
+function detectIlhaConsumers(root: string): string[] {
+  const appPkg = readJson(join(root, "package.json"));
+  if (!appPkg) return [];
+  const deps = {
+    ...((appPkg.dependencies as Record<string, string>) ?? {}),
+    ...((appPkg.devDependencies as Record<string, string>) ?? {}),
+  };
+  const found: string[] = [];
+  for (const name of Object.keys(deps)) {
+    if (name === "ilha") continue;
+    const pkg = readDepPackageJson(root, name);
+    if (!pkg) continue;
+    const peers = (pkg.peerDependencies as Record<string, string>) ?? {};
+    const directDeps = (pkg.dependencies as Record<string, string>) ?? {};
+    if ("ilha" in peers || "ilha" in directDeps) found.push(name);
+  }
+  return found;
+}
 
 export interface IlhaPagesOptions {
   /** Directory containing page files. Default: `src/pages` */
@@ -202,6 +251,67 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
     },
 
     vite: {
+      config(userConfig) {
+        const root = userConfig.root ? resolve(userConfig.root) : process.cwd();
+        const singletonPeers = [
+          "ilha",
+          "@ilha/store",
+          "@ilha/router",
+          "alien-signals",
+          // Auto-detected app deps that bridge ilha (e.g. `areia`) — they must
+          // share the single ilha instance, so the app never has to hand-write
+          // `ssr.noExternal`/`resolve.dedupe` for its UI lib.
+          ...detectIlhaConsumers(root),
+        ];
+        // For SSR, externalized deps are loaded via the runtime's own resolver,
+        // so a dep that imports `ilha` as a peer (e.g. a UI lib) ends up with a
+        // *separate* ilha instance from the Vite-processed app code. Two ilha
+        // instances mean two render-context stacks, so `bind:*` directives in
+        // those components render outside any context and silently drop their
+        // `data-ilha-bind` sentinels — breaking hydration. Bundling the ilha
+        // singletons into the SSR graph keeps a single instance. Apps that use
+        // a UI lib bridging ilha (e.g. `areia`) must add it to `ssr.noExternal`
+        // too, since it also imports the shared singletons.
+        const existingNoExternal = userConfig.ssr?.noExternal;
+        const noExternal =
+          existingNoExternal === true
+            ? true
+            : [
+                ...new Set([
+                  ...(Array.isArray(existingNoExternal)
+                    ? existingNoExternal
+                    : existingNoExternal != null
+                      ? [existingNoExternal]
+                      : []),
+                  ...singletonPeers,
+                ]),
+              ];
+        return {
+          resolve: {
+            dedupe: [...new Set([...(userConfig.resolve?.dedupe ?? []), ...singletonPeers])],
+          },
+          ssr: { noExternal },
+          optimizeDeps: {
+            ...userConfig.optimizeDeps,
+            include: [
+              ...new Set([
+                ...(userConfig.optimizeDeps?.include ?? []),
+                "ilha",
+                "ilha/jsx-runtime",
+                // Dev JSX uses jsxDEV (`react-jsx` → jsx-dev-runtime). Without this
+                // it is served raw and chains through relative imports to a SECOND
+                // raw `ilha` instance — a separate renderCtxStack — so islands
+                // render their JSX in one ilha and mount via another, and nothing
+                // hydrates. Pre-bundling it pins it to the shared `ilha` chunk.
+                "ilha/jsx-dev-runtime",
+                "@ilha/store",
+                "alien-signals",
+              ]),
+            ],
+          },
+        };
+      },
+
       configResolved(config) {
         state.setPaths(config.root);
       },

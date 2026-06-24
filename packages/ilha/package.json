@@ -1,6 +1,6 @@
 {
   "name": "ilha",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "description": "A tiny, framework-free island architecture library",
   "keywords": [
     "framework-free",

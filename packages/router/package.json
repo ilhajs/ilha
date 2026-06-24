@@ -1,6 +1,6 @@
 {
   "name": "@ilha/router",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "description": "A tiny SPA router for Ilha",
   "keywords": [
     "frontend",
@@ -39,6 +39,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./ssr": {
+      "types": "./dist/ssr.d.ts",
+      "import": "./dist/ssr.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
@@ -56,15 +60,18 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc && tsdown",
+    "build": "tsdown && tsc -p tsconfig.build.json",
     "test": "bun test"
   },
   "dependencies": {
-    "ilha": "0.8.4",
     "rou3": "0.8.1",
     "unplugin": "3.0.0"
   },
   "devDependencies": {
-    "vite": "^8.0.16"
+    "ilha": "0.8.5",
+    "vite": "^8.1.0"
+  },
+  "peerDependencies": {
+    "ilha": ">=0.8.5"
   }
 }

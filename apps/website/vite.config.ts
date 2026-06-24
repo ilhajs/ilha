@@ -2,12 +2,6 @@ import { imprensa } from "imprensa";
 import { defineConfig } from "vite";
 // https://vite.dev/config/
 export default defineConfig({
-  resolve: {
-    dedupe: ["ilha"],
-  },
-  optimizeDeps: {
-    exclude: ["areia"],
-  },
   plugins: [
     imprensa({
       hostname: "https://ilha.build",

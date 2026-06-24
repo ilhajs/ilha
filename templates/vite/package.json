@@ -1,5 +1,5 @@
 {
-  "name": "vite",
+  "name": "@ilha/template-vite",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,15 +9,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ilha/router": "^0.6.7",
-    "areia": "^0.1.29",
-    "ilha": "^0.8.4",
+    "@ilha/router": "^0.6.8",
+    "@ilha/store": "^0.5.10",
+    "areia": "^0.1.33",
+    "ilha": "^0.8.5",
     "quando": "^0.1.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.1",
     "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.1.0"
   }
 }

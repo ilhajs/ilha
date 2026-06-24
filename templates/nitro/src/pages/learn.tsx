@@ -1,3 +1,4 @@
+import { head } from "@ilha/router";
 import { LayerCard, LinkButton } from "areia";
 import ilha, { raw } from "ilha";
 import { each } from "quando";
@@ -26,20 +27,24 @@ const LEARN_ITEMS = [
   },
 ];
 
-export default ilha.render(() => (
-  <LayerCard>
-    <LayerCard.Title>Learn Ilha</LayerCard.Title>
-    <LayerCard.Content>
-      {each(LEARN_ITEMS).as((item) => (
-        <LinkButton
-          href={item.href}
-          icon={<img src={raw(item.icon)} alt={item.title} class="size-6" />}
-          class="w-full"
-          external
-        >
-          {item.title} - {item.description}
-        </LinkButton>
-      ))}
-    </LayerCard.Content>
-  </LayerCard>
-));
+export default ilha.render(() => {
+  head({ title: "Learn" });
+  return (
+    <LayerCard>
+      <LayerCard.Title>Learn Ilha</LayerCard.Title>
+      <LayerCard.Content>
+        {each(LEARN_ITEMS).as((item, index) => (
+          <LinkButton
+            key={index}
+            href={item.href}
+            icon={<img src={raw(item.icon)} alt={item.title} class="size-6" />}
+            class="w-full"
+            external
+          >
+            {item.title} - {item.description}
+          </LinkButton>
+        ))}
+      </LayerCard.Content>
+    </LayerCard>
+  );
+});

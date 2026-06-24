@@ -4303,6 +4303,34 @@ describe("bind: template syntax", () => {
       expect(out).toContain(`data-ilha-bind="value:0"`);
       expect(out).toContain(`data-ilha-bind="checked:1"`);
     });
+
+    it("keeps child-island bind indices local to each slot (Areia-style)", () => {
+      // A child island that carries a bind is emitted as its own slot and is
+      // mounted independently — so its bind index must stay local (0) to its
+      // own render context, NOT be hoisted into the parent's index space.
+      // Hoisting would rewrite the sentinel (e.g. checked:2) while the child,
+      // on mount, re-registers checked:0 and could never find it — leaving the
+      // binding silently unwired.
+      const Child = ilha
+        .input<{ checked: SignalAccessor<boolean> }>()
+        .render(({ input }) => html`<input type="checkbox" bind:checked=${input.checked}>`);
+
+      const Parent = ilha
+        .state("draft", "")
+        .state("flags", [true, false, false])
+        .render(({ state }) => {
+          const flags = state.flags();
+          return html`<input bind:value=${state.draft}>${flags.map((_, i) => Child({ checked: state.flags.select((f) => f[i] ?? false) }))}`;
+        });
+
+      const out = Parent.toString();
+      // Parent's own bind stays in the parent context.
+      expect(out).toContain(`data-ilha-bind="value:0"`);
+      // Each child slot keeps its own local index.
+      expect(out.match(/data-ilha-bind="checked:0"/g)).toHaveLength(3);
+      // No hoisting into the parent's index space.
+      expect(out).not.toMatch(/data-ilha-bind="checked:[123]"/);
+    });
   });
 
   describe("DOM -> state", () => {
@@ -5519,6 +5547,20 @@ describe(".onMount", () => {
     expect(calls).toEqual([1]);
     unmount();
     cleanup(el);
+  });
+
+  it("runs before sync SSR toString so external state can seed from input", () => {
+    const seeded: string[] = [];
+    const Island = ilha
+      .input(z.object({ items: z.array(z.string()) }))
+      .onMount(({ input }) => {
+        seeded.push(...input.items);
+      })
+      .render(() => html`<p>${seeded.join(",")}</p>`);
+
+    const out = Island.toString({ items: ["a", "b"] });
+    expect(out).toContain("a,b");
+    expect(seeded).toEqual(["a", "b"]);
   });
 
   it("does NOT run the callback more than once even when state changes", () => {

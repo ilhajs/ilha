@@ -35,7 +35,20 @@ export default defineConfig([
     plugins: [pages()],
     outDir: "dist/static",
     deps: {
-      alwaysBundle: ["ilha", "@ilha/router", "ilha/jsx-runtime", "areia", "quando"],
+      // Bundle every ilha-touching dep into the single client bundle so they
+      // share one ilha instance. jsx-dev-runtime must be here too: dev/watch
+      // JSX compiles to jsxDEV, and an externalized jsx-dev-runtime would chain
+      // to a second ilha (its own renderCtxStack) and break hydration.
+      alwaysBundle: [
+        "ilha",
+        "@ilha/router",
+        "@ilha/store",
+        "@ilha/store/form",
+        "ilha/jsx-runtime",
+        "ilha/jsx-dev-runtime",
+        "areia",
+        "quando",
+      ],
     },
     copy: [{ from: "public/*", to: "dist/static" }],
     hooks: {

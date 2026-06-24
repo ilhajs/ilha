@@ -6,4 +6,6 @@ export default defineConfig({
   dts: true,
   minify: true,
   define: { __ILHA_DEV__: JSON.stringify(false) },
+  // One alien-signals instance for ilha + @ilha/store in app bundles.
+  external: ["alien-signals"],
 });

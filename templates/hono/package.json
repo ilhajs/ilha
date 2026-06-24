@@ -8,10 +8,11 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.6",
-    "@ilha/router": "^0.6.7",
-    "areia": "^0.1.29",
+    "@ilha/router": "^0.6.8",
+    "@ilha/store": "^0.5.10",
+    "areia": "^0.1.33",
     "hono": "^4.12.26",
-    "ilha": "^0.8.4",
+    "ilha": "^0.8.5",
     "quando": "^0.1.6"
   },
   "devDependencies": {
