@@ -1,8 +1,28 @@
 import { imprensa } from "imprensa";
+import type { Plugin } from "vite";
 import { defineConfig } from "vite";
+
+/** Skip areia Toaster onMount during Node prerender (mountToaster needs document.body). */
+function areiaSonnerSsrGuard(): Plugin {
+  return {
+    name: "areia-sonner-ssr-guard",
+    enforce: "pre",
+    transform(code, id) {
+      if (!id.replace(/\\/g, "/").includes("areia/dist/sonner.js")) return;
+      const patched = code.replace(
+        /ToasterRoot = ilha\.input\(\)\.onMount\(\(\{ host, input \}\) => \{/,
+        `ToasterRoot = ilha.input().onMount(({ host, input }) => {
+	if (typeof document === "undefined") return;`,
+      );
+      return patched !== code ? patched : undefined;
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    areiaSonnerSsrGuard(),
     imprensa({
       hostname: "https://ilha.build",
       siteName: "Ilha",

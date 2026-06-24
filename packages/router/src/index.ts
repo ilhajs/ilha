@@ -1192,16 +1192,29 @@ type HeadAls = {
 };
 
 let _headAls: HeadAls | null = null;
-let _headAlsInit: Promise<HeadAls> | null = null;
+let _headAlsInit: Promise<HeadAls | null> | null = null;
+/** When `node:async_hooks` is unavailable (e.g. Vite prerender client graph), use sync fallback. */
+let _headAlsUnavailable = false;
 
 /** ESM dynamic import — Nitro/Vite SSR workers have no `require`. */
-async function getHeadAlsAsync(): Promise<HeadAls> {
+async function getHeadAlsAsync(): Promise<HeadAls | null> {
+  if (_headAlsUnavailable) return null;
   if (_headAls) return _headAls;
   if (!_headAlsInit) {
-    _headAlsInit = import("node:async_hooks").then(({ AsyncLocalStorage }) => {
-      _headAls = new AsyncLocalStorage<HeadStore>();
-      return _headAls;
-    });
+    _headAlsInit = import("node:async_hooks")
+      .then(({ AsyncLocalStorage }) => {
+        try {
+          _headAls = new AsyncLocalStorage<HeadStore>();
+          return _headAls;
+        } catch {
+          _headAlsUnavailable = true;
+          return null;
+        }
+      })
+      .catch(() => {
+        _headAlsUnavailable = true;
+        return null;
+      });
   }
   return _headAlsInit;
 }
@@ -1346,7 +1359,17 @@ async function withHeadStore<T>(store: HeadStore, fn: () => T | Promise<T>): Pro
     }
   }
   const als = await getHeadAlsAsync();
-  return await als.run(store, () => Promise.resolve(fn()));
+  if (als) {
+    return await als.run(store, () => Promise.resolve(fn()));
+  }
+  // Prerender / bundled SSR without node:async_hooks (same pattern as browser fallback).
+  const prev = _browserHeadStore;
+  _browserHeadStore = store;
+  try {
+    return await fn();
+  } finally {
+    _browserHeadStore = prev;
+  }
 }
 
 const HEAD_ESC: Record<string, string> = {

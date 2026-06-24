@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ilha/router": "^0.6.8",
+    "@ilha/router": "^0.6.9",
     "@ilha/store": "^0.5.10",
     "areia": "^0.1.33",
     "ilha": "^0.8.5",

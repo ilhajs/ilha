@@ -7,9 +7,15 @@ import {
   URLS,
 } from "$lib/landing-const";
 import { Badge, Button, Input, LayerCard, LinkButton, Radio, Switch, Tabs } from "areia";
+import { toast } from "areia/sonner";
 import ilha, { raw } from "ilha";
-import { createHighlighter } from "shiki/bundle/web";
-import { toast } from "sonner";
+import {
+  renderingHtml,
+  routingHtml,
+  signalsHtml,
+  storeHtml,
+  syntaxHtml,
+} from "imprensa/landing-shiki";
 
 const NITRO_SANDBOX = `${URLS.SANDBOX.replace("{template}", "nitro")}?file=src%2Fpages%2Findex.tsx`;
 
@@ -19,18 +25,6 @@ const TEMPLATES = [
   { value: "hono", label: "Hono", icon: "/hono.svg", sandbox: true },
   { value: "elysia", label: "Elysia", icon: "/elysia.svg", sandbox: false },
 ] as const;
-
-const highlighter = await createHighlighter({
-  themes: ["night-owl-light", "night-owl"],
-  langs: ["tsx"],
-});
-
-function highlightCode(code: string): string {
-  return highlighter.codeToHtml(code, {
-    lang: "tsx",
-    themes: { light: "night-owl-light", dark: "night-owl" },
-  });
-}
 
 export const ProjectCreatorForm = ilha
   .state("name", "")
@@ -181,9 +175,13 @@ export const WHY_ILHA_TABS = [
   },
 ];
 
-export const whyIlhaCodeHtml = Object.fromEntries(
-  WHY_ILHA_TABS.map((tab) => [tab.id, highlightCode(tab.code)]),
-) as Record<string, string>;
+export const whyIlhaCodeHtml: Record<string, string> = {
+  syntax: syntaxHtml,
+  signals: signalsHtml,
+  rendering: renderingHtml,
+  routing: routingHtml,
+  store: storeHtml,
+};
 
 export const PRIMARY_ILHA_CARDS = WHY_ILHA_TABS.filter(
   (tab) => tab.id !== "routing" && tab.id !== "store",
