@@ -1,5 +1,5 @@
 import { defineLayout } from "@ilha/router";
-import { Toaster } from "areia";
+import { Toaster } from "areia/sonner";
 import ilha from "ilha";
 
 /** Landing has no `imprensa-root` wrapper — its `bg-areia-background` was the strip under the footer. */
