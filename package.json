@@ -5,7 +5,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --filter './packages/*' build",
+    "build": "bun run --filter ilha build && bun run --filter '@ilha/*' build",
     "cleanup": "bun run --parallel --filter '*' cleanup && rimraf node_modules bun.lock",
     "lint": "oxlint",
     "fmt": "oxfmt",
