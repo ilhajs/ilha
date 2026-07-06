@@ -4106,6 +4106,31 @@ describe("bind: template syntax", () => {
       expect(out).toContain(`data-ilha-bind="value:0"`);
     });
 
+    it("places the bind sentinel before the tag close, not a > inside an attribute value", () => {
+      const Island = ilha
+        .state("email", "a@b.c")
+        .render(({ state }) => html`<input bind:value=${state.email} placeholder="a > b">`);
+
+      const out = Island() as string;
+      // The sentinel must not be injected inside the placeholder value.
+      expect(out).toContain(`placeholder="a > b"`);
+      expect(out).toMatch(/data-ilha-bind="value:0"\s*>/);
+    });
+
+    it("tracks quote state across an interpolated attribute between bind and tag close", () => {
+      const Island = ilha
+        .state("email", "a@b.c")
+        .state("title", "t")
+        .render(
+          ({ state }) =>
+            html`<input bind:value=${state.email} title="${state.title()} > more" class="x">`,
+        );
+
+      const out = Island() as string;
+      expect(out).toContain(`title="t > more"`);
+      expect(out).toContain(`class="x" data-ilha-bind="value:0">`);
+    });
+
     it("emits nested object property value for bind:value", () => {
       const Island = ilha
         .state("user", { name: "Ada" })
@@ -5508,14 +5533,15 @@ describe("bind: template syntax", () => {
       expect(msgs.some((m: string) => m.includes("requires a signal accessor"))).toBe(true);
     });
 
-    it("accepts bind:value target branded by another ilha module Symbol instance", () => {
-      const foreignBrand = Symbol("ilha.signalAccessor");
+    it("accepts bind:value target branded via the shared Symbol.for registry", () => {
+      // Duplicate ilha copies brand with Symbol.for, which resolves to the
+      // same symbol across bundles — cross-bundle accessors keep working.
       let value = "ada";
       const accessor = ((v?: string) => {
         if (v === undefined) return value;
         value = v;
       }) as import("./index").SignalAccessor<string>;
-      (accessor as unknown as Record<symbol, boolean>)[foreignBrand] = true;
+      (accessor as unknown as Record<symbol, boolean>)[Symbol.for("ilha.signalAccessor")] = true;
 
       const Island = ilha.render(() => html`<input bind:value=${accessor}>`);
       const out = Island();
@@ -5523,6 +5549,19 @@ describe("bind: template syntax", () => {
       expect(msgs.some((m: string) => m.includes("requires a signal accessor"))).toBe(false);
       expect(out).toContain('value="ada"');
       expect(out).toContain('data-ilha-bind="value:0"');
+    });
+
+    it("rejects bind:value target branded only by a lookalike unique Symbol", () => {
+      // A unique Symbol with a matching description is not the shared brand;
+      // description-matching was spoofable and has been removed.
+      const foreignBrand = Symbol("ilha.signalAccessor");
+      const accessor = ((v?: string) => v) as import("./index").SignalAccessor<string>;
+      (accessor as unknown as Record<symbol, boolean>)[foreignBrand] = true;
+
+      const Island = ilha.render(() => html`<input bind:value=${accessor}>`);
+      Island();
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(msgs.some((m: string) => m.includes("requires a signal accessor"))).toBe(true);
     });
   });
 });
@@ -7961,5 +8000,350 @@ describe("remounting after unmount", () => {
 
     unmount();
     cleanup(el);
+  });
+});
+
+describe("morph textarea handling", () => {
+  it("preserves user typing in an unbound textarea across unrelated re-renders", () => {
+    let setCount!: (v?: number) => number | void;
+    const Island = ilha.state("count", 0).render(({ state }) => {
+      setCount = state.count as typeof setCount;
+      return html`<p>${state.count()}</p><textarea data-t>seed</textarea>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const ta = el.querySelector<HTMLTextAreaElement>("[data-t]")!;
+    ta.value = "user typed this";
+    setCount(1);
+    expect(el.querySelector("p")!.textContent).toBe("1");
+    expect(el.querySelector<HTMLTextAreaElement>("[data-t]")!.value).toBe("user typed this");
+    unmount();
+    cleanup(el);
+  });
+
+  it("updates textarea value when the template's text actually changes", () => {
+    let setBody!: (v?: string) => string | void;
+    const Island = ilha.state("body", "one").render(({ state }) => {
+      setBody = state.body as typeof setBody;
+      return html`<textarea data-t>${state.body()}</textarea>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    setBody("two");
+    expect(el.querySelector<HTMLTextAreaElement>("[data-t]")!.value).toBe("two");
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("snapshot prototype-key stripping", () => {
+  it("strips __proto__/constructor/prototype keys from data-ilha-props", () => {
+    let seenInput: Record<string, unknown> | undefined;
+    const Island = ilha
+      .input<{ name?: string }>()
+      .onMount(({ input }) => {
+        seenInput = { ...input };
+      })
+      .render(({ input }) => html`<p>${input.name ?? ""}</p>`);
+
+    const el = makeEl();
+    el.setAttribute(
+      "data-ilha-props",
+      JSON.stringify({ name: "ok", ["__proto__"]: { polluted: true }, constructor: "x" }),
+    );
+    const unmount = Island.mount(el);
+    expect(seenInput).toEqual({ name: "ok" });
+    expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
+    unmount();
+    cleanup(el);
+  });
+
+  it("strips unsafe keys nested inside data-ilha-state snapshots", () => {
+    let seen: unknown;
+    const Island = ilha
+      .state("obj", {} as Record<string, unknown>)
+      .onMount(({ state }) => {
+        seen = state.obj();
+      })
+      .render(
+        () =>
+          html`
+            <p></p>
+          `,
+      );
+
+    const el = makeEl();
+    el.setAttribute(
+      "data-ilha-state",
+      '{"obj":{"safe":1,"__proto__":{"polluted":true},"nested":{"prototype":"x"}}}',
+    );
+    const unmount = Island.mount(el);
+    expect(seen).toEqual({ safe: 1, nested: {} });
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("nice-to-do hardening", () => {
+  it("context.delete() releases a registry entry so the key can be re-created", () => {
+    const a = context("cleanup-key", 1);
+    a(42);
+    expect(context.delete("cleanup-key")).toBe(true);
+    expect(context.delete("cleanup-key")).toBe(false);
+    const b = context("cleanup-key", 7);
+    expect(b()).toBe(7);
+    context.delete("cleanup-key");
+  });
+
+  it("derived proxy returns undefined for symbol keys instead of a phantom accessor", () => {
+    let derivedRef: unknown;
+    const Island = ilha
+      .state("n", 1)
+      .derived("double", ({ state }) => state.n() * 2)
+      .render(({ derived }) => {
+        derivedRef = derived;
+        return html`<p>${derived.double()}</p>`;
+      });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const d = derivedRef as Record<PropertyKey, unknown>;
+    expect(d[Symbol.iterator]).toBeUndefined();
+    expect(d[Symbol.toPrimitive]).toBeUndefined();
+    expect(typeof d["double"]).toBe("function");
+    unmount();
+    cleanup(el);
+  });
+
+  it("hydratable warns in dev when snapshotted state is not JSON-safe", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const Island = ilha
+        .state("when", () => new Date())
+        .render(
+          () =>
+            html`
+              <p></p>
+            `,
+        );
+      await Island.hydratable({}, { name: "lossy", snapshot: true });
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(msgs.some((m) => m.includes("not JSON-safe") && m.includes("Date"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("hydratable does not warn for JSON-safe snapshots", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const Island = ilha.state("n", 1).render(
+        () =>
+          html`
+            <p></p>
+          `,
+      );
+      await Island.hydratable({}, { name: "safe", snapshot: true });
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(msgs.some((m) => m.includes("not JSON-safe"))).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("async child islands resolve via unique markers with no leftover placeholder", async () => {
+    const Child = ilha
+      .input<{ label: string }>()
+      .derived("msg", async ({ input }) => `hi ${input.label}`)
+      .render(({ derived }) => html`<span>${derived.msg() ?? "loading"}</span>`);
+
+    // Child awaiting only happens when the parent itself is in async SSR mode.
+    const Parent = ilha
+      .derived("ready", async () => true)
+      .render(() => html`<div>${Child({ label: "a" })}${Child({ label: "b" })}</div>`);
+
+    const out = await Parent();
+    expect(out).not.toContain("ilha-async");
+    expect(out).toContain("hi a");
+    expect(out).toContain("hi b");
+  });
+});
+
+describe("top-level computed()", () => {
+  it("derives lazily and tracks dependencies", () => {
+    let runs = 0;
+    const n = mainExports.signal(2);
+    const double = mainExports.computed(() => {
+      runs++;
+      return n() * 2;
+    });
+    expect(double()).toBe(4);
+    expect(double()).toBe(4);
+    expect(runs).toBe(1); // cached
+    n(5);
+    expect(double()).toBe(10);
+    expect(runs).toBe(2);
+  });
+
+  it("is read-only — writes are ignored with a dev warning", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const c = mainExports.computed(() => 1);
+      (c as unknown as (v: number) => void)(99);
+      expect(c()).toBe(1);
+      const msgs = warnSpy.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(msgs.some((m) => m.includes("read-only"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("chains into islands: render re-runs when a computed dependency changes", () => {
+    const base = mainExports.signal(1);
+    const doubled = mainExports.computed(() => base() * 2);
+    const Island = ilha.render(() => html`<p>${doubled()}</p>`);
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(el.querySelector("p")!.textContent).toBe("2");
+    base(10);
+    expect(el.querySelector("p")!.textContent).toBe("20");
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("top-level effect()", () => {
+  it("runs immediately, re-runs on dependency change, and stops", () => {
+    const n = mainExports.signal(1);
+    const seen: number[] = [];
+    const stop = mainExports.effect(() => {
+      seen.push(n());
+    });
+    expect(seen).toEqual([1]);
+    n(2);
+    expect(seen).toEqual([1, 2]);
+    stop();
+    n(3);
+    expect(seen).toEqual([1, 2]);
+  });
+
+  it("invokes cleanup before each re-run and on stop", () => {
+    const n = mainExports.signal(0);
+    const events: string[] = [];
+    const stop = mainExports.effect(() => {
+      const v = n();
+      events.push(`run:${v}`);
+      return () => events.push(`clean:${v}`);
+    });
+    n(1);
+    stop();
+    expect(events).toEqual(["run:0", "clean:0", "run:1", "clean:1"]);
+  });
+});
+
+describe("keyed morph (data-key)", () => {
+  it("moves keyed elements on reorder instead of rewriting them", () => {
+    let setOrder!: (v?: string[]) => string[] | void;
+    const Island = ilha.state("order", ["a", "b", "c"]).render(({ state }) => {
+      setOrder = state.order as typeof setOrder;
+      return html`<ul>${state.order().map((k) => html`<li data-key="${k}">${k}</li>`)}</ul>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const before = new Map(
+      Array.from(el.querySelectorAll("li")).map((li) => [li.getAttribute("data-key"), li]),
+    );
+    // Tag each element imperatively — positional rewriting would lose this.
+    for (const [k, li] of before) (li as unknown as Record<string, unknown>)["_tag"] = k;
+
+    setOrder(["c", "a", "b"]);
+
+    const after = Array.from(el.querySelectorAll("li"));
+    expect(after.map((li) => li.textContent)).toEqual(["c", "a", "b"]);
+    expect(after[0]).toBe(before.get("c")!);
+    expect(after[1]).toBe(before.get("a")!);
+    expect(after[2]).toBe(before.get("b")!);
+    expect((after[0] as unknown as Record<string, unknown>)["_tag"]).toBe("c");
+    unmount();
+    cleanup(el);
+  });
+
+  it("removes disappeared keys and mounts new ones in place", () => {
+    let setOrder!: (v?: string[]) => string[] | void;
+    const Island = ilha.state("order", ["a", "b", "c"]).render(({ state }) => {
+      setOrder = state.order as typeof setOrder;
+      return html`<ul>${state.order().map((k) => html`<li data-key="${k}">${k}</li>`)}</ul>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const keepB = el.querySelectorAll("li")[1]!;
+
+    setOrder(["x", "b"]);
+
+    const after = Array.from(el.querySelectorAll("li"));
+    expect(after.map((li) => li.textContent)).toEqual(["x", "b"]);
+    expect(after[1]).toBe(keepB);
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("island.define() custom elements", () => {
+  it("mounts on connect, observes attributes, unmounts on disconnect", () => {
+    const Badge = ilha
+      .input<{ label: string }>({ label: "?" })
+      .render(({ input }) => html`<span>${input.label}</span>`);
+    Badge.define("x-ilha-badge", { observe: ["label"] });
+
+    const host = document.createElement("x-ilha-badge");
+    host.setAttribute("label", "hello");
+    document.body.appendChild(host);
+    expect(host.querySelector("span")!.textContent).toBe("hello");
+
+    host.setAttribute("label", "world");
+    expect(host.querySelector("span")!.textContent).toBe("world");
+
+    document.body.removeChild(host);
+  });
+
+  it("accepts rich props via the element's props property", () => {
+    const List = ilha
+      .input<{ items: string[] }>({ items: [] })
+      .render(({ input }) => html`<ul>${input.items.map((i) => html`<li>${i}</li>`)}</ul>`);
+    List.define("x-ilha-list");
+
+    const host = document.createElement("x-ilha-list") as HTMLElement & {
+      props?: Record<string, unknown>;
+    };
+    host.props = { items: ["a", "b"] };
+    document.body.appendChild(host);
+    expect(host.querySelectorAll("li").length).toBe(2);
+
+    host.props = { items: ["a", "b", "c"] };
+    expect(host.querySelectorAll("li").length).toBe(3);
+
+    document.body.removeChild(host);
+  });
+
+  it("warns and skips on duplicate tag registration", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const A = ilha.render(
+        () =>
+          html`
+            <i></i>
+          `,
+      );
+      A.define("x-ilha-dup");
+      A.define("x-ilha-dup");
+      const msgs = warnSpy.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(msgs.some((m) => m.includes("already registered"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

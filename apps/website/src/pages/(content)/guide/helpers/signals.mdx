@@ -1,19 +1,21 @@
 ---
 title: Signals
-description: Create free-standing reactive signals, share state across islands, batch writes, and peek at values without creating dependencies.
+description: Create free-standing reactive signals and computed values, share state across islands, run top-level effects, batch writes, and peek at values without creating dependencies.
 order: 301
 ---
 
 # Signals
 
-Reactive signals are the primitive that powers state in ilha. In addition to `.state()` (local to an island), ilha exports four signal helpers for cross-island sharing, performance, and control:
+Reactive signals are the primitive that powers state in ilha. In addition to `.state()` (local to an island), ilha exports several helpers for cross-island sharing, derived values, side effects, performance, and control:
 
-| Helper      | Purpose                                                      |
-| ----------- | ------------------------------------------------------------ |
-| `signal()`  | Create a free-standing signal for one-off shared state       |
-| `context()` | Create a named global signal accessible from anywhere by key |
-| `batch()`   | Group multiple writes into a single propagation pass         |
-| `untrack()` | Read a signal without subscribing the surrounding scope      |
+| Helper       | Purpose                                                      |
+| ------------ | ------------------------------------------------------------ |
+| `signal()`   | Create a free-standing signal for one-off shared state       |
+| `computed()` | Create a free-standing read-only value derived from signals  |
+| `context()`  | Create a named global signal accessible from anywhere by key |
+| `effect()`   | Run a reactive side effect outside any island                |
+| `batch()`    | Group multiple writes into a single propagation pass         |
+| `untrack()`  | Read a signal without subscribing the surrounding scope      |
 
 ---
 
@@ -73,6 +75,49 @@ const SearchResults = ilha.render(() => (
 ```
 
 When the user types, `query` updates and `SearchResults` re-renders automatically — no wiring between islands needed.
+
+---
+
+## `computed(fn)`
+
+Creates a free-standing, read-only value derived from other signals. `fn` is lazy and cached — it re-runs only when a signal it read has changed and the computed is read again.
+
+```ts twoslash
+import { signal, computed } from "ilha";
+
+const items = signal([1, 2, 3]);
+const total = computed(() =>
+  items().reduce((a, b) => a + b, 0),
+);
+
+total(); // → 6  (runs fn once, caches the result)
+total(); // → 6  (cached, fn does not re-run)
+items([1, 2, 3, 4]);
+total(); // → 10 (a dependency changed, fn re-runs)
+```
+
+Reading a computed inside any reactive scope — `.render()`, `.derived()`, `.effect()`, or top-level [`effect()`](#effectfn) — subscribes that scope, so dependents re-run when the computed's resolved value changes:
+
+```tsx twoslash
+import ilha, { signal, computed } from "ilha";
+
+const base = signal(1);
+const doubled = computed(() => base() * 2);
+
+const Island = ilha.render(() => <p>{doubled()}</p>);
+```
+
+### Read-only
+
+Writing to a computed is ignored and logs a dev warning — use [`signal()`](#signalinitial) if you need a writable value:
+
+```ts twoslash
+import { computed } from "ilha";
+
+const c = computed(() => 1);
+(c as (v: number) => void)(99); // ignored, dev warning logged
+c(); // → 1
+```
 
 ---
 
@@ -176,6 +221,83 @@ Whenever `theme` is updated anywhere in the app, this effect re-runs.
 
 `context()` is safe to call during SSR. The registry is module-level, so signals persist for the lifetime of the process. In a server environment where requests share the same module instance, be careful not to store user-specific state in context signals — use [`.input()`](/guide/island/input) and [`.state()`](/guide/island/state) for per-request data instead.
 
+### Releasing entries — `context.delete()` and `context.clear()`
+
+The registry is otherwise append-only. Long-lived SPAs that mint dynamic keys, HMR cycles, and tests all need a way to release entries:
+
+```ts twoslash
+import { context } from "ilha";
+
+context.delete("cart.count"); // → true if it existed, false otherwise
+context.clear(); // remove every context signal
+```
+
+Deleting a key does not affect accessors already handed out — they keep working against their original signal. It only means the next `context(key, initial)` call creates a fresh signal instead of returning the old one.
+
+```ts twoslash
+import { context } from "ilha";
+
+const first = context("ui.count", 0);
+first(5);
+
+context.delete("ui.count");
+const second = context("ui.count", 0); // fresh signal, starts at 0
+
+first(); // → 5, unaffected by the delete
+second(); // → 0
+```
+
+---
+
+## `effect(fn)`
+
+Runs a free-standing reactive effect outside any island. `fn` runs once immediately and re-runs whenever a signal it read changes.
+
+```ts twoslash
+import { signal, effect } from "ilha";
+
+const cart = signal({ count: 0 });
+
+const stop = effect(() => {
+  document.title = `${cart().count} items`;
+});
+```
+
+Import `effect` from `"ilha"` as a **named export** — `import { effect } from "ilha"`. It is deliberately **not** on the default export: `ilha.effect()` is the [island builder method](/guide/island/effect) that registers a per-island effect. The top-level `effect()` documented here is a standalone helper for code that runs outside any island.
+
+### Cleanup and stopping
+
+`fn` may return a cleanup function, invoked before each re-run and once more when the effect is stopped:
+
+```ts twoslash
+import { signal, effect } from "ilha";
+
+const delay = signal(1000);
+
+const stop = effect(() => {
+  const id = setInterval(() => console.log("tick"), delay());
+  return () => clearInterval(id); // [!code highlight]
+});
+
+stop(); // disposes the effect and runs the final cleanup
+```
+
+### Implicit batching
+
+Multiple synchronous signal writes inside the effect body produce a single propagation pass, the same as inside `.on()` handlers or `.effect()`:
+
+```ts twoslash
+import { signal, effect } from "ilha";
+
+const a = signal(0);
+const b = signal(0);
+
+effect(() => {
+  a(a() + 1);
+  b(b() + 1); // both writes flush together
+});
+```
+
 ---
 
 ## `batch(fn)`
@@ -273,5 +395,7 @@ const value = untrack(() => s()); // → 42, no subscription created
 
 - `signal()` vs `context()` — both return the same accessor shape and can be used with `bind:` template syntax. Use `signal()` for one-off shared state where you hold the reference; use `context()` when you want a name-keyed registry.
 - Keys are global strings. Use namespaced keys like `"app.theme"` or `"cart.count"` to avoid accidental collisions across different parts of your app.
-- There is no way to delete or reset a context signal once created short of reloading the module.
+- Use `context.delete(key)` or `context.clear()` to release entries — useful in HMR, tests, or long-lived SPAs that mint dynamic keys. See [Releasing entries](#releasing-entries--contextdelete-and-contextclear).
 - Context signals are not included in [`.hydratable()`](/guide/island/hydratable) snapshots. If you need server-rendered context values on the client, pass them as island props via [`.input()`](/guide/island/input) and initialize the context signal inside [`.onMount()`](/guide/island/onmount).
+- `computed()` values are read-only; they cannot be used as `bind:` targets. Use `signal()` for writable bindings.
+- Top-level `effect()` (imported from `"ilha"`) is distinct from the `.effect()` builder method — see [`effect(fn)`](#effectfn) above.

@@ -869,6 +869,26 @@ describe("ilha JSX runtime", () => {
     expect((<a href={"\njavascript:alert(1)"}>x</a>).value).not.toContain("javascript:");
   });
 
+  it("blocks javascript: href with embedded control characters", () => {
+    // HTML parsers strip tab/newline/CR inside URLs before resolving the scheme.
+    expect((<a href={"java\tscript:alert(1)"}>x</a>).value).toBe("<a>x</a>");
+    expect((<a href={"java\nscript:alert(1)"}>x</a>).value).toBe("<a>x</a>");
+    expect((<a href={"j\rava\tscript:alert(1)"}>x</a>).value).toBe("<a>x</a>");
+    expect((<a href={" javascript:alert(1)"}>x</a>).value).toBe("<a>x</a>");
+  });
+
+  it("blocks control-char data:text/html src", () => {
+    expect((<iframe src={"data:text\n/html,<script>alert(1)</script>"} />).value).toBe(
+      "<iframe></iframe>",
+    );
+  });
+
+  it("drops srcdoc attributes entirely", () => {
+    const out = (<iframe srcdoc="<script>alert(1)</script>" />).value;
+    expect(out).toBe("<iframe></iframe>");
+    expect(out).not.toContain("srcdoc");
+  });
+
   it("className as array joins truthy entries", () => {
     expect((<div className={["foo", false, "bar"]} />).value).toContain('class="foo bar"');
   });
@@ -1012,10 +1032,12 @@ describe("ilha JSX runtime", () => {
     cleanup(host);
   });
 
-  it("serializeStyle strips semicolons that would break out of style attr", () => {
-    const result = (<div style={{ color: "red;background:url(evil)" }} />).value;
-    expect(result).not.toContain(";background");
-    expect(result).toContain("color:");
+  it("serializeStyle rejects declarations whose value could smuggle extra declarations", () => {
+    const result = (<div style={{ color: "red;background:url(evil)", padding: "4px" }} />).value;
+    // The tainted declaration is dropped whole (not rewritten); safe ones stay.
+    expect(result).not.toContain("background");
+    expect(result).not.toContain("color");
+    expect(result).toContain("padding:4px");
   });
 
   it("Fragment nested inside a JSX element flattens its children inline", () => {

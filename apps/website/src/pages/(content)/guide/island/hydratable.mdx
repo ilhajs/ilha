@@ -224,6 +224,23 @@ const body = await Counter.hydratable(
 mount({ Counter });
 ```
 
+## Dev warnings for non-JSON-safe snapshots
+
+In development, if a snapshotted state or derived value contains something that does not round-trip cleanly through JSON — `undefined`, functions, `bigint`, non-finite numbers (`NaN`, `Infinity`), `Date` instances, and similar — ilha logs a warning identifying the offending path and reason:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Island = ilha
+  .state("when", () => new Date()) // [!code highlight]
+  .render(() => <p></p>);
+
+await Island.hydratable({}, { name: "lossy", snapshot: true });
+// → warns: state.when is not JSON-safe (Date)
+```
+
+The snapshot still serializes — the warning is a heads-up, not a thrown error — but the restored value on the client will differ from what you set on the server (a `Date` becomes an ISO string, `undefined` fields are dropped, etc.). Keep snapshotted state and derived values plain and JSON-safe to avoid surprises on hydration. The warning is suppressed in production.
+
 ## Notes
 
 - `.hydratable()` is always async — it awaits all [`.derived()`](/guide/island/derived) values before rendering, regardless of whether the snapshot includes them.
