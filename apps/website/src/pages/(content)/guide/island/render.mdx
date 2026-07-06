@@ -164,6 +164,25 @@ const active = true;
 
 Function event props such as `onClick={...}` are intentionally omitted from the generated HTML. Use [`.on()`](/guide/island/on) for behavior instead.
 
+### Blocked and sanitized attributes
+
+A few attribute forms are restricted for security, even when the value comes from a variable:
+
+- **`srcdoc` is always dropped.** It decodes HTML entities back into live markup, so normal attribute escaping does not neutralize it — a bound `srcdoc` would be an XSS hole, so ilha omits the attribute entirely regardless of its value.
+- **URL attributes** (`href`, `src`, `action`, `formaction`, `cite`, `data`, `poster`, and their namespaced equivalents like `xlink:href`) strip ASCII control characters before checking the scheme, so a value like `"java\tscript:alert(1)"` is still caught. Values matching a disallowed scheme (`javascript:`, `vbscript:`, `data:text/html`, and similar) are dropped rather than emitted.
+- **A `style` object declaration is dropped whole** if its value contains `;`, `{`, `}`, `<`, `>`, `expression(`, or `javascript:` — these could smuggle extra declarations or markup. Quotes are allowed, so quoted `fontFamily` or `content` values work normally:
+
+```tsx twoslash
+<div
+  style={{
+    fontFamily: '"Fira Code", monospace', // kept — quotes are fine
+    content: '"hello"', // kept
+  }}
+>
+  safe
+</div>
+```
+
 ## Events and re-rendering
 
 Attach DOM events with `.on()`, then render JSX from `.render()`:
@@ -230,6 +249,28 @@ const List = ilha
 ```
 
 Each item is escaped independently, so mapped user content stays safe.
+
+## Keyed lists with `data-key`
+
+Tag rendered list items with a `data-key` attribute to have the morph engine match elements by key and **move** them on reorder instead of rewriting content at each position:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const List = ilha
+  .state("order", ["a", "b", "c"])
+  .render(({ state }) => (
+    <ul>
+      {state.order().map((k) => (
+        <li data-key={k}>{k}</li>
+      ))}
+    </ul>
+  ));
+```
+
+When `order` changes to `["c", "a", "b"]`, the existing `<li>` elements are moved to their new positions rather than replaced — focus, selection, in-flight CSS transitions, and any imperative state you attached to the element (like a property set outside of ilha) survive the reorder. Removed keys unmount; new keys mount in place. Content without `data-key` keeps the previous positional-diff behavior.
+
+Use `data-key` for plain rendered list items like this. For list items that are themselves child islands with their own local state, use [`Island.key()`](#child-islands) instead — it stabilizes the child island's slot identity rather than a plain element.
 
 ## Fragments
 
@@ -429,6 +470,23 @@ const Name = ilha.state("name", "Ada").render(({ state }) => (
 
 The element type is detected at runtime — no configuration needed.
 
+### Number coercion warnings
+
+`bind:value` and radio-group `bind:group` bindings coerce the DOM's string value back to a number when the bound signal currently holds a number. If the DOM value cannot be parsed as a number (an empty or non-numeric input), ilha coerces to `0` and logs a dev warning suggesting `bind:valueAsNumber` instead — which yields `null` on invalid input rather than silently coercing to `0`. Checkbox-array `bind:group` bindings are exempt: an option value that fails to parse is kept as its raw string, with no `0` fallback:
+
+```tsx twoslash
+import ilha from "ilha";
+
+// Prefer this for numeric inputs:
+const Age = ilha
+  .state("age", 0)
+  .render(({ state }) => (
+    <input type="number" bind:valueAsNumber={state.age} />
+  ));
+```
+
+The warning is suppressed in production.
+
 **Areia** in nested child islands: use `bind:checked={state.flag}` on `<Switch />` and `bind:group={state.tab}` on `<Tabs />` (recent **areia** mounts `Switch.Root` / `Tabs.Root` when bind props are present). Controlled `checked` + `onCheckedChange` or `value` + `onValueChange` still work.
 
 ### Radio and checkbox groups
@@ -600,7 +658,11 @@ island(props?) // renders to string, async if derived values are async
 island.toString(props?) // always renders synchronously
 island.mount(host, props?) // mounts into a DOM element, returns unmount()
 island.hydratable(props, options) // renders wrapped in hydration container
+island.key(key) // stable keyed invocation for reorderable lists
+island.define(tagName, options?) // registers the island as a custom element
 ```
+
+See [`Island.define()`](/guide/island/define) to use an island from plain HTML or any other framework via custom elements.
 
 ## Notes
 
@@ -610,3 +672,4 @@ island.hydratable(props, options) // renders wrapped in hydration container
 - The render function runs on every re-render triggered by a signal change. Keep it fast and free of side effects — use [`.effect()`](/guide/island/effect) or [`.onMount()`](/guide/island/onmount) for side effects instead.
 - During SSR the render function runs synchronously. Avoid browser-only APIs (`window`, `document`) at the top level of the render function.
 - The render function does not receive `host` — if you need the host element, use [`.onMount()`](/guide/island/onmount) or [`.effect()`](/guide/island/effect).
+- An unbound `<textarea>` no longer loses in-progress user typing on unrelated re-renders — its value is only updated by the morph engine when the template's text content actually changed.

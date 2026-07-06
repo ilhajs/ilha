@@ -88,13 +88,7 @@ describe("public entry shape", () => {
 
 describe("html``", () => {
   it("renders static strings", () => {
-    expect(
-      normalizeHtml(
-        html`
-          <p>hello</p>
-        `,
-      ),
-    ).toBe("<p>hello</p>");
+    expect(normalizeHtml(html` <p>hello</p> `)).toBe("<p>hello</p>");
   });
 
   it("escapes interpolated strings", () => {
@@ -148,9 +142,7 @@ describe("html``", () => {
   });
 
   it("html`` result is a RawHtml object, not a string", () => {
-    const result = html`
-      <p>test</p>
-    `;
+    const result = html` <p>test</p> `;
     expect(typeof result).toBe("object");
     expect(normalizeHtml(result)).toBe("<p>test</p>");
   });
@@ -964,11 +956,11 @@ describe("Island mount", () => {
         })
         .render(
           ({ state }) => html`
-          <button data-action="delete" data-index="2">
-            <span>Delete</span>
-          </button>
-          <p>${state.n()}</p>
-        `,
+            <button data-action="delete" data-index="2">
+              <span>Delete</span>
+            </button>
+            <p>${state.n()}</p>
+          `,
         );
 
       const el = makeEl();
@@ -1745,12 +1737,7 @@ describe("Island mount", () => {
               }, 15),
             ),
         })
-        .render(
-          () =>
-            html`
-              <p class="child">child</p>
-            `,
-        );
+        .render(() => html` <p class="child">child</p> `);
 
       const Parent = ilha
         .state("open", true)
@@ -2760,12 +2747,7 @@ describe("child islands (render-time composition)", () => {
       .onMount(({ host }) => {
         host.setAttribute("data-child-mounted", "1");
       })
-      .render(
-        () =>
-          html`
-            <span data-child>ok</span>
-          `,
-      );
+      .render(() => html` <span data-child>ok</span> `);
 
     const Parent = ilha.render(() => html`<div>${Child()}</div>`);
 
@@ -2784,21 +2766,11 @@ describe("child islands (render-time composition)", () => {
 
     const List = ilha
       .on("[data-action=select]@click", () => view("edit"))
-      .render(
-        () =>
-          html`
-            <button data-action="select">Edit</button>
-          `,
-      );
+      .render(() => html` <button data-action="select">Edit</button> `);
 
     const Edit = ilha
       .on("[data-action=select]@click", () => view("list"))
-      .render(
-        () =>
-          html`
-            <button data-action="select">List</button>
-          `,
-      );
+      .render(() => html` <button data-action="select">List</button> `);
 
     const Parent = ilha.render(() =>
       view() === "list" ? html`<div>${List}</div>` : html`<div>${Edit}</div>`,
@@ -2969,8 +2941,13 @@ describe("child islands (render-time composition)", () => {
         .as("li")
         .state("label", "a")
         .render(({ state }) => html`${state.label()}`);
-      const Parent = ilha.render(() => html`<ul>${Row}</ul>`);
-      expect(Parent()).toBe(`<ul><li data-ilha-slot="p:0">a</li></ul>`);
+      const Parent = ilha.render(
+        () =>
+          html`<ul>
+            ${Row}
+          </ul>`,
+      );
+      expect(normalizeHtml(Parent() as string)).toBe(`<ul><li data-ilha-slot="p:0">a</li></ul>`);
     });
 
     it("client mount: span slot host runs effects and updates DOM", () => {
@@ -3173,7 +3150,9 @@ describe("child islands (render-time composition)", () => {
       let setOrder!: (v: string[]) => void;
       const List = ilha.state<string[]>("order", ["a", "b"]).render(({ state }) => {
         setOrder = state.order as unknown as typeof setOrder;
-        return html`<ul>${state.order().map((k) => Item.key(k)({ label: k }))}</ul>`;
+        return html`<ul>
+          ${state.order().map((k) => Item.key(k)({ label: k }))}
+        </ul>`;
       });
 
       expect(List.toString()).toContain(`<li data-ilha-slot="k:a"`);
@@ -3197,7 +3176,8 @@ describe("child islands (render-time composition)", () => {
         .on("[data-bump]@click", ({ state }) => state.n(state.n() + 1))
         .render(
           ({ input, state }) =>
-            html`<span data-label="${input.label}">${input.label}:${state.n()}</span><button data-bump>+</button>`,
+            html`<span data-label="${input.label}">${input.label}:${state.n()}</span
+              ><button data-bump>+</button>`,
         );
 
       let setItems!: (v: string[]) => void;
@@ -4098,7 +4078,7 @@ describe("bind: template syntax", () => {
     it("emits canonical value attribute and bind sentinel for bind:value", () => {
       const Island = ilha
         .state("email", "default@example.com")
-        .render(({ state }) => html`<input bind:value=${state.email}>`);
+        .render(({ state }) => html`<input bind:value=${state.email} />`);
 
       const out = Island();
       // Order of attributes is implementation-defined; check both pieces.
@@ -4106,10 +4086,35 @@ describe("bind: template syntax", () => {
       expect(out).toContain(`data-ilha-bind="value:0"`);
     });
 
+    it("places the bind sentinel before the tag close, not a > inside an attribute value", () => {
+      const Island = ilha
+        .state("email", "a@b.c")
+        .render(({ state }) => html`<input bind:value=${state.email} placeholder="a > b" />`);
+
+      const out = Island() as string;
+      // The sentinel must not be injected inside the placeholder value.
+      expect(out).toContain(`placeholder="a > b"`);
+      expect(out).toMatch(/data-ilha-bind="value:0"\s*>/);
+    });
+
+    it("tracks quote state across an interpolated attribute between bind and tag close", () => {
+      const Island = ilha
+        .state("email", "a@b.c")
+        .state("title", "t")
+        .render(
+          ({ state }) =>
+            html`<input bind:value=${state.email} title="${state.title()} > more" class="x" />`,
+        );
+
+      const out = Island() as string;
+      expect(out).toContain(`title="t > more"`);
+      expect(out).toContain(`class="x" data-ilha-bind="value:0">`);
+    });
+
     it("emits nested object property value for bind:value", () => {
       const Island = ilha
         .state("user", { name: "Ada" })
-        .render(({ state }) => html`<input bind:value=${state.user.select((u) => u.name)}>`);
+        .render(({ state }) => html`<input bind:value=${state.user.select((u) => u.name)} />`);
 
       const out = Island();
       expect(out).toContain(`value="Ada"`);
@@ -4123,7 +4128,7 @@ describe("bind: template syntax", () => {
           ({ state }) =>
             html`${state
               .tags()
-              .map((_, i) => html`<input bind:value=${state.tags.select((t) => t[i])}>`)}`,
+              .map((_, i) => html`<input bind:value=${state.tags.select((t) => t[i])} />`)}`,
         );
 
       const out = Island();
@@ -4136,7 +4141,7 @@ describe("bind: template syntax", () => {
     it("emits checked attribute and sentinel for bind:checked when true", () => {
       const Island = ilha
         .state("agreed", true)
-        .render(({ state }) => html`<input type="checkbox" bind:checked=${state.agreed}>`);
+        .render(({ state }) => html`<input type="checkbox" bind:checked=${state.agreed} />`);
 
       const out = Island();
       // Verify the bare attribute token appears in the tag, not just in the sentinel value.
@@ -4147,7 +4152,7 @@ describe("bind: template syntax", () => {
     it("emits only sentinel (no checked attr) for bind:checked when false", () => {
       const Island = ilha
         .state("agreed", false)
-        .render(({ state }) => html`<input type="checkbox" bind:checked=${state.agreed}>`);
+        .render(({ state }) => html`<input type="checkbox" bind:checked=${state.agreed} />`);
 
       const out = Island();
       expect(out).toContain(`data-ilha-bind="checked:0"`);
@@ -4157,7 +4162,7 @@ describe("bind: template syntax", () => {
     it("emits sentinel for bind:files (no SSR attr, file inputs cannot persist)", () => {
       const Island = ilha
         .state("uploaded", null)
-        .render(({ state }) => html`<input type="file" bind:files=${state.uploaded}>`);
+        .render(({ state }) => html`<input type="file" bind:files=${state.uploaded} />`);
 
       const out = Island();
       expect(out).toContain(`data-ilha-bind="files:0"`);
@@ -4176,7 +4181,7 @@ describe("bind: template syntax", () => {
     it("emits formatted YYYY-MM-DD value for bind:valueAsDate", () => {
       const Island = ilha
         .state("dob", new Date(2026, 4, 15)) // May 15 2026
-        .render(({ state }) => html`<input type="date" bind:valueAsDate=${state.dob}>`);
+        .render(({ state }) => html`<input type="date" bind:valueAsDate=${state.dob} />`);
 
       const out = Island();
       expect(out).toContain(`value="2026-05-15"`);
@@ -4186,7 +4191,7 @@ describe("bind: template syntax", () => {
     it("emits string number value for bind:valueAsNumber", () => {
       const Island = ilha
         .state("age", 42)
-        .render(({ state }) => html`<input type="number" bind:valueAsNumber=${state.age}>`);
+        .render(({ state }) => html`<input type="number" bind:valueAsNumber=${state.age} />`);
 
       const out = Island();
       expect(out).toContain(`value="42"`);
@@ -4196,7 +4201,7 @@ describe("bind: template syntax", () => {
     it("emits sentinel only for bind:this (no reflection)", () => {
       const Island = ilha
         .state("ref", null)
-        .render(({ state }) => html`<input bind:this=${state.ref}>`);
+        .render(({ state }) => html`<input bind:this=${state.ref} />`);
 
       const out = Island();
       expect(out).toContain(`data-ilha-bind="this:0"`);
@@ -4205,7 +4210,7 @@ describe("bind: template syntax", () => {
     it("accepts both quoted and unquoted bind: syntax (closing quote stripped)", () => {
       const Island = ilha
         .state("name", "ada")
-        .render(({ state }) => html`<input bind:value="${state.name}" placeholder="x">`);
+        .render(({ state }) => html`<input bind:value="${state.name}" placeholder="x" />`);
 
       const out = Island();
       // The "${state.name}" quoted form: opening quote was stripped from the
@@ -4223,7 +4228,7 @@ describe("bind: template syntax", () => {
         .state("b", true)
         .render(
           ({ state }) =>
-            html`<input bind:value=${state.a}><input type="checkbox" bind:checked=${state.b}>`,
+            html`<input bind:value=${state.a} /><input type="checkbox" bind:checked=${state.b} />`,
         );
 
       const out = Island();
@@ -4236,7 +4241,12 @@ describe("bind: template syntax", () => {
         .state("plan", "pro")
         .render(
           ({ state }) =>
-            html`<input type="radio" name="plan" value="free" bind:group=${state.plan}><input type="radio" name="plan" value="pro" bind:group=${state.plan}>`,
+            html`<input type="radio" name="plan" value="free" bind:group=${state.plan} /><input
+                type="radio"
+                name="plan"
+                value="pro"
+                bind:group=${state.plan}
+              />`,
         );
 
       const out = Island() as string;
@@ -4253,7 +4263,12 @@ describe("bind: template syntax", () => {
         .state<string[]>("tags", ["ts", "rust"])
         .render(
           ({ state }) =>
-            html`<input type="checkbox" name="tag" value="js" bind:group=${state.tags}><input type="checkbox" name="tag" value="ts" bind:group=${state.tags}><input type="checkbox" name="tag" value="rust" bind:group=${state.tags}>`,
+            html`<input type="checkbox" name="tag" value="js" bind:group=${state.tags} /><input
+                type="checkbox"
+                name="tag"
+                value="ts"
+                bind:group=${state.tags}
+              /><input type="checkbox" name="tag" value="rust" bind:group=${state.tags} />`,
         );
 
       const out = Island() as string;
@@ -4275,7 +4290,7 @@ describe("bind: template syntax", () => {
       // of value:0.
       const Island = ilha
         .state("name", "ada")
-        .render(({ state }) => html`<input bind:value=${state.name}>`);
+        .render(({ state }) => html`<input bind:value=${state.name} />`);
 
       const first = Island();
       const second = Island();
@@ -4294,8 +4309,8 @@ describe("bind: template syntax", () => {
         .state("a", "x")
         .state("b", true)
         .render(({ state }) => {
-          const head = html`<input bind:value=${state.a}>`;
-          const tail = html`<input type="checkbox" bind:checked=${state.b}>`;
+          const head = html`<input bind:value=${state.a} />`;
+          const tail = html`<input type="checkbox" bind:checked=${state.b} />`;
           return html`<div>${head}${tail}</div>`;
         });
 
@@ -4313,14 +4328,16 @@ describe("bind: template syntax", () => {
       // binding silently unwired.
       const Child = ilha
         .input<{ checked: SignalAccessor<boolean> }>()
-        .render(({ input }) => html`<input type="checkbox" bind:checked=${input.checked}>`);
+        .render(({ input }) => html`<input type="checkbox" bind:checked=${input.checked} />`);
 
       const Parent = ilha
         .state("draft", "")
         .state("flags", [true, false, false])
         .render(({ state }) => {
           const flags = state.flags();
-          return html`<input bind:value=${state.draft}>${flags.map((_, i) => Child({ checked: state.flags.select((f) => f[i] ?? false) }))}`;
+          return html`<input bind:value=${state.draft} />${flags.map((_, i) =>
+              Child({ checked: state.flags.select((f) => f[i] ?? false) }),
+            )}`;
         });
 
       const out = Parent.toString();
@@ -4335,11 +4352,11 @@ describe("bind: template syntax", () => {
 
   describe("DOM -> state", () => {
     it("text input change updates state via bind:value", () => {
-      const Island = ilha
-        .state("name", "ada")
-        .render(
-          ({ state }) => html`<input data-name bind:value=${state.name}><p>${state.name}</p>`,
-        );
+      const Island = ilha.state("name", "ada").render(
+        ({ state }) =>
+          html`<input data-name bind:value=${state.name} />
+            <p>${state.name}</p>`,
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4352,12 +4369,11 @@ describe("bind: template syntax", () => {
     });
 
     it("text input change updates nested object property via bind:value", () => {
-      const Island = ilha
-        .state("user", { name: "ada", role: "dev" })
-        .render(
-          ({ state }) =>
-            html`<input data-name bind:value=${state.user.select((u) => u.name)}><p>${state.user().name}</p>`,
-        );
+      const Island = ilha.state("user", { name: "ada", role: "dev" }).render(
+        ({ state }) =>
+          html`<input data-name bind:value=${state.user.select((u) => u.name)} />
+            <p>${state.user().name}</p>`,
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4378,7 +4394,10 @@ describe("bind: template syntax", () => {
               .tags()
               .map(
                 (_, i) =>
-                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])}><span data-out="${i}">${state.tags.select((t) => t[i])()}</span>`,
+                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])} /><span
+                      data-out="${i}"
+                      >${state.tags.select((t) => t[i])()}</span
+                    >`,
               )}`,
         );
 
@@ -4432,7 +4451,11 @@ describe("bind: template syntax", () => {
             .todos()
             .map(
               (_, i) =>
-                html`<input type="checkbox" data-cb="${i}" bind:checked=${state.todos.select((t) => t[i].completed)}>`,
+                html`<input
+                  type="checkbox"
+                  data-cb="${i}"
+                  bind:checked=${state.todos.select((t) => t[i].completed)}
+                />`,
             )}`;
         });
 
@@ -4448,12 +4471,11 @@ describe("bind: template syntax", () => {
     });
 
     it("checkbox change updates boolean state via bind:checked", () => {
-      const Island = ilha
-        .state("checked", false)
-        .render(
-          ({ state }) =>
-            html`<input type="checkbox" data-cb bind:checked=${state.checked}><p>${state.checked}</p>`,
-        );
+      const Island = ilha.state("checked", false).render(
+        ({ state }) =>
+          html`<input type="checkbox" data-cb bind:checked=${state.checked} />
+            <p>${state.checked}</p>`,
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4466,12 +4488,15 @@ describe("bind: template syntax", () => {
     });
 
     it("select change updates state via bind:value", () => {
-      const Island = ilha
-        .state("size", "m")
-        .render(
-          ({ state }) =>
-            html`<select data-size bind:value=${state.size}><option value="s">S</option><option value="m">M</option><option value="l">L</option></select><p>${state.size}</p>`,
-        );
+      const Island = ilha.state("size", "m").render(
+        ({ state }) =>
+          html`<select data-size bind:value=${state.size}>
+              <option value="s">S</option>
+              <option value="m">M</option>
+              <option value="l">L</option>
+            </select>
+            <p>${state.size}</p>`,
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4484,12 +4509,11 @@ describe("bind: template syntax", () => {
     });
 
     it("number input updates numeric state via bind:valueAsNumber", () => {
-      const Island = ilha
-        .state("count", 0)
-        .render(
-          ({ state }) =>
-            html`<input type="number" data-num bind:valueAsNumber=${state.count}><p>${state.count}</p>`,
-        );
+      const Island = ilha.state("count", 0).render(
+        ({ state }) =>
+          html`<input type="number" data-num bind:valueAsNumber=${state.count} />
+            <p>${state.count}</p>`,
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4502,12 +4526,11 @@ describe("bind: template syntax", () => {
     });
 
     it("details toggle updates state via bind:open", () => {
-      const Island = ilha
-        .state("expanded", false)
-        .render(
-          ({ state }) =>
-            html`<details data-d bind:open=${state.expanded}>x</details><p>${state.expanded}</p>`,
-        );
+      const Island = ilha.state("expanded", false).render(
+        ({ state }) =>
+          html`<details data-d bind:open=${state.expanded}>x</details>
+            <p>${state.expanded}</p>`,
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4520,12 +4543,11 @@ describe("bind: template syntax", () => {
     });
 
     it("textarea input updates state via bind:value", () => {
-      const Island = ilha
-        .state("body", "")
-        .render(
-          ({ state }) =>
-            html`<textarea data-t bind:value=${state.body}></textarea><p>${state.body}</p>`,
-        );
+      const Island = ilha.state("body", "").render(
+        ({ state }) =>
+          html`<textarea data-t bind:value=${state.body}></textarea>
+            <p>${state.body}</p>`,
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4542,11 +4564,11 @@ describe("bind: template syntax", () => {
       // coercion path should parse the string back to a number so the
       // signal type is preserved. Arithmetic on the signal value would
       // string-concat instead of add if coercion failed.
-      const Island = ilha
-        .state("n", 0)
-        .render(
-          ({ state }) => html`<input data-n bind:value=${state.n}><p data-sum>${state.n() + 1}</p>`,
-        );
+      const Island = ilha.state("n", 0).render(
+        ({ state }) =>
+          html`<input data-n bind:value=${state.n} />
+            <p data-sum>${state.n() + 1}</p>`,
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4565,7 +4587,7 @@ describe("bind: template syntax", () => {
     it("initial state is reflected into input value on SSR + mount", () => {
       const Island = ilha
         .state("email", "hello@example.com")
-        .render(({ state }) => html`<input data-email bind:value=${state.email}>`);
+        .render(({ state }) => html`<input data-email bind:value=${state.email} />`);
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4579,7 +4601,7 @@ describe("bind: template syntax", () => {
 
       const Island = ilha.state("email", "a@b.com").render(({ state }) => {
         accessor = state.email as typeof accessor;
-        return html`<input data-email bind:value=${state.email}>`;
+        return html`<input data-email bind:value=${state.email} />`;
       });
 
       const el = makeEl();
@@ -4595,7 +4617,7 @@ describe("bind: template syntax", () => {
 
       const Island = ilha.state("active", false).render(({ state }) => {
         accessor = state.active as typeof accessor;
-        return html`<input type="checkbox" data-cb bind:checked=${state.active}>`;
+        return html`<input type="checkbox" data-cb bind:checked=${state.active} />`;
       });
 
       const el = makeEl();
@@ -4629,9 +4651,11 @@ describe("bind: template syntax", () => {
 
   describe("Two-way", () => {
     it("DOM change reflects in render output for bind:value", () => {
-      const Island = ilha
-        .state("query", "")
-        .render(({ state }) => html`<input data-q bind:value=${state.query}><p>${state.query}</p>`);
+      const Island = ilha.state("query", "").render(
+        ({ state }) =>
+          html`<input data-q bind:value=${state.query} />
+            <p>${state.query}</p>`,
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4654,9 +4678,9 @@ describe("bind: template syntax", () => {
       const Island = ilha.state("plan", "free").render(({ state }) => {
         accessor = state.plan as typeof accessor;
         return html`
-            <input type="radio" name="plan" value="free" bind:group=${state.plan} />
-            <input type="radio" name="plan" value="pro" bind:group=${state.plan} />
-          `;
+          <input type="radio" name="plan" value="free" bind:group=${state.plan} />
+          <input type="radio" name="plan" value="pro" bind:group=${state.plan} />
+        `;
       });
 
       const el = makeEl();
@@ -4679,11 +4703,11 @@ describe("bind: template syntax", () => {
     it("radio group coerces DOM string to number when state holds a number", () => {
       const Island = ilha.state("level", 2).render(
         ({ state }) => html`
-            <input type="radio" name="level" value="1" bind:group=${state.level} />
-            <input type="radio" name="level" value="2" bind:group=${state.level} />
-            <input type="radio" name="level" value="3" bind:group=${state.level} />
-            <p>${state.level}</p>
-          `,
+          <input type="radio" name="level" value="1" bind:group=${state.level} />
+          <input type="radio" name="level" value="2" bind:group=${state.level} />
+          <input type="radio" name="level" value="3" bind:group=${state.level} />
+          <p>${state.level}</p>
+        `,
       );
 
       const el = makeEl();
@@ -4699,11 +4723,11 @@ describe("bind: template syntax", () => {
     it("checkbox group adds option to array when checked", () => {
       const Island = ilha.state<string[]>("tags", ["ts"]).render(
         ({ state }) => html`
-            <input type="checkbox" name="tag" value="js" bind:group=${state.tags} />
-            <input type="checkbox" name="tag" value="ts" bind:group=${state.tags} />
-            <input type="checkbox" name="tag" value="rust" bind:group=${state.tags} />
-            <p>${(state.tags() as string[]).join(",")}</p>
-          `,
+          <input type="checkbox" name="tag" value="js" bind:group=${state.tags} />
+          <input type="checkbox" name="tag" value="ts" bind:group=${state.tags} />
+          <input type="checkbox" name="tag" value="rust" bind:group=${state.tags} />
+          <p>${(state.tags() as string[]).join(",")}</p>
+        `,
       );
 
       const el = makeEl();
@@ -4720,10 +4744,10 @@ describe("bind: template syntax", () => {
     it("checkbox group removes option from array when unchecked", () => {
       const Island = ilha.state<string[]>("tags", ["js", "ts"]).render(
         ({ state }) => html`
-            <input type="checkbox" name="tag" value="js" bind:group=${state.tags} />
-            <input type="checkbox" name="tag" value="ts" bind:group=${state.tags} />
-            <p>${(state.tags() as string[]).join(",")}</p>
-          `,
+          <input type="checkbox" name="tag" value="js" bind:group=${state.tags} />
+          <input type="checkbox" name="tag" value="ts" bind:group=${state.tags} />
+          <p>${(state.tags() as string[]).join(",")}</p>
+        `,
       );
 
       const el = makeEl();
@@ -4741,10 +4765,10 @@ describe("bind: template syntax", () => {
     it("checkbox group coerces DOM string to number when array holds numbers", () => {
       const Island = ilha.state<number[]>("levels", [2]).render(
         ({ state }) => html`
-            <input type="checkbox" name="level" value="1" bind:group=${state.levels} />
-            <input type="checkbox" name="level" value="3" bind:group=${state.levels} />
-            <p>${(state.levels() as number[]).reduce((a, b) => a + b, 0)}</p>
-          `,
+          <input type="checkbox" name="level" value="1" bind:group=${state.levels} />
+          <input type="checkbox" name="level" value="3" bind:group=${state.levels} />
+          <p>${(state.levels() as number[]).reduce((a, b) => a + b, 0)}</p>
+        `,
       );
 
       const el = makeEl();
@@ -4768,7 +4792,7 @@ describe("bind: template syntax", () => {
         .onMount(({ state }) => {
           captured = state.ref();
         })
-        .render(({ state }) => html`<input data-r bind:this=${state.ref}>`);
+        .render(({ state }) => html`<input data-r bind:this=${state.ref} />`);
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4787,7 +4811,7 @@ describe("bind: template syntax", () => {
       // value after unmount.
       const ref = signal<Element | null>(null);
 
-      const Island = ilha.render(() => html`<input data-r bind:this=${ref}>`);
+      const Island = ilha.render(() => html`<input data-r bind:this=${ref} />`);
 
       const el = makeEl();
       const input = (() => {
@@ -4818,7 +4842,7 @@ describe("bind: template syntax", () => {
         toggle = () => state.isText(!state.isText());
         return state.isText()
           ? html`<textarea data-r bind:this=${ref}></textarea>`
-          : html`<input data-r bind:this=${ref}>`;
+          : html`<input data-r bind:this=${ref} />`;
       });
 
       const el = makeEl();
@@ -4845,7 +4869,7 @@ describe("bind: template syntax", () => {
     it("change event writes FileList into state", () => {
       const Island = ilha
         .state<FileList | null>("uploaded", null)
-        .render(({ state }) => html`<input type="file" data-f bind:files=${state.uploaded}>`);
+        .render(({ state }) => html`<input type="file" data-f bind:files=${state.uploaded} />`);
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -4866,7 +4890,7 @@ describe("bind: template syntax", () => {
     it("reads valueAsDate from input on change", () => {
       const Island = ilha
         .state<Date | null>("dob", new Date(2026, 4, 15))
-        .render(({ state }) => html`<input type="date" data-d bind:valueAsDate=${state.dob}>`);
+        .render(({ state }) => html`<input type="date" data-d bind:valueAsDate=${state.dob} />`);
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -5066,7 +5090,7 @@ describe("bind: template syntax", () => {
           // no-op handler just to keep .on wired up
         })
         .render(
-          ({ state }) => html`<input data-n bind:value=${state.name}><span>${state.tick}</span>`,
+          ({ state }) => html`<input data-n bind:value=${state.name} /><span>${state.tick}</span>`,
         );
 
       const el = makeEl();
@@ -5093,7 +5117,7 @@ describe("bind: template syntax", () => {
       const Island = ilha
         .state("user", { address: { city: "Paris" } })
         .render(
-          ({ state }) => html`<input bind:value=${state.user.select((u) => u.address.city)}>`,
+          ({ state }) => html`<input bind:value=${state.user.select((u) => u.address.city)} />`,
         );
 
       const out = Island();
@@ -5106,7 +5130,9 @@ describe("bind: template syntax", () => {
         .state("user", { name: "ada", role: "dev", email: "ada@example.com" })
         .render(
           ({ state }) =>
-            html`<input data-name bind:value=${state.user.select((u) => u.name)}><p data-role>${state.user().role}</p><p data-email>${state.user().email}</p>`,
+            html`<input data-name bind:value=${state.user.select((u) => u.name)} />
+              <p data-role>${state.user().role}</p>
+              <p data-email>${state.user().email}</p>`,
         );
 
       const el = makeEl();
@@ -5126,7 +5152,7 @@ describe("bind: template syntax", () => {
 
       const Island = ilha.state("user", { name: "ada" }).render(({ state }) => {
         nameAccessor = state.user.select((u) => u.name) as typeof nameAccessor;
-        return html`<input data-name bind:value=${state.user.select((u) => u.name)}>`;
+        return html`<input data-name bind:value=${state.user.select((u) => u.name)} />`;
       });
 
       const el = makeEl();
@@ -5138,12 +5164,11 @@ describe("bind: template syntax", () => {
     });
 
     it("DOM input updates deeply nested object property", () => {
-      const Island = ilha
-        .state("user", { address: { city: "Paris" } })
-        .render(
-          ({ state }) =>
-            html`<input data-city bind:value=${state.user.select((u) => u.address.city)}><p>${state.user().address.city}</p>`,
-        );
+      const Island = ilha.state("user", { address: { city: "Paris" } }).render(
+        ({ state }) =>
+          html`<input data-city bind:value=${state.user.select((u) => u.address.city)} />
+            <p>${state.user().address.city}</p>`,
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -5190,12 +5215,11 @@ describe("bind: template syntax", () => {
     });
 
     it("supports bind:checked on nested boolean property", () => {
-      const Island = ilha
-        .state("prefs", { notify: false })
-        .render(
-          ({ state }) =>
-            html`<input type="checkbox" data-n bind:checked=${state.prefs.select((p) => p.notify)}><p>${state.prefs.select((p) => p.notify)}</p>`,
-        );
+      const Island = ilha.state("prefs", { notify: false }).render(
+        ({ state }) =>
+          html`<input type="checkbox" data-n bind:checked=${state.prefs.select((p) => p.notify)} />
+            <p>${state.prefs.select((p) => p.notify)}</p>`,
+      );
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -5219,7 +5243,10 @@ describe("bind: template syntax", () => {
               .rows()
               .map(
                 (_, i) =>
-                  html`<input data-row="${i}" bind:value=${state.rows.select((r) => r[i].label)}><span data-out="${i}">${state.rows.select((r) => r[i].label)()}</span>`,
+                  html`<input
+                      data-row="${i}"
+                      bind:value=${state.rows.select((r) => r[i].label)}
+                    /><span data-out="${i}">${state.rows.select((r) => r[i].label)()}</span>`,
               )}`,
         );
 
@@ -5243,7 +5270,10 @@ describe("bind: template syntax", () => {
               .tags()
               .map(
                 (_, i) =>
-                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])}><span data-out="${i}">${state.tags.select((t) => t[i])()}</span>`,
+                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])} /><span
+                      data-out="${i}"
+                      >${state.tags.select((t) => t[i])()}</span
+                    >`,
               )}`,
         );
 
@@ -5267,7 +5297,10 @@ describe("bind: template syntax", () => {
               .tags()
               .map(
                 (_, i) =>
-                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])}><span data-out="${i}">${state.tags.select((t) => t[i])()}</span>`,
+                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])} /><span
+                      data-out="${i}"
+                      >${state.tags.select((t) => t[i])()}</span
+                    >`,
               )}
             <button data-add>add</button>
           `,
@@ -5300,7 +5333,10 @@ describe("bind: template syntax", () => {
               .tags()
               .map(
                 (_, i) =>
-                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])}><span data-out="${i}">${state.tags.select((t) => t[i])()}</span>`,
+                  html`<input data-tag="${i}" bind:value=${state.tags.select((t) => t[i])} /><span
+                      data-out="${i}"
+                      >${state.tags.select((t) => t[i])()}</span
+                    >`,
               )}
             <button data-trim>trim</button>
           `,
@@ -5325,7 +5361,7 @@ describe("bind: template syntax", () => {
 
       const Island = ilha.state("user", { name: "ada" }).render(({ state }) => {
         userAccessor = state.user as typeof userAccessor;
-        return html`<input data-name bind:value=${state.user.select((u) => u.name)}>`;
+        return html`<input data-name bind:value=${state.user.select((u) => u.name)} />`;
       });
 
       const el = makeEl();
@@ -5345,7 +5381,9 @@ describe("bind: template syntax", () => {
               .tags()
               .map(
                 (tag) =>
-                  html`<input data-tag bind:value=${tag}><span data-out>${state.tags()[0]}</span>`,
+                  html`<input data-tag bind:value=${tag} /><span data-out
+                      >${state.tags()[0]}</span
+                    >`,
               )}`,
         );
 
@@ -5369,7 +5407,8 @@ describe("bind: template syntax", () => {
 
       const Island = ilha.render(
         () =>
-          html`<input data-name bind:value=${profile.select((p) => p.user.name)}><p>${profile().user.name}</p>`,
+          html`<input data-name bind:value=${profile.select((p) => p.user.name)} />
+            <p>${profile().user.name}</p>`,
       );
 
       const el = makeEl();
@@ -5401,7 +5440,7 @@ describe("bind: template syntax", () => {
         const Island = ilha
           .state("tags", ["js"])
           .render(
-            ({ state }) => html`${state.tags().map((tag) => html`<input bind:value=${tag}>`)}`,
+            ({ state }) => html`${state.tags().map((tag) => html`<input bind:value=${tag} />`)}`,
           );
 
         Island();
@@ -5421,7 +5460,7 @@ describe("bind: template syntax", () => {
     it("ilha.signal() can be used directly as a bind: target", () => {
       const sharedName = signal("ada");
 
-      const Island = ilha.render(() => html`<input data-n bind:value=${sharedName}>`);
+      const Island = ilha.render(() => html`<input data-n bind:value=${sharedName} />`);
 
       const el = makeEl();
       const unmount = Island.mount(el);
@@ -5448,8 +5487,8 @@ describe("bind: template syntax", () => {
     it("two mounted islands sharing one external signal stay in sync", () => {
       const shared = signal("x");
 
-      const A = ilha.render(() => html`<input data-a bind:value=${shared}>`);
-      const B = ilha.render(() => html`<input data-b bind:value=${shared}>`);
+      const A = ilha.render(() => html`<input data-a bind:value=${shared} />`);
+      const B = ilha.render(() => html`<input data-b bind:value=${shared} />`);
 
       const elA = makeEl();
       const elB = makeEl();
@@ -5493,7 +5532,7 @@ describe("bind: template syntax", () => {
 
     it("warns on unknown bind:KIND and falls back to plain interpolation", () => {
       const sig = signal("hello");
-      const out = html`<input bind:bogus=${sig}>`.value;
+      const out = html`<input bind:bogus=${sig} />`.value;
       expect(warnSpy).toHaveBeenCalled();
       const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
       expect(msgs.some((m: string) => m.includes("bind:bogus"))).toBe(true);
@@ -5502,27 +5541,41 @@ describe("bind: template syntax", () => {
     });
 
     it("warns when bind: target is not a signal accessor", () => {
-      const result = html`<input bind:value=${"plain string"}>`;
-      expect(result.value).toBe("<input bind:value=plain string>");
+      const result = html`<input bind:value=${"plain string"} />`;
+      expect(result.value).toBe("<input bind:value=plain string />");
       const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
       expect(msgs.some((m: string) => m.includes("requires a signal accessor"))).toBe(true);
     });
 
-    it("accepts bind:value target branded by another ilha module Symbol instance", () => {
-      const foreignBrand = Symbol("ilha.signalAccessor");
+    it("accepts bind:value target branded via the shared Symbol.for registry", () => {
+      // Duplicate ilha copies brand with Symbol.for, which resolves to the
+      // same symbol across bundles — cross-bundle accessors keep working.
       let value = "ada";
       const accessor = ((v?: string) => {
         if (v === undefined) return value;
         value = v;
       }) as import("./index").SignalAccessor<string>;
-      (accessor as unknown as Record<symbol, boolean>)[foreignBrand] = true;
+      (accessor as unknown as Record<symbol, boolean>)[Symbol.for("ilha.signalAccessor")] = true;
 
-      const Island = ilha.render(() => html`<input bind:value=${accessor}>`);
+      const Island = ilha.render(() => html`<input bind:value=${accessor} />`);
       const out = Island();
       const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
       expect(msgs.some((m: string) => m.includes("requires a signal accessor"))).toBe(false);
       expect(out).toContain('value="ada"');
       expect(out).toContain('data-ilha-bind="value:0"');
+    });
+
+    it("rejects bind:value target branded only by a lookalike unique Symbol", () => {
+      // A unique Symbol with a matching description is not the shared brand;
+      // description-matching was spoofable and has been removed.
+      const foreignBrand = Symbol("ilha.signalAccessor");
+      const accessor = ((v?: string) => v) as import("./index").SignalAccessor<string>;
+      (accessor as unknown as Record<symbol, boolean>)[foreignBrand] = true;
+
+      const Island = ilha.render(() => html`<input bind:value=${accessor} />`);
+      Island();
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(msgs.some((m: string) => m.includes("requires a signal accessor"))).toBe(true);
     });
   });
 });
@@ -6617,10 +6670,7 @@ describe("diagnostic: derived + slot + whitespace", () => {
     const Parent = ilha
       .derived("data", async () => dataPromise)
       .render(({ derived }) => {
-        if (derived.data.loading)
-          return html`
-            <p>loading</p>
-          `;
+        if (derived.data.loading) return html` <p>loading</p> `;
         const value = derived.data.value!;
         // Deliberately use multi-line interpolation with other elements
         // around the slot to mirror the pokedex layout and expose any
@@ -7645,12 +7695,7 @@ describe("effect cleanup ordering", () => {
       .effect(() => {
         return () => log.push("cleanup:C");
       })
-      .render(
-        () =>
-          html`
-            <p>x</p>
-          `,
-      );
+      .render(() => html` <p>x</p> `);
 
     const el = makeEl("");
     const unmount = Island.mount(el);
@@ -7728,12 +7773,7 @@ describe("derived availability in onMount", () => {
       .onMount(({ derived }) => {
         seenLoading = derived.val.loading;
       })
-      .render(
-        () =>
-          html`
-            <p>x</p>
-          `,
-      );
+      .render(() => html` <p>x</p> `);
 
     const el = makeEl("");
     const unmount = Island.mount(el);
@@ -7961,5 +8001,336 @@ describe("remounting after unmount", () => {
 
     unmount();
     cleanup(el);
+  });
+});
+
+describe("morph textarea handling", () => {
+  it("preserves user typing in an unbound textarea across unrelated re-renders", () => {
+    let setCount!: (v?: number) => number | void;
+    const Island = ilha.state("count", 0).render(({ state }) => {
+      setCount = state.count as typeof setCount;
+      return html`<p>${state.count()}</p>
+        <textarea data-t>seed</textarea>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const ta = el.querySelector<HTMLTextAreaElement>("[data-t]")!;
+    ta.value = "user typed this";
+    setCount(1);
+    expect(el.querySelector("p")!.textContent).toBe("1");
+    expect(el.querySelector<HTMLTextAreaElement>("[data-t]")!.value).toBe("user typed this");
+    unmount();
+    cleanup(el);
+  });
+
+  it("updates textarea value when the template's text actually changes", () => {
+    let setBody!: (v?: string) => string | void;
+    const Island = ilha.state("body", "one").render(({ state }) => {
+      setBody = state.body as typeof setBody;
+      return html`<textarea data-t>${state.body()}</textarea>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    setBody("two");
+    expect(el.querySelector<HTMLTextAreaElement>("[data-t]")!.value).toBe("two");
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("snapshot prototype-key stripping", () => {
+  it("strips __proto__/constructor/prototype keys from data-ilha-props", () => {
+    let seenInput: Record<string, unknown> | undefined;
+    const Island = ilha
+      .input<{ name?: string }>()
+      .onMount(({ input }) => {
+        seenInput = { ...input };
+      })
+      .render(({ input }) => html`<p>${input.name ?? ""}</p>`);
+
+    const el = makeEl();
+    el.setAttribute(
+      "data-ilha-props",
+      JSON.stringify({ name: "ok", ["__proto__"]: { polluted: true }, constructor: "x" }),
+    );
+    const unmount = Island.mount(el);
+    expect(seenInput).toEqual({ name: "ok" });
+    expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
+    unmount();
+    cleanup(el);
+  });
+
+  it("strips unsafe keys nested inside data-ilha-state snapshots", () => {
+    let seen: unknown;
+    const Island = ilha
+      .state("obj", {} as Record<string, unknown>)
+      .onMount(({ state }) => {
+        seen = state.obj();
+      })
+      .render(() => html` <p></p> `);
+
+    const el = makeEl();
+    el.setAttribute(
+      "data-ilha-state",
+      '{"obj":{"safe":1,"__proto__":{"polluted":true},"nested":{"prototype":"x"}}}',
+    );
+    const unmount = Island.mount(el);
+    expect(seen).toEqual({ safe: 1, nested: {} });
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("nice-to-do hardening", () => {
+  it("context.delete() releases a registry entry so the key can be re-created", () => {
+    const a = context("cleanup-key", 1);
+    a(42);
+    expect(context.delete("cleanup-key")).toBe(true);
+    expect(context.delete("cleanup-key")).toBe(false);
+    const b = context("cleanup-key", 7);
+    expect(b()).toBe(7);
+    context.delete("cleanup-key");
+  });
+
+  it("derived proxy returns undefined for symbol keys instead of a phantom accessor", () => {
+    let derivedRef: unknown;
+    const Island = ilha
+      .state("n", 1)
+      .derived("double", ({ state }) => state.n() * 2)
+      .render(({ derived }) => {
+        derivedRef = derived;
+        return html`<p>${derived.double()}</p>`;
+      });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const d = derivedRef as Record<PropertyKey, unknown>;
+    expect(d[Symbol.iterator]).toBeUndefined();
+    expect(d[Symbol.toPrimitive]).toBeUndefined();
+    expect(typeof d["double"]).toBe("function");
+    unmount();
+    cleanup(el);
+  });
+
+  it("hydratable warns in dev when snapshotted state is not JSON-safe", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const Island = ilha.state("when", () => new Date()).render(() => html` <p></p> `);
+      await Island.hydratable({}, { name: "lossy", snapshot: true });
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(msgs.some((m) => m.includes("not JSON-safe") && m.includes("Date"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("hydratable does not warn for JSON-safe snapshots", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const Island = ilha.state("n", 1).render(() => html` <p></p> `);
+      await Island.hydratable({}, { name: "safe", snapshot: true });
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(msgs.some((m) => m.includes("not JSON-safe"))).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("async child islands resolve via unique markers with no leftover placeholder", async () => {
+    const Child = ilha
+      .input<{ label: string }>()
+      .derived("msg", async ({ input }) => `hi ${input.label}`)
+      .render(({ derived }) => html`<span>${derived.msg() ?? "loading"}</span>`);
+
+    // Child awaiting only happens when the parent itself is in async SSR mode.
+    const Parent = ilha
+      .derived("ready", async () => true)
+      .render(() => html`<div>${Child({ label: "a" })}${Child({ label: "b" })}</div>`);
+
+    const out = await Parent();
+    expect(out).not.toContain("ilha-async");
+    expect(out).toContain("hi a");
+    expect(out).toContain("hi b");
+  });
+});
+
+describe("top-level computed()", () => {
+  it("derives lazily and tracks dependencies", () => {
+    let runs = 0;
+    const n = mainExports.signal(2);
+    const double = mainExports.computed(() => {
+      runs++;
+      return n() * 2;
+    });
+    expect(double()).toBe(4);
+    expect(double()).toBe(4);
+    expect(runs).toBe(1); // cached
+    n(5);
+    expect(double()).toBe(10);
+    expect(runs).toBe(2);
+  });
+
+  it("is read-only — writes are ignored with a dev warning", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const c = mainExports.computed(() => 1);
+      (c as unknown as (v: number) => void)(99);
+      expect(c()).toBe(1);
+      const msgs = warnSpy.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(msgs.some((m) => m.includes("read-only"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("chains into islands: render re-runs when a computed dependency changes", () => {
+    const base = mainExports.signal(1);
+    const doubled = mainExports.computed(() => base() * 2);
+    const Island = ilha.render(() => html`<p>${doubled()}</p>`);
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(el.querySelector("p")!.textContent).toBe("2");
+    base(10);
+    expect(el.querySelector("p")!.textContent).toBe("20");
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("top-level effect()", () => {
+  it("runs immediately, re-runs on dependency change, and stops", () => {
+    const n = mainExports.signal(1);
+    const seen: number[] = [];
+    const stop = mainExports.effect(() => {
+      seen.push(n());
+    });
+    expect(seen).toEqual([1]);
+    n(2);
+    expect(seen).toEqual([1, 2]);
+    stop();
+    n(3);
+    expect(seen).toEqual([1, 2]);
+  });
+
+  it("invokes cleanup before each re-run and on stop", () => {
+    const n = mainExports.signal(0);
+    const events: string[] = [];
+    const stop = mainExports.effect(() => {
+      const v = n();
+      events.push(`run:${v}`);
+      return () => events.push(`clean:${v}`);
+    });
+    n(1);
+    stop();
+    expect(events).toEqual(["run:0", "clean:0", "run:1", "clean:1"]);
+  });
+});
+
+describe("keyed morph (data-key)", () => {
+  it("moves keyed elements on reorder instead of rewriting them", () => {
+    let setOrder!: (v?: string[]) => string[] | void;
+    const Island = ilha.state("order", ["a", "b", "c"]).render(({ state }) => {
+      setOrder = state.order as typeof setOrder;
+      return html`<ul>
+        ${state.order().map((k) => html`<li data-key="${k}">${k}</li>`)}
+      </ul>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const before = new Map(
+      Array.from(el.querySelectorAll("li")).map((li) => [li.getAttribute("data-key"), li]),
+    );
+    // Tag each element imperatively — positional rewriting would lose this.
+    for (const [k, li] of before) (li as unknown as Record<string, unknown>)["_tag"] = k;
+
+    setOrder(["c", "a", "b"]);
+
+    const after = Array.from(el.querySelectorAll("li"));
+    expect(after.map((li) => li.textContent)).toEqual(["c", "a", "b"]);
+    expect(after[0]).toBe(before.get("c")!);
+    expect(after[1]).toBe(before.get("a")!);
+    expect(after[2]).toBe(before.get("b")!);
+    expect((after[0] as unknown as Record<string, unknown>)["_tag"]).toBe("c");
+    unmount();
+    cleanup(el);
+  });
+
+  it("removes disappeared keys and mounts new ones in place", () => {
+    let setOrder!: (v?: string[]) => string[] | void;
+    const Island = ilha.state("order", ["a", "b", "c"]).render(({ state }) => {
+      setOrder = state.order as typeof setOrder;
+      return html`<ul>
+        ${state.order().map((k) => html`<li data-key="${k}">${k}</li>`)}
+      </ul>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const keepB = el.querySelectorAll("li")[1]!;
+
+    setOrder(["x", "b"]);
+
+    const after = Array.from(el.querySelectorAll("li"));
+    expect(after.map((li) => li.textContent)).toEqual(["x", "b"]);
+    expect(after[1]).toBe(keepB);
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("island.define() custom elements", () => {
+  it("mounts on connect, observes attributes, unmounts on disconnect", () => {
+    const Badge = ilha
+      .input<{ label: string }>({ label: "?" })
+      .render(({ input }) => html`<span>${input.label}</span>`);
+    Badge.define("x-ilha-badge", { observe: ["label"] });
+
+    const host = document.createElement("x-ilha-badge");
+    host.setAttribute("label", "hello");
+    document.body.appendChild(host);
+    expect(host.querySelector("span")!.textContent).toBe("hello");
+
+    host.setAttribute("label", "world");
+    expect(host.querySelector("span")!.textContent).toBe("world");
+
+    document.body.removeChild(host);
+  });
+
+  it("accepts rich props via the element's props property", () => {
+    const List = ilha.input<{ items: string[] }>({ items: [] }).render(
+      ({ input }) =>
+        html`<ul>
+          ${input.items.map((i) => html`<li>${i}</li>`)}
+        </ul>`,
+    );
+    List.define("x-ilha-list");
+
+    const host = document.createElement("x-ilha-list") as HTMLElement & {
+      props?: Record<string, unknown>;
+    };
+    host.props = { items: ["a", "b"] };
+    document.body.appendChild(host);
+    expect(host.querySelectorAll("li").length).toBe(2);
+
+    host.props = { items: ["a", "b", "c"] };
+    expect(host.querySelectorAll("li").length).toBe(3);
+
+    document.body.removeChild(host);
+  });
+
+  it("warns and skips on duplicate tag registration", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const A = ilha.render(() => html` <i></i> `);
+      A.define("x-ilha-dup");
+      A.define("x-ilha-dup");
+      const msgs = warnSpy.mock.calls.map((call: unknown[]) => String(call[0]));
+      expect(msgs.some((m) => m.includes("already registered"))).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { signal, effect, setActiveSub, startBatch, endBatch } from "alien-signals";
+import { signal, computed, effect, setActiveSub, startBatch, endBatch } from "alien-signals";
 
 // ---------------------------------------------
 // Standard Schema V1 (inlined, type-only)
@@ -56,6 +56,50 @@ function warn(msg: string): void {
   if (__DEV__) console.warn(`[ilha] ${msg}`);
 }
 
+// Dev-only: find the first value in a snapshot that will not survive a JSON
+// round-trip (dropped or silently transformed by JSON.stringify), so authors
+// hear about hydration divergence instead of debugging it. Returns a
+// "path: reason" description, or null when the value is JSON-safe.
+function findNonJsonSafeValue(
+  value: unknown,
+  path: string,
+  seen: WeakSet<object> = new WeakSet(),
+): string | null {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? null : `${path}: non-finite number becomes null`;
+  }
+  if (value === undefined) return `${path}: undefined is dropped`;
+  if (typeof value === "function") return `${path}: functions are dropped`;
+  if (typeof value === "symbol") return `${path}: symbols are dropped`;
+  if (typeof value === "bigint") return `${path}: bigint throws in JSON.stringify`;
+  if (value instanceof Date) return `${path}: Date becomes a string`;
+  if (value instanceof Map || value instanceof Set) {
+    return `${path}: ${value instanceof Map ? "Map" : "Set"} becomes {}`;
+  }
+  if (value instanceof RegExp) return `${path}: RegExp becomes {}`;
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return `${path}: circular reference throws in JSON.stringify`;
+    seen.add(value);
+    for (let i = 0; i < value.length; i++) {
+      const found = findNonJsonSafeValue(value[i], `${path}[${i}]`, seen);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value === "object") {
+    // Objects with toJSON serialize intentionally; trust them.
+    if (typeof (value as { toJSON?: unknown }).toJSON === "function") return null;
+    if (seen.has(value)) return `${path}: circular reference throws in JSON.stringify`;
+    seen.add(value);
+    for (const [k, v] of Object.entries(value)) {
+      const found = findNonJsonSafeValue(v, `${path}.${k}`, seen);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------
 // SSR snapshot deserialization guards
 // ---------------------------------------------
@@ -85,6 +129,27 @@ function exceedsMaxDepth(value: unknown, depth: number): boolean {
   return false;
 }
 
+// Recursively drop prototype-polluting keys from a parsed JSON payload.
+// JSON.parse creates them as plain own properties (harmless by itself), but
+// they flow into input/state objects and are one deep-merge away from being
+// exploitable — cheaper to strip at the parse boundary.
+const UNSAFE_SNAPSHOT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function stripUnsafeKeys(value: unknown): void {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value) stripUnsafeKeys(item);
+    return;
+  }
+  for (const key of Object.getOwnPropertyNames(value)) {
+    if (UNSAFE_SNAPSHOT_KEYS.has(key)) {
+      delete (value as Record<string, unknown>)[key];
+    } else {
+      stripUnsafeKeys((value as Record<string, unknown>)[key]);
+    }
+  }
+}
+
 // Parse a data-ilha-* JSON attribute defensively: cap size, parse, cap depth.
 // Returns undefined (and warns) on any failure so callers degrade gracefully
 // instead of throwing or accepting a pathological payload. `label` is used in
@@ -112,6 +177,7 @@ function safeParseSnapshot(raw: string, label: string): unknown {
     warn(`${label} is not an object — snapshot ignored.`);
     return undefined;
   }
+  stripUnsafeKeys(parsed);
   return parsed;
 }
 
@@ -139,11 +205,13 @@ function shallowEqualInput(a: unknown, b: unknown): boolean {
 // SSR while the first reactive pass emits empty slot stubs. Props encoded on
 // the stub must match — if they differ, state changed before the first
 // effect (e.g. Parent.onMount wrote new props) and we must reconcile.
-function extractDirectChildSlotIdsInOrder(html: string): string[] {
-  if (typeof document === "undefined") return [];
+function parseHtmlFragment(html: string): DocumentFragment {
   const tpl = document.createElement("template");
   tpl.innerHTML = html;
-  const root = tpl.content;
+  return tpl.content;
+}
+
+function extractDirectChildSlotIdsInOrder(root: DocumentFragment): string[] {
   const ids: string[] = [];
   for (const el of root.querySelectorAll("[data-ilha-slot]")) {
     if (!(el instanceof Element)) continue;
@@ -162,16 +230,14 @@ function extractDirectChildSlotIdsInOrder(html: string): string[] {
   return ids;
 }
 
-function extractSlotPropsAttr(html: string, slotId: string): string | null {
-  const escaped = slotId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const withProps = new RegExp(
-    `<[a-z][a-z0-9-]*\\s[^>]*data-ilha-slot="${escaped}"[^>]*data-ilha-props='([^']*)'`,
-    "i",
-  );
-  const m = html.match(withProps);
-  if (m) return m[1]!;
-  const withoutProps = new RegExp(`<[a-z][a-z0-9-]*\\s[^>]*data-ilha-slot="${escaped}"`, "i");
-  return html.match(withoutProps) ? "" : null;
+// Find the slot element with the given id in a parsed fragment and return its
+// props attribute value ("" when the slot exists without props, null when the
+// slot is absent). DOM-based — immune to attribute order/quoting differences.
+function extractSlotPropsAttr(root: DocumentFragment, slotId: string): string | null {
+  for (const el of root.querySelectorAll(`[${SLOT_ATTR}]`)) {
+    if (el.getAttribute(SLOT_ATTR) === slotId) return el.getAttribute(PROPS_ATTR) ?? "";
+  }
+  return null;
 }
 
 const SLOT_TAG_NAME_RE = /^[a-z][a-z0-9-]*$/i;
@@ -205,8 +271,11 @@ function isStableInlineSlotMount(
   renderedHtml: string,
   slotIds: Iterable<string>,
 ): boolean {
-  const initialOrder = extractDirectChildSlotIdsInOrder(initialHtml);
-  const renderedOrder = extractDirectChildSlotIdsInOrder(renderedHtml);
+  if (typeof document === "undefined") return false;
+  const initialRoot = parseHtmlFragment(initialHtml);
+  const renderedRoot = parseHtmlFragment(renderedHtml);
+  const initialOrder = extractDirectChildSlotIdsInOrder(initialRoot);
+  const renderedOrder = extractDirectChildSlotIdsInOrder(renderedRoot);
   if (
     initialOrder.length !== renderedOrder.length ||
     initialOrder.some((id, i) => id !== renderedOrder[i])
@@ -214,8 +283,8 @@ function isStableInlineSlotMount(
     return false;
   }
   for (const id of slotIds) {
-    const initialProps = extractSlotPropsAttr(initialHtml, id);
-    const renderedProps = extractSlotPropsAttr(renderedHtml, id);
+    const initialProps = extractSlotPropsAttr(initialRoot, id);
+    const renderedProps = extractSlotPropsAttr(renderedRoot, id);
     if (initialProps === null || renderedProps === null) return false;
     if (initialProps !== renderedProps) return false;
   }
@@ -267,16 +336,50 @@ function syncAttributes(from: Element, to: Element): void {
 }
 
 function morphChildren(fromParent: Element, toParent: Element): void {
-  const fromNodes = Array.from(fromParent.childNodes);
   const toNodes = Array.from(toParent.childNodes);
 
-  for (let i = fromNodes.length - 1; i >= toNodes.length; i--) {
-    fromNodes[i]!.remove();
+  // Keyed reconciliation: element children carrying data-key are matched by
+  // key and MOVED into position instead of positionally overwritten, so list
+  // reorders preserve element identity — focus, selection, CSS transitions,
+  // and any imperatively attached state travel with the element.
+  let fromKeyed: Map<string, Element> | null = null;
+  for (const child of fromParent.children) {
+    const k = child.getAttribute("data-key");
+    if (k !== null && !(fromKeyed ??= new Map()).has(k)) fromKeyed.set(k, child);
+  }
+  let toKeys: Set<string> | null = null;
+  if (fromKeyed !== null) {
+    toKeys = new Set();
+    for (const child of toParent.children) {
+      const k = child.getAttribute("data-key");
+      if (k !== null) toKeys.add(k);
+    }
   }
 
   for (let i = 0; i < toNodes.length; i++) {
     const toNode = toNodes[i]!;
-    const fromNode = fromNodes[i];
+    let fromNode: ChildNode | undefined = fromParent.childNodes[i];
+
+    if (fromKeyed !== null && toNode.nodeType === 1) {
+      const key = (toNode as Element).getAttribute("data-key");
+      if (key !== null) {
+        const match = fromKeyed.get(key);
+        if (match) {
+          if (match !== fromNode) {
+            fromParent.insertBefore(match, fromNode ?? null);
+            fromNode = match;
+          }
+        } else if (fromNode instanceof Element) {
+          const fromKey = fromNode.getAttribute("data-key");
+          if (fromKey !== null && toKeys!.has(fromKey)) {
+            // The element at this position belongs to a different SURVIVING
+            // key — insert the new child fresh instead of clobbering it.
+            fromParent.insertBefore(toNode.cloneNode(true), fromNode);
+            continue;
+          }
+        }
+      }
+    }
 
     if (!fromNode) {
       fromParent.appendChild(toNode.cloneNode(true));
@@ -315,13 +418,24 @@ function morphChildren(fromParent: Element, toParent: Element): void {
       syncAttributes(fromEl, toEl);
 
       if (fromEl.localName === "textarea") {
+        // Only touch the live value when the template's text actually changed;
+        // resetting unconditionally would clobber user typing in an unbound
+        // textarea every time unrelated state re-renders the parent.
         const newText = toEl.textContent ?? "";
-        if (fromEl.textContent !== newText) fromEl.textContent = newText;
-        (fromEl as HTMLTextAreaElement).value = (fromEl as HTMLTextAreaElement).defaultValue;
+        if (fromEl.textContent !== newText) {
+          fromEl.textContent = newText;
+          (fromEl as HTMLTextAreaElement).value = newText;
+        }
       } else {
         morphChildren(fromEl, toEl);
       }
     }
+  }
+
+  // Positions 0..toNodes.length-1 are now correct; anything past that is
+  // surplus (including keyed elements whose key disappeared this render).
+  while (fromParent.childNodes.length > toNodes.length) {
+    fromParent.lastChild!.remove();
   }
 }
 
@@ -470,8 +584,6 @@ interface IslandRenderCtx {
   // here, and emits a data-ilha-bind sentinel attribute referencing the
   // entry by index. Mount-time wiring reads these back out.
   binds: BindRecord[];
-  // Slot id -> wrapper tag recorded during emitIslandSlot (async SSR substitution).
-  slotTags: Map<string, string>;
 }
 
 type BindKind =
@@ -498,7 +610,6 @@ function pushRenderCtx(liveHost?: Element, asyncChildren?: boolean): IslandRende
     liveHost,
     pending: asyncChildren ? new Map() : undefined,
     binds: [],
-    slotTags: new Map(),
   };
   renderCtxStack.push(ctx);
   return ctx;
@@ -512,10 +623,10 @@ function currentRenderCtx(): IslandRenderCtx | undefined {
   return renderCtxStack[renderCtxStack.length - 1];
 }
 
+// Brand checks use `Symbol.for`, which resolves to the SAME symbol across
+// duplicate ilha copies in one realm — no description-scanning fallback needed.
 function isIsland(v: unknown): v is AnyIsland {
-  if (typeof v !== "function") return false;
-  if (ISLAND in (v as object)) return true;
-  return Object.getOwnPropertySymbols(v as object).some((s) => s.description === "ilha.island");
+  return typeof v === "function" && ISLAND in (v as object);
 }
 
 function isIslandCall(v: unknown): v is IslandCall {
@@ -525,18 +636,7 @@ function isIslandCall(v: unknown): v is IslandCall {
   // bare. Both paths converge in interpolateValue.
   if (v == null || (typeof v !== "object" && typeof v !== "function")) return false;
   if (ISLAND_CALL in (v as object)) return true;
-  if (Object.getOwnPropertySymbols(v as object).some((s) => s.description === "ilha.islandCall")) {
-    return true;
-  }
-  if (typeof v === "object" && "island" in v) {
-    const island = (v as IslandCall).island;
-    return (
-      typeof island === "function" &&
-      (ISLAND in (island as object) ||
-        Object.getOwnPropertySymbols(island).some((s) => s.description === "ilha.island"))
-    );
-  }
-  return false;
+  return typeof v === "object" && "island" in v && isIsland((v as IslandCall).island);
 }
 
 // Emit a slot marker for an island at this interpolation site.
@@ -566,7 +666,6 @@ function emitIslandSlot(
   if (ctx) ctx.slots.set(id, { island, props });
 
   const slotTag = getIslandSlotTag(island);
-  if (ctx) ctx.slotTags.set(id, slotTag);
 
   const propsAttr = props ? ` ${PROPS_ATTR}='${escapeHtml(JSON.stringify(props))}'` : "";
 
@@ -595,9 +694,10 @@ function emitIslandSlot(
       if (result instanceof Promise) {
         // Store the pending render for later resolution by renderWithCtx.
         ctx.pending.set(id, result.then(String));
-        // Emit a placeholder stub; resolveAsyncChildren will substitute the
-        // resolved inner HTML after all children have been awaited.
-        return wrapIslandSlotHtml(slotTag, id, propsAttr, "");
+        // Emit a stub containing a unique comment marker; resolveAsyncChildren
+        // replaces the marker with the resolved inner HTML. Escaped
+        // interpolations can never produce the marker text (it contains `<`).
+        return wrapIslandSlotHtml(slotTag, id, propsAttr, asyncSlotMarker(id));
       }
 
       // Child rendered synchronously — inline its HTML as usual.
@@ -613,36 +713,23 @@ function emitIslandSlot(
   return wrapIslandSlotHtml(slotTag, id, propsAttr, inner);
 }
 
-// After the parent's render function has produced HTML with placeholder stubs
-// for async children, await each pending child and substitute its resolved
-// HTML into the parent's output. Returns the final HTML string.
+// Unique inline placeholder for an async child's HTML. HTML comments survive
+// intact inside the parent's output string, and escaped interpolations cannot
+// forge one (escapeHtml encodes `<`), so exact string substitution is safe.
+function asyncSlotMarker(id: string): string {
+  return `<!--ilha-async:${escapeHtml(id)}-->`;
+}
+
+// After the parent's render function has produced HTML with marker stubs for
+// async children, await each pending child and substitute its resolved HTML
+// in place of the marker. Returns the final HTML string.
 async function resolveAsyncChildren(
   html: string,
-  ctx: Pick<IslandRenderCtx, "pending" | "slotTags">,
+  pending: Map<string, Promise<string>>,
 ): Promise<string> {
-  for (const [id, promise] of ctx.pending!) {
+  for (const [id, promise] of pending) {
     const inner = await promise;
-    const tag = ctx.slotTags.get(id) ?? "div";
-    // The placeholder is an empty stub
-    //   <tag data-ilha-slot="…" data-ilha-props="…"></tag>
-    // Replace it with the same tag but containing the resolved inner HTML.
-    const escaped = escapeHtml(id);
-    // Guard against ReDoS from pathologically long slot ids.
-    if (escaped.length > 500) {
-      throw new Error(
-        `Slot id exceeds safe length for regex replacement (${escaped.length} > 500).`,
-      );
-    }
-    const attrPattern = escaped.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const tagPattern = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const placeholder = new RegExp(
-      `<${tagPattern}\\s[^>]*${SLOT_ATTR}="${attrPattern}"[^>]*></${tagPattern}>`,
-      "g",
-    );
-    html = html.replace(placeholder, (match) => {
-      const suffix = `></${tag}>`;
-      return match.slice(0, -suffix.length) + `>${inner}</${tag}>`;
-    });
+    html = html.split(asyncSlotMarker(id)).join(inner);
   }
   return html;
 }
@@ -666,12 +753,7 @@ function markSignalAccessor<T>(fn: { (): T; (value: T): void }): MarkedSignalAcc
 }
 
 function isSignalAccessor(v: unknown): v is MarkedSignalAccessor<unknown> {
-  if (typeof v !== "function") return false;
-  if (SIGNAL_ACCESSOR in (v as object)) return true;
-  // Fallback for accessors marked by another ilha module instance (unique Symbol).
-  return Object.getOwnPropertySymbols(v as object).some(
-    (s) => s.description === "ilha.signalAccessor",
-  );
+  return typeof v === "function" && SIGNAL_ACCESSOR in (v as object);
 }
 
 // ---------------------------------------------
@@ -851,6 +933,30 @@ const BIND_VALID_KINDS = new Set<BindKind>([
 // static chunk. The trailing chunk position is enforced by the `$` anchor.
 const BIND_PREFIX_RE = /\bbind:([a-zA-Z]+)\s*=\s*("|')?$/;
 
+// Find the first `>` in a static chunk that actually closes the open tag,
+// skipping any `>` inside a quoted attribute value (e.g. placeholder="a > b").
+// `initialQuote` carries quote state across chunk boundaries (an interpolation
+// can sit inside a quoted attribute value; interpolated values themselves are
+// entity-escaped and never alter quote state). Returns the index of the
+// closing `>` (-1 if none) plus the quote state at the end of the chunk.
+function findTagCloseIndex(
+  chunk: string,
+  initialQuote: '"' | "'" | null,
+): { index: number; quote: '"' | "'" | null } {
+  let quote = initialQuote;
+  for (let i = 0; i < chunk.length; i++) {
+    const ch = chunk[i];
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === ">") {
+      return { index: i, quote };
+    }
+  }
+  return { index: -1, quote };
+}
+
 // Format a Date for an <input type=date|datetime-local|time|month|week>.
 // We pick `date` semantics by default; users wanting datetime-local should
 // pre-format the string themselves on the value side.
@@ -960,6 +1066,9 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
   // Accumulate bind specs for the current open tag and emit as a single
   // data-ilha-bind attribute before the closing `>`.
   let pendingBindSpecs = "";
+  // Quote state carried across chunks while bind specs are pending, so a `>`
+  // inside a quoted attribute value is not mistaken for the tag close.
+  let pendingQuote: '"' | "'" | null = null;
   const ctx = currentRenderCtx();
 
   for (let i = 0; i < strings.length; i++) {
@@ -975,11 +1084,16 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
     // If the chunk contains a closing `>`, emit any pending bind specs
     // right before the first `>` so they land inside the open tag.
     if (pendingBindSpecs !== "") {
-      const gtIdx = chunk.indexOf(">");
+      const { index: gtIdx, quote } = findTagCloseIndex(chunk, pendingQuote);
       if (gtIdx !== -1) {
-        chunk =
-          chunk.slice(0, gtIdx) + ` data-ilha-bind="${pendingBindSpecs}">` + chunk.slice(gtIdx + 1);
+        // Drop a self-closing `/` (plus surrounding whitespace) so the
+        // sentinel lands as the last attribute: `<input ... data-ilha-bind>`.
+        const head = chunk.slice(0, gtIdx).replace(/\s*\/\s*$/, "");
+        chunk = head + ` data-ilha-bind="${pendingBindSpecs}">` + chunk.slice(gtIdx + 1);
         pendingBindSpecs = "";
+        pendingQuote = null;
+      } else {
+        pendingQuote = quote;
       }
     }
 
@@ -1073,12 +1187,9 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
   return { [RAW]: true, value: dedentString(result) };
 }
 
-/** Duck-type RawHtml — works across duplicate `ilha` bundles (distinct RAW symbols). */
 function isRawHtml(v: unknown): v is RawHtml {
-  if (typeof v !== "object" || v === null || !("value" in v)) return false;
-  if (typeof (v as RawHtml).value !== "string") return false;
-  if (RAW in v) return true;
-  return Object.getOwnPropertySymbols(v).some((s) => s.description === "ilha.raw");
+  if (typeof v !== "object" || v === null) return false;
+  return RAW in v && typeof (v as RawHtml).value === "string";
 }
 
 // Unwrap a RawHtml or plain string to a string — used at render boundaries.
@@ -1093,7 +1204,7 @@ function unwrapHtml(v: string | RawHtml): string {
 type ContextSignal<T> = { (): T; (value: T): void };
 const contextRegistry = new Map<string, ContextSignal<unknown>>();
 
-function ilhaContext<T>(key: string, initial: T): ContextSignal<T> {
+function ilhaContextFn<T>(key: string, initial: T): ContextSignal<T> {
   if (contextRegistry.has(key)) return contextRegistry.get(key) as ContextSignal<T>;
   const s = signal(initial);
   const accessor = (...args: unknown[]): unknown => {
@@ -1103,6 +1214,21 @@ function ilhaContext<T>(key: string, initial: T): ContextSignal<T> {
   contextRegistry.set(key, accessor as ContextSignal<unknown>);
   return accessor as ContextSignal<T>;
 }
+
+// The registry is module-level and otherwise append-only; long-lived SPAs or
+// HMR cycles that mint dynamic keys need a way to release entries. Deleting a
+// key does not affect accessors already handed out — they keep their signal —
+// it only makes the next context(key, …) call create a fresh one.
+const ilhaContext = Object.assign(ilhaContextFn, {
+  /** Remove a context signal from the registry. Returns true if it existed. */
+  delete(key: string): boolean {
+    return contextRegistry.delete(key);
+  },
+  /** Remove all context signals from the registry (e.g. between tests). */
+  clear(): void {
+    contextRegistry.clear();
+  },
+});
 
 // ---------------------------------------------
 // Top-level reactive helpers
@@ -1125,6 +1251,71 @@ export function ilhaSignal<T>(initial: T): SignalAccessor<T> {
     if (args.length === 0) return s();
     s(args[0] as T);
   }) as SignalAccessor<T>;
+}
+
+/**
+ * Create a free-standing read-only reactive value derived from other signals.
+ * The computation is lazy and cached: `fn` re-runs only when a signal it read
+ * changed and the computed is read again. Reading it inside a `.derived()`,
+ * `.effect()`, `.render()`, or top-level `effect()` subscribes that scope —
+ * dependents re-run when the computed's value changes.
+ *
+ * ```ts
+ * const items = ilha.signal([1, 2, 3]);
+ * const total = ilha.computed(() => items().reduce((a, b) => a + b, 0));
+ * ```
+ */
+function ilhaComputed<T>(fn: () => T): SignalAccessor<T> {
+  const c = computed(fn);
+  return markSignalAccessor((...args: unknown[]): unknown => {
+    if (args.length > 0) {
+      if (__DEV__) warn("computed() values are read-only — the write was ignored.");
+      return;
+    }
+    return c();
+  }) as SignalAccessor<T>;
+}
+
+/**
+ * Run a free-standing reactive effect outside any island. `fn` runs once
+ * immediately and again whenever a signal it read changes. It may return a
+ * cleanup function, invoked before each re-run and on stop. Signal writes
+ * inside the effect are batched. Returns a stop function that disposes the
+ * effect and runs the final cleanup.
+ *
+ * ```ts
+ * const stop = effect(() => {
+ *   document.title = `${cart.count()} items`;
+ * });
+ * ```
+ */
+function ilhaEffect(fn: () => void | (() => void)): () => void {
+  let cleanup: void | (() => void);
+  const runCleanup = () => {
+    if (typeof cleanup === "function") {
+      try {
+        cleanup();
+      } catch (err) {
+        console.error(err);
+      }
+      cleanup = undefined;
+    }
+  };
+  const stop = effect(() => {
+    runCleanup();
+    startBatch();
+    try {
+      cleanup = fn();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      endBatch();
+    }
+  });
+  return () => {
+    stop();
+    runCleanup();
+  };
 }
 
 /**
@@ -1228,7 +1419,11 @@ function buildDerivedAccessors<TDerivedMap extends Record<string, unknown>>(
     );
   }
   return new Proxy({} as IslandDerived<TDerivedMap>, {
-    get(_, key: string) {
+    get(_, key) {
+      // Symbol keys (Symbol.toPrimitive, Symbol.iterator, …) reach this trap
+      // during coercion/spreads; handing them a fresh accessor function
+      // produces confusing behavior — report them as absent instead.
+      if (typeof key !== "string") return undefined;
       return accessors.get(key) ?? defaultDerivedAccessor();
     },
   });
@@ -1330,7 +1525,8 @@ function createDerivedProxy<
   }
 
   const proxy = new Proxy({} as IslandDerived<TDerivedMap>, {
-    get(_, key: string) {
+    get(_, key) {
+      if (typeof key !== "string") return undefined;
       return accessors.get(key) ?? defaultDerivedAccessor();
     },
   });
@@ -1654,6 +1850,12 @@ function applyTemplateBindings(host: Element, binds: BindRecord[]): () => void {
           let coerced: unknown = groupRead;
           if (typeof currentVal === "number" && typeof groupRead === "string") {
             const n = Number(groupRead);
+            if (Number.isNaN(n) && __DEV__) {
+              warn(
+                `bind:group value "${groupRead}" is not numeric but the signal holds a ` +
+                  `number — coercing to 0. Use string state or numeric option values.`,
+              );
+            }
             coerced = Number.isNaN(n) ? 0 : n;
           } else if (typeof currentVal === "boolean") {
             coerced = Boolean(groupRead);
@@ -1669,6 +1871,12 @@ function applyTemplateBindings(host: Element, binds: BindRecord[]): () => void {
         let value: unknown = raw;
         if (typeof currentVal === "number" && typeof raw === "string") {
           const n = Number(raw);
+          if (Number.isNaN(n) && __DEV__) {
+            warn(
+              `bind:${spec.kind} read "${raw}" but the signal holds a number — ` +
+                `coercing to 0. Use bind:valueAsNumber (null on invalid input) or string state.`,
+            );
+          }
           value = Number.isNaN(n) ? 0 : n;
         } else if (typeof currentVal === "boolean") {
           value = Boolean(raw);
@@ -1732,6 +1940,15 @@ export interface Island<
   // reliable (e.g. reorderable lists). Keys must be unique within a single
   // parent render.
   key(key: string): KeyedIsland<TInput>;
+  /**
+   * Register this island as a custom element, usable from plain HTML or any
+   * framework: `Counter.define("x-counter", { observe: ["label"] })` then
+   * `<x-counter label="hi"></x-counter>`. Observed attributes become string
+   * input props and re-resolve input on change; richer props can be assigned
+   * via the element's `props` property. Mounts on connect, unmounts on
+   * disconnect. No-op (with a dev warning) where customElements is missing.
+   */
+  define(tagName: string, options?: { observe?: string[] }): void;
   [ISLAND]: true;
 }
 
@@ -2276,9 +2493,8 @@ class IlhaBuilder<
 
         if (ctx.pending && ctx.pending.size > 0) {
           const pending = ctx.pending;
-          const slotTags = ctx.slotTags;
           return (async () => {
-            const resolvedHtml = await resolveAsyncChildren(html, { pending, slotTags });
+            const resolvedHtml = await resolveAsyncChildren(html, pending);
             return { html: resolvedHtml, slots, binds };
           })();
         }
@@ -3285,6 +3501,114 @@ class IlhaBuilder<
 
     (island as unknown as Record<symbol, boolean>)[ISLAND] = true;
 
+    // Custom-element wrapper: makes the island consumable from plain HTML or
+    // any other framework without touching ilha's mount API. Observed
+    // attributes surface as string input props; richer values go through the
+    // element's `props` property (merged over attribute props).
+    island.define = (tagName: string, options?: { observe?: string[] }): void => {
+      if (typeof customElements === "undefined" || typeof HTMLElement === "undefined") {
+        warn(`define("${tagName}"): customElements is unavailable in this environment.`);
+        return;
+      }
+      // Validate the name ourselves so authors get an ilha-worded soft
+      // failure instead of an uncaught native SyntaxError from
+      // customElements.define. Custom element names must be lowercase,
+      // start with a letter, contain a hyphen, and avoid the SVG/MathML
+      // reserved names.
+      const CE_RESERVED = new Set([
+        "annotation-xml",
+        "color-profile",
+        "font-face",
+        "font-face-src",
+        "font-face-uri",
+        "font-face-format",
+        "font-face-name",
+        "missing-glyph",
+      ]);
+      if (
+        typeof tagName !== "string" ||
+        !/^[a-z][a-z0-9._-]*-[a-z0-9._-]*$/.test(tagName) ||
+        CE_RESERVED.has(tagName)
+      ) {
+        warn(
+          `define("${tagName}"): not a valid custom element name — it must ` +
+            `be lowercase, start with a letter, and contain a hyphen ` +
+            `(e.g. "my-counter"). Skipping registration.`,
+        );
+        return;
+      }
+      if (customElements.get(tagName)) {
+        warn(`define("${tagName}"): tag is already registered — skipping.`);
+        return;
+      }
+      const observe = options?.observe ?? [];
+
+      class IlhaIslandElement extends HTMLElement {
+        static observedAttributes = observe;
+        _handle: MountHandle | null = null;
+        _props: Record<string, unknown> | undefined;
+        // True while an unmount is settling; the handle stays assigned so a
+        // reconnect cannot start a second mount over in-flight teardown.
+        _unmounting = false;
+        _reconnect = false;
+
+        get props(): Record<string, unknown> | undefined {
+          return this._props;
+        }
+        set props(p: Record<string, unknown> | undefined) {
+          this._props = p;
+          if (this._handle && !this._unmounting) this._handle.updateProps(this._mergedProps());
+        }
+
+        _mergedProps(): Partial<TInput> | undefined {
+          const attrProps: Record<string, unknown> = {};
+          let hasAttrs = false;
+          for (const name of observe) {
+            const v = this.getAttribute(name);
+            if (v !== null) {
+              attrProps[name] = v;
+              hasAttrs = true;
+            }
+          }
+          // With no observed attrs and no assigned props, pass undefined so
+          // mount falls back to reading data-ilha-props off the element.
+          if (!hasAttrs && this._props === undefined) return undefined;
+          return { ...attrProps, ...(this._props ?? {}) } as Partial<TInput>;
+        }
+
+        connectedCallback(): void {
+          if (this._unmounting) {
+            // Reconnected while the previous mount is still tearing down —
+            // defer the new mount until teardown settles.
+            this._reconnect = true;
+            return;
+          }
+          if (this._handle) return;
+          this._handle = mountIslandInternal(this, this._mergedProps());
+        }
+
+        disconnectedCallback(): void {
+          if (!this._handle || this._unmounting) return;
+          this._unmounting = true;
+          this._reconnect = false;
+          void Promise.resolve(this._handle.unmount()).finally(() => {
+            this._handle = null;
+            this._unmounting = false;
+            if (this._reconnect) {
+              this._reconnect = false;
+              if (this.isConnected) this._handle = mountIslandInternal(this, this._mergedProps());
+            }
+          });
+        }
+
+        attributeChangedCallback(): void {
+          if (this._handle && !this._unmounting) this._handle.updateProps(this._mergedProps());
+        }
+      }
+
+      customElements.define(tagName, IlhaIslandElement);
+    };
+
     island.hydratable = async (
       props: Partial<TInput>,
       opts: HydratableOptions,
@@ -3360,6 +3684,17 @@ class IlhaBuilder<
         }
 
         if (doSkipOnMount) snapshotData["_skipOnMount"] = true;
+
+        if (__DEV__) {
+          const lossy = findNonJsonSafeValue(snapshotData, "snapshot");
+          if (lossy) {
+            warn(
+              `hydratable("${name}"): state/derived snapshot is not JSON-safe ` +
+                `(${lossy}) — hydration will diverge from SSR. ` +
+                `Keep snapshotted values to plain JSON types.`,
+            );
+          }
+        }
 
         stateAttr = ` ${STATE_ATTR}='${escapeHtml(JSON.stringify(snapshotData))}'`;
       }
@@ -3488,6 +3823,9 @@ const ilha = Object.assign(rootBuilder, {
   from: ilhaFrom,
   context: ilhaContext,
   signal: ilhaSignal,
+  computed: ilhaComputed,
+  // NOTE: no `effect` here — the builder's .effect() method owns that name on
+  // the default export. The top-level effect is available as a named import.
   batch,
   untrack,
   onUncaughtError,
@@ -3509,4 +3847,6 @@ export const mount = mountAll;
 export const from = ilhaFrom;
 export const context = ilhaContext;
 export { ilhaSignal as signal };
+export { ilhaComputed as computed };
+export { ilhaEffect as effect };
 export default ilha;

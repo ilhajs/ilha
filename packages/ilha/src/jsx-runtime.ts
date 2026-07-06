@@ -34,30 +34,30 @@ const URL_ATTRS = new Set(["href", "src", "action", "formaction", "cite", "data"
 const SAFE_URL_RE =
   /^(?!javascript:|data:text\/html|data:text\/xml|data:application\/xhtml\+xml|data:image\/svg|vbscript:)/i;
 
+// HTML parsers strip ASCII control chars (tab/newline/CR and friends) anywhere
+// inside a URL before resolving its scheme, so "java\tscript:" reaches the
+// browser as "javascript:". Normalize the same way before testing SAFE_URL_RE.
+function isSafeUrl(value: string): boolean {
+  return SAFE_URL_RE.test(value.replace(/[\u0000-\u0020]/g, ""));
+}
+
 function isRawHtml(v: unknown): v is RawHtml {
   return !!(v && typeof v === "object" && RAW in v);
 }
 
+// Brand checks use `Symbol.for`, which resolves to the SAME symbol across
+// duplicate ilha copies in one realm — no description-scanning fallback needed.
 function isSignalAccessor(v: unknown): boolean {
-  if (typeof v !== "function") return false;
-  if (SIGNAL_ACCESSOR in (v as object)) return true;
-  return Object.getOwnPropertySymbols(v as object).some(
-    (s) => s.description === "ilha.signalAccessor",
-  );
+  return typeof v === "function" && SIGNAL_ACCESSOR in (v as object);
 }
 
 function isIsland(v: unknown): boolean {
-  if (typeof v !== "function") return false;
-  if (ISLAND in (v as object)) return true;
-  return Object.getOwnPropertySymbols(v as object).some((s) => s.description === "ilha.island");
+  return typeof v === "function" && ISLAND in (v as object);
 }
 
 function isIslandCall(v: unknown): boolean {
   if (v == null || (typeof v !== "object" && typeof v !== "function")) return false;
   if (ISLAND_CALL in (v as object)) return true;
-  if (Object.getOwnPropertySymbols(v as object).some((s) => s.description === "ilha.islandCall")) {
-    return true;
-  }
   return typeof v === "object" && "island" in v && isIsland((v as { island?: unknown }).island);
 }
 
@@ -101,9 +101,13 @@ function serializeStyle(value: Record<string, unknown>): string {
     .map(([k, v]) => {
       if (!SAFE_CSS_PROP_RE.test(k)) return "";
       const prop = k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
-      const safeV = String(v).replace(/["<>{};]/g, "");
-      if (/expression\(/i.test(safeV) || /^javascript:/i.test(safeV)) return "";
-      return `${prop}:${safeV}`;
+      const str = String(v);
+      // Drop the whole declaration instead of silently rewriting the value —
+      // a mangled value is harder to debug than a missing one. Quotes are
+      // fine (fonts, content strings); `;{}<>` could smuggle in extra
+      // declarations or markup-looking text, so those reject.
+      if (/[<>{};]/.test(str) || /expression\(/i.test(str) || /javascript:/i.test(str)) return "";
+      return `${prop}:${str}`;
     })
     .filter(Boolean)
     .join(";");
@@ -130,14 +134,18 @@ function pushJsxAttr(chunks: string[], values: unknown[], name: string, value: u
   if (safeName === "className") safeName = "class";
   if (safeName === "htmlFor") safeName = "for";
   if (safeName.startsWith("on")) return;
+  // srcdoc decodes HTML entities back into live markup, so attribute escaping
+  // does not neutralize it — a bound srcdoc is an XSS hole. Refuse it outright.
+  if (safeName === "srcdoc") return;
   if (safeName === "class") value = normalizeClass(value);
   if (safeName === "style" && value && typeof value === "object") {
     value = serializeStyle(value as Record<string, unknown>);
   }
+  // Coerce non-string values (boxed strings, objects with toString) before
+  // the scheme check so they cannot smuggle an unsafe URL past it.
   if (
     (URL_ATTRS.has(safeName) || /:(href|src|action|formaction|cite|data|poster)$/.test(safeName)) &&
-    typeof value === "string" &&
-    !SAFE_URL_RE.test(value.trim())
+    !isSafeUrl(typeof value === "string" ? value : String(value))
   ) {
     return;
   }
