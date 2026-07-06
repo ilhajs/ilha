@@ -1078,8 +1078,10 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
     if (pendingBindSpecs !== "") {
       const { index: gtIdx, quote } = findTagCloseIndex(chunk, pendingQuote);
       if (gtIdx !== -1) {
-        chunk =
-          chunk.slice(0, gtIdx) + ` data-ilha-bind="${pendingBindSpecs}">` + chunk.slice(gtIdx + 1);
+        // Drop a self-closing `/` (plus surrounding whitespace) so the
+        // sentinel lands as the last attribute: `<input ... data-ilha-bind>`.
+        const head = chunk.slice(0, gtIdx).replace(/\s*\/\s*$/, "");
+        chunk = head + ` data-ilha-bind="${pendingBindSpecs}">` + chunk.slice(gtIdx + 1);
         pendingBindSpecs = "";
         pendingQuote = null;
       } else {

@@ -213,12 +213,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("renders non-JSX ilha island as child of JSX component", () => {
-    const Child = ilha.render(
-      () =>
-        html`
-          <span>child</span>
-        `,
-    );
+    const Child = ilha.render(() => html` <span>child</span> `);
     const Parent = ilha.render(() => (
       <div class="parent">
         <Child />
@@ -232,12 +227,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("renders non-JSX ilha island via expression in JSX", () => {
-    const Child = ilha.render(
-      () =>
-        html`
-          <b>bold</b>
-        `,
-    );
+    const Child = ilha.render(() => html` <b>bold</b> `);
     const Parent = ilha.render(() => <div>{Child()}</div>);
 
     const result = Parent() as string;
@@ -246,10 +236,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("renders a plain function component returning html`` inside a JSX ilha island", () => {
-    const Child = () =>
-      html`
-        <span>plain child</span>
-      `;
+    const Child = () => html` <span>plain child</span> `;
     const Parent = ilha.render(() => (
       <div class="parent">
         <Child />
@@ -262,10 +249,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("mounts a plain function component returning html`` inside a JSX ilha island", () => {
-    const Child = () =>
-      html`
-        <span class="child">mounted child</span>
-      `;
+    const Child = () => html` <span class="child">mounted child</span> `;
     const Parent = ilha.render(() => (
       <div class="parent">
         <Child />
@@ -930,12 +914,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("JSX island component returning SSR string emits slot instead of escaping", () => {
-    const Child = ilha.render(
-      () =>
-        html`
-          <span>child</span>
-        `,
-    );
+    const Child = ilha.render(() => html` <span>child</span> `);
     const CrossBundleChild = Object.assign(
       (props?: Record<string, unknown>) => Child.toString(props),
       {
@@ -1185,9 +1164,7 @@ describe("ilha JSX runtime — compound component children", () => {
     function renderPart(part: any) {
       if (part[PART] === "panel")
         return html`<div data-slot="resizable-panel">${part.input.children ?? ""}</div>`;
-      return html`
-        <div data-slot="resizable-handle"></div>
-      `;
+      return html` <div data-slot="resizable-handle"></div> `;
     }
     function renderChildren(v: any): any {
       if (v == null) return "";

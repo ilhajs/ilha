@@ -1637,9 +1637,7 @@ describe("renderResponse()", () => {
 
     const Page = ilha.render(() => {
       head({ title: "Home" });
-      return html`
-        <p>page</p>
-      `;
+      return html` <p>page</p> `;
     });
     const Layout = defineLayout((children) =>
       ilha.render(() => {
@@ -1664,15 +1662,11 @@ describe("renderResponse()", () => {
   it("updates document.title on client navigation when pages call head()", async () => {
     const Home = ilha.render(() => {
       head({ title: "Home" });
-      return html`
-        <p>home</p>
-      `;
+      return html` <p>home</p> `;
     });
     const Learn = ilha.render(() => {
       head({ title: "Learn" });
-      return html`
-        <p>learn</p>
-      `;
+      return html` <p>learn</p> `;
     });
     const Layout = defineLayout((children) =>
       ilha.render(() => {
@@ -1710,15 +1704,11 @@ describe("renderResponse()", () => {
   it("removes route-specific managed meta on client navigation", async () => {
     const Home = ilha.render(() => {
       head({ title: "Home", meta: [{ name: "description", content: "Home page" }] });
-      return html`
-        <p>home</p>
-      `;
+      return html` <p>home</p> `;
     });
     const About = ilha.render(() => {
       head({ title: "About" });
-      return html`
-        <p>about</p>
-      `;
+      return html` <p>about</p> `;
     });
     const reg = { home: Home, about: About };
 
@@ -1762,9 +1752,7 @@ describe("renderResponse()", () => {
 
     const FastPage = ilha.render(() => {
       head({ title: "Fast" });
-      return html`
-        <p>fast</p>
-      `;
+      return html` <p>fast</p> `;
     });
 
     const r = router().route("/slow", SlowPage).route("/fast", FastPage);
@@ -2052,19 +2040,18 @@ describe("wrapError / wrapLayout hydration", () => {
       .onMount(({ host }) => {
         host.setAttribute("data-child-live", "1");
       })
-      .render(
-        () =>
-          html`
-            <span data-child>child</span>
-          `,
-      );
+      .render(() => html` <span data-child>child</span> `);
 
     const Page = ilha
       .state("todos", [{ done: true }, { done: false }])
       .render(() => html`<div>${Child()}</div>`);
 
     const Layout = defineLayout((children) =>
-      ilha.render(() => html`<nav>nav</nav><main>${children()}</main>`),
+      ilha.render(
+        () =>
+          html`<nav>nav</nav>
+            <main>${children()}</main>`,
+      ),
     );
 
     const Wrapped = wrapLayout(Layout, Page);
@@ -2133,15 +2120,14 @@ describe("wrapError / wrapLayout hydration", () => {
         .onMount(({ host }) => {
           host.setAttribute("data-layout-mounted", "1");
         })
-        .render(() => html`<nav>nav</nav><main>${children()}</main>`),
+        .render(
+          () =>
+            html`<nav>nav</nav>
+              <main>${children()}</main>`,
+        ),
     );
 
-    const Page = ilha.render(
-      () =>
-        html`
-          <p>page</p>
-        `,
-    );
+    const Page = ilha.render(() => html` <p>page</p> `);
     const Wrapped = wrapLayout(Layout, Page);
     const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
 
@@ -2163,12 +2149,7 @@ describe("wrapError / wrapLayout hydration", () => {
       .onMount(({ host }) => {
         host.setAttribute("data-page-mounted", "1");
       })
-      .render(
-        () =>
-          html`
-            <p data-page-body>page</p>
-          `,
-      );
+      .render(() => html` <p data-page-body>page</p> `);
 
     const Wrapped = wrapLayout(Layout, Page);
     const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
@@ -2188,12 +2169,7 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("nested wrapLayout renderHydratable fills outer k:page with layout tree and inner k:page with page", async () => {
-    const Page = ilha.render(
-      () =>
-        html`
-          <p data-page-marker>page</p>
-        `,
-    );
+    const Page = ilha.render(() => html` <p data-page-marker>page</p> `);
 
     const InnerLayout = defineLayout((children) =>
       ilha.render(
@@ -2206,11 +2182,7 @@ describe("wrapError / wrapLayout hydration", () => {
     );
 
     const OuterLayout = defineLayout((children) =>
-      ilha.render(
-        () => html`
-          <div data-outer-layout class="h-dvh">${children()}</div>
-        `,
-      ),
+      ilha.render(() => html` <div data-outer-layout class="h-dvh">${children()}</div> `),
     );
 
     const Wrapped = wrapLayout(OuterLayout, wrapLayout(InnerLayout, Page));
@@ -2245,10 +2217,9 @@ describe("wrapError / wrapLayout hydration", () => {
 
   it("nested wrapLayout hydratable ignores </div> and nested <pre> in twoslash when locating k:page close", async () => {
     const Page = ilha.render(
-      () =>
-        html`
-          <article>
-            <pre class="shiki twoslash">
+      () => html`
+        <article>
+          <pre class="shiki twoslash">
               <code>
                 <span class="twoslash-hover"
                   ><span class="twoslash-popup-container"
@@ -2259,9 +2230,9 @@ describe("wrapError / wrapLayout hydration", () => {
                 >
               </code>
             </pre>
-            <p data-page-marker>page</p>
-          </article>
-        `,
+          <p data-page-marker>page</p>
+        </article>
+      `,
     );
 
     const InnerLayout = defineLayout((children) =>
@@ -2275,11 +2246,7 @@ describe("wrapError / wrapLayout hydration", () => {
     );
 
     const OuterLayout = defineLayout((children) =>
-      ilha.render(
-        () => html`
-          <div data-outer-layout>${children()}</div>
-        `,
-      ),
+      ilha.render(() => html` <div data-outer-layout>${children()}</div> `),
     );
 
     const Wrapped = wrapLayout(OuterLayout, wrapLayout(InnerLayout, Page));
@@ -2323,7 +2290,12 @@ describe("wrapError / wrapLayout hydration", () => {
       .onMount(({ input }) => {
         external.items = input.todos;
       })
-      .render(() => html`<ul>${external.items.map((t) => html`<li>${t}</li>`)}</ul>`);
+      .render(
+        () =>
+          html`<ul>
+            ${external.items.map((t) => html`<li>${t}</li>`)}
+          </ul>`,
+      );
 
     const Layout = defineLayout((children) =>
       ilha.render(({ input }) => html`<main>${children(input)}</main>`),
@@ -2497,12 +2469,7 @@ describe("SSR compound render-part regression (Areia Resizable pattern)", () => 
   const R = Resizable as any;
 
   it("compound render-part children render inside parent, not as siblings", async () => {
-    const Page = ilha.render(
-      () =>
-        html`
-          <article>page</article>
-        `,
-    );
+    const Page = ilha.render(() => html` <article>page</article> `);
 
     const Layout = defineLayout((children) =>
       ilha.render(() =>

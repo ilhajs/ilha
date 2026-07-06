@@ -1,5 +1,6 @@
 import { pageRouter, registry } from "ilha:pages/server";
 import "ilha:loaders";
+
 import { LOADER_ENDPOINT } from "./index";
 import type { HeadInput, HydratableRenderOptions, SerializedHead } from "./index";
 
