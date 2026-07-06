@@ -472,7 +472,7 @@ The element type is detected at runtime — no configuration needed.
 
 ### Number coercion warnings
 
-`bind:value`, `bind:group`, and radio/checkbox groups coerce the DOM's string value back to a number when the bound signal currently holds a number. If the DOM value cannot be parsed as a number (an empty or non-numeric input), ilha coerces to `0` and logs a dev warning suggesting `bind:valueAsNumber` instead — which yields `null` on invalid input rather than silently coercing to `0`:
+`bind:value` and radio-group `bind:group` bindings coerce the DOM's string value back to a number when the bound signal currently holds a number. If the DOM value cannot be parsed as a number (an empty or non-numeric input), ilha coerces to `0` and logs a dev warning suggesting `bind:valueAsNumber` instead — which yields `null` on invalid input rather than silently coercing to `0`. Checkbox-array `bind:group` bindings are exempt: an option value that fails to parse is kept as its raw string, with no `0` fallback:
 
 ```tsx twoslash
 import ilha from "ilha";

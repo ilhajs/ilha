@@ -141,10 +141,11 @@ function pushJsxAttr(chunks: string[], values: unknown[], name: string, value: u
   if (safeName === "style" && value && typeof value === "object") {
     value = serializeStyle(value as Record<string, unknown>);
   }
+  // Coerce non-string values (boxed strings, objects with toString) before
+  // the scheme check so they cannot smuggle an unsafe URL past it.
   if (
     (URL_ATTRS.has(safeName) || /:(href|src|action|formaction|cite|data|poster)$/.test(safeName)) &&
-    typeof value === "string" &&
-    !isSafeUrl(value)
+    !isSafeUrl(typeof value === "string" ? value : String(value))
   ) {
     return;
   }

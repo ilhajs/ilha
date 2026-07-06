@@ -60,7 +60,11 @@ function warn(msg: string): void {
 // round-trip (dropped or silently transformed by JSON.stringify), so authors
 // hear about hydration divergence instead of debugging it. Returns a
 // "path: reason" description, or null when the value is JSON-safe.
-function findNonJsonSafeValue(value: unknown, path: string): string | null {
+function findNonJsonSafeValue(
+  value: unknown,
+  path: string,
+  seen: WeakSet<object> = new WeakSet(),
+): string | null {
   if (value === null || typeof value === "string" || typeof value === "boolean") return null;
   if (typeof value === "number") {
     return Number.isFinite(value) ? null : `${path}: non-finite number becomes null`;
@@ -75,8 +79,10 @@ function findNonJsonSafeValue(value: unknown, path: string): string | null {
   }
   if (value instanceof RegExp) return `${path}: RegExp becomes {}`;
   if (Array.isArray(value)) {
+    if (seen.has(value)) return `${path}: circular reference throws in JSON.stringify`;
+    seen.add(value);
     for (let i = 0; i < value.length; i++) {
-      const found = findNonJsonSafeValue(value[i], `${path}[${i}]`);
+      const found = findNonJsonSafeValue(value[i], `${path}[${i}]`, seen);
       if (found) return found;
     }
     return null;
@@ -84,8 +90,10 @@ function findNonJsonSafeValue(value: unknown, path: string): string | null {
   if (typeof value === "object") {
     // Objects with toJSON serialize intentionally; trust them.
     if (typeof (value as { toJSON?: unknown }).toJSON === "function") return null;
+    if (seen.has(value)) return `${path}: circular reference throws in JSON.stringify`;
+    seen.add(value);
     for (const [k, v] of Object.entries(value)) {
-      const found = findNonJsonSafeValue(v, `${path}.${k}`);
+      const found = findNonJsonSafeValue(v, `${path}.${k}`, seen);
       if (found) return found;
     }
   }
@@ -1298,6 +1306,8 @@ function ilhaEffect(fn: () => void | (() => void)): () => void {
     startBatch();
     try {
       cleanup = fn();
+    } catch (err) {
+      console.error(err);
     } finally {
       endBatch();
     }
@@ -3500,6 +3510,33 @@ class IlhaBuilder<
         warn(`define("${tagName}"): customElements is unavailable in this environment.`);
         return;
       }
+      // Validate the name ourselves so authors get an ilha-worded soft
+      // failure instead of an uncaught native SyntaxError from
+      // customElements.define. Custom element names must be lowercase,
+      // start with a letter, contain a hyphen, and avoid the SVG/MathML
+      // reserved names.
+      const CE_RESERVED = new Set([
+        "annotation-xml",
+        "color-profile",
+        "font-face",
+        "font-face-src",
+        "font-face-uri",
+        "font-face-format",
+        "font-face-name",
+        "missing-glyph",
+      ]);
+      if (
+        typeof tagName !== "string" ||
+        !/^[a-z][a-z0-9._-]*-[a-z0-9._-]*$/.test(tagName) ||
+        CE_RESERVED.has(tagName)
+      ) {
+        warn(
+          `define("${tagName}"): not a valid custom element name — it must ` +
+            `be lowercase, start with a letter, and contain a hyphen ` +
+            `(e.g. "my-counter"). Skipping registration.`,
+        );
+        return;
+      }
       if (customElements.get(tagName)) {
         warn(`define("${tagName}"): tag is already registered — skipping.`);
         return;
@@ -3510,13 +3547,17 @@ class IlhaBuilder<
         static observedAttributes = observe;
         _handle: MountHandle | null = null;
         _props: Record<string, unknown> | undefined;
+        // True while an unmount is settling; the handle stays assigned so a
+        // reconnect cannot start a second mount over in-flight teardown.
+        _unmounting = false;
+        _reconnect = false;
 
         get props(): Record<string, unknown> | undefined {
           return this._props;
         }
         set props(p: Record<string, unknown> | undefined) {
           this._props = p;
-          if (this._handle) this._handle.updateProps(this._mergedProps());
+          if (this._handle && !this._unmounting) this._handle.updateProps(this._mergedProps());
         }
 
         _mergedProps(): Partial<TInput> | undefined {
@@ -3536,18 +3577,32 @@ class IlhaBuilder<
         }
 
         connectedCallback(): void {
+          if (this._unmounting) {
+            // Reconnected while the previous mount is still tearing down —
+            // defer the new mount until teardown settles.
+            this._reconnect = true;
+            return;
+          }
           if (this._handle) return;
           this._handle = mountIslandInternal(this, this._mergedProps());
         }
 
         disconnectedCallback(): void {
-          const handle = this._handle;
-          this._handle = null;
-          if (handle) void handle.unmount();
+          if (!this._handle || this._unmounting) return;
+          this._unmounting = true;
+          this._reconnect = false;
+          void Promise.resolve(this._handle.unmount()).finally(() => {
+            this._handle = null;
+            this._unmounting = false;
+            if (this._reconnect) {
+              this._reconnect = false;
+              if (this.isConnected) this._handle = mountIslandInternal(this, this._mergedProps());
+            }
+          });
         }
 
         attributeChangedCallback(): void {
-          if (this._handle) this._handle.updateProps(this._mergedProps());
+          if (this._handle && !this._unmounting) this._handle.updateProps(this._mergedProps());
         }
       }
 
