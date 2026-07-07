@@ -113,6 +113,7 @@ pageRouter.hydrate(registry);
 | `notFound`               | `Island`            | —       | Custom 404 island rendered when no route matches (see [RouterView](#routerview))   |
 | `allowExternalRedirects` | `boolean`           | `false` | Allow loader `redirect()` to cross-origin URLs; blocked targets become a 500 error |
 | `loaderTimeout`          | `number`            | —       | Max loader runtime in ms — see [Loaders](#loaders)                                 |
+| `viewTransitions`        | `boolean`           | `false` | Wrap client view swaps in `document.startViewTransition()` when supported          |
 
 ### `.route(pattern, island, loader?)`
 
@@ -216,9 +217,17 @@ The loader receives a `LoaderContext`:
 }
 ```
 
-On the server, loaders run inside `.renderHydratable()`. You can also call **`.runLoader(url, request?)`** on the builder to execute a loader without rendering HTML. On the client, navigations fetch loader data from the `/__ilha/loader` endpoint before mounting the next island.
+On the server, loaders run inside `.renderHydratable()`. You can also call **`.runLoader(url, request?)`** on the builder to execute a loader without rendering HTML.
+
+A loader runs **wherever the router runs**. When the route was registered in the browser — a plain SPA via `.route(pattern, island, loader)`, hash mode, Electron, `file://` — client navigations execute the loader locally: no server or loader endpoint needed. Routes that only _mark_ a server loader (the SSR-split pages build) fetch from the `/__ilha/loader` endpoint instead. Locally-executed loaders receive a synthetic `Request` (no cookies or server context) — rely on `url`, `params`, and `signal`; `redirect()`s are checked against the same cross-origin policy as on the server.
+
+**`.clientLoader(pattern, loader)`** attaches a loader that runs in the browser on client navigations, instead of the endpoint fetch. The FS-routing codegen uses it for `clientLoad` exports; manual routers can call it directly. When a route has both, the client loader wins on client navigations and the server loader runs during SSR.
 
 With `router({ loaderTimeout })`, the loader is raced against its abort signal — even a loader that ignores `ctx.signal` is cut off when the timeout elapses (or the incoming request aborts) and surfaces as a `504` loader error. Pass `ctx.signal` to your fetches anyway so the underlying work is actually cancelled, not just abandoned.
+
+Loader `ctx.head(...)` contributions are applied on the server **and** on client navigations — `document.title` and managed meta/link tags stay in sync as users navigate.
+
+If a loader fails, the error renders through the route's `+error` boundary when one is registered (see [Error boundaries](#error-boundaries)) — on the server `renderResponse` returns the boundary's HTML with the error status, and client navigations mount the boundary island in the outlet. Without a boundary, a minimal inline `data-router-error` element renders instead.
 
 ### `redirect(to, status?)`
 
@@ -275,6 +284,29 @@ prefetch("/dashboard?tab=overview");
 `RouterLink` calls this automatically on `mouseenter` for links with the `data-prefetch` attribute.
 
 Prefetched entries are single-use and expire after ~30 seconds. If the navigation that would consume a prefetch is superseded mid-flight, the prefetched result is discarded rather than applied to the wrong view.
+
+### `navigating()`
+
+Reactive — `true` while a client navigation (loader fetch + view swap) is in flight. Read it inside any island render to drive a progress bar or spinner. Also available as `useRoute().navigating`.
+
+```ts
+import { navigating } from "@ilha/router";
+
+const Spinner = ilha.render(() =>
+  navigating() ? html`<div class="bar"></div>` : "",
+);
+```
+
+### `invalidate()`
+
+Re-runs the current route's loader and re-renders the view with fresh data — call it after a mutation. Resolves when the view has updated. No-op on the server or when no router is mounted.
+
+```ts
+import { invalidate } from "@ilha/router";
+
+await api.deleteItem(id);
+await invalidate(); // current page refetches and re-renders
+```
 
 ## Hash mode
 
@@ -539,9 +571,38 @@ export default ilha
   .render(({ input }) => <h1>{input.user.name}</h1>);
 ```
 
+### Client loaders — `clientLoad`
+
+Export a `clientLoad` function to run a loader **in the browser** on client navigations, instead of fetching from the loader endpoint. Use it for data that is fetchable from the client anyway (public APIs, your app's own REST endpoints) — it saves a server round-trip per navigation and works on static hosts with no loader endpoint at all.
+
+```tsx
+// src/pages/dashboard.tsx
+import { loader } from "@ilha/router";
+import ilha from "ilha";
+
+export const clientLoad = loader(async ({ signal }) => {
+  const stats = await fetch("/api/stats", { signal }).then(
+    (r) => r.json(),
+  );
+  return { stats };
+});
+
+export default ilha
+  .input<{ stats: Stats }>()
+  .render(({ input }) => <Dashboard stats={input.stats} />);
+```
+
+- `clientLoad` is **bundled into the client** — never put secrets, database clients, or server-only imports in it. Keep those in `load`, which stays server-only.
+- A page can export **both**: `load` runs during SSR (first paint), `clientLoad` runs on client navigations instead of the endpoint fetch. Make them return the same shape.
+- Layout `clientLoad`s compose with the page's — the page wins on key collision, mirroring server loaders.
+- With SSR + hydration, a `clientLoad`-only page is server-rendered without its data; the router runs `clientLoad` right after hydration and re-renders the route with the loaded props.
+- `clientLoad` receives a synthetic `Request` — rely on `url`, `params`, and `signal`, not cookies or headers.
+
 ### Error boundaries
 
 A `+error.tsx` catches rendering errors for pages in its directory. The nearest boundary wins. If it re-throws, the next outer boundary takes over. (`.ts` is also supported if you do not need JSX.)
+
+The nearest boundary also renders **loader errors** — `error(status, message)` or an unexpected throw in `load`/`clientLoad` — on both the server (with the proper HTTP status) and client navigations. Manual routers get the same via `.errorBoundary(pattern, handler)`.
 
 ```tsx
 // src/pages/+error.tsx

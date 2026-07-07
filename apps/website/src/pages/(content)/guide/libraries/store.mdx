@@ -28,10 +28,10 @@ Island [`.state()`](/guide/island/state) is **local** to one component. Use `@il
 
 ## Import paths
 
-| Import path        | Use it for                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------------------ |
-| `@ilha/store`      | `store`, store types, subscriptions, `select`, `bind`, and `effectScope`                   |
-| `@ilha/store/form` | Form extraction, validation, issue-to-error mapping, `preventDefault` for `.on()` handlers |
+| Import path        | Use it for                                                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `@ilha/store`      | `store`, store types, subscriptions, `select`, `bind`, `persist`, `dehydrate`/`hydrate`, `shallowEqual`, and `effectScope` |
+| `@ilha/store/form` | Form extraction, validation, issue-to-error mapping, `preventDefault` for `.on()` handlers                                 |
 
 ## Quick start
 
@@ -159,6 +159,17 @@ Registers a named mutation. `fn` may be sync or `async`. Return a `Partial` patc
 })
 ```
 
+Every action exposes a reactive **`.pending`** flag — `true` while any async invocation is in flight (sync actions never set it). Read it in a render for per-action loading UI:
+
+```ts
+ilha.render(
+  () =>
+    html`<button disabled=${() => s.save.pending}>
+      Save
+    </button>`,
+);
+```
+
 ### `.middleware(fn)`
 
 Intercepts every state mutation before it commits. Receives `(patch, ctx, next)`. Call `next(patch)` to continue or return early to block. Applies to accessor writes, `setState`, actions, and `bind` writes.
@@ -239,7 +250,7 @@ draftStore.dispose();
 
 Raw `TState` snapshots — no derived values, no actions. The initial state is deep-cloned at `.build()` time (falling back to a shallow copy for non-cloneable values like functions), so mutating the original object you passed to `store()` — or nested state later — can't corrupt `reset()` or `getInitialState()`.
 
-#### `store.subscribe(listener)` / `store.subscribe(selector, listener)`
+#### `store.subscribe(listener)` / `store.subscribe(selector, listener, options?)`
 
 Full-state and slice forms. Neither fires on initial subscription. Both return an unsubscribe function.
 
@@ -255,6 +266,8 @@ const unsub2 = s.subscribe(
 );
 unsub();
 ```
+
+Slice comparison defaults to `Object.is`, so an object-building selector (`s => ({ a: s.a, b: s.b })`) fires on every commit — it returns a fresh object each time. Pass `{ equal: shallowEqual }` (exported from `@ilha/store`) to compare one level deep instead.
 
 #### `store.select(selector)` — reactive read accessor
 
@@ -323,6 +336,60 @@ Both islands stay in sync. `CartBadge` re-renders only when `count` changes; `Ca
 Use `.select()` for ad-hoc projections not worth a named `.derived()`, and `.bind()` for two-way form fields.
 
 **Note:** `state.todos.select((t) => t[i].done)` in island templates is ilha’s nested [`.select()` for `bind:*`](/guide/island/render#nested-fields-with-select) — not `store.select()` on `@ilha/store`.
+
+## Persistence — `persist(store, key, options?)`
+
+Keeps a store in sync with `localStorage` (or any `getItem`/`setItem` backend):
+
+1. **Hydrates** on call: reads `key` and merges the stored patch via `setState` — middleware runs and schema stores validate, so corrupt or stale-shaped payloads are rejected instead of applied.
+2. **Writes through** on every commit.
+3. **Cross-tab sync**: mirrors writes from other tabs via `storage` events (default `localStorage` backend only; disable with `crossTab: false`).
+
+Returns an unsubscribe. No-op on the server.
+
+```ts
+import { store, persist } from "@ilha/store";
+
+const cartStore = store({ items: [] as string[] }).build();
+persist(cartStore, "cart");
+```
+
+| Option        | Default               | Description                                 |
+| ------------- | --------------------- | ------------------------------------------- |
+| `storage`     | `window.localStorage` | Any `{ getItem, setItem }` backend          |
+| `crossTab`    | `true`                | Apply `storage` events from other tabs      |
+| `serialize`   | `JSON.stringify`      | State → string                              |
+| `deserialize` | `JSON.parse`          | String → patch (validated on schema stores) |
+
+Call the returned unsubscribe before `store.dispose()` for per-island stores.
+
+## SSR — `dehydrate()` / `hydrate()`
+
+Stores are module-level singletons, so on a concurrent SSR server they must **not** be written during a render — request A's data would leak into request B. Instead, state travels the same way ilha island state does: serialized into the HTML, then seeded on the client.
+
+- **`dehydrate(storeOrState)`** → JSON string. On a concurrent server pass a **request-local object** (e.g. loader data), not the shared store. Passing the store itself is fine in non-concurrent contexts (prerendering, tests).
+- **`hydrate(store, raw)`** → parses with the same guards as ilha's island snapshots (size cap, depth cap, must-be-plain-object, prototype-polluting keys stripped) and merges via `setState` — middleware runs and schema stores validate, so corrupt payloads are rejected. Returns `true` when applied.
+
+```ts
+// server (inside the loader / request handler)
+const payload = dehydrate({ items: cartItems }); // request-local data
+// stamp into the shell, escaped for the embedding context:
+// <script type="application/json" id="cart-state">
+//   ${payload.replace(/</g, "\\u003c")}
+// </script>
+```
+
+```ts
+// client — page island's onMount (runs on hydration)
+import { hydrate } from "@ilha/store";
+
+ilha.onMount(() => {
+  hydrate(
+    cartStore,
+    document.getElementById("cart-state")?.textContent,
+  );
+});
+```
 
 ## Forms
 
@@ -453,6 +520,10 @@ import type {
   StoreBindable, // <S>: read/write accessor for bind:*
   Listener, // (state, prevState) => void
   SliceListener, // (slice, prevSlice) => void
+  SubscribeOptions, // { equal? } — selector-form subscribe options
+  ActionInvoker, // callable action with reactive .pending
+  PersistStorage, // { getItem, setItem } — persist() backend
+  PersistOptions, // { storage?, crossTab?, serialize?, deserialize? }
   Unsub, // () => void
 } from "@ilha/store";
 

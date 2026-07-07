@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 
 import ilha, { ISLAND_MOUNT_INTERNAL, mount as ilhaMount, html } from "ilha";
 import { jsx, jsxs } from "ilha/jsx-runtime";
@@ -25,6 +25,8 @@ import {
   prefetch,
   RouterLink,
   head,
+  navigating,
+  invalidate,
 } from "./index";
 
 // ─────────────────────────────────────────────
@@ -1800,6 +1802,324 @@ describe("route() backward compatibility", () => {
 });
 
 // ─────────────────────────────────────────────
+// SPA client loaders — local execution, no endpoint
+// ─────────────────────────────────────────────
+
+describe("SPA client loaders", () => {
+  let el: Element;
+  let unmount: (() => void) | null = null;
+  let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
+
+  const flush = async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+  };
+
+  beforeEach(() => {
+    setLocation("/");
+    el = makeEl();
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
+      return new Response(JSON.stringify({ kind: "data", data: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+  });
+
+  afterEach(() => {
+    unmount?.();
+    unmount = null;
+    fetchSpy.mockRestore();
+    cleanup(el);
+    setLocation("/");
+  });
+
+  it("runs a .route() loader in the browser and passes its data to the island", async () => {
+    const GreetPage = ilha.render(({ input }: any) => `<p>hello:${input?.name ?? "nobody"}</p>`);
+    unmount = router()
+      .route("/", HomePage)
+      .route(
+        "/greet",
+        GreetPage,
+        loader(async ({ url }) => ({ name: url.searchParams.get("who") ?? "world" })),
+      )
+      .mount(el);
+
+    navigate("/greet?who=ada");
+    await flush();
+
+    expect(el.innerHTML).toContain("hello:ada");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("passes route params to the local loader", async () => {
+    const IdPage = ilha.render(({ input }: any) => `<p>id:${input?.id ?? "?"}</p>`);
+    unmount = router()
+      .route("/", HomePage)
+      .route(
+        "/item/:id",
+        IdPage,
+        loader(async ({ params }) => ({ id: params.id })),
+      )
+      .mount(el);
+
+    navigate("/item/42");
+    await flush();
+
+    expect(el.innerHTML).toContain("id:42");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it(".clientLoader() attaches a browser loader to a registered pattern", async () => {
+    const CPage = ilha.render(({ input }: any) => `<p>c:${input?.v ?? "?"}</p>`);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/c", CPage)
+      .clientLoader(
+        "/c",
+        loader(async () => ({ v: "local" })),
+      )
+      .mount(el);
+
+    navigate("/c");
+    await flush();
+
+    expect(el.innerHTML).toContain("c:local");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it(".clientLoader() warns and is a no-op for unregistered patterns", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    router()
+      .route("/", HomePage)
+      .clientLoader(
+        "/nope",
+        loader(async () => ({})),
+      );
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("client loader wins over a server loader on the same route", async () => {
+    const serverLoad = mock(async () => ({ v: "server" }));
+    const clientLoad = mock(async () => ({ v: "client" }));
+    const VPage = ilha.render(({ input }: any) => `<p>v:${input?.v ?? "?"}</p>`);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/v", VPage, loader(serverLoad))
+      .clientLoader("/v", loader(clientLoad))
+      .mount(el);
+
+    navigate("/v");
+    await flush();
+
+    expect(el.innerHTML).toContain("v:client");
+    expect(serverLoad).not.toHaveBeenCalled();
+    expect(clientLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it("follows a local loader redirect() on the client", async () => {
+    const FromPage = ilha.render(() => `<p>from</p>`);
+    unmount = router()
+      .route("/", HomePage)
+      .route(
+        "/from",
+        FromPage,
+        loader(async () => redirect("/about")),
+      )
+      .route("/about", AboutPage)
+      .mount(el);
+
+    navigate("/from");
+    await flush();
+
+    expect(routePath()).toBe("/about");
+    expect(el.innerHTML).toContain("about");
+  });
+
+  it("blocks a cross-origin local loader redirect by default", async () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const ExtPage = ilha.render(() => `<p>ext</p>`);
+    unmount = router()
+      .route("/", HomePage)
+      .route(
+        "/ext",
+        ExtPage,
+        loader(async () => redirect("https://evil.example/steal")),
+      )
+      .mount(el);
+
+    navigate("/ext");
+    await flush();
+
+    // The unsafe redirect is blocked — no navigation away, and the blocked
+    // target was reported.
+    expect(routePath()).toBe("/ext");
+    expect(warnSpy.mock.calls.flat().join(" ")).toContain("Blocked unsafe redirect");
+    warnSpy.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────
+// navigating() / invalidate() / errorBoundary / loader head sync
+// ─────────────────────────────────────────────
+
+describe("navigation feedback + revalidation", () => {
+  let el: Element;
+  let unmount: (() => void) | null = null;
+
+  const flush = async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+  };
+
+  beforeEach(() => {
+    setLocation("/");
+    el = makeEl();
+  });
+
+  afterEach(() => {
+    unmount?.();
+    unmount = null;
+    cleanup(el);
+    setLocation("/");
+  });
+
+  it("navigating() is true while a client loader is in flight, false after", async () => {
+    let resolve!: () => void;
+    const gate = new Promise<void>((r) => (resolve = r));
+    const SlowPage = ilha.render(() => `<p>slow</p>`);
+    unmount = router()
+      .route("/", HomePage)
+      .route(
+        "/slow",
+        SlowPage,
+        loader(async () => {
+          await gate;
+          return {};
+        }),
+      )
+      .mount(el);
+
+    expect(navigating()).toBe(false);
+    navigate("/slow");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(navigating()).toBe(true);
+    resolve();
+    await flush();
+    expect(navigating()).toBe(false);
+    expect(el.innerHTML).toContain("slow");
+  });
+
+  it("useRoute() exposes navigating", () => {
+    expect(typeof useRoute().navigating).toBe("function");
+    expect(useRoute().navigating()).toBe(false);
+  });
+
+  it("invalidate() re-runs the current route's loader and re-renders", async () => {
+    let n = 0;
+    const CountPage = ilha.render(({ input }: any) => `<p>n:${input?.n ?? "?"}</p>`);
+    unmount = router()
+      .route("/", HomePage)
+      .route(
+        "/count",
+        CountPage,
+        loader(async () => ({ n: ++n })),
+      )
+      .mount(el);
+
+    navigate("/count");
+    await flush();
+    expect(el.innerHTML).toContain("n:1");
+
+    await invalidate();
+    await flush();
+    expect(el.innerHTML).toContain("n:2");
+  });
+
+  it("invalidate() resolves as a no-op when no router is mounted", async () => {
+    await expect(invalidate()).resolves.toBeUndefined();
+  });
+
+  it("loader head entries update document.title on client navigation", async () => {
+    document.title = "before";
+    const HeadPage = ilha.render(() => `<p>headpage</p>`);
+    unmount = router()
+      .route("/", HomePage)
+      .route(
+        "/headed",
+        HeadPage,
+        loader(async ({ head }) => {
+          head({ title: "After Nav" });
+          return {};
+        }),
+      )
+      .mount(el);
+
+    navigate("/headed");
+    await flush();
+    expect(document.title).toBe("After Nav");
+  });
+
+  it("a loader error renders through the route's errorBoundary on the client", async () => {
+    const FailPage = ilha.render(() => `<p>fail</p>`);
+    const boundary = (err: { status?: number; message: string }) =>
+      ilha.render(() => `<p>boundary:${err.status}:${err.message}</p>`);
+    unmount = router()
+      .route("/", HomePage)
+      .route(
+        "/fails",
+        FailPage,
+        loader(async () => error(500, "kaput")),
+      )
+      .errorBoundary("/fails", boundary)
+      .mount(el);
+
+    navigate("/fails");
+    await flush();
+    expect(el.innerHTML).toContain("boundary:500:kaput");
+  });
+
+  it("errorBoundary() warns for unregistered patterns", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    router()
+      .route("/", HomePage)
+      .errorBoundary("/nope", () => HomePage);
+    expect(warnSpy.mock.calls.flat().join(" ")).toContain('errorBoundary("/nope"');
+    warnSpy.mockRestore();
+  });
+
+  it("a loader error renders through the errorBoundary during SSR renderResponse", async () => {
+    const FailPage = ilha.render(() => `<p>fail</p>`);
+    const boundary = (err: { status?: number; message: string }) =>
+      ilha.render(() => `<p>ssr-boundary:${err.status}</p>`);
+    const r = router()
+      .route(
+        "/fails",
+        FailPage,
+        loader(async () => error(503, "down")),
+      )
+      .errorBoundary("/fails", boundary);
+
+    const res = await r.renderResponse("http://localhost/fails", { fails: FailPage });
+    expect(res.kind).toBe("error");
+    if (res.kind === "error") {
+      expect(res.status).toBe(503);
+      expect(res.html).toContain("ssr-boundary:503");
+      expect(res.html).toContain('data-router-error="503"');
+    }
+  });
+
+  it("router({ viewTransitions: true }) works without startViewTransition support", async () => {
+    const VtPage = ilha.render(() => `<p>vt</p>`);
+    unmount = router({ viewTransitions: true }).route("/", HomePage).route("/vt", VtPage).mount(el);
+    navigate("/vt");
+    await flush();
+    expect(el.innerHTML).toContain("vt");
+  });
+});
+
+// ─────────────────────────────────────────────
 // prefetch() — opt-out when no loader registered
 // ─────────────────────────────────────────────
 
@@ -1835,12 +2155,10 @@ describe("prefetch()", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("fetches the loader endpoint when the route has a loader", () => {
-    router().route(
-      "/pf-fetch",
-      HomePage,
-      loader(async () => ({})),
-    );
+  it("fetches the loader endpoint when the route is marked as having a server loader", () => {
+    // markLoader simulates the SSR-split client graph: hasLoader without the
+    // loader function itself, so prefetch must go through the endpoint.
+    router().route("/pf-fetch", HomePage).markLoader("/pf-fetch");
     prefetch("/pf-fetch");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const url = (fetchSpy.mock.calls[0] as any[])[0] as string;
@@ -1848,23 +2166,24 @@ describe("prefetch()", () => {
     expect(url).toContain("path=");
   });
 
+  it("runs a locally-registered loader instead of fetching the endpoint", async () => {
+    const load = mock(async () => ({ ok: true }));
+    router().route("/pf-local", HomePage, loader(load));
+    prefetch("/pf-local");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
   it("is idempotent — second call with same path does not fetch again", () => {
-    router().route(
-      "/pf-idem",
-      HomePage,
-      loader(async () => ({})),
-    );
+    router().route("/pf-idem", HomePage).markLoader("/pf-idem");
     prefetch("/pf-idem");
     prefetch("/pf-idem");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("encodes the path into the query string", () => {
-    router().route(
-      "/pf-enc/:id",
-      HomePage,
-      loader(async () => ({})),
-    );
+    router().route("/pf-enc/:id", HomePage).markLoader("/pf-enc/:id");
     prefetch("/pf-enc/abc?tab=reviews");
     const url = (fetchSpy.mock.calls[0] as any[])[0] as string;
     expect(url).toContain(encodeURIComponent("/pf-enc/abc?tab=reviews"));

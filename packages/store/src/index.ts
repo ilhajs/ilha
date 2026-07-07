@@ -43,6 +43,15 @@ export type Listener<T> = (state: T, prevState: T) => void;
 export type SliceListener<_T, S> = (slice: S, prevSlice: S) => void;
 export type Unsub = () => void;
 
+/** Options for the selector form of `subscribe`. */
+export interface SubscribeOptions<S> {
+  /**
+   * Slice equality — the listener fires only when this returns `false`.
+   * Default: `Object.is`. Pass `shallowEqual` for object-building selectors.
+   */
+  equal?: (a: S, b: S) => boolean;
+}
+
 /** The reactive envelope for a derived value. Mirrors ilha core's `DerivedValue`. */
 export interface DerivedValue<T> {
   loading: boolean;
@@ -140,11 +149,19 @@ type Middleware<TState> = (
 export type ActionsMap<A> = {
   [K in keyof A]: A[K] extends (props: infer P, get: any) => any
     ? [P] extends [undefined]
-      ? () => void
+      ? ActionInvoker
       : unknown extends P
-        ? () => void
-        : (props: P) => void
+        ? ActionInvoker
+        : ActionInvoker<P>
     : never;
+};
+
+/**
+ * A callable action on the built store. `.pending` is reactive — `true` while
+ * any async invocation of this action is in flight (sync actions never set it).
+ */
+export type ActionInvoker<P = never> = ([P] extends [never] ? () => void : (props: P) => void) & {
+  readonly pending: boolean;
 };
 
 /** Built-in methods present on every built store. */
@@ -154,7 +171,11 @@ export interface StoreBuiltins<TState extends object> {
   /** Reset to the initial state captured at `.build()` time. Routed through middleware. */
   reset(): void;
   subscribe(listener: Listener<TState>): Unsub;
-  subscribe<S>(selector: (state: TState) => S, listener: SliceListener<TState, S>): Unsub;
+  subscribe<S>(
+    selector: (state: TState) => S,
+    listener: SliceListener<TState, S>,
+    options?: SubscribeOptions<S>,
+  ): Unsub;
   select<S>(selector: (state: TState) => S): () => S;
   /**
    * Two-way field accessor for ilha `bind:*`. Property-path selectors only —
@@ -232,6 +253,20 @@ function isNoopPatch<T extends object>(prev: T, patch: Partial<T>): boolean {
     if (!Object.is((prev as Record<string, unknown>)[key], patch[key])) return false;
   }
   return true;
+}
+
+/**
+ * Shallow equality for selector slices: `Object.is` on primitives, own-key
+ * comparison one level deep for plain objects and arrays. Pass as the `equal`
+ * option to `subscribe(selector, listener, { equal: shallowEqual })` so
+ * object-building selectors (`s => ({ a: s.a, b: s.b })`) don't fire on every
+ * commit.
+ */
+export function shallowEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  return shallowStateEqual(a as object, b as object);
 }
 
 function shallowStateEqual<T extends object>(a: T, b: T): boolean {
@@ -542,10 +577,15 @@ function buildStore<
   }
 
   function subscribe(listener: Listener<TState>): Unsub;
-  function subscribe<S>(selector: (state: TState) => S, listener: SliceListener<TState, S>): Unsub;
+  function subscribe<S>(
+    selector: (state: TState) => S,
+    listener: SliceListener<TState, S>,
+    options?: SubscribeOptions<S>,
+  ): Unsub;
   function subscribe<S>(
     listenerOrSelector: Listener<TState> | ((state: TState) => S),
     maybeListener?: SliceListener<TState, S>,
+    options?: SubscribeOptions<S>,
   ): Unsub {
     if (maybeListener === undefined) {
       const listener = listenerOrSelector as Listener<TState>;
@@ -565,6 +605,7 @@ function buildStore<
     }
 
     const selector = listenerOrSelector as (state: TState) => S;
+    const equal = options?.equal ?? Object.is;
     const sliceComputed = computed(() => selector(stateSignal()));
     let prevSlice = sliceComputed();
     let first = true;
@@ -575,7 +616,7 @@ function buildStore<
           first = false;
           return;
         }
-        if (!Object.is(currentSlice, prevSlice)) {
+        if (!equal(currentSlice, prevSlice)) {
           maybeListener(currentSlice, prevSlice);
           prevSlice = currentSlice;
         }
@@ -732,19 +773,35 @@ function buildStore<
   };
   const actionHandlers = new Map<string, (props?: unknown) => void>();
   for (const { key, fn } of cfg.actions) {
-    actionHandlers.set(key, (props?: unknown) => {
+    // Per-action pending counter (a count, not a boolean, so overlapping
+    // invocations don't clear the flag early). Exposed as `.pending` on the
+    // action — reactive, since the getter reads a signal.
+    const pendingSig = signal(0);
+    const handler = (props?: unknown) => {
       const ret = fn(props as never, actionCtx);
       const apply = (patch: Partial<TState> | void | undefined | null) => {
         if (patch != null) setState(patch);
       };
       if (ret != null && typeof (ret as Promise<unknown>).then === "function") {
-        void (ret as Promise<Partial<TState> | void>).then(apply).catch((reason: unknown) => {
-          reportStoreError(reason instanceof Error ? reason : new Error(String(reason)), "action");
-        });
+        untrackRun(() => pendingSig(pendingSig() + 1));
+        void (ret as Promise<Partial<TState> | void>)
+          .then(apply)
+          .catch((reason: unknown) => {
+            reportStoreError(
+              reason instanceof Error ? reason : new Error(String(reason)),
+              "action",
+            );
+          })
+          .finally(() => untrackRun(() => pendingSig(Math.max(0, pendingSig() - 1))));
       } else {
         apply(ret as Partial<TState> | void);
       }
+    };
+    Object.defineProperty(handler, "pending", {
+      get: () => pendingSig() > 0,
+      enumerable: false,
     });
+    actionHandlers.set(key, handler);
   }
 
   // --- proxy ----------------------------------------------------------------
@@ -819,3 +876,205 @@ export function store(initialOrSchema: object): StoreBuilder<object> {
 }
 
 export { effectScope } from "alien-signals";
+
+// ---------------------------------------------------------------------------
+// persist() — storage sync helper
+// ---------------------------------------------------------------------------
+
+/** Minimal storage surface — `localStorage`, `sessionStorage`, or a custom adapter. */
+export type PersistStorage = Pick<Storage, "getItem" | "setItem">;
+
+export interface PersistOptions<TState extends object> {
+  /** Storage backend. Default: `window.localStorage`. */
+  storage?: PersistStorage;
+  /**
+   * Mirror writes from other tabs via the window `storage` event. Only active
+   * for the default `localStorage` backend. Default: `true`.
+   */
+  crossTab?: boolean;
+  /** State → string. Default: `JSON.stringify`. */
+  serialize?: (state: TState) => string;
+  /** String → patch merged via `setState` (schema stores validate it). Default: `JSON.parse`. */
+  deserialize?: (raw: string) => Partial<TState>;
+}
+
+/**
+ * Keep a store in sync with persistent storage:
+ *
+ * 1. On call, reads `key` and merges the stored patch into the store
+ *    (through `setState`, so middleware runs and schema stores validate —
+ *    corrupt or stale-shaped payloads are rejected, not applied).
+ * 2. Subscribes to changes and writes the full state back on every commit.
+ * 3. Optionally mirrors writes from other tabs (`storage` events).
+ *
+ * No-op on the server (returns an inert unsubscribe). Call the returned
+ * unsubscribe to stop syncing (also do this before `store.dispose()`).
+ *
+ * ```ts
+ * const cartStore = store({ items: [] as string[] }).build();
+ * persist(cartStore, "cart");
+ * ```
+ */
+export function persist<TState extends object>(
+  store: Pick<StoreBuiltins<TState>, "getState" | "setState" | "subscribe">,
+  key: string,
+  options: PersistOptions<TState> = {},
+): Unsub {
+  if (typeof window === "undefined") return () => {};
+  const storage = options.storage ?? window.localStorage;
+  const serialize = options.serialize ?? (JSON.stringify as (state: TState) => string);
+  const deserialize = options.deserialize ?? ((raw: string) => JSON.parse(raw) as Partial<TState>);
+
+  const applyRaw = (raw: string | null) => {
+    if (raw == null) return;
+    try {
+      const patch = deserialize(raw);
+      if (patch !== null && typeof patch === "object" && !Array.isArray(patch)) {
+        store.setState(patch);
+      }
+    } catch (err) {
+      console.error(`[@ilha/store] persist("${key}"): failed to restore state`, err);
+    }
+  };
+
+  // 1. Hydrate from storage.
+  try {
+    applyRaw(storage.getItem(key));
+  } catch (err) {
+    console.error(`[@ilha/store] persist("${key}"): failed to read storage`, err);
+  }
+
+  // 2. Write-through on every commit.
+  const unsubStore = store.subscribe((state) => {
+    try {
+      storage.setItem(key, serialize(state));
+    } catch (err) {
+      console.error(`[@ilha/store] persist("${key}"): failed to write storage`, err);
+    }
+  });
+
+  // 3. Cross-tab sync (localStorage only — sessionStorage/custom backends
+  // don't emit cross-tab storage events).
+  let onStorage: ((e: StorageEvent) => void) | null = null;
+  if (options.crossTab !== false && storage === window.localStorage) {
+    onStorage = (e) => {
+      if (e.key !== key) return;
+      applyRaw(e.newValue);
+    };
+    window.addEventListener("storage", onStorage);
+  }
+
+  return () => {
+    unsubStore();
+    if (onStorage) window.removeEventListener("storage", onStorage);
+  };
+}
+
+// ---------------------------------------------------------------------------
+// dehydrate() / hydrate() — SSR snapshot transfer
+//
+// Mirrors ilha core's island snapshot model (data-ilha-state + guarded parse):
+// state travels as serialized JSON stamped into the HTML, and the client seeds
+// the store from it on mount. Stores are NOT written during SSR — server data
+// flows loader → props; `dehydrate` serializes a request-local state object
+// (or the store itself in non-concurrent contexts like prerendering).
+// The parse guards below intentionally match ilha's `safeParseSnapshot`.
+// ---------------------------------------------------------------------------
+
+// Upper bound on a snapshot payload (chars). Matches ilha core's cap.
+const MAX_SNAPSHOT_CHARS = 256 * 1024;
+// Upper bound on nesting depth of a parsed snapshot. Matches ilha core's cap.
+const MAX_SNAPSHOT_DEPTH = 32;
+
+const UNSAFE_SNAPSHOT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function exceedsMaxDepth(value: unknown, depth: number): boolean {
+  if (depth > MAX_SNAPSHOT_DEPTH) return true;
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) {
+    for (const item of value) if (exceedsMaxDepth(item, depth + 1)) return true;
+    return false;
+  }
+  for (const key in value as Record<string, unknown>) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    if (exceedsMaxDepth((value as Record<string, unknown>)[key], depth + 1)) return true;
+  }
+  return false;
+}
+
+// JSON.parse creates __proto__ etc. as plain own properties — strip them at
+// the parse boundary before the payload flows into setState/deep merges.
+function stripUnsafeKeys(value: unknown): void {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value) stripUnsafeKeys(item);
+    return;
+  }
+  for (const key of Object.getOwnPropertyNames(value)) {
+    if (UNSAFE_SNAPSHOT_KEYS.has(key)) {
+      delete (value as Record<string, unknown>)[key];
+    } else {
+      stripUnsafeKeys((value as Record<string, unknown>)[key]);
+    }
+  }
+}
+
+/**
+ * Serialize state for transfer into HTML (a JSON `<script>` block or data
+ * attribute — remember to escape for the embedding context). Accepts either a
+ * built store or a plain state object.
+ *
+ * On a **concurrent SSR server, pass a request-local object** (e.g. loader
+ * data), not the shared module-level store — stores must not be written
+ * during SSR. Passing the store itself is fine in non-concurrent contexts
+ * (prerendering, tests).
+ */
+export function dehydrate<TState extends object>(
+  storeOrState: Pick<StoreBuiltins<TState>, "getState"> | TState,
+): string {
+  const state =
+    typeof (storeOrState as Partial<StoreBuiltins<TState>>).getState === "function"
+      ? (storeOrState as StoreBuiltins<TState>).getState()
+      : (storeOrState as TState);
+  return JSON.stringify(state);
+}
+
+/**
+ * Seed a store from a dehydrated snapshot — call from the page island's
+ * `onMount` (which runs on hydration) with the payload stamped into the HTML.
+ *
+ * Parsing is guarded like ilha core's island snapshots: size cap, depth cap,
+ * must-be-plain-object, prototype-polluting keys stripped. The patch merges
+ * via `setState`, so middleware runs and schema stores validate — corrupt or
+ * stale-shaped payloads are rejected, not applied. Returns `true` when the
+ * snapshot was applied, `false` when it was ignored (with a console warning).
+ */
+export function hydrate<TState extends object>(
+  store: Pick<StoreBuiltins<TState>, "setState">,
+  raw: string | null | undefined,
+): boolean {
+  if (raw == null || raw === "") return false;
+  const warn = (msg: string) => console.warn(`[@ilha/store] hydrate: ${msg}`);
+  if (raw.length > MAX_SNAPSHOT_CHARS) {
+    warn(`snapshot exceeds ${MAX_SNAPSHOT_CHARS} chars — ignored.`);
+    return false;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    warn("invalid JSON — snapshot ignored.");
+    return false;
+  }
+  if (exceedsMaxDepth(parsed, 1)) {
+    warn(`snapshot nesting exceeds depth ${MAX_SNAPSHOT_DEPTH} — ignored.`);
+    return false;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    warn("snapshot is not an object — ignored.");
+    return false;
+  }
+  stripUnsafeKeys(parsed);
+  store.setState(parsed as Partial<TState>);
+  return true;
+}

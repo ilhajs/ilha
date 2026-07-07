@@ -10,7 +10,15 @@ import ilha, { html } from "ilha";
 import { z } from "zod";
 
 import { setIn } from "./bind-path";
-import { store, effectScope, StoreValidationError } from "./index";
+import {
+  store,
+  effectScope,
+  persist,
+  dehydrate,
+  hydrate,
+  shallowEqual,
+  StoreValidationError,
+} from "./index";
 
 beforeEach(() => {
   document.body.innerHTML = "";
@@ -1189,6 +1197,274 @@ describe("bind()", () => {
     expect(() => setIn({}, ["a", "constructor", "x"], 1)).toThrow(/unsafe path segment/);
     expect(() => setIn({}, ["prototype"], 1)).toThrow(/unsafe path segment/);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// subscribe equality + shallowEqual
+// ---------------------------------------------------------------------------
+
+describe("subscribe() — equality option", () => {
+  it("shallowEqual compares one level deep", () => {
+    expect(shallowEqual({ a: 1 }, { a: 1 })).toBe(true);
+    expect(shallowEqual({ a: 1 }, { a: 2 })).toBe(false);
+    expect(shallowEqual([1, 2], [1, 2])).toBe(true);
+    expect(shallowEqual([1, 2], [1, 3])).toBe(false);
+    expect(shallowEqual([1], { 0: 1 })).toBe(false);
+    expect(shallowEqual(1, 1)).toBe(true);
+    expect(shallowEqual({ a: { x: 1 } }, { a: { x: 1 } })).toBe(false); // deep differs by ref
+  });
+
+  it("object-building selector with { equal: shallowEqual } skips equivalent slices", () => {
+    const listener = mock();
+    const s = store({ a: 1, b: 2, other: 0 }).build();
+    s.subscribe((st) => ({ a: st.a, b: st.b }), listener, { equal: shallowEqual });
+    s.other(1); // slice unchanged (but a fresh object every commit)
+    expect(listener).not.toHaveBeenCalled();
+    s.a(5);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith({ a: 5, b: 2 }, { a: 1, b: 2 });
+  });
+
+  it("default equality is Object.is (object-building selector fires every commit)", () => {
+    const listener = mock();
+    const s = store({ a: 1, other: 0 }).build();
+    s.subscribe((st) => ({ a: st.a }), listener);
+    s.other(1);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// action .pending
+// ---------------------------------------------------------------------------
+
+describe("action .pending", () => {
+  it("is true while an async action is in flight and false after", async () => {
+    let resolve!: () => void;
+    const gate = new Promise<void>((r) => (resolve = r));
+    const s = store({ done: false })
+      .action("run", async () => {
+        await gate;
+        return { done: true };
+      })
+      .build();
+
+    expect(s.run.pending).toBe(false);
+    s.run();
+    expect(s.run.pending).toBe(true);
+    resolve();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.run.pending).toBe(false);
+    expect(s.done()).toBe(true);
+  });
+
+  it("stays true until the last overlapping invocation settles", async () => {
+    const resolvers: Array<() => void> = [];
+    const s = store({ n: 0 })
+      .action("run", async () => {
+        await new Promise<void>((r) => resolvers.push(r));
+      })
+      .build();
+    s.run();
+    s.run();
+    resolvers[0]!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.run.pending).toBe(true);
+    resolvers[1]!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.run.pending).toBe(false);
+  });
+
+  it("clears pending when the async action rejects (and reports the error)", async () => {
+    const errors: Error[] = [];
+    const s = store({ n: 0 })
+      .action("boom", async () => {
+        throw new Error("nope");
+      })
+      .onError((ctx) => errors.push(ctx.error))
+      .build();
+    s.boom();
+    expect(s.boom.pending).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.boom.pending).toBe(false);
+    expect(errors[0]?.message).toBe("nope");
+  });
+
+  it("sync actions never set pending", () => {
+    const s = store({ n: 0 })
+      .action("inc", (_, ctx) => ({ n: ctx.get().n + 1 }))
+      .build();
+    s.inc();
+    expect(s.inc.pending).toBe(false);
+  });
+
+  it("pending is reactive inside effects", async () => {
+    let resolve!: () => void;
+    const s = store({ n: 0 })
+      .action("run", async () => {
+        await new Promise<void>((r) => (resolve = r));
+      })
+      .build();
+    const seen: boolean[] = [];
+    const stop = effect(() => {
+      seen.push(s.run.pending);
+    });
+    s.run();
+    resolve();
+    await new Promise((r) => setTimeout(r, 0));
+    stop();
+    expect(seen).toEqual([false, true, false]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// persist()
+// ---------------------------------------------------------------------------
+
+describe("persist()", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("hydrates from storage on call", () => {
+    window.localStorage.setItem("p1", JSON.stringify({ count: 42 }));
+    const s = store({ count: 0 }).build();
+    const stop = persist(s, "p1");
+    expect(s.count()).toBe(42);
+    stop();
+  });
+
+  it("writes state on every commit", () => {
+    const s = store({ count: 0 }).build();
+    const stop = persist(s, "p2");
+    s.count(7);
+    expect(JSON.parse(window.localStorage.getItem("p2")!)).toEqual({ count: 7 });
+    stop();
+  });
+
+  it("unsubscribe stops writing", () => {
+    const s = store({ count: 0 }).build();
+    const stop = persist(s, "p3");
+    stop();
+    s.count(9);
+    expect(window.localStorage.getItem("p3")).toBeNull();
+  });
+
+  it("ignores corrupt payloads without crashing", () => {
+    const errSpy = mock();
+    const origError = console.error;
+    console.error = errSpy;
+    try {
+      window.localStorage.setItem("p4", "{not json");
+      const s = store({ count: 3 }).build();
+      const stop = persist(s, "p4");
+      expect(s.count()).toBe(3); // untouched
+      expect(errSpy).toHaveBeenCalled();
+      stop();
+    } finally {
+      console.error = origError;
+    }
+  });
+
+  it("schema stores reject invalid persisted payloads via validation", () => {
+    const Schema = z.object({ email: z.email().default("a@b.co") });
+    window.localStorage.setItem("p5", JSON.stringify({ email: "not-an-email" }));
+    const errors: unknown[] = [];
+    const s = store(Schema)
+      .onError((ctx) => errors.push(ctx.error))
+      .build();
+    const stop = persist(s, "p5");
+    expect(s.email()).toBe("a@b.co"); // rejected patch, state untouched
+    expect(errors).toHaveLength(1);
+    stop();
+  });
+
+  it("applies cross-tab storage events", () => {
+    const s = store({ count: 0 }).build();
+    const stop = persist(s, "p6");
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: "p6", newValue: JSON.stringify({ count: 11 }) }),
+    );
+    expect(s.count()).toBe(11);
+    stop();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dehydrate() / hydrate()
+// ---------------------------------------------------------------------------
+
+describe("dehydrate() / hydrate()", () => {
+  it("round-trips store state", () => {
+    const server = store({ count: 5, label: "x" }).build();
+    const raw = dehydrate(server);
+    const client = store({ count: 0, label: "" }).build();
+    expect(hydrate(client, raw)).toBe(true);
+    expect(client.getState()).toEqual({ count: 5, label: "x" });
+  });
+
+  it("dehydrate accepts a plain request-local state object", () => {
+    const raw = dehydrate({ count: 9 });
+    const s = store({ count: 0 }).build();
+    expect(hydrate(s, raw)).toBe(true);
+    expect(s.count()).toBe(9);
+  });
+
+  it("hydrate merges through setState — middleware runs", () => {
+    const seen: unknown[] = [];
+    const s = store({ count: 0 })
+      .middleware((patch, _ctx, next) => {
+        seen.push(patch);
+        next(patch);
+      })
+      .build();
+    hydrate(s, JSON.stringify({ count: 3 }));
+    expect(seen).toEqual([{ count: 3 }]);
+  });
+
+  it("schema stores reject invalid snapshots via validation", () => {
+    const Schema = z.object({ email: z.email().default("a@b.co") });
+    const errors: unknown[] = [];
+    const s = store(Schema)
+      .onError((ctx) => errors.push(ctx.error))
+      .build();
+    expect(hydrate(s, JSON.stringify({ email: "not-an-email" }))).toBe(true); // parsed fine…
+    expect(s.email()).toBe("a@b.co"); // …but the commit was rejected
+    expect(errors).toHaveLength(1);
+  });
+
+  it("rejects non-object, oversized, too-deep, and invalid-JSON payloads", () => {
+    const warnSpy = mock();
+    const origWarn = console.warn;
+    console.warn = warnSpy;
+    try {
+      const s = store({ count: 1 }).build();
+      expect(hydrate(s, "null")).toBe(false);
+      expect(hydrate(s, "[1,2]")).toBe(false);
+      expect(hydrate(s, "{oops")).toBe(false);
+      expect(hydrate(s, "x".repeat(256 * 1024 + 1))).toBe(false);
+      let deep = "1";
+      for (let i = 0; i < 40; i++) deep = `{"a":${deep}}`;
+      expect(hydrate(s, deep)).toBe(false);
+      expect(hydrate(s, null)).toBe(false);
+      expect(hydrate(s, "")).toBe(false);
+      expect(s.count()).toBe(1); // untouched throughout
+      expect(warnSpy).toHaveBeenCalledTimes(5); // null/"" are silent no-ops
+    } finally {
+      console.warn = origWarn;
+    }
+  });
+
+  it("strips prototype-polluting keys from the payload", () => {
+    const s = store({ nested: { ok: true } }).build();
+    hydrate(s, '{"nested":{"ok":false,"__proto__":{"polluted":true}},"constructor":{"x":1}}');
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(s.getState().nested.ok).toBe(false);
+    expect(
+      "constructor" in s.getState() &&
+        Object.prototype.hasOwnProperty.call(s.getState(), "constructor"),
+    ).toBe(false);
   });
 });
 

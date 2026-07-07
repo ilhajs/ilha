@@ -3,6 +3,8 @@ name: Continuous Integration
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -39,11 +41,13 @@ jobs:
         run: bun run lint
 
       - name: Publish preview packages
+        if: github.event_name != 'pull_request'
         run: |
           echo "gitdir: $(pwd)/.git" > packages/ilha/.git
           bunx pkg-pr-new publish './packages/*'
 
       - name: Upload package dist
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: lib-dist
@@ -54,6 +58,7 @@ jobs:
     name: Deploy docs
     runs-on: ubuntu-latest
     needs: build-test-publish
+    if: github.event_name != 'pull_request'
     permissions:
       pages: write
       id-token: write

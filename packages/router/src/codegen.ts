@@ -19,6 +19,10 @@ interface PageEntry {
   hasLoader: boolean;
   /** Subset of `layouts` whose modules declare a `load` export. */
   loaderLayouts: string[];
+  /** True if the page module declares a `clientLoad` export (browser-executed loader). */
+  hasClientLoader: boolean;
+  /** Subset of `layouts` whose modules declare a `clientLoad` export. */
+  clientLoaderLayouts: string[];
 }
 
 // ─────────────────────────────────────────────
@@ -40,15 +44,27 @@ const EXCLUDED_RE = /\.(test|spec|d)\.(ts|tsx)$/;
  */
 const LOADER_EXPORT_RE = /^\s*export\s+(?:const|let|var|async\s+function|function)\s+load\b/m;
 
-async function hasLoaderExport(file: string): Promise<boolean> {
+/** Same shape for `clientLoad` — a loader executed in the browser on client navigations. */
+const CLIENT_LOADER_EXPORT_RE =
+  /^\s*export\s+(?:const|let|var|async\s+function|function)\s+clientLoad\b/m;
+
+interface LoaderExports {
+  load: boolean;
+  clientLoad: boolean;
+}
+
+async function detectLoaderExports(file: string): Promise<LoaderExports> {
   try {
     const src = await readFile(file, "utf8");
     // Strip single-line comments at the start of lines to avoid matching
     // commented-out loaders. Block comments are rare enough to skip.
     const stripped = src.replace(/^\s*\/\/.*$/gm, "");
-    return LOADER_EXPORT_RE.test(stripped);
+    return {
+      load: LOADER_EXPORT_RE.test(stripped),
+      clientLoad: CLIENT_LOADER_EXPORT_RE.test(stripped),
+    };
   } catch {
-    return false;
+    return { load: false, clientLoad: false };
   }
 }
 
@@ -179,11 +195,11 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
   const allSet = new Set(all);
   const pages = all.filter((f) => !basename(f).startsWith("+"));
 
-  const layoutLoaderCache = new Map<string, Promise<boolean>>();
-  const getLayoutHasLoader = (file: string): Promise<boolean> => {
+  const layoutLoaderCache = new Map<string, Promise<LoaderExports>>();
+  const getLayoutExports = (file: string): Promise<LoaderExports> => {
     let cached = layoutLoaderCache.get(file);
     if (!cached) {
-      cached = hasLoaderExport(file);
+      cached = detectLoaderExports(file);
       layoutLoaderCache.set(file, cached);
     }
     return cached;
@@ -194,19 +210,22 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
       const pattern = fileToPattern(pagesDir, file);
       const layouts = chainForFile(pagesDir, file, allSet, "+layout");
       const errors = chainForFile(pagesDir, file, allSet, "+error");
-      const [pageHasLoader, ...layoutFlags] = await Promise.all([
-        hasLoaderExport(file),
-        ...layouts.map(getLayoutHasLoader),
+      const [pageExports, ...layoutExports] = await Promise.all([
+        detectLoaderExports(file),
+        ...layouts.map(getLayoutExports),
       ]);
-      const loaderLayouts = layouts.filter((_, i) => layoutFlags[i]);
+      const loaderLayouts = layouts.filter((_, i) => layoutExports[i]!.load);
+      const clientLoaderLayouts = layouts.filter((_, i) => layoutExports[i]!.clientLoad);
       return {
         file,
         pattern,
         name: patternToName(pattern),
         layouts,
         errors,
-        hasLoader: pageHasLoader,
+        hasLoader: pageExports.load,
         loaderLayouts,
+        hasClientLoader: pageExports.clientLoad,
+        clientLoaderLayouts,
       };
     }),
   );
@@ -379,6 +398,13 @@ function buildServerFile(entries: PageEntry[], serverFile: string): string {
           ? `.markLoader(${JSON.stringify(entry.pattern)})`
           : ""),
     );
+    // Nearest +error boundary also handles *loader* errors (render errors are
+    // covered by the wrapError chain inside the island).
+    if (entry.errors.length > 0) {
+      routeLines.push(
+        `  .errorBoundary(${JSON.stringify(entry.pattern)}, _error${i}_${entry.errors.length - 1})`,
+      );
+    }
   }
 
   return [
@@ -415,6 +441,8 @@ function buildClientFile(
     return r.startsWith(".") ? r : `./${r}`;
   };
   const clientImport = (abs: string) => `${rel(abs)}?client`;
+  const clientLoaderImport = (abs: string) => `${rel(abs)}?client-loader`;
+  let needsComposeLoaders = false;
 
   const imports: string[] = isStatic
     ? [
@@ -460,7 +488,45 @@ function buildClientFile(
             ? `.markLoader(${JSON.stringify(entry.pattern)})`
             : ""),
       );
+
+      // Browser-executed loaders (`clientLoad`) — imported via the
+      // ?client-loader shim and attached so client navigations run them
+      // locally instead of calling the loader endpoint.
+      const clientLoaderIds: string[] = [];
+      for (const [j, layout] of entry.clientLoaderLayouts.entries()) {
+        const id = `_cl${i}_l${j}`;
+        imports.push(
+          `import { clientLoad as ${id} } from ${JSON.stringify(clientLoaderImport(layout))};`,
+        );
+        clientLoaderIds.push(id);
+      }
+      if (entry.hasClientLoader) {
+        const id = `_cl${i}`;
+        imports.push(
+          `import { clientLoad as ${id} } from ${JSON.stringify(clientLoaderImport(entry.file))};`,
+        );
+        clientLoaderIds.push(id);
+      }
+      if (clientLoaderIds.length > 0) {
+        const expr =
+          clientLoaderIds.length === 1
+            ? clientLoaderIds[0]
+            : `composeLoaders([${clientLoaderIds.join(", ")}])`;
+        if (clientLoaderIds.length > 1) needsComposeLoaders = true;
+        routeLines.push(`  .clientLoader(${JSON.stringify(entry.pattern)}, ${expr})`);
+      }
+
+      // Nearest +error boundary also handles *loader* errors on the client.
+      if (entry.errors.length > 0) {
+        routeLines.push(
+          `  .errorBoundary(${JSON.stringify(entry.pattern)}, _error${i}_${entry.errors.length - 1})`,
+        );
+      }
     }
+  }
+
+  if (needsComposeLoaders) {
+    imports[0] = imports[0]!.replace("{ router", "{ composeLoaders, router");
   }
 
   const routerExpr = isStatic

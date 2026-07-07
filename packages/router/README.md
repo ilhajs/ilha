@@ -135,9 +135,18 @@ You can still register loaders, but they run on the client (via the loader endpo
 
 ## Core API
 
-### `router()`
+### `router(options?)`
 
 Creates a new router instance and **resets the route registry**. Always call `router()` fresh — never share instances across server requests.
+
+| Option                   | Type                | Default | Description                                                                               |
+| ------------------------ | ------------------- | ------- | ----------------------------------------------------------------------------------------- |
+| `mode`                   | `"spa" \| "static"` | `"spa"` | `"static"` disables client navigation — hydrate with `hydrateStatic()`                    |
+| `interceptLinks`         | `boolean`           | `true`  | Intercept internal `<a>` clicks for SPA navigation                                        |
+| `notFound`               | `Island`            | —       | Custom 404 island (SSR status 404; mounted with a full lifecycle in the browser)          |
+| `allowExternalRedirects` | `boolean`           | `false` | Allow loader `redirect()` to cross-origin URLs; blocked targets become a 500 error        |
+| `loaderTimeout`          | `number`            | —       | Abort + fail a loader after this many ms (enforced even if the loader ignores its signal) |
+| `viewTransitions`        | `boolean`           | `false` | Wrap client view swaps in `document.startViewTransition()` when supported                 |
 
 Returns a `RouterBuilder`.
 
@@ -147,7 +156,9 @@ Returns a `RouterBuilder`.
 
 Registers a route. Patterns are matched in **declaration order** — first match wins. Uses [rou3](https://github.com/h3js/rou3) for matching, the same engine as Nitro.
 
-The optional `loader` is a data-fetching function that runs before the page renders. Its return value is passed as input props to the island. On the client, loaders are fetched via the `/__ilha/loader` endpoint on navigation.
+The optional `loader` is a data-fetching function that runs before the page renders. Its return value is passed as input props to the island. The loader runs **wherever the router runs**: during SSR it executes on the server; when the route was registered in the browser (a plain SPA, hash mode, `file://`), client navigations execute it locally — no server or `/__ilha/loader` endpoint needed. Routes marked via `.markLoader()` (the SSR-split pages build) still fetch from the endpoint.
+
+A locally-executed loader receives a synthetic `Request` (no cookies or server context) — rely on `url`, `params`, and `signal`. Loader `redirect()`s are checked against the same cross-origin policy as on the server (`allowExternalRedirects`).
 
 ```ts
 import { loader } from "@ilha/router";
@@ -344,6 +355,35 @@ router().route("/user/:id", userPage).attachLoader("/user/:id", serverLoader);
 
 ---
 
+#### `.clientLoader(pattern, loader)` — runtime
+
+Attaches a loader that runs **in the browser** on client navigations, instead of fetching from the `/__ilha/loader` endpoint. Used by the FS-routing codegen for `clientLoad` exports; also available for manual routers. When a route has both a server loader and a client loader, the client loader wins on client navigations and the server loader runs during SSR. No-op (with a warning) if the pattern was never registered via `.route()`.
+
+```ts
+router()
+  .route("/dashboard", dashboardPage)
+  .clientLoader(
+    "/dashboard",
+    loader(async ({ signal }) => ({ stats: await fetchStats({ signal }) })),
+  );
+```
+
+---
+
+#### `.errorBoundary(pattern, handler)` — runtime
+
+Attaches the route's `+error` boundary so **loader** errors render through it — on the server (`renderResponse` returns the boundary's HTML with the error status) and on client navigations. Render errors are already handled by `wrapError` inside the island; this closes the gap for errors thrown before rendering starts. The FS-routing codegen wires the nearest `+error.ts` automatically; manual routers can call it directly. A throwing boundary falls back to the minimal inline error.
+
+```ts
+router()
+  .route("/user/:id", userPage, userLoader)
+  .errorBoundary("/user/:id", (err, route) =>
+    ilha.render(() => `<h1>${err.status ?? 500}</h1><p>${err.message}</p>`),
+  );
+```
+
+---
+
 ### `setHistoryMode(mode)` · `getHistoryMode()`
 
 Selects the history strategy used by the router. Defaults to `"history"` (HTML5 History API, reads/writes `location.pathname`). Set to `"hash"` to store the route in `location.hash` instead — see the [Hash mode](#hash-mode) section above for when to use it.
@@ -373,6 +413,31 @@ navigate("/about", { replace: true }); // replaces instead of pushing
 In hash mode, `navigate("/about")` writes `#/about` into `location.hash`. The argument is always the logical path — no need to prefix it with `#`.
 
 No-op on the server.
+
+---
+
+### `navigating()`
+
+Reactive — `true` while a client navigation (loader fetch + view swap) is in flight. Read it inside any island render to drive a progress bar or spinner; it re-renders when the state flips. Also available as `useRoute().navigating`.
+
+```ts
+import { navigating } from "@ilha/router";
+
+const Spinner = ilha.render(() => (navigating() ? `<div class="bar" />` : ""));
+```
+
+---
+
+### `invalidate()`
+
+Re-runs the current route's loader and re-renders the view with fresh data — call it after a mutation. Resolves when the view has updated. No-op on the server or when no router is mounted.
+
+```ts
+import { invalidate } from "@ilha/router";
+
+await api.deleteItem(id);
+await invalidate(); // current page refetches and re-renders
+```
 
 ---
 
@@ -893,6 +958,31 @@ export default defineLayout((children) => /* … */);
 ```
 
 Layout loaders are composed automatically — you do not need to call `composeLoaders()` manually.
+
+### Client loaders (`clientLoad`)
+
+A page or layout can export a `clientLoad` function that runs **in the browser** on client navigations, instead of fetching from the loader endpoint. Use it for data that is fetchable from the client anyway (public APIs, the app's own REST endpoints) — it saves a server round-trip per navigation, and it works on static hosts with no loader endpoint at all.
+
+```ts
+// src/pages/dashboard.ts
+import { loader } from "@ilha/router";
+import ilha from "ilha";
+
+export const clientLoad = loader(async ({ signal }) => {
+  const stats = await fetch("/api/stats", { signal }).then((r) => r.json());
+  return { stats };
+});
+
+export default ilha.input<{ stats: Stats }>().render(/* … */);
+```
+
+Rules and caveats:
+
+- `clientLoad` is bundled into the client — never put secrets, database clients, or server-only imports in it. Keep those in `load`, which stays server-only.
+- A page can export **both**: `load` runs during SSR (first paint), `clientLoad` runs on client navigations instead of the endpoint fetch. Make them return the same shape.
+- Layout `clientLoad`s compose with the page's, layouts first — the page wins on key collision, mirroring server loaders.
+- With SSR + hydration, a `clientLoad`-only page is server-rendered **without** its data; the router runs `clientLoad` on the client right after hydration and re-renders the route with the loaded props.
+- `clientLoad` receives a synthetic `Request` — rely on `url`, `params`, and `signal`, not cookies or headers.
 
 ### Error boundaries
 
