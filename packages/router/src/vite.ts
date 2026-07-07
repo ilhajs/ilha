@@ -1,13 +1,6 @@
 import type { Plugin } from "vite";
 
-export {
-  wrapLayout,
-  wrapError,
-  type LayoutHandler,
-  type ErrorHandler,
-  type RouteSnapshot,
-  type AppError,
-} from "./index";
+export type { LayoutHandler, ErrorHandler, RouteSnapshot, AppError } from "./index";
 
 export { ilhaPages, type IlhaPagesOptions } from "./plugin";
 
