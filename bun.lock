@@ -48,7 +48,7 @@
     },
     "packages/router": {
       "name": "@ilha/router",
-      "version": "0.7.0",
+      "version": "0.8.0",
       "dependencies": {
         "rou3": "0.9.0",
         "unplugin": "3.3.0",
@@ -63,7 +63,7 @@
     },
     "packages/store": {
       "name": "@ilha/store",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "devDependencies": {
         "alien-signals": "3.2.1",
         "ilha": "0.9.0",

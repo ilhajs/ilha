@@ -139,6 +139,31 @@ describe("pages — ?client virtual module", () => {
     expect(result).toMatch(/export\s*\{\s*default\s*\}/);
     expect(result).not.toContain("*");
   });
+
+  it("resolveId handles ?client-loader like ?client", () => {
+    const p = plugin();
+    p.configResolved({ root: "/proj" });
+    const resolved = p.resolveId(
+      "../src/pages/index.ts?client-loader",
+      "/proj/.ilha/pages.client.ts",
+    );
+    expect(resolved).toBe("/proj/src/pages/index.ts?client-loader");
+  });
+
+  it("resolveId refuses ?client-loader ids outside the pages dir", () => {
+    const p = plugin();
+    p.configResolved({ root: "/proj" });
+    const escape = p.resolveId("../../../etc/passwd?client-loader", "/proj/.ilha/pages.client.ts");
+    expect(escape).toBeUndefined();
+  });
+
+  it("load(?client-loader) emits `export { clientLoad }` from the bare path", () => {
+    const p = plugin();
+    const result = p.load("/proj/src/pages/index.ts?client-loader");
+    expect(result).toMatch(/export\s*\{\s*clientLoad\s*\}/);
+    expect(result).toContain(`"/proj/src/pages/index.ts"`);
+    expect(result).not.toContain("default");
+  });
 });
 
 // ─────────────────────────────────────────────

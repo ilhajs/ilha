@@ -22,6 +22,9 @@ export const RESOLVED_VIRTUAL_IDS = [
 /** Query suffix used on page/layout imports in the client file. */
 export const CLIENT_QUERY = "?client";
 
+/** Query suffix that re-exports a page/layout's `clientLoad` for the browser bundle. */
+export const CLIENT_LOADER_QUERY = "?client-loader";
+
 /** Read & parse a package.json, returning null on any error. */
 function readJson(path: string): Record<string, unknown> | null {
   try {
@@ -184,16 +187,19 @@ export function resolvePagesId(state: PagesPluginState, id: string, importer?: s
   if (id === VIRTUAL_PAGES_CLIENT) return RESOLVED_PAGES_CLIENT;
   if (id === VIRTUAL_LOADERS) return RESOLVED_LOADERS;
 
-  if (id.endsWith(CLIENT_QUERY)) {
-    const bare = id.slice(0, -CLIENT_QUERY.length);
+  // ?client-loader must be checked first — its suffix would otherwise never
+  // match after the ?client branch, but keep the order explicit regardless.
+  for (const query of [CLIENT_LOADER_QUERY, CLIENT_QUERY]) {
+    if (!id.endsWith(query)) continue;
+    const bare = id.slice(0, -query.length);
     const resolved = importer ? resolve(importer.replace(/\?.*$/, ""), "..", bare) : resolve(bare);
-    // Only page-dir modules may be re-exported through the ?client shim —
-    // without this check any absolute path could be pulled into the module
-    // graph via a crafted `…?client` import.
+    // Only page-dir modules may be re-exported through the shim — without
+    // this check any absolute path could be pulled into the module graph via
+    // a crafted `…?client` / `…?client-loader` import.
     // Fail closed when pagesDir isn't configured yet — containment can't be
-    // checked, so nothing may pass through the ?client shim.
+    // checked, so nothing may pass through the shim.
     if (!state.pagesDir || !state.isUnderPagesDir(resolved)) return;
-    return resolved + CLIENT_QUERY;
+    return resolved + query;
   }
 }
 
@@ -209,6 +215,11 @@ export function loadPagesModule(state: PagesPluginState, id: string) {
   if (id === RESOLVED_LOADERS) {
     const spec = state.loadersFile.replace(/\.tsx?$/, "");
     return `import ${JSON.stringify(spec)};`;
+  }
+
+  if (id.endsWith(CLIENT_LOADER_QUERY)) {
+    const bare = id.slice(0, -CLIENT_LOADER_QUERY.length);
+    return `export { clientLoad } from ${JSON.stringify(bare)};`;
   }
 
   if (id.endsWith(CLIENT_QUERY)) {

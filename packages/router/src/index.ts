@@ -650,6 +650,12 @@ export interface RouterOptions {
    * `ctx.signal` also aborts when the incoming `Request`'s signal aborts.
    */
   loaderTimeout?: number;
+  /**
+   * Wrap client-side view swaps in `document.startViewTransition()` when the
+   * browser supports it (falls back to an instant swap otherwise).
+   * Default: `false`.
+   */
+  viewTransitions?: boolean;
 }
 
 export interface HydratableRenderOptions extends Partial<Omit<HydratableOptions, "name">> {
@@ -707,6 +713,22 @@ export interface RouterBuilder {
    * was never registered via `.route()`.
    */
   attachLoader(pattern: string, loader: Loader<any>): RouterBuilder;
+  /**
+   * Attach a loader that runs **in the browser** on client navigations,
+   * instead of fetching from the loader endpoint. Used by the FS-routing
+   * codegen for `clientLoad` exports; also available for manual routers.
+   * When a route has both, the client loader wins on client navigations and
+   * the server loader runs during SSR. No-op if the pattern was never
+   * registered via `.route()`.
+   */
+  clientLoader(pattern: string, loader: Loader<any>): RouterBuilder;
+  /**
+   * Attach the route's nearest `+error` boundary so **loader** errors render
+   * through it (render errors are already handled by `wrapError` inside the
+   * island). Used by the FS-routing codegen; also available for manual
+   * routers. No-op if the pattern was never registered via `.route()`.
+   */
+  errorBoundary(pattern: string, handler: ErrorHandler): RouterBuilder;
   /**
    * Mark an already-registered route as having a server-side loader without
    * importing that loader into the client bundle. Used by FS-routing codegen
@@ -800,10 +822,94 @@ const prefetchCache = new Map<string, { promise: Promise<LoaderFetchResult>; exp
 const PREFETCH_TTL_MS = 30_000;
 
 type LoaderFetchResult =
-  | { kind: "data"; data: Record<string, unknown> }
+  | { kind: "data"; data: Record<string, unknown>; headEntries?: HeadInput[] }
   | { kind: "redirect"; to: string; status: number }
   | { kind: "error"; status: number; message: string }
   | { kind: "not-found" };
+
+// ─────────────────────────────────────────────
+// View transitions (opt-in via router({ viewTransitions: true }))
+// ─────────────────────────────────────────────
+
+/** Mirrors the last router's `viewTransitions` option (module-level like `_notFound`). */
+let _viewTransitions = false;
+
+/**
+ * Run a synchronous DOM mutation, wrapped in a view transition when enabled
+ * and supported (the callback runs async — after the browser snapshots the old
+ * view). Resolves with the mutation's result either way.
+ */
+async function withViewSwap<T>(mutate: () => T): Promise<T> {
+  const start = (
+    document as Document & {
+      startViewTransition?: (cb: () => void) => { updateCallbackDone?: Promise<void> };
+    }
+  ).startViewTransition?.bind(document);
+  if (!_viewTransitions || !start) return mutate();
+  let result!: T;
+  let thrown: unknown;
+  let failed = false;
+  const vt = start(() => {
+    try {
+      result = mutate();
+    } catch (e) {
+      failed = true;
+      thrown = e;
+      throw e;
+    }
+  });
+  // Swallow only the transition's own rejection mirror — the mutation error
+  // itself rethrows below so callers see it, matching the non-transition path.
+  await vt.updateCallbackDone?.catch(() => {});
+  if (failed) throw thrown;
+  return result;
+}
+
+/**
+ * Execute a loader registered in the browser (manual `.route(p, island, loader)`
+ * or FS-routing `clientLoad`) and map its result to the loader endpoint's wire
+ * shape, so all client mount paths handle both sources identically. Loader
+ * `head` contributions are dropped, matching the endpoint fetch path.
+ */
+async function runLocalLoader(
+  loader: Loader<any>,
+  matchParams: Record<string, string> | undefined,
+  pathWithSearch: string,
+  signal?: AbortSignal,
+): Promise<LoaderFetchResult> {
+  const url = new URL(pathWithSearch, location.origin);
+  const params = extractParams(matchParams);
+  const headEntries: HeadInput[] = [];
+  const result = await executeLoader(
+    loader,
+    url,
+    params,
+    defaultRequest(url),
+    signal ?? new AbortController().signal,
+    (input) => headEntries.push(input),
+  );
+  // A superseded navigation must not apply this result (executeLoader maps the
+  // abort race to an error result; surface it as an AbortError instead).
+  signal?.throwIfAborted();
+  if (result.kind === "redirect") {
+    // Same redirect policy as the server paths.
+    const safe = resolveRedirectTarget(result.to, url, _allowExternalRedirects);
+    if (!safe.ok) {
+      console.warn(
+        `[ilha-router] Blocked unsafe redirect target "${result.to}". ` +
+          `Set allowExternalRedirects: true to allow cross-origin redirects.`,
+      );
+      return { kind: "error", status: 500, message: "Unsafe redirect target" };
+    }
+    return { kind: "redirect", to: safe.to, status: result.status };
+  }
+  if (result.kind === "data") {
+    return headEntries.length > 0
+      ? { kind: "data", data: result.data, headEntries }
+      : { kind: "data", data: result.data };
+  }
+  return result;
+}
 
 async function fetchLoaderData(
   pathWithSearch: string,
@@ -828,6 +934,21 @@ async function fetchLoaderData(
         // Prefetch failed — fall through to a fresh fetch
       }
     }
+  }
+
+  // A loader registered in the browser runs locally — no server round-trip.
+  // SSR-split builds strip `loader` from the client route graph (only
+  // `hasLoader` survives), so they still fall through to the endpoint fetch.
+  const pathOnly = pathWithSearch.split("?")[0] ?? "";
+  const localMatch = findRoute(_rou3, "GET", pathOnly);
+  const localLoader = localMatch?.data?.clientLoader ?? localMatch?.data?.loader;
+  if (localLoader) {
+    return runLocalLoader(
+      localLoader,
+      localMatch?.params as Record<string, string> | undefined,
+      pathWithSearch,
+      signal,
+    );
   }
 
   const url = `${LOADER_ENDPOINT}?path=${encodeURIComponent(pathWithSearch)}`;
@@ -898,12 +1019,16 @@ async function mountRouteWithHydration(
 ): Promise<() => void> {
   if (!island) {
     if (_notFound) {
-      host.innerHTML = `<div data-router-view data-router-not-found>${_notFound.toString()}</div>`;
-      const nfHost = host.firstElementChild;
-      if (nfHost) return _notFound.mount(nfHost);
-      return () => {};
+      const nf = _notFound;
+      return withViewSwap(() => {
+        host.innerHTML = `<div data-router-view data-router-not-found>${nf.toString()}</div>`;
+        const nfHost = host.firstElementChild;
+        return nfHost ? nf.mount(nfHost) : () => {};
+      });
     }
-    host.innerHTML = `<div data-router-empty></div>`;
+    await withViewSwap(() => {
+      host.innerHTML = `<div data-router-empty></div>`;
+    });
     return () => {};
   }
 
@@ -923,22 +1048,32 @@ async function mountRouteWithHydration(
     return () => {};
   }
   if (loaderResult.kind === "error") {
-    // Render a minimal inline error. See renderResponse for why loader errors
-    // don't currently route through the page's +error.ts boundary.
-    const escaped = String(loaderResult.message)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-    host.innerHTML = `<div data-router-view data-router-error="${loaderResult.status}">${escaped}</div>`;
+    // Route the loader error through the nearest `+error` boundary when one
+    // is registered; fall back to the minimal inline error div.
+    const boundary = clientMatch?.data?.errorHandler;
+    if (boundary) {
+      return withViewSwap(() =>
+        mountLoaderErrorBoundary(boundary, host, loaderResult.status, loaderResult.message),
+      );
+    }
+    const escaped = escapeHtml(loaderResult.message);
+    await withViewSwap(() => {
+      host.innerHTML = `<div data-router-view data-router-error="${loaderResult.status}">${escaped}</div>`;
+    });
     return () => {};
   }
   if (loaderResult.kind === "not-found") {
-    host.innerHTML = `<div data-router-empty></div>`;
+    await withViewSwap(() => {
+      host.innerHTML = `<div data-router-empty></div>`;
+    });
     return () => {};
   }
   props = loaderResult.data;
 
-  const headStore: HeadStore = { entries: [] };
+  // Seed with the loader's head contributions (loader first, render-time
+  // `head()` later — later entries win), so client navigations keep
+  // `document.title`/meta in sync just like SSR does.
+  const headStore: HeadStore = { entries: [...(loaderResult.headEntries ?? [])] };
 
   // If no registry provided, fall back to static rendering (no interactivity)
   if (!registry) {
@@ -946,8 +1081,10 @@ async function mountRouteWithHydration(
       "[ilha-router] No registry provided for client-side navigation. Island will not be interactive.",
     );
     const html = await withHeadStore(headStore, () => island.toString(props));
-    applyHeadEntriesToDocument(headStore.entries);
-    host.innerHTML = `<div data-router-view>${html}</div>`;
+    await withViewSwap(() => {
+      applyHeadEntriesToDocument(headStore.entries);
+      host.innerHTML = `<div data-router-view>${html}</div>`;
+    });
     return () => {};
   }
 
@@ -958,8 +1095,10 @@ async function mountRouteWithHydration(
   if (!name) {
     console.warn("[ilha-router] Island not found in registry for client-side navigation.");
     const html = await withHeadStore(headStore, () => island.toString(props));
-    applyHeadEntriesToDocument(headStore.entries);
-    host.innerHTML = `<div data-router-view>${html}</div>`;
+    await withViewSwap(() => {
+      applyHeadEntriesToDocument(headStore.entries);
+      host.innerHTML = `<div data-router-view>${html}</div>`;
+    });
     return () => {};
   }
 
@@ -967,16 +1106,42 @@ async function mountRouteWithHydration(
   const html = await withHeadStore(headStore, () =>
     island.hydratable(props, { name, as: "div", snapshot: true }),
   );
-  applyHeadEntriesToDocument(headStore.entries);
-  host.innerHTML = `<div data-router-view>${html}</div>`;
+  return withViewSwap(() => {
+    applyHeadEntriesToDocument(headStore.entries);
+    host.innerHTML = `<div data-router-view>${html}</div>`;
+    // Mount the island for interactivity
+    const islandHost = host.querySelector(`[data-ilha="${name}"]`);
+    return islandHost ? island.mount(islandHost) : () => {};
+  });
+}
 
-  // Mount the island for interactivity
-  const islandHost = host.querySelector(`[data-ilha="${name}"]`);
-  if (islandHost) {
-    return island.mount(islandHost);
+/** Render + mount a `+error` boundary island for a failed loader. */
+function mountLoaderErrorBoundary(
+  boundary: ErrorHandler,
+  host: Element,
+  status: number,
+  message: string,
+): () => void {
+  try {
+    const errorIsland = boundary(
+      { message, status },
+      {
+        path: routePath(),
+        params: routeParams(),
+        search: routeSearch(),
+        hash: routeHash(),
+      },
+    );
+    host.innerHTML = `<div data-router-view data-router-error="${status}">${errorIsland.toString()}</div>`;
+    const ehHost = host.firstElementChild;
+    return ehHost ? errorIsland.mount(ehHost) : () => {};
+  } catch (e) {
+    // A throwing boundary must not take down navigation — fall back to the
+    // minimal inline error.
+    console.error("[ilha-router] error boundary threw while rendering a loader error:", e);
+    host.innerHTML = `<div data-router-view data-router-error="${status}"></div>`;
+    return () => {};
   }
-
-  return () => {};
 }
 
 // ─────────────────────────────────────────────
@@ -1072,12 +1237,53 @@ export function routeHash(value?: string): string {
   return store ? store.hash : _routeHashSig();
 }
 
+// ─────────────────────────────────────────────
+// Navigation pending state
+// ─────────────────────────────────────────────
+
+// Count of in-flight client navigations (loader fetch + view swap). A counter
+// rather than a boolean so an overlapping navigation that supersedes another
+// doesn't clear the flag early.
+const _navigatingSig = context<number>("router.navigating", 0);
+
+/** Reactive: `true` while a client navigation (loader fetch + view swap) is in flight. */
+export function navigating(): boolean {
+  return _navigatingSig() > 0;
+}
+
+// Re-runs the active route's loader and re-renders the view. Registered by
+// the mounted router (SPA or hydrate mode); null when no router is mounted.
+let _revalidate: (() => Promise<void>) | null = null;
+
+/**
+ * Re-run the current route's loader and re-render the view with fresh data —
+ * e.g. after a mutation. Resolves when the view has updated. No-op on the
+ * server or when no router is mounted.
+ */
+export function invalidate(): Promise<void> {
+  if (!isBrowser || !_revalidate) return Promise.resolve();
+  return _revalidate();
+}
+
+/** Mark a navigation as started; returns an idempotent settle callback. */
+function beginNavigation(): () => void {
+  if (!isBrowser) return () => {};
+  _navigatingSig(_navigatingSig() + 1);
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    _navigatingSig(Math.max(0, _navigatingSig() - 1));
+  };
+}
+
 export function useRoute() {
   return {
     path: routePath,
     params: routeParams,
     search: routeSearch,
     hash: routeHash,
+    navigating,
   };
 }
 
@@ -1105,6 +1311,10 @@ interface RouteData {
   /** The pattern this route was registered under — exact `isActive()` checks compare against it. */
   pattern: string;
   loader?: Loader<any>;
+  /** Loader that runs in the browser on client navigations (manual SPA builder or FS `clientLoad`). */
+  clientLoader?: Loader<any>;
+  /** Nearest `+error` boundary — renders loader errors instead of the bare inline error div. */
+  errorHandler?: ErrorHandler;
   hasLoader?: boolean;
 }
 
@@ -1424,6 +1634,10 @@ export function enableLinkInterception(
  * RouterView is a module-level island (single active router per document). */
 let _notFound: Island<any, any> | null = null;
 
+/** Redirect policy for browser-executed loaders — mirrors the last router's
+ * `allowExternalRedirects` option (module-level for the same reason as `_notFound`). */
+let _allowExternalRedirects = false;
+
 export const RouterView = ilha.render((): string => {
   const island = activeIsland();
   if (!island) {
@@ -1684,6 +1898,11 @@ function escapeHeadAttr(value: unknown): string {
   return String(value).replace(/[&<>"']/g, (c) => HEAD_ESC[c]!);
 }
 
+/** Escape text content for inline HTML (loader error messages etc.). */
+function escapeHtml(value: unknown): string {
+  return String(value).replace(/[&<>]/g, (c) => HEAD_ESC[c]!);
+}
+
 function serializeAttrs(attrs: Record<string, string>): string {
   return Object.entries(attrs)
     .map(([k, v]) => ` ${k}="${escapeHeadAttr(v)}"`)
@@ -1923,6 +2142,8 @@ export function router(options: RouterOptions = {}): RouterBuilder {
 
   _rou3 = rou3;
   _notFound = notFound;
+  _allowExternalRedirects = allowExternalRedirects;
+  _viewTransitions = options.viewTransitions === true;
 
   let _navChangeCleanup: (() => void) | null = null;
   let _linkCleanup: (() => void) | null = null;
@@ -1954,6 +2175,35 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         rec.loader = loader;
         rec.hasLoader = true;
       }
+      return builder;
+    },
+
+    clientLoader(pattern: string, loader: Loader<any>): RouterBuilder {
+      const data = patternToData.get(pattern);
+      if (!data) {
+        console.warn(
+          `[ilha-router] clientLoader("${pattern}", …): pattern was never registered via .route(). ` +
+            `The loader will be ignored.`,
+        );
+        return builder;
+      }
+      data.clientLoader = loader;
+      data.hasLoader = true;
+      const rec = records.find((r) => r.pattern === pattern);
+      if (rec) rec.hasLoader = true;
+      return builder;
+    },
+
+    errorBoundary(pattern: string, handler: ErrorHandler): RouterBuilder {
+      const data = patternToData.get(pattern);
+      if (!data) {
+        console.warn(
+          `[ilha-router] errorBoundary("${pattern}", …): pattern was never registered via .route(). ` +
+            `The boundary will be ignored.`,
+        );
+        return builder;
+      }
+      data.errorHandler = handler;
       return builder;
     },
 
@@ -2092,6 +2342,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
 
             queueMicrotask(async () => {
               if (thisNav !== navVersion) return;
+              const settle = beginNavigation();
               unmountView?.();
               unmountView = null;
               try {
@@ -2111,6 +2362,8 @@ export function router(options: RouterOptions = {}): RouterBuilder {
                 console.error("[ilha-router] navigation failed:", e);
                 viewHost.innerHTML = `<div data-router-view data-router-error="500"></div>`;
                 return;
+              } finally {
+                settle();
               }
               currentMountedIsland = current;
             });
@@ -2129,21 +2382,81 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           const loc = getAdapter().readLocation();
           const pathWithSearch = loc.pathname + loc.search;
           const clientMatch = findRoute(_rou3, "GET", loc.pathname);
+          // A client-side loader can't run during SSR, so its data is missing
+          // from the server HTML — replace the SSR DOM with a full client
+          // render for the initial route.
+          if (clientMatch?.data?.clientLoader) {
+            const thisNav = ++navVersion;
+            const ac = new AbortController();
+            navAbort = ac;
+            try {
+              const um = await mountRouteWithHydration(
+                island,
+                viewHost,
+                pathWithSearch,
+                ac.signal,
+                registry,
+                reverseRegistry,
+              );
+              // A navigation that started while we awaited owns the view now.
+              if (thisNav === navVersion) unmountView = um;
+              else um();
+            } catch (e: any) {
+              if (e?.name !== "AbortError") {
+                console.error("[ilha-router] initial client loader render failed:", e);
+              }
+            }
+            return;
+          }
           const hasLoader = !!clientMatch?.data?.hasLoader;
           const loaderResult: LoaderFetchResult = hasLoader
             ? await fetchLoaderData(pathWithSearch)
             : { kind: "data", data: {} };
           if (loaderResult.kind === "redirect" || loaderResult.kind === "error") return;
           const props = loaderResult.kind === "data" ? loaderResult.data : {};
-          const headStore: HeadStore = { entries: [] };
+          const headStore: HeadStore = {
+            entries: [...(loaderResult.kind === "data" ? (loaderResult.headEntries ?? []) : [])],
+          };
           await withHeadStore(headStore, () => island.toString(props));
           if (!mounted) return;
           applyHeadEntriesToDocument(headStore.entries);
         })();
 
+        _revalidate = async () => {
+          const island = activeIsland();
+          const thisNav = ++navVersion;
+          navAbort?.abort();
+          const ac = new AbortController();
+          navAbort = ac;
+          const settle = beginNavigation();
+          try {
+            const loc = getAdapter().readLocation();
+            const um = await mountRouteWithHydration(
+              island,
+              viewHost,
+              loc.pathname + loc.search,
+              ac.signal,
+              registry,
+              reverseRegistry,
+            );
+            if (thisNav === navVersion) {
+              unmountView?.();
+              unmountView = um;
+              currentMountedIsland = island;
+            } else {
+              um();
+            }
+          } catch (e: any) {
+            if (e?.name !== "AbortError") console.error("[ilha-router] invalidate failed:", e);
+          } finally {
+            settle();
+          }
+        };
+
         return () => {
           mounted = false;
           ++navVersion;
+          _revalidate = null;
           navAbort?.abort();
           unmountNavHandler();
           navHost.remove();
@@ -2198,15 +2511,38 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           clientRedirect(result.to);
           return;
         }
+        if (result.kind === "error") {
+          // Route the loader error through the nearest `+error` boundary when
+          // one is registered; otherwise render the same inline error marker
+          // as `mountRouteWithHydration` instead of hiding the failure behind
+          // an island rendered with empty props.
+          const boundary = clientMatch?.data?.errorHandler;
+          if (boundary) {
+            unmountIsland = await withViewSwap(() =>
+              mountLoaderErrorBoundary(boundary, viewHost, result.status, result.message),
+            );
+            return;
+          }
+          const escaped = escapeHtml(result.message);
+          await withViewSwap(() => {
+            viewHost.innerHTML = `<div data-router-error="${result.status}">${escaped}</div>`;
+          });
+          return;
+        }
         const props = result.kind === "data" ? result.data : {};
 
         // In SPA mode RouterView is already showing the island's no-props HTML.
-        // Re-render with props, morph, and mount for interactivity.
-        const headStore: HeadStore = { entries: [] };
+        // Re-render with props, morph, and mount for interactivity. Loader
+        // head entries seed the store so `document.title`/meta stay in sync.
+        const headStore: HeadStore = {
+          entries: [...(result.kind === "data" ? (result.headEntries ?? []) : [])],
+        };
         const html = await withHeadStore(headStore, () => island.toString(props));
-        applyHeadEntriesToDocument(headStore.entries);
-        viewHost.innerHTML = html;
-        unmountIsland = island.mount(viewHost, props);
+        unmountIsland = await withViewSwap(() => {
+          applyHeadEntriesToDocument(headStore.entries);
+          viewHost.innerHTML = html;
+          return island.mount(viewHost, props);
+        });
       }
 
       // Initial mount — no need to wait for a loader fetch since the first
@@ -2227,10 +2563,13 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           const signal = navAbort.signal;
           queueMicrotask(() => {
             if (thisNav !== navVersion) return;
-            mountActiveIsland(current, signal).catch((e: unknown) => {
-              if ((e as { name?: string })?.name === "AbortError") return;
-              console.error("[ilha-router] navigation failed:", e);
-            });
+            const settle = beginNavigation();
+            mountActiveIsland(current, signal)
+              .catch((e: unknown) => {
+                if ((e as { name?: string })?.name === "AbortError") return;
+                console.error("[ilha-router] navigation failed:", e);
+              })
+              .finally(settle);
           });
         }
         return "";
@@ -2241,9 +2580,24 @@ export function router(options: RouterOptions = {}): RouterBuilder {
       host.appendChild(navHost);
       const unmountNavHandler = NavHandler.mount(navHost);
 
+      _revalidate = async () => {
+        ++navVersion;
+        navAbort?.abort();
+        navAbort = new AbortController();
+        const settle = beginNavigation();
+        try {
+          await mountActiveIsland(activeIsland(), navAbort.signal);
+        } catch (e: any) {
+          if (e?.name !== "AbortError") console.error("[ilha-router] invalidate failed:", e);
+        } finally {
+          settle();
+        }
+      };
+
       return () => {
         mounted = false;
         ++navVersion;
+        _revalidate = null;
         navAbort?.abort();
         unmountIsland?.();
         unmountNavHandler();
@@ -2347,7 +2701,13 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         }
         if (result.kind !== "data") return result;
         if (headStore.entries.length === 0) return result;
-        return { ...result, head: serializeHead(headStore.entries) };
+        // `head` (serialized) feeds SSR shells; `headEntries` (raw POJOs) let
+        // client navigations apply loader head to the live document.
+        return {
+          ...result,
+          head: serializeHead(headStore.entries),
+          headEntries: headStore.entries,
+        };
       } finally {
         abort.done();
       }
@@ -2449,16 +2809,35 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         }
       }
       if (result.kind === "error") {
-        // Loader errors render a minimal inline error page. The page's
-        // `+error.ts` boundary (applied via `wrapError` at codegen time)
-        // wraps the page island's *render*, not the loader — so loader
-        // errors cannot currently route through it. Host apps should
-        // inspect `response.status` and substitute their own error page
-        // if finer control is needed.
-        const escapedMessage = String(result.message)
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
+        // Route the loader error through the route's `+error` boundary when
+        // one is registered (render errors are already covered by `wrapError`
+        // inside the island); fall back to a minimal inline error page.
+        const boundary = match.data.errorHandler;
+        if (boundary) {
+          try {
+            const errorIsland = boundary(
+              { message: result.message, status: result.status },
+              {
+                path: routePath(),
+                params: routeParams(),
+                search: routeSearch(),
+                hash: routeHash(),
+              },
+            );
+            const html = await withHeadStore(headStore, () => errorIsland.toString());
+            return {
+              kind: "error",
+              status: result.status,
+              message: result.message,
+              html: `<div data-router-view data-router-error="${result.status}">${html}</div>`,
+              head: serializeHead(headStore.entries),
+            };
+          } catch (e) {
+            console.error("[ilha-router] error boundary threw while rendering a loader error:", e);
+            // fall through to the inline error below
+          }
+        }
+        const escapedMessage = escapeHtml(result.message);
         const html = `<div data-router-view data-router-error="${result.status}">${escapedMessage}</div>`;
         return {
           kind: "error",

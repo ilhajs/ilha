@@ -766,6 +766,83 @@ const styles = css`
 
 ---
 
+## JSX Runtime
+
+Prefer JSX over the `html` tag? `ilha` ships a JSX runtime (`ilha/jsx-runtime`) that produces the same XSS-safe output — JSX expressions evaluate to the same `RawHtml` values the `html` tag returns, so the two syntaxes are interchangeable and can be mixed freely.
+
+### Setup
+
+Enable the automatic JSX transform in `tsconfig.json` (works with TypeScript, Bun, Vite, esbuild, etc.):
+
+```jsonc
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "ilha",
+  },
+}
+```
+
+### Usage
+
+```tsx
+import ilha from "ilha";
+
+const Counter = ilha
+  .state("count", 0)
+  .on("button@click", ({ state }) => state.count(state.count() + 1))
+  .render(({ state }) => (
+    <div>
+      <p>Count: {state.count}</p>
+      <button>Increment</button>
+    </div>
+  ));
+```
+
+Interpolated children follow the same rules as the `html` tag — strings are escaped, signal accessors are auto-called, islands become hydration slots, arrays are flattened. Use `raw()` to opt out of escaping, and `<></>` (Fragment) to group siblings without a wrapper element.
+
+### Attributes
+
+| Feature               | Behaviour                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `class` / `className` | Accepts a string, an array (`["a", cond && "b"]`), or an object (`{ active: isActive }`)                           |
+| `htmlFor`             | Alias for `for`                                                                                                    |
+| `style`               | Accepts a string or an object (`{ backgroundColor: "teal" }` → `background-color:teal`)                            |
+| Boolean attributes    | `true` renders the bare attribute, `false`/`null`/`undefined` omit it                                              |
+| `bind:*`              | Two-way bindings, same as in `html` templates — pass a signal accessor: `<input bind:value={state.name} />`        |
+| `key`                 | Keys a child island for reorder-safe rendering (same as `.key()`). Keys must be non-empty and must not contain `:` |
+
+For safety, `on*` attributes (e.g. `onclick`) and `srcdoc` are stripped — attach event listeners with `.on()` instead — and URL attributes (`href`, `src`, `action`, …) with unsafe schemes like `javascript:` are dropped.
+
+### Islands as components
+
+Islands are plain functions, so they compose as JSX components — props and keys work as you'd expect:
+
+```tsx
+const Badge = ilha
+  .input<{ label: string }>()
+  .render(({ input }) => <span class="badge">{input.label}</span>);
+
+const Card = ilha.render(() => (
+  <div class="card">
+    <Badge label="New" />
+    <p>Card content</p>
+  </div>
+));
+
+const List = ilha.render(() => (
+  <ul>
+    {items.map((item) => (
+      <li>
+        <Item key={item.id} name={item.name} />
+      </li>
+    ))}
+  </ul>
+));
+```
+
+---
+
 ## SSR + Hydration
 
 The recommended SSR + hydration pattern uses `.hydratable()` on the server and `ilha.mount()` on the client.
