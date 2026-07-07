@@ -190,7 +190,9 @@ export function resolvePagesId(state: PagesPluginState, id: string, importer?: s
     // Only page-dir modules may be re-exported through the ?client shim —
     // without this check any absolute path could be pulled into the module
     // graph via a crafted `…?client` import.
-    if (state.pagesDir && !state.isUnderPagesDir(resolved)) return;
+    // Fail closed when pagesDir isn't configured yet — containment can't be
+    // checked, so nothing may pass through the ?client shim.
+    if (!state.pagesDir || !state.isUnderPagesDir(resolved)) return;
     return resolved + CLIENT_QUERY;
   }
 }
@@ -229,14 +231,39 @@ export function setupRspackPagesWatcher(
   state: PagesPluginState,
   structuralInvalidate: (file: string) => void | Promise<void>,
 ) {
-  // fs.watch throws ENOENT when the pages dir doesn't exist yet.
-  if (!existsSync(state.pagesDir)) return () => {};
-  const watcher = watch(state.pagesDir, { recursive: true }, (_event, filename) => {
-    if (!filename) return;
-    const file = join(state.pagesDir, filename);
-    void structuralInvalidate(file);
-  });
-  return () => watcher.close();
+  let watcher: ReturnType<typeof watch> | null = null;
+  let poll: ReturnType<typeof setInterval> | null = null;
+  let closed = false;
+
+  const attach = () => {
+    watcher = watch(state.pagesDir, { recursive: true }, (_event, filename) => {
+      if (!filename) return;
+      const file = join(state.pagesDir, filename);
+      void structuralInvalidate(file);
+    });
+  };
+
+  // fs.watch throws ENOENT when the pages dir doesn't exist yet — poll until
+  // it appears, then attach, so watching recovers if the dir is created later.
+  if (existsSync(state.pagesDir)) {
+    attach();
+  } else {
+    poll = setInterval(() => {
+      if (closed || !existsSync(state.pagesDir)) return;
+      clearInterval(poll!);
+      poll = null;
+      attach();
+      // The dir appeared after startup — regenerate for its current contents.
+      void structuralInvalidate(join(state.pagesDir, "."));
+    }, 1000);
+    poll.unref?.();
+  }
+
+  return () => {
+    closed = true;
+    if (poll) clearInterval(poll);
+    watcher?.close();
+  };
 }
 
 const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {}) => {

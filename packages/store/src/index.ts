@@ -412,10 +412,10 @@ function buildStore<
   }
 
   // --- single source of truth ----------------------------------------------
-  // Own the initial object: the signal holds a shallow copy (so caller
-  // mutation after build() can't bypass reactivity) and the reset snapshot is
-  // deep-cloned (so nested mutation can't corrupt reset()).
-  const stateSignal = signal<TState>({ ...cfg.initialState });
+  // Own the initial object: both the live signal and the reset snapshot are
+  // deep-cloned so caller mutation of the original (including nested objects)
+  // can't leak into getState() or corrupt reset().
+  const stateSignal = signal<TState>(cloneInitialState(cfg.initialState));
   const initialSnapshot: TState = cloneInitialState(cfg.initialState);
 
   // --- disposal --------------------------------------------------------------
@@ -600,7 +600,15 @@ function buildStore<
     dispose: () => {
       if (disposed) return;
       disposed = true;
-      for (const d of [...disposers]) d();
+      // Isolate each disposer so one throwing teardown can't prevent the rest
+      // from running.
+      for (const d of [...disposers]) {
+        try {
+          d();
+        } catch (err) {
+          console.error(err);
+        }
+      }
       disposers.clear();
     },
   };

@@ -973,6 +973,8 @@ describe("reset()", () => {
     const initial = { user: { name: "ada" } };
     const s = store(initial).build();
     initial.user.name = "mutated";
+    // live state is isolated even before any write
+    expect(s.getState().user.name).toBe("ada");
     s.setState({ user: { name: "grace" } });
     s.reset();
     expect(s.getState().user.name).toBe("ada");

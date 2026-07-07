@@ -817,8 +817,14 @@ async function fetchLoaderData(
     prefetchCache.delete(pathWithSearch);
     if (Date.now() <= cached.expires) {
       try {
-        return await cached.promise;
-      } catch {
+        signal?.throwIfAborted();
+        const result = await cached.promise;
+        // Re-check after the await — a superseded navigation must not apply
+        // the prefetched result to the view.
+        signal?.throwIfAborted();
+        return result;
+      } catch (e: any) {
+        if (e?.name === "AbortError") throw e;
         // Prefetch failed — fall through to a fresh fetch
       }
     }
@@ -1096,6 +1102,8 @@ function activeIsland(value?: Island<any, any> | null): Island<any, any> | null 
 
 interface RouteData {
   island: Island<any, any>;
+  /** The pattern this route was registered under — exact `isActive()` checks compare against it. */
+  pattern: string;
   loader?: Loader<any>;
   hasLoader?: boolean;
 }
@@ -1105,12 +1113,6 @@ interface RouteData {
 // location syncing). Server render methods close over their own instance
 // registry instead; see router().
 let _rou3 = createRouter<RouteData>();
-
-// ─────────────────────────────────────────────
-// Island → pattern reverse map (O(1) isActive)
-// ─────────────────────────────────────────────
-
-let _islandToPattern = new Map<Island<any, any>, string>();
 
 // ─────────────────────────────────────────────
 // Shared match → params extraction
@@ -1225,6 +1227,10 @@ function runAfterNavigateHooks(nav: Navigation): void {
 
 const _scrollPositions = new Map<number, { x: number; y: number }>();
 let _navKeyCounter = 0;
+// Nav key of the entry currently displayed. Needed by the popstate handler:
+// when popstate fires, history.state already points at the *destination*
+// entry, so the outgoing entry's scroll must be saved under this key.
+let _lastNavKey = 0;
 
 function currentNavKey(): number {
   if (!isBrowser) return 0;
@@ -1295,6 +1301,7 @@ export function navigate(to: string, opts: NavigateOptions = {}): void {
     _navKeyCounter = Math.max(_navKeyCounter + 1, currentNavKey() + 1);
     adapter.push(to, { __ilhaNavKey: _navKeyCounter });
   }
+  _lastNavKey = currentNavKey();
   syncRouteFromLocation();
   if (opts.scroll !== false) {
     scrollAfterNavigate(adapter.readLocation().hash);
@@ -1482,8 +1489,9 @@ export function isActive(pattern: string, options: IsActiveOptions = {}): boolea
   }
   const match = findRoute(_rou3, "GET", routePath());
   if (!match) return false;
-  // O(1) lookup via reverse map instead of linear scan through _records
-  return _islandToPattern.get(match.data.island) === pattern;
+  // Compare against the matched route's own pattern — an island registered
+  // under several patterns would otherwise only ever report its first one.
+  return match.data.pattern === pattern;
 }
 
 // ─────────────────────────────────────────────
@@ -1854,7 +1862,20 @@ async function executeLoader(
   const headEntries: HeadInput[] = [];
   const head = onHead ?? ((input: HeadInput) => headEntries.push(input));
   try {
-    const data = await loader({ params, request, url, signal, head });
+    // Race the loader against its abort signal so a loader that ignores
+    // `signal` still can't hang past the timeout / request abort.
+    const loaderPromise = Promise.resolve(loader({ params, request, url, signal, head }));
+    // Detach a no-op handler so a late loader rejection after the race is
+    // lost doesn't surface as an unhandled rejection.
+    loaderPromise.catch(() => {});
+    const data = await Promise.race([
+      loaderPromise,
+      new Promise<never>((_, reject) => {
+        const onAbort = () => reject(new LoaderError(504, "Loader aborted or timed out"));
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      }),
+    ]);
     const out: {
       kind: "data";
       data: Record<string, unknown>;
@@ -1895,12 +1916,13 @@ export function router(options: RouterOptions = {}): RouterBuilder {
   // there, matching the one-router-per-document reality.
   const records: RouteRecord[] = [];
   const rou3 = createRouter<RouteData>();
-  const islandToPattern = new Map<Island<any, any>, string>();
   const patternToData = new Map<string, RouteData>();
+  // Instance-local 404 island — server render paths must not read the
+  // module-level `_notFound`, which a later router() call would overwrite.
+  const notFound = options.notFound ?? null;
 
   _rou3 = rou3;
-  _islandToPattern = islandToPattern;
-  _notFound = options.notFound ?? null;
+  _notFound = notFound;
 
   let _navChangeCleanup: (() => void) | null = null;
   let _linkCleanup: (() => void) | null = null;
@@ -1908,14 +1930,10 @@ export function router(options: RouterOptions = {}): RouterBuilder {
   const builder: RouterBuilder = {
     route(pattern: string, island: Island<any, any>, loader?: Loader<any>): RouterBuilder {
       const hasLoader = !!loader;
-      const data: RouteData = { island, loader, hasLoader };
+      const data: RouteData = { island, pattern, loader, hasLoader };
       records.push({ pattern, island, loader, hasLoader });
       addRoute(rou3, "GET", pattern, data);
       patternToData.set(pattern, data);
-      // First pattern registered for an island wins (most specific due to sort order)
-      if (!islandToPattern.has(island)) {
-        islandToPattern.set(island, pattern);
-      }
       return builder;
     },
 
@@ -1991,6 +2009,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
 
       // Ensure route signals are current.
       syncRouteFromLocation();
+      _lastNavKey = currentNavKey();
 
       // static mode — no client navigation, no RouterView, no NavHandler.
       // Islands in the pre-rendered HTML are hydrated by ilha.mount() via
@@ -2015,6 +2034,11 @@ export function router(options: RouterOptions = {}): RouterBuilder {
       const popHandler = () => {
         if (!mounted) return;
         const prevPath = routePath() + routeSearch() + routeHash();
+        // Save the outgoing entry's scroll before syncing — history.state
+        // already holds the destination key when popstate fires, so key it by
+        // the entry we're leaving; otherwise forward/back positions are lost.
+        _scrollPositions.set(_lastNavKey, { x: window.scrollX, y: window.scrollY });
+        _lastNavKey = currentNavKey();
         syncRouteFromLocation();
         restoreScrollPosition();
         runAfterNavigateHooks({
@@ -2151,7 +2175,13 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         unmountIsland?.();
         unmountIsland = null;
         currentMountedIsland = island;
-        if (!island) return;
+        if (!island) {
+          // RouterView rendered the 404 island's HTML statically; mount it so
+          // it gets a real island lifecycle (events, effects) like any route.
+          const nfHost = host?.querySelector<Element>("[data-router-not-found]");
+          if (_notFound && nfHost) unmountIsland = _notFound.mount(nfHost);
+          return;
+        }
         const viewHost = host?.querySelector<Element>("[data-router-view]");
         if (!viewHost) return;
 
@@ -2361,8 +2391,8 @@ export function router(options: RouterOptions = {}): RouterBuilder {
     const island = match?.data?.island ?? null;
     if (!island) {
       const headStore: HeadStore = { entries: baseHead ? [baseHead] : [] };
-      if (_notFound) {
-        const html = await withHeadStore(headStore, () => _notFound!.toString());
+      if (notFound) {
+        const html = await withHeadStore(headStore, () => notFound.toString());
         return {
           kind: "html",
           html: `<div data-router-view data-router-not-found>${html}</div>`,

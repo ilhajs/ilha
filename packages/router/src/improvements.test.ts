@@ -298,6 +298,14 @@ describe("resolvePagesId containment", () => {
     expect(escape).toBeUndefined();
   });
 
+  it("fails closed when pagesDir is not configured yet", () => {
+    const state = createPagesPluginState({});
+    // no setPaths() — pagesDir is still unset, so containment can't be checked
+    const importer = join("/proj", ".ilha", "pages.client.ts");
+    const escape = resolvePagesId(state, `../../../etc/passwd${CLIENT_QUERY}`, importer);
+    expect(escape).toBeUndefined();
+  });
+
   it("still resolves ?client ids inside the pages dir", () => {
     const state = createPagesPluginState({});
     state.setPaths("/proj");
