@@ -9,10 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ilha/router": "^0.8.1",
-    "@ilha/store": "^0.7.0",
+    "@ilha/router": "^0.8.2",
+    "@ilha/store": "^0.7.1",
     "areia": "^0.1.36",
-    "ilha": "^0.9.0",
+    "ilha": "^0.9.1",
     "nitro": "^3.0.260610-beta",
     "quando": "^0.1.6"
   },
