@@ -847,10 +847,21 @@ async function withViewSwap<T>(mutate: () => T): Promise<T> {
   ).startViewTransition?.bind(document);
   if (!_viewTransitions || !start) return mutate();
   let result!: T;
+  let thrown: unknown;
+  let failed = false;
   const vt = start(() => {
-    result = mutate();
+    try {
+      result = mutate();
+    } catch (e) {
+      failed = true;
+      thrown = e;
+      throw e;
+    }
   });
+  // Swallow only the transition's own rejection mirror — the mutation error
+  // itself rethrows below so callers see it, matching the non-transition path.
   await vt.updateCallbackDone?.catch(() => {});
+  if (failed) throw thrown;
   return result;
 }
 
@@ -1045,10 +1056,7 @@ async function mountRouteWithHydration(
         mountLoaderErrorBoundary(boundary, host, loaderResult.status, loaderResult.message),
       );
     }
-    const escaped = String(loaderResult.message)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+    const escaped = escapeHtml(loaderResult.message);
     await withViewSwap(() => {
       host.innerHTML = `<div data-router-view data-router-error="${loaderResult.status}">${escaped}</div>`;
     });
@@ -1890,6 +1898,11 @@ function escapeHeadAttr(value: unknown): string {
   return String(value).replace(/[&<>"']/g, (c) => HEAD_ESC[c]!);
 }
 
+/** Escape text content for inline HTML (loader error messages etc.). */
+function escapeHtml(value: unknown): string {
+  return String(value).replace(/[&<>]/g, (c) => HEAD_ESC[c]!);
+}
+
 function serializeAttrs(attrs: Record<string, string>): string {
   return Object.entries(attrs)
     .map(([k, v]) => ` ${k}="${escapeHeadAttr(v)}"`)
@@ -2500,8 +2513,9 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         }
         if (result.kind === "error") {
           // Route the loader error through the nearest `+error` boundary when
-          // one is registered; otherwise keep the previous behavior (render
-          // the island with empty props).
+          // one is registered; otherwise render the same inline error marker
+          // as `mountRouteWithHydration` instead of hiding the failure behind
+          // an island rendered with empty props.
           const boundary = clientMatch?.data?.errorHandler;
           if (boundary) {
             unmountIsland = await withViewSwap(() =>
@@ -2509,6 +2523,11 @@ export function router(options: RouterOptions = {}): RouterBuilder {
             );
             return;
           }
+          const escaped = escapeHtml(result.message);
+          await withViewSwap(() => {
+            viewHost.innerHTML = `<div data-router-error="${result.status}">${escaped}</div>`;
+          });
+          return;
         }
         const props = result.kind === "data" ? result.data : {};
 
@@ -2818,10 +2837,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
             // fall through to the inline error below
           }
         }
-        const escapedMessage = String(result.message)
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
+        const escapedMessage = escapeHtml(result.message);
         const html = `<div data-router-view data-router-error="${result.status}">${escapedMessage}</div>`;
         return {
           kind: "error",

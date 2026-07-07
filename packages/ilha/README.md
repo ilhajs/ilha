@@ -768,7 +768,7 @@ const styles = css`
 
 ## JSX Runtime
 
-Prefer JSX over `html\`\``? `ilha` ships a JSX runtime (`ilha/jsx-runtime`) that produces the same XSS-safe output — JSX expressions evaluate to the same `RawHtml`values the`html` tag returns, so the two syntaxes are interchangeable and can be mixed freely.
+Prefer JSX over the `html` tag? `ilha` ships a JSX runtime (`ilha/jsx-runtime`) that produces the same XSS-safe output — JSX expressions evaluate to the same `RawHtml` values the `html` tag returns, so the two syntaxes are interchangeable and can be mixed freely.
 
 ### Setup
 
@@ -799,18 +799,18 @@ const Counter = ilha
   ));
 ```
 
-Interpolated children follow the same rules as `html\`\``— strings are escaped, signal accessors are auto-called, islands become hydration slots, arrays are flattened. Use`raw()`to opt out of escaping, and`<></>` (Fragment) to group siblings without a wrapper element.
+Interpolated children follow the same rules as the `html` tag — strings are escaped, signal accessors are auto-called, islands become hydration slots, arrays are flattened. Use `raw()` to opt out of escaping, and `<></>` (Fragment) to group siblings without a wrapper element.
 
 ### Attributes
 
-| Feature               | Behaviour                                                                                           |
-| --------------------- | --------------------------------------------------------------------------------------------------- |
-| `class` / `className` | Accepts a string, an array (`["a", cond && "b"]`), or an object (`{ active: isActive }`)            |
-| `htmlFor`             | Alias for `for`                                                                                     |
-| `style`               | Accepts a string or an object (`{ backgroundColor: "teal" }` → `background-color:teal`)             |
-| Boolean attributes    | `true` renders the bare attribute, `false`/`null`/`undefined` omit it                               |
-| `bind:*`              | Two-way bindings, same as in `html\`\``— pass a signal accessor:`<input bind:value={state.name} />` |
-| `key`                 | Keys a child island for reorder-safe rendering (same as `.key()`)                                   |
+| Feature               | Behaviour                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `class` / `className` | Accepts a string, an array (`["a", cond && "b"]`), or an object (`{ active: isActive }`)                           |
+| `htmlFor`             | Alias for `for`                                                                                                    |
+| `style`               | Accepts a string or an object (`{ backgroundColor: "teal" }` → `background-color:teal`)                            |
+| Boolean attributes    | `true` renders the bare attribute, `false`/`null`/`undefined` omit it                                              |
+| `bind:*`              | Two-way bindings, same as in `html` templates — pass a signal accessor: `<input bind:value={state.name} />`        |
+| `key`                 | Keys a child island for reorder-safe rendering (same as `.key()`). Keys must be non-empty and must not contain `:` |
 
 For safety, `on*` attributes (e.g. `onclick`) and `srcdoc` are stripped — attach event listeners with `.on()` instead — and URL attributes (`href`, `src`, `action`, …) with unsafe schemes like `javascript:` are dropped.
 

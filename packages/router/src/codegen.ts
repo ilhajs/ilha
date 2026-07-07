@@ -63,7 +63,13 @@ async function detectLoaderExports(file: string): Promise<LoaderExports> {
       load: LOADER_EXPORT_RE.test(stripped),
       clientLoad: CLIENT_LOADER_EXPORT_RE.test(stripped),
     };
-  } catch {
+  } catch (err) {
+    // A missing file simply has no loaders; anything else (permissions,
+    // transient I/O) would silently drop `.markLoader`/`.clientLoader`
+    // wiring, so surface it.
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      console.warn(`[ilha-router] failed to read ${file} while detecting loader exports:`, err);
+    }
     return { load: false, clientLoad: false };
   }
 }

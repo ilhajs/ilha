@@ -1047,7 +1047,10 @@ export function dehydrate<TState extends object>(
  * must-be-plain-object, prototype-polluting keys stripped. The patch merges
  * via `setState`, so middleware runs and schema stores validate — corrupt or
  * stale-shaped payloads are rejected, not applied. Returns `true` when the
- * snapshot was applied, `false` when it was ignored (with a console warning).
+ * snapshot passed the parse/guard checks and was handed to `setState`,
+ * `false` when it was ignored (with a console warning). A `true` return does
+ * not guarantee the state changed — a schema store's validation may still
+ * reject the patch inside `setState`.
  */
 export function hydrate<TState extends object>(
   store: Pick<StoreBuiltins<TState>, "setState">,

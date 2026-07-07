@@ -1097,15 +1097,15 @@ Or use the one-liner: `pageRouter.hydrate(registry)`.
 
 On the **server**, loaders run inside `.renderHydratable()` / `.renderResponse()`. Their return value is serialized into `data-ilha-props` on the island element so the client can rehydrate without re-fetching.
 
-On the **client**, navigations fetch loader data from the `/__ilha/loader` endpoint before mounting the next island. The endpoint is served automatically by the Vite plugin (dev) and the Nitro adapter (production).
+On the **client**, navigations resolve loader data before mounting the next island. Routes with a loader registered in the browser — a manual `.route(path, island, loader)` or an FS-routing `clientLoad` export — run that loader locally, with no network round-trip. Routes with only a server loader (`markLoader()` / a `load` export) fetch from the `/__ilha/loader` endpoint, served automatically by the Vite plugin (dev) and the Nitro adapter (production).
 
 ```
 server                         client (navigation)
-────────────────────────────   ─────────────────────────────────────
-renderHydratable               GET /__ilha/loader?path=/user/42
-  → executeLoader(…)             → runLoader("/user/42")
-  → island.hydratable(props)     → fetchLoaderData("/user/42")
-  → data-ilha-props="{…}"        → mountRouteWithHydration(island, host, …)
+────────────────────────────   ─────────────────────────────────────────
+renderHydratable               local loader (clientLoad / .route loader)?
+  → executeLoader(…)             yes → runLocalLoader(…)      in-browser
+  → island.hydratable(props)     no  → fetchLoaderData(…)     GET /__ilha/loader?path=/user/42
+  → data-ilha-props="{…}"      → mountRouteWithHydration(island, host, …)
 ```
 
 ---

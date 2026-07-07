@@ -368,7 +368,7 @@ Call the returned unsubscribe before `store.dispose()` for per-island stores.
 Stores are module-level singletons, so on a concurrent SSR server they must **not** be written during a render — request A's data would leak into request B. Instead, state travels the same way ilha island state does: serialized into the HTML, then seeded on the client.
 
 - **`dehydrate(storeOrState)`** → JSON string. On a concurrent server pass a **request-local object** (e.g. loader data), not the shared store. Passing the store itself is fine in non-concurrent contexts (prerendering, tests).
-- **`hydrate(store, raw)`** → parses with the same guards as ilha's island snapshots (size cap, depth cap, must-be-plain-object, prototype-polluting keys stripped) and merges via `setState` — middleware runs and schema stores validate, so corrupt payloads are rejected. Returns `true` when applied.
+- **`hydrate(store, raw)`** → parses with the same guards as ilha's island snapshots (size cap, depth cap, must-be-plain-object, prototype-polluting keys stripped) and merges via `setState` — middleware runs and schema stores validate, so corrupt payloads are rejected. Returns `true` when the snapshot passes the parse/guard checks and is handed to `setState` (schema validation may still reject the patch there), `false` when it is ignored.
 
 ```ts
 // server (inside the loader / request handler)
