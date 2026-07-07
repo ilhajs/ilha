@@ -77,7 +77,7 @@ ilha's built-in `.state()` is the right choice when only one island reads and wr
 
 ### `store(initialState)` · `store(schema)`
 
-Returns a `StoreBuilder`. Chain builder methods then call `.build()` to get a live reactive store. `.build()` throws if any key collides across state, derived, actions, and built-in method names.
+Returns a `StoreBuilder`. Chain builder methods then call `.build()` to get a live reactive store. `.build()` throws if any key collides across state, derived, actions, and built-in method names (`setState`, `reset`, `subscribe`, `select`, `bind`, `getState`, `getInitialState`, `dispose`).
 
 ```ts
 const s = store({ count: 0 }).build();
@@ -85,7 +85,9 @@ const s = store({ count: 0 }).build();
 store<{ foo: string }>({ foo: "bar" }).build(); // explicit POJO type
 ```
 
-Or pass a [Standard Schema](https://standardschema.dev) so **every write** (accessors, `setState`, `bind:*`, actions) validates the merged state. Invalid commits are rejected; use `.onError()` to handle them. Initial state is parsed from the schema (use `.default()` on fields you want at startup).
+Or pass a [Standard Schema](https://standardschema.dev) so writes validate the merged state. Invalid commits are rejected; use `.onError()` to handle them. Initial state is parsed from the schema (use `.default()` on fields you want at startup).
+
+**Per-keystroke writes skip full-schema validation.** State-key accessor writes (`s.email("dr")`) and `bind:*` writes commit **without** running the schema, so drafts like a half-typed email stay in state — otherwise every keystroke short of a valid value would be rejected. This means `getState()` can hold schema-invalid state while the user is typing. Full validation runs on `setState`, action patches, and `reset`. Validate explicitly at trust boundaries (submit handlers) with `validateWithSchema(schema, store.getState())`.
 
 ```ts
 import { z } from "zod";
@@ -134,6 +136,8 @@ userStore.user.error; // Error | undefined on rejection
 
 Re-running (when `id` changes) keeps the previous `.value` visible while `.loading` is `true`.
 
+Sync deriveds are evaluated once eagerly at `.build()` (to detect promise-returning functions); async deriveds start their first run at `.build()` too. Keep derived functions cheap and side-effect-free — don't assume they only run when read.
+
 ### `.action(key, fn)`
 
 Registers a named mutation. `fn` may be sync or `async`. Return a `Partial` patch (or `Promise` of one) to merge through middleware, or `void` / `Promise<void>` when writes use `ctx.set` only or you only run side effects (e.g. `return void toast.error(...)` after `await`).
@@ -177,9 +181,11 @@ Registers a lifecycle listener. `handler` receives `(nextState, prevState)`.
 | `"init"`   | Once, synchronously inside `.build()`            |
 | `"change"` | After every committed mutation (post-middleware) |
 
+`"change"` handlers are isolated: one throwing handler doesn't abort the commit or block later handlers — the error is routed to `.onError()` as `source: "listener"`.
+
 ### `.onError(handler)`
 
-Schema-backed stores only. Runs when a commit fails validation — state stays at the last good snapshot. Context: `{ error, source: "validate", patch?, path?, issues?, get() }`. `error` is a `StoreValidationError` (`issues`, `fieldErrors`). Without a handler, `console.error` is used.
+Runs when a commit fails schema validation (state stays at the last good snapshot), when an async action rejects, or when a `"change"` listener throws. Context: `{ error, source, patch?, path?, issues?, get() }` where `source` is `"validate" | "action" | "listener"`. For validation failures, `error` is a `StoreValidationError` (`issues`, `fieldErrors`). Without a handler, `console.error` is used.
 
 ### `.build()`
 
@@ -212,9 +218,26 @@ s.setState({ a: 1, b: 2 });
 
 Resets to the initial state captured at `.build()` time. Routes through middleware; no-op if already at initial state.
 
+#### `store.dispose()`
+
+Tears the store down: stops all `subscribe` effects and async-derived effects, aborts in-flight async deriveds (via `ctx.signal`), and turns further writes into no-ops. Reads keep working on the last committed state. Idempotent.
+
+Module-level singleton stores never need this. Call it when a store's lifetime is shorter than the page — e.g. a store created per island instance — otherwise its effects (and any refetching async deriveds) leak.
+
+```ts
+const draftStore = store({ text: "" })
+  .derived("preview", async (ctx) =>
+    renderPreview(ctx.get().text, ctx.signal),
+  )
+  .build();
+
+// when the island unmounts:
+draftStore.dispose();
+```
+
 #### `store.getState()` / `store.getInitialState()`
 
-Raw `TState` snapshots — no derived values, no actions. `getInitialState()` is frozen at `.build()` time.
+Raw `TState` snapshots — no derived values, no actions. The initial state is deep-cloned at `.build()` time (falling back to a shallow copy for non-cloneable values like functions), so mutating the original object you passed to `store()` — or nested state later — can't corrupt `reset()` or `getInitialState()`.
 
 #### `store.subscribe(listener)` / `store.subscribe(selector, listener)`
 
@@ -246,7 +269,7 @@ Use state accessors directly (`s.count()`) instead of `select` when you don't ne
 
 #### `store.bind(selector)` — two-way `bind:*`
 
-Returns a read/write accessor for ilha's `bind:*` directives. Accepts property-path selectors only (`s => s.user.name`). Writes go through middleware.
+Returns a read/write accessor for ilha's `bind:*` directives. Accepts property-path selectors only (`s => s.user.name`). Writes go through middleware but **skip full-schema validation** (see [`store(schema)`](#storeinitialstate--storeschema)) so in-progress input still commits.
 
 ```ts
 const query = s.bind((st) => st.search.query);
@@ -255,7 +278,7 @@ const query = s.bind((st) => st.search.query);
 
 ## `effectScope`
 
-Re-exported from alien-signals. Runs a setup function inside a reactive scope and returns `stop()` to tear down every `subscribe` effect registered inside it.
+Re-exported from alien-signals. Runs a setup function inside a reactive scope and returns `stop()` to tear down every `subscribe` effect registered inside it. Use it to scope _your_ subscriptions; use [`store.dispose()`](#storedispose) to tear down the whole store, including its async-derived effects.
 
 ```ts
 import { store, effectScope } from "@ilha/store";
@@ -425,6 +448,7 @@ import type {
   ActionCtx, // { get(), getInitial(), set() } — passed to .action()
   MiddlewareCtx, // { get(), getInitial() } — passed to .middleware()
   StoreErrorContext, // { error, source, path?, patch?, issues?, get() } — .onError()
+  StoreErrorSource, // "validate" | "action" | "listener"
   StoreValidationError,
   StoreBindable, // <S>: read/write accessor for bind:*
   Listener, // (state, prevState) => void

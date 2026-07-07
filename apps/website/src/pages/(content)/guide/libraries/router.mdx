@@ -104,6 +104,16 @@ pageRouter.hydrate(registry);
 
 `router()` creates a fresh router instance and resets the route registry. Always call it fresh — never share instances across server requests.
 
+### `router(options)`
+
+| Option                   | Type                | Default | Description                                                                        |
+| ------------------------ | ------------------- | ------- | ---------------------------------------------------------------------------------- |
+| `mode`                   | `"spa" \| "static"` | `"spa"` | `"static"` disables client navigation — hydrate with `hydrateStatic()`             |
+| `interceptLinks`         | `boolean`           | `true`  | Intercept internal `<a>` clicks for SPA navigation                                 |
+| `notFound`               | `Island`            | —       | Custom 404 island rendered when no route matches (see [RouterView](#routerview))   |
+| `allowExternalRedirects` | `boolean`           | `false` | Allow loader `redirect()` to cross-origin URLs; blocked targets become a 500 error |
+| `loaderTimeout`          | `number`            | —       | Max loader runtime in ms — see [Loaders](#loaders)                                 |
+
 ### `.route(pattern, island, loader?)`
 
 Registers a route. Uses [rou3](https://github.com/h3js/rou3) for matching — the same engine as Nitro. First match wins.
@@ -127,9 +137,11 @@ Mounts the router into a DOM element or CSS selector. Sets up `popstate` listeni
 | `hydrate`  | `boolean`                | `false`     | Preserve SSR DOM, don't wipe on first mount             |
 | `registry` | `Record<string, Island>` | `undefined` | Island registry for interactive hydration on navigation |
 
+While mounted, the router takes over scroll restoration (`history.scrollRestoration = "manual"`): pushes scroll to the top or to the `#hash` target, and back/forward restores the position saved for that history entry — in both directions. Opt out per navigation with `navigate(to, { scroll: false })`. Positions live in memory only; after a full reload the browser's own restoration takes over.
+
 ### `.render(url)` — server only
 
-Returns a synchronous HTML string for the matched route. Renders `<div data-router-empty></div>` when no route matches.
+Returns a synchronous HTML string for the matched route. When no route matches, renders the `notFound` island if configured, otherwise `<div data-router-empty></div>`.
 
 ### `.renderHydratable(url, registry, options?, request?)` — server only
 
@@ -206,6 +218,8 @@ The loader receives a `LoaderContext`:
 
 On the server, loaders run inside `.renderHydratable()`. You can also call **`.runLoader(url, request?)`** on the builder to execute a loader without rendering HTML. On the client, navigations fetch loader data from the `/__ilha/loader` endpoint before mounting the next island.
 
+With `router({ loaderTimeout })`, the loader is raced against its abort signal — even a loader that ignores `ctx.signal` is cut off when the timeout elapses (or the incoming request aborts) and surfaces as a `504` loader error. Pass `ctx.signal` to your fetches anyway so the underlying work is actually cancelled, not just abandoned.
+
 ### `redirect(to, status?)`
 
 Throws a redirect sentinel inside a loader. The router catches it and either issues an HTTP redirect on the server or calls `navigate()` on the client.
@@ -246,6 +260,7 @@ import { navigate } from "@ilha/router";
 
 navigate("/about");
 navigate("/about", { replace: true }); // replaces instead of pushing
+navigate("/about", { scroll: false }); // keep the current scroll position
 ```
 
 ### `prefetch(pathWithSearch)`
@@ -258,6 +273,8 @@ prefetch("/dashboard?tab=overview");
 ```
 
 `RouterLink` calls this automatically on `mouseenter` for links with the `data-prefetch` attribute.
+
+Prefetched entries are single-use and expire after ~30 seconds. If the navigation that would consume a prefetch is superseded mid-flight, the prefetched result is discarded rather than applied to the wrong view.
 
 ## Hash mode
 
@@ -309,22 +326,29 @@ routePath(); // → "/user/42"
 routeParams(); // → { id: "42" }
 ```
 
-### `isActive(pattern)`
+### `isActive(pattern, options?)`
 
 Returns `true` if the current path matches a registered pattern:
 
 ```ts
 import { isActive } from "@ilha/router";
 
-isActive("/about"); // → true / false
-isActive("/user/:id"); // → true when on any /user/* path
+isActive("/about"); // → true on /about
+isActive("/user/:id"); // → true on /user/42 (the matched route's pattern)
+isActive("/docs", { exact: false }); // → true on /docs and /docs/anything
 ```
+
+The default (exact) form compares against the **matched route's registered pattern** — an island registered under several patterns reports whichever pattern actually matched the current path. Pass `{ exact: false }` for a prefix match on the current path instead (useful for highlighting a nav section across nested pages).
 
 ## Built-in islands
 
 ### `RouterView`
 
-The outlet island rendered by `.mount()` and `.render()`. Wraps the active page island in `<div data-router-view>`. Renders `<div data-router-empty></div>` when no route matches.
+The outlet island rendered by `.mount()` and `.render()`. Wraps the active page island in `<div data-router-view>`.
+
+When no route matches: with `router({ notFound })`, the 404 island renders inside `<div data-router-view data-router-not-found>` — server renders return it with HTTP status 404 (via `renderResponse`), and in the browser it is **mounted** with a full island lifecycle (events and effects work) in both SPA and hydrate modes. Without `notFound`, the outlet renders `<div data-router-empty></div>`.
+
+Server render methods use the `notFound` of the router instance they were called on, so concurrent routers can't clobber each other; the browser helpers follow the last-mounted router.
 
 ### `RouterLink`
 
