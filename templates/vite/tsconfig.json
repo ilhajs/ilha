@@ -4,7 +4,7 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "./.ilha/routes.d.ts"],
+    "types": ["vite/client", "./.ilha/pages.d.ts"],
     "jsx": "react-jsx",
     "jsxImportSource": "ilha",
     "skipLibCheck": true,

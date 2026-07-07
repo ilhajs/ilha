@@ -1,4 +1,4 @@
-import { head } from "@ilha/router";
+import { head, loader, type InferLoader } from "@ilha/router";
 import { store } from "@ilha/store";
 import { preventDefault } from "@ilha/store/form";
 import { Badge, Button, Checkbox, Input, LayerCard } from "areia";
@@ -10,6 +10,13 @@ const DEFAULT_TODOS: Todo[] = [
   { id: "2", text: "Develop my Ilha app", completed: false },
   { id: "3", text: "Deploy my Ilha app", completed: false },
 ];
+
+export const clientLoad = loader(() => {
+  // HINT: This code runs before mounting, you can fetch things from external services.
+  return {
+    todos: DEFAULT_TODOS,
+  };
+});
 
 type Todo = { id: string; text: string; completed: boolean };
 
@@ -40,10 +47,11 @@ const getIndex = (target: Element) => {
 };
 
 export default ilha
+  .input<InferLoader<typeof clientLoad>>()
   .on("#todo-form@submit", preventDefault(todos.addItem))
   .on("[data-action=delete_todo]@click", ({ target }) => todos.deleteItem(getIndex(target)))
-  .onMount(() => {
-    todos.items(DEFAULT_TODOS);
+  .onMount(({ input }) => {
+    todos.items(input.todos);
   })
   .render(() => {
     head({ title: "Home" });
