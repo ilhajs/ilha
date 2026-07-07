@@ -108,12 +108,14 @@ describe("pages — plugin", () => {
 describe("pages — ?client virtual module", () => {
   it("resolveId returns the id with ?client suffix for a relative ?client import", () => {
     const p = plugin();
-    const resolved = p.resolveId("./foo.ts?client", "/proj/.ilha/pages.client.ts");
-    expect(resolved).toBe("/proj/.ilha/foo.ts?client");
+    p.configResolved({ root: "/proj" });
+    const resolved = p.resolveId("../src/pages/foo.ts?client", "/proj/.ilha/pages.client.ts");
+    expect(resolved).toBe("/proj/src/pages/foo.ts?client");
   });
 
   it("resolveId resolves ../ paths relative to importer", () => {
     const p = plugin();
+    p.configResolved({ root: "/proj" });
     const resolved = p.resolveId("../src/pages/index.ts?client", "/proj/.ilha/pages.client.ts");
     expect(resolved).toBe("/proj/src/pages/index.ts?client");
   });

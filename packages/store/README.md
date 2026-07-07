@@ -14,6 +14,7 @@ Includes a `/form` subpath with unopinionated, type-safe form helpers built on [
 | **`store.select(s => …)`**     | Ad-hoc reactive projection (allocates a `computed`)             |
 | **`store.bind(s => s.x)`**     | Two-way accessor for ilha `bind:*` directives                   |
 | **`store.subscribe(…)`**       | Imperative listener outside islands                             |
+| **`store.dispose()`**          | Tear down effects for non-singleton (per-island) stores         |
 
 ---
 
@@ -100,7 +101,9 @@ const s = store(
   .build();
 ```
 
-`.build()` throws if any key collides — state vs derived vs action vs built-in names (`setState`, `subscribe`, `select`, `bind`, `getState`, `getInitialState`).
+`.build()` throws if any key collides — state vs derived vs action vs built-in names (`setState`, `reset`, `subscribe`, `select`, `bind`, `getState`, `getInitialState`, `dispose`).
+
+> **⚠️ Per-keystroke writes skip full-schema validation.** State-key accessor writes (`s.email("dr")`) and `bind:*` writes commit **without** running the schema, so drafts like a half-typed email stay in state — otherwise every keystroke short of a valid value would be rejected. This means `getState()` can hold schema-invalid state while the user is typing. Full validation runs on `setState`, action patches, and `reset`. Validate explicitly at trust boundaries (submit handlers) with `validateWithSchema(schema, store.getState())`.
 
 ---
 
@@ -143,6 +146,8 @@ userStore.user.error; // Error | undefined if it rejected
 - The previous value stays visible (`.value`) while `.loading` is `true` during a refetch.
 
 `DerivedCtx` is `{ get(), signal }` and read-only — derived functions must stay pure (no writes).
+
+Sync deriveds are evaluated once eagerly at `.build()` (to detect promise-returning functions); async deriveds start their first run at `.build()` too. Keep derived functions cheap and side-effect-free — don't assume they only run when read.
 
 #### `.action(key, fn)`
 
@@ -233,6 +238,21 @@ Resets the store to the initial state captured at `.build()` time. Routes throug
 s.reset();
 ```
 
+#### `store.dispose()`
+
+Tears the store down: stops all `subscribe` effects and async-derived effects, aborts in-flight async deriveds (via `ctx.signal`), and turns further writes into no-ops. Reads keep working on the last committed state. Idempotent.
+
+Module-level singleton stores never need this. Call it when a store's lifetime is shorter than the page — e.g. a store created per island instance — otherwise its effects (and any refetching async deriveds) leak.
+
+```ts
+const draftStore = store({ text: "" })
+  .derived("preview", async (ctx) => renderPreview(ctx.get().text, ctx.signal))
+  .build();
+
+// when the island unmounts:
+draftStore.dispose();
+```
+
 #### `store.getState()` / `store.getInitialState()`
 
 Raw `TState` snapshots — no derived values, no actions. `getInitialState()` is frozen at `.build()` time.
@@ -258,7 +278,7 @@ count(); // reactive
 
 #### `store.bind(selector)` — two-way `bind:*` accessor
 
-Returns a read/write accessor for ilha's `bind:*` template directives. Accepts property-path selectors only (`s => s.user.name`); derived expressions throw. Writes go through middleware.
+Returns a read/write accessor for ilha's `bind:*` template directives. Accepts property-path selectors only (`s => s.user.name`); derived expressions throw. Writes go through middleware but **skip full-schema validation** (see the callout under `store(schema)`) so in-progress input still commits.
 
 ```ts
 const query = s.bind((st) => st.search.query);

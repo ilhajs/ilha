@@ -31,10 +31,10 @@ export interface LogicalLocation {
 export interface HistoryAdapter {
   /** Read the current logical URL (the one routes are matched against). */
   readLocation(): LogicalLocation;
-  /** Push a new logical URL onto the history stack. */
-  push(to: string): void;
-  /** Replace the current history entry with a new logical URL. */
-  replace(to: string): void;
+  /** Push a new logical URL onto the history stack. `state` is stored on the history entry. */
+  push(to: string, state?: unknown): void;
+  /** Replace the current history entry with a new logical URL. `state` is stored on the history entry. */
+  replace(to: string, state?: unknown): void;
   /** Subscribe to logical-URL changes. Returns a cleanup function. */
   onChange(handler: () => void): () => void;
   /**
@@ -63,13 +63,13 @@ const historyAdapter: HistoryAdapter = {
       hash: location.hash,
     };
   },
-  push(to) {
+  push(to, state) {
     if (!isBrowser) return;
-    history.pushState(null, "", to);
+    history.pushState(state ?? null, "", to);
   },
-  replace(to) {
+  replace(to, state) {
     if (!isBrowser) return;
-    history.replaceState(null, "", to);
+    history.replaceState(state ?? null, "", to);
   },
   onChange(handler) {
     if (!isBrowser) return () => {};
@@ -128,13 +128,13 @@ const hashAdapter: HistoryAdapter = {
     if (!isBrowser) return { pathname: "/", search: "", hash: "" };
     return parseHash(location.hash);
   },
-  push(to) {
+  push(to, state) {
     if (!isBrowser) return;
-    history.pushState(null, "", to.startsWith("#") ? to : "#" + to);
+    history.pushState(state ?? null, "", to.startsWith("#") ? to : "#" + to);
   },
-  replace(to) {
+  replace(to, state) {
     if (!isBrowser) return;
-    history.replaceState(null, "", to.startsWith("#") ? to : "#" + to);
+    history.replaceState(state ?? null, "", to.startsWith("#") ? to : "#" + to);
   },
   onChange(handler) {
     if (!isBrowser) return () => {};

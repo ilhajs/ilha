@@ -163,6 +163,13 @@ export interface StoreBuiltins<TState extends object> {
   bind<S>(selector: (state: TState) => S): StoreBindable<S>;
   getState(): TState;
   getInitialState(): TState;
+  /**
+   * Tear the store down: stops all `subscribe` effects and async-derived
+   * effects, aborts in-flight async deriveds, and turns further writes into
+   * no-ops. Reads keep working on the last committed state. Idempotent.
+   * Needed for per-island (non-singleton) stores to avoid leaking effects.
+   */
+  dispose(): void;
 }
 
 /** The fully built, flat reactive store surface. */
@@ -183,6 +190,7 @@ const BUILTIN_KEYS = [
   "bind",
   "getState",
   "getInitialState",
+  "dispose",
 ] as const;
 const BUILTIN_KEY_SET = new Set<string>(BUILTIN_KEYS);
 
@@ -245,6 +253,17 @@ function omitUndefinedOwnKeys<T extends object>(snapshot: T): T {
     if (out[key] === undefined) delete out[key];
   }
   return out as T;
+}
+
+// Deep-clone the initial state so later caller/state mutation can't corrupt
+// `reset()`/`getInitialState()`. Falls back to a shallow copy when the state
+// holds non-cloneable values (functions, class instances with methods, …).
+function cloneInitialState<T extends object>(state: T): T {
+  try {
+    return structuredClone(state);
+  } catch {
+    return { ...state };
+  }
 }
 
 function collisionError(key: string, kind: "state" | "derived" | "action" | "built-in"): Error {
@@ -393,8 +412,34 @@ function buildStore<
   }
 
   // --- single source of truth ----------------------------------------------
-  const stateSignal = signal<TState>(cfg.initialState);
-  const initialSnapshot: TState = { ...cfg.initialState };
+  // Own the initial object: both the live signal and the reset snapshot are
+  // deep-cloned so caller mutation of the original (including nested objects)
+  // can't leak into getState() or corrupt reset().
+  const stateSignal = signal<TState>(cloneInitialState(cfg.initialState));
+  const initialSnapshot: TState = cloneInitialState(cfg.initialState);
+
+  // --- disposal --------------------------------------------------------------
+  // Every long-lived effect (subscribe, async derived) registers a disposer so
+  // dispose() can tear the store down; per-island stores would otherwise leak.
+  const disposers = new Set<() => void>();
+  let disposed = false;
+
+  // Track an effect handle: returns an unsub that also deregisters itself so
+  // manual unsubscribe doesn't leave a stale entry behind.
+  function trackEffect(stop: () => void): Unsub {
+    // subscribe() on a disposed store: kill the just-created effect and hand
+    // back an inert unsub so nothing outlives disposal.
+    if (disposed) {
+      stop();
+      return () => {};
+    }
+    const unsub = () => {
+      disposers.delete(unsub);
+      stop();
+    };
+    disposers.add(unsub);
+    return unsub;
+  }
 
   const changeListeners = cfg.listeners.filter((l) => l.event === "change").map((l) => l.handler);
   const initListeners = cfg.listeners.filter((l) => l.event === "init").map((l) => l.handler);
@@ -450,7 +495,15 @@ function buildStore<
 
     if (shallowStateEqual(prev, next)) return;
     stateSignal(next);
-    for (const fn of changeListeners) fn(next, prev);
+    // Each listener is isolated: one throwing listener must not prevent later
+    // listeners from running or abort whatever triggered the write.
+    for (const fn of changeListeners) {
+      try {
+        fn(next, prev);
+      } catch (err) {
+        reportStoreError(err instanceof Error ? err : new Error(String(err)), "listener", patch);
+      }
+    }
   };
 
   // Shared context for middleware callbacks. `get()` reads the current
@@ -471,6 +524,7 @@ function buildStore<
   // a spurious no-op through middleware. Untracked so a write performed inside a
   // tracking scope can't subscribe that scope to stateSignal.
   const setState = (patch: Partial<TState>, options?: CommitOptions): void => {
+    if (disposed) return;
     if (patch == null || typeof patch !== "object") return;
     if (Object.keys(patch).length === 0) return;
     untrackRun(() => chain(patch, options));
@@ -497,32 +551,36 @@ function buildStore<
       const listener = listenerOrSelector as Listener<TState>;
       let prev = stateSignal();
       let first = true;
-      return effect(() => {
-        const current = stateSignal();
-        if (first) {
-          first = false;
-          return;
-        }
-        listener(current, prev);
-        prev = current;
-      });
+      return trackEffect(
+        effect(() => {
+          const current = stateSignal();
+          if (first) {
+            first = false;
+            return;
+          }
+          listener(current, prev);
+          prev = current;
+        }),
+      );
     }
 
     const selector = listenerOrSelector as (state: TState) => S;
     const sliceComputed = computed(() => selector(stateSignal()));
     let prevSlice = sliceComputed();
     let first = true;
-    return effect(() => {
-      const currentSlice = sliceComputed();
-      if (first) {
-        first = false;
-        return;
-      }
-      if (!Object.is(currentSlice, prevSlice)) {
-        maybeListener(currentSlice, prevSlice);
-        prevSlice = currentSlice;
-      }
-    });
+    return trackEffect(
+      effect(() => {
+        const currentSlice = sliceComputed();
+        if (first) {
+          first = false;
+          return;
+        }
+        if (!Object.is(currentSlice, prevSlice)) {
+          maybeListener(currentSlice, prevSlice);
+          prevSlice = currentSlice;
+        }
+      }),
+    );
   }
 
   function bind<S>(selector: (state: TState) => S): StoreBindable<S> {
@@ -531,12 +589,28 @@ function buildStore<
 
   const builtins: StoreBuiltins<TState> = {
     setState,
-    reset: () => setState(initialSnapshot),
+    // Clone on reset so post-reset state never shares nested references with
+    // the pristine snapshot.
+    reset: () => setState(cloneInitialState(initialSnapshot)),
     subscribe,
     select,
     bind,
     getState,
     getInitialState: () => initialSnapshot,
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      // Isolate each disposer so one throwing teardown can't prevent the rest
+      // from running.
+      for (const d of [...disposers]) {
+        try {
+          d();
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      disposers.clear();
+    },
   };
 
   // --- cached accessors -----------------------------------------------------
@@ -554,7 +628,9 @@ function buildStore<
   }
 
   // --- derived (sync computed, or async envelope) ---------------------------
-  const NO_SIGNAL = { aborted: false } as AbortSignal;
+  // Real never-aborting signal so sync deriveds can call the full AbortSignal
+  // API (addEventListener, throwIfAborted, …) without crashing.
+  const NO_SIGNAL = new AbortController().signal;
   const derivedAccessors = new Map<string, DerivedAccessor<unknown>>();
   for (const { key, fn } of cfg.deriveds) {
     // Heuristic: native async functions are known up front. Sync functions that
@@ -639,10 +715,12 @@ function buildStore<
           });
         });
     });
-    // The derived effect lives for the store's lifetime (same as subscribe
-    // effects); there is no per-derived disposal because the store has no
-    // unmount. `void stop` keeps the handle intentionally unreferenced.
-    void stop;
+    // The derived effect lives until dispose(): stop the effect and abort any
+    // in-flight run so pending fetches cancel.
+    disposers.add(() => {
+      stop();
+      ac.abort();
+    });
   }
 
   // Shared context for action callbacks. `set` is the imperative escape hatch
