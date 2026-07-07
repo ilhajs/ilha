@@ -75,9 +75,23 @@ export interface IlhaHandlerOptions {
   renderOptions?: HydratableRenderOptions;
 }
 
+const ATTR_ESC: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+function escapeAttr(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ATTR_ESC[c]!);
+}
+
 function stylesheetTag(attrs: AssetAttrs): string {
-  const devId = attrs["data-vite-dev-id"] ? ` data-vite-dev-id="${attrs["data-vite-dev-id"]}"` : "";
-  return `<link rel="stylesheet" href="${attrs.href}"${devId} />`;
+  const devId = attrs["data-vite-dev-id"]
+    ? ` data-vite-dev-id="${escapeAttr(attrs["data-vite-dev-id"])}"`
+    : "";
+  return `<link rel="stylesheet" href="${escapeAttr(attrs.href)}"${devId} />`;
 }
 
 /**
@@ -137,14 +151,28 @@ export class IlhaHandler {
   ${styles}${routeHead}
 </head>
 <body${head?.bodyAttrs ?? ""}>
-  <div id="${this.appId}">${body}</div>
-  <script type="module" src="${clientEntry}"></script>
+  <div id="${escapeAttr(this.appId)}">${body}</div>
+  <script type="module" src="${escapeAttr(clientEntry)}"></script>
 </body>
 </html>`;
   }
 
   /** Handle an incoming request and return a full HTML / redirect Response. */
   async handle(request: Request): Promise<Response> {
+    try {
+      return await this.handleInner(request);
+    } catch (e) {
+      // Never leak an exception (or its message) to the client — log it and
+      // return a generic 500 so a broken loader/render can't take out the host.
+      console.error("[ilha-router] request handling failed:", e);
+      return new Response("Internal Server Error", {
+        status: 500,
+        headers: { "content-type": "text/plain;charset=utf-8" },
+      });
+    }
+  }
+
+  private async handleInner(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     // Client-side navigation fetches loader data from this endpoint (see
@@ -152,19 +180,42 @@ export class IlhaHandler {
     // falls through to page rendering and the client gets HTML back ("Unexpected
     // token '<' … is not valid JSON").
     if (url.pathname === LOADER_ENDPOINT) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response(
+          JSON.stringify({
+            kind: "error",
+            status: 405,
+            message: "Method Not Allowed",
+          }),
+          {
+            status: 405,
+            headers: {
+              "content-type": "application/json;charset=utf-8",
+              allow: "GET, HEAD",
+            },
+          },
+        );
+      }
       const path = url.searchParams.get("path") ?? "/";
       const result = await pageRouter.runLoader(path, request);
       const status =
         result.kind === "error" ? result.status : result.kind === "not-found" ? 404 : 200;
       return new Response(JSON.stringify(result), {
         status,
-        headers: { "content-type": "application/json;charset=utf-8" },
+        headers: {
+          "content-type": "application/json;charset=utf-8",
+          // Loader data is per-navigation and often personalised — never cache.
+          "cache-control": "no-store",
+        },
       });
     }
 
     const href = url.href.slice(url.origin.length);
 
-    const renderOptions: HydratableRenderOptions = { ...this.renderOptions, baseHead: this.head };
+    const renderOptions: HydratableRenderOptions = {
+      ...this.renderOptions,
+      baseHead: this.head,
+    };
     const response = await pageRouter.renderResponse(href, registry, renderOptions, request);
 
     if (response.kind === "redirect") {

@@ -216,7 +216,7 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
 // Codegen — validation
 // ─────────────────────────────────────────────
 
-function validateEntries(entries: PageEntry[], pagesDir: string): void {
+function validateEntries(entries: PageEntry[], pagesDir: string, strict: boolean): void {
   if (entries.length === 0) {
     console.warn(`[ilha:pages] No pages found in ${pagesDir}`);
     return;
@@ -224,12 +224,13 @@ function validateEntries(entries: PageEntry[], pagesDir: string): void {
 
   const seenPatterns = new Map<string, string>();
   const seenNames = new Map<string, string>();
+  const problems: string[] = [];
 
   for (const entry of entries) {
     const existingPattern = seenPatterns.get(entry.pattern);
     if (existingPattern) {
-      console.warn(
-        `[ilha:pages] Duplicate route pattern "${entry.pattern}"\n` +
+      problems.push(
+        `Duplicate route pattern "${entry.pattern}"\n` +
           `  first:  ${existingPattern}\n` +
           `  second: ${entry.file}\n` +
           `  The first match wins — the second page will never be reached.`,
@@ -240,8 +241,8 @@ function validateEntries(entries: PageEntry[], pagesDir: string): void {
 
     const existingName = seenNames.get(entry.name);
     if (existingName) {
-      console.warn(
-        `[ilha:pages] Registry name collision: "${entry.name}" is used by both\n` +
+      problems.push(
+        `Registry name collision: "${entry.name}" is used by both\n` +
           `  ${existingName}\n` +
           `  ${entry.file}\n` +
           `  Hydration may not work correctly for one of these routes.`,
@@ -250,6 +251,12 @@ function validateEntries(entries: PageEntry[], pagesDir: string): void {
       seenNames.set(entry.name, entry.file);
     }
   }
+
+  if (problems.length === 0) return;
+  if (strict) {
+    throw new Error(`[ilha:pages] Route validation failed:\n\n${problems.join("\n\n")}`);
+  }
+  for (const p of problems) console.warn(`[ilha:pages] ${p}`);
 }
 
 // ─────────────────────────────────────────────
@@ -266,6 +273,11 @@ export interface GenerateOptions {
    * mode. Default: `true`.
    */
   interceptLinks?: boolean;
+  /**
+   * Fail codegen (instead of warning) on duplicate route patterns or registry
+   * name collisions. Recommended for production builds. Default: `false`.
+   */
+  strict?: boolean;
 }
 
 /** Paths for all generated files derived from the base output directory. */
@@ -297,7 +309,7 @@ export async function generate(
   const raw = await scanPages(pagesDir);
   const entries = sortEntries(raw);
 
-  validateEntries(entries, pagesDir);
+  validateEntries(entries, pagesDir, options.strict === true);
 
   await mkdir(outDir, { recursive: true });
 
@@ -308,7 +320,10 @@ export async function generate(
   const serverChanged = await writeIfChanged(serverFile, serverCode);
 
   // ─── Client file: ?client imports, browser bundle ───────────────────────
-  const clientCode = buildClientFile(entries, clientFile, { isStatic, interceptLinks });
+  const clientCode = buildClientFile(entries, clientFile, {
+    isStatic,
+    interceptLinks,
+  });
   const clientChanged = await writeIfChanged(clientFile, clientCode);
 
   // ─── Loaders file (server-only, skipped in static mode) ─────────────────
