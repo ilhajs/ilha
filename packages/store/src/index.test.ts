@@ -9,6 +9,7 @@ import { effect } from "alien-signals";
 import ilha, { html } from "ilha";
 import { z } from "zod";
 
+import { setIn } from "./bind-path";
 import { store, effectScope, StoreValidationError } from "./index";
 
 beforeEach(() => {
@@ -762,6 +763,25 @@ describe(".on()", () => {
     s.count(0); // no-op
     expect(listener).not.toHaveBeenCalled();
   });
+
+  it("a throwing change listener does not block later listeners or the write", () => {
+    const order: string[] = [];
+    const errors: Array<{ error: Error; source: string }> = [];
+    const s = store({ count: 0 })
+      .on("change", () => {
+        order.push("first");
+        throw new Error("boom");
+      })
+      .on("change", () => order.push("second"))
+      .onError((ctx) => errors.push({ error: ctx.error, source: ctx.source }))
+      .build();
+    expect(() => s.count(1)).not.toThrow();
+    expect(order).toEqual(["first", "second"]);
+    expect(s.count()).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.source).toBe("listener");
+    expect(errors[0]!.error.message).toBe("boom");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -941,6 +961,81 @@ describe("reset()", () => {
     s.reset();
     expect(s.email()).toBe("ada@example.com");
   });
+
+  it("survives nested mutation of the state object", () => {
+    const s = store({ user: { name: "ada" } }).build();
+    s.getState().user.name = "mutated"; // misuse: untracked nested write
+    s.reset();
+    expect(s.getState().user.name).toBe("ada");
+  });
+
+  it("survives caller mutation of the original initial object after build()", () => {
+    const initial = { user: { name: "ada" } };
+    const s = store(initial).build();
+    initial.user.name = "mutated";
+    s.setState({ user: { name: "grace" } });
+    s.reset();
+    expect(s.getState().user.name).toBe("ada");
+    expect(s.getInitialState().user.name).toBe("ada");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dispose
+// ---------------------------------------------------------------------------
+
+describe("dispose()", () => {
+  it("stops subscribe listeners and turns writes into no-ops", () => {
+    const listener = mock();
+    const s = store({ count: 0 }).build();
+    s.subscribe(listener);
+    s.count(1);
+    expect(listener).toHaveBeenCalledTimes(1);
+    s.dispose();
+    s.count(2);
+    s.setState({ count: 3 });
+    s.reset();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(s.count()).toBe(1); // reads keep working on last committed state
+  });
+
+  it("is idempotent and inert for subscribe() after disposal", () => {
+    const listener = mock();
+    const s = store({ count: 0 }).build();
+    s.dispose();
+    s.dispose();
+    const unsub = s.subscribe(listener);
+    expect(() => unsub()).not.toThrow();
+    s.count(1);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("stops async derived re-runs and aborts the in-flight signal", async () => {
+    let runs = 0;
+    let lastSignal: AbortSignal | undefined;
+    const s = store({ id: 1 })
+      .derived("user", async (ctx) => {
+        runs++;
+        lastSignal = ctx.signal;
+        ctx.get().id;
+        return new Promise<never>(() => {}); // never settles
+      })
+      .build();
+    await Promise.resolve();
+    expect(runs).toBe(1);
+    s.dispose();
+    expect(lastSignal!.aborted).toBe(true);
+    s.setState({ id: 2 }); // no-op write; would refetch if alive
+    await Promise.resolve();
+    expect(runs).toBe(1);
+  });
+
+  it("manual unsubscribe before dispose does not double-stop", () => {
+    const s = store({ count: 0 }).build();
+    const unsub = s.subscribe(mock());
+    unsub();
+    expect(() => s.dispose()).not.toThrow();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1085,6 +1180,13 @@ describe("bind()", () => {
   it("throws for unsupported (non-path) selectors", () => {
     const s = store({ count: 3 }).build();
     expect(() => s.bind((st) => st.count * 2)).toThrow();
+  });
+
+  it("setIn rejects prototype-polluting path segments", () => {
+    expect(() => setIn({}, ["__proto__", "polluted"], true)).toThrow(/unsafe path segment/);
+    expect(() => setIn({}, ["a", "constructor", "x"], 1)).toThrow(/unsafe path segment/);
+    expect(() => setIn({}, ["prototype"], 1)).toThrow(/unsafe path segment/);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 });
 

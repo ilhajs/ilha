@@ -23,10 +23,15 @@ function getAtPath(obj: unknown, path: readonly PathSegment[]): unknown {
   return cur;
 }
 
+const FORBIDDEN_SEGMENTS = new Set(["__proto__", "constructor", "prototype"]);
+
 export function setIn(root: unknown, path: readonly PathSegment[], value: unknown): unknown {
   if (path.length === 0) return value;
 
   const [head, ...tail] = path;
+  if (typeof head === "string" && FORBIDDEN_SEGMENTS.has(head)) {
+    throw new Error(`@ilha/store: refusing to write through unsafe path segment "${head}".`);
+  }
   const base = root ?? (typeof head === "number" ? [] : {});
   const clone = Array.isArray(base) ? [...base] : { ...(base as object) };
   (clone as Record<string | number, unknown>)[head as string | number] = setIn(

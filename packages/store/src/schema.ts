@@ -7,7 +7,7 @@ import { issuesToErrors, validateWithSchema } from "./form";
 
 export type { StandardSchemaV1 } from "./form";
 
-export type StoreErrorSource = "validate" | "action";
+export type StoreErrorSource = "validate" | "action" | "listener";
 
 /** Thrown into `.onError()` handlers; also `instanceof` checkable. */
 export class StoreValidationError extends Error {

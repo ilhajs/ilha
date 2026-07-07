@@ -89,6 +89,11 @@ export interface IlhaPagesOptions {
    * Default: `true`.
    */
   interceptLinks?: boolean;
+  /**
+   * Fail codegen on duplicate route patterns / registry name collisions
+   * instead of warning. Recommended for CI/production builds. Default: `false`.
+   */
+  strict?: boolean;
 }
 
 export function resolvePluginPaths(root: string, options: IlhaPagesOptions) {
@@ -126,9 +131,11 @@ export function createPagesPluginState(options: IlhaPagesOptions): PagesPluginSt
       await generate(pagesDir, outDir, {
         mode: options.mode,
         interceptLinks: options.interceptLinks,
+        strict: options.strict,
       });
     } catch (e) {
       console.error("[ilha:pages] codegen failed:", e);
+      if (options.strict) throw e;
     }
   };
 
@@ -172,7 +179,7 @@ export async function regenFromPagesChange(
   await state.regen();
 }
 
-export function resolvePagesId(_state: PagesPluginState, id: string, importer?: string) {
+export function resolvePagesId(state: PagesPluginState, id: string, importer?: string) {
   if (id === VIRTUAL_PAGES_SERVER) return RESOLVED_PAGES_SERVER;
   if (id === VIRTUAL_PAGES_CLIENT) return RESOLVED_PAGES_CLIENT;
   if (id === VIRTUAL_LOADERS) return RESOLVED_LOADERS;
@@ -180,6 +187,10 @@ export function resolvePagesId(_state: PagesPluginState, id: string, importer?: 
   if (id.endsWith(CLIENT_QUERY)) {
     const bare = id.slice(0, -CLIENT_QUERY.length);
     const resolved = importer ? resolve(importer.replace(/\?.*$/, ""), "..", bare) : resolve(bare);
+    // Only page-dir modules may be re-exported through the ?client shim —
+    // without this check any absolute path could be pulled into the module
+    // graph via a crafted `…?client` import.
+    if (state.pagesDir && !state.isUnderPagesDir(resolved)) return;
     return resolved + CLIENT_QUERY;
   }
 }
@@ -218,6 +229,8 @@ export function setupRspackPagesWatcher(
   state: PagesPluginState,
   structuralInvalidate: (file: string) => void | Promise<void>,
 ) {
+  // fs.watch throws ENOENT when the pages dir doesn't exist yet.
+  if (!existsSync(state.pagesDir)) return () => {};
   const watcher = watch(state.pagesDir, { recursive: true }, (_event, filename) => {
     if (!filename) return;
     const file = join(state.pagesDir, filename);
