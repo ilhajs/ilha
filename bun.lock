@@ -20,12 +20,12 @@
       "dependencies": {
         "@fontsource-variable/geist": "^5.2.9",
         "@fontsource-variable/geist-mono": "^5.2.8",
-        "@ilha/router": "^0.8.1",
-        "@ilha/store": "^0.7.0",
+        "@ilha/router": "^0.8.2",
+        "@ilha/store": "^0.7.1",
         "areia": "^0.1.36",
         "dedent": "^1.7.2",
-        "ilha": "^0.9.0",
-        "imprensa": "^0.1.18",
+        "ilha": "^0.9.1",
+        "imprensa": "^0.1.19",
         "lucide": "^1.23.0",
         "shiki": "^4.3.1",
         "sonner": "^2.0.7",
@@ -519,7 +519,7 @@
 
     "import-without-cache": ["import-without-cache@0.4.0", "", {}, "sha512-NkJQA7oZ4YHQhd2+H3BoRFKF3d/XNsiKpHZCQEMH9pDX27hQQLsTyOocyRgaIVtf8gHX3Nt3LPkR4e5EdtPAGQ=="],
 
-    "imprensa": ["imprensa@0.1.18", "", { "dependencies": { "@areia/slots": "^0.1.5", "@mdx-js/rollup": "^3.1.1", "@shikijs/engine-javascript": "^4.3.1", "@shikijs/langs": "^4.3.1", "@shikijs/rehype": "^4.3.1", "@shikijs/themes": "^4.3.1", "@shikijs/twoslash": "^4.3.1", "@tailwindcss/typography": "^0.5.20", "@tailwindcss/vite": "^4.3.2", "minisearch": "^7.2.0", "quando": "^0.1.6", "rehype-autolink-headings": "^7.1.0", "rehype-slug": "^6.0.0", "remark-gfm": "^4.0.1", "shiki": "^4.3.1", "sonner": "^2.0.7", "tailwindcss": "^4.3.2", "unhead": "^3.1.7", "vite-plugin-iso-import": "^1.3.0", "vite-plugin-sitemap": "^0.8.2", "vite-prerender-plugin": "^0.5.13" }, "peerDependencies": { "@ilha/router": "^0.6.9", "@ilha/store": "^0.5.11", "areia": "^0.1.35", "ilha": "^0.9.0", "lucide": "^1.17.0", "vite": "^8" } }, "sha512-ISgZzmJy5yjE5XxMdXJ6GPUvbo8x6Cbhgv+1K+6qhJmaNMwCYD0j54HDNGfyw9Flzt8M2tNeQtLOnnD7iyYRwA=="],
+    "imprensa": ["imprensa@0.1.19", "", { "dependencies": { "@areia/slots": "^0.1.5", "@mdx-js/rollup": "^3.1.1", "@shikijs/engine-javascript": "^4.3.1", "@shikijs/langs": "^4.3.1", "@shikijs/rehype": "^4.3.1", "@shikijs/themes": "^4.3.1", "@shikijs/twoslash": "^4.3.1", "@tailwindcss/typography": "^0.5.20", "@tailwindcss/vite": "^4.3.2", "minisearch": "^7.2.0", "quando": "^0.1.6", "rehype-autolink-headings": "^7.1.0", "rehype-slug": "^6.0.0", "remark-gfm": "^4.0.1", "shiki": "^4.3.1", "sonner": "^2.0.7", "tailwindcss": "^4.3.2", "unhead": "^3.1.7", "vite-plugin-iso-import": "^1.3.0", "vite-plugin-sitemap": "^0.8.2", "vite-prerender-plugin": "^0.5.13" }, "peerDependencies": { "@ilha/router": "^0.6.9", "@ilha/store": "^0.5.11", "areia": "^0.1.35", "ilha": "^0.9.0", "lucide": "^1.17.0", "vite": "^8" } }, "sha512-cEO3LL68z4b/kHOdYSZoKbXHco9G3tBtHgz1zjxpHmq1PK+9ETbMK93t2+NioYEqu76Lz1rekr3aG7m8H4CkAw=="],
 
     "inline-style-parser": ["inline-style-parser@0.2.7", "", {}, "sha512-Nb2ctOyNR8DqQoR0OwRG95uNWIC0C1lCgf5Naz5H6Ji72KZ8OcFZLz2P5sNgwlyoJ8Yif11oMuYs5pBQa86csA=="],
 
