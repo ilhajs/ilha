@@ -328,10 +328,13 @@ function layoutHtmlWithEmptyKPage(
     ((wrappedLayout as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] as
       | Island<any, any>
       | undefined) ?? wrappedLayout;
-  const emptyPage = Object.assign(leaf.key("page"), {
-    toString: () => "",
-  }) as unknown as Island<any, any>;
-  return handler(emptyPage).toString(props as never);
+  const rawKeyed = leaf.key("page");
+  // Layouts often pass a subset to `<Children />`; merge full route loader props
+  // so slot markers and SSR do not drop page-only keys (e.g. todos + authSession).
+  const shellChild = ((partial?: Record<string, unknown>) =>
+    rawKeyed({ ...props, ...(partial ?? {}) })) as unknown as Island<any, any>;
+  Object.assign(shellChild, { toString: () => "" });
+  return handler(shellChild).toString(props as never);
 }
 
 async function wrapLayoutSlotMarkup(
@@ -359,13 +362,23 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
 
   // Key the page slot so its id (k:page) never collides with positional
   // child slots (p:0, p:1, …) inside the page render.
-  const KeyedPage = Object.assign(page.key("page"), {
-    toString: page.toString.bind(page),
+  const rawKeyedPage = page.key("page");
+  const layoutInputRef: { merged?: Record<string, unknown> } = {};
+  const KeyedPage = ((props?: Record<string, unknown>) => {
+    const merged = layoutInputRef.merged;
+    const slotProps =
+      merged && typeof merged === "object" ? { ...merged, ...(props ?? {}) } : props;
+    return rawKeyedPage(slotProps as never);
   }) as unknown as Island<any, any>;
+  Object.assign(KeyedPage, { toString: page.toString.bind(page) });
   const Wrapped = layout(KeyedPage);
 
   (Wrapped as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] = leafPage;
   (Wrapped as unknown as Record<symbol, LayoutHandler>)[WRAP_LAYOUT_HANDLER] = layout;
+
+  function setLayoutMergedInput(props: Record<string, unknown> | undefined): void {
+    layoutInputRef.merged = props;
+  }
 
   function pageMountHost(host: Element): Element {
     const slots = [...host.querySelectorAll('[data-ilha-slot="k:page"]')].filter((slot) => {
@@ -473,6 +486,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   // and the keyed page slot (k:page). preparePageMountHost copies outer SSR
   // state onto k:page and clears _skipOnMount so the page onMount still runs.
   Wrapped.mount = (host: Element, props?: Record<string, unknown>) => {
+    setLayoutMergedInput(props as Record<string, unknown> | undefined);
     prepareLayoutMountHost(host);
     return layoutMount(host, props as never);
   };
@@ -481,6 +495,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
     host: Element,
     props?: Record<string, unknown>,
   ) => {
+    setLayoutMergedInput(props as Record<string, unknown> | undefined);
     prepareLayoutMountHost(host);
     if (typeof layoutInternal === "function") {
       return layoutInternal(host, props);
@@ -497,6 +512,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   ): Promise<string> => {
     if (!opts?.name) throw new Error("wrapLayout: hydratable requires options.name");
     const resolvedProps = props ?? {};
+    setLayoutMergedInput(resolvedProps);
     // Snapshot attrs from the leaf page island, not the layout shell.
     const pageBlock = await leafPage.hydratable(resolvedProps, opts);
     const open = parseHydratableOpenTag(pageBlock);

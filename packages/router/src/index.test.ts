@@ -1289,6 +1289,19 @@ describe("composeLoaders()", () => {
     expect(result).toEqual({ user: "Page-user", extra: 1 });
   });
 
+  it("merges three loaders (root layout, nested layout, page) with page winning collisions", async () => {
+    const root = async () => ({ root: true, shared: "root" });
+    const nested = async () => ({ nested: true, shared: "nested" });
+    const page = async () => ({ page: true, shared: "page" });
+    const composed = composeLoaders([root, nested, page]);
+    expect(await composed(ctx())).toEqual({
+      root: true,
+      nested: true,
+      page: true,
+      shared: "page",
+    });
+  });
+
   it("runs loaders in parallel (concurrent, not sequential)", async () => {
     const order: string[] = [];
     const slow = async () => {
@@ -1373,6 +1386,21 @@ describe("router.runLoader()", () => {
     const r = router().route("/", HomePage, load);
     const result = await r.runLoader("/");
     expect(result).toEqual({ kind: "data", data: { user: "alice" } });
+  });
+
+  it("runs a composed server loader (root + nested + page) like ilha:loaders attachLoader", async () => {
+    const composed = composeLoaders([
+      loader(async () => ({ root: true, shared: "root" })),
+      loader(async () => ({ nested: true, shared: "nested" })),
+      loader(async () => ({ page: true, shared: "page" })),
+    ]);
+    const Page = ilha.render(({ input }: any) => `<p>ok</p>`);
+    const r = router().route("/user", Page).attachLoader("/user", composed);
+    const result = await r.runLoader("/user");
+    expect(result).toEqual({
+      kind: "data",
+      data: { root: true, nested: true, page: true, shared: "page" },
+    });
   });
 
   it("returns serialized head when loader calls ctx.head", async () => {
@@ -1518,6 +1546,25 @@ describe("renderHydratable() with loader", () => {
     const load = loader(async () => ({ name: "world" }));
     const html = await router().route("/", Greeter, load).renderHydratable("/", { Greeter });
     expect(html).toContain("hello world");
+  });
+
+  it("serializes composed attachLoader data on SSR hydratable (mirrors ilha:loaders)", async () => {
+    const Page = ilha
+      .input<{ root: boolean; nested: boolean; page: boolean }>()
+      .render(({ input }) => `<p>${String(input.page)}</p>`);
+    const composed = composeLoaders([
+      loader(async () => ({ root: true })),
+      loader(async () => ({ nested: true })),
+      loader(async () => ({ page: true })),
+    ]);
+    const html = await router()
+      .route("/app", Page)
+      .attachLoader("/app", composed)
+      .renderHydratable("/app", { app: Page }, { snapshot: true });
+    expect(html).toContain("data-ilha-props");
+    expect(html).toContain("&quot;root&quot;:true");
+    expect(html).toContain("&quot;nested&quot;:true");
+    expect(html).toContain("&quot;page&quot;:true");
   });
 
   it("loader receives params from the matched route", async () => {
@@ -1916,6 +1963,108 @@ describe("SPA client loaders", () => {
     expect(el.innerHTML).toContain("v:client");
     expect(serverLoad).not.toHaveBeenCalled();
     expect(clientLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it("composed clientLoaders (layout + page) merge into island input", async () => {
+    const layoutLoad = mock(async () => ({ fromLayout: "L", shared: "layout" }));
+    const pageLoad = mock(async () => ({ fromPage: "P", shared: "page" }));
+    const MergedPage = ilha.render(
+      ({ input }: any) =>
+        `<p>L:${input?.fromLayout ?? "-"}|P:${input?.fromPage ?? "-"}|S:${input?.shared ?? "-"}</p>`,
+    );
+    const composed = composeLoaders([loader(layoutLoad), loader(pageLoad)]);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/merged", MergedPage)
+      .clientLoader("/merged", composed)
+      .mount(el);
+
+    navigate("/merged");
+    await flush();
+
+    expect(el.innerHTML).toContain("L:L");
+    expect(el.innerHTML).toContain("P:P");
+    expect(el.innerHTML).toContain("S:page");
+    expect(layoutLoad).toHaveBeenCalledTimes(1);
+    expect(pageLoad).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("markLoader + endpoint fetch passes server-composed loader data to island", async () => {
+    fetchSpy.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.includes("/__ilha/loader")) {
+        return new Response(
+          JSON.stringify({
+            kind: "data",
+            data: { fromLayout: "L", fromPage: "P", shared: "page" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ kind: "data", data: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const ServerPage = ilha.render(
+      ({ input }: any) =>
+        `<p>L:${input?.fromLayout ?? "-"}|P:${input?.fromPage ?? "-"}|S:${input?.shared ?? "-"}</p>`,
+    );
+    unmount = router()
+      .route("/", HomePage)
+      .route("/server", ServerPage)
+      .markLoader("/server")
+      .mount(el);
+
+    navigate("/server");
+    await flush();
+
+    expect(el.innerHTML).toContain("L:L");
+    expect(el.innerHTML).toContain("P:P");
+    expect(el.innerHTML).toContain("S:page");
+    expect(fetchSpy).toHaveBeenCalled();
+  });
+
+  it("layout clientLoad only on route (no page clientLoad) still feeds layout keys", async () => {
+    const layoutOnly = mock(async () => ({ fromLayout: "only-layout" }));
+    const LayoutOnlyPage = ilha.render(
+      ({ input }: any) => `<p>L:${input?.fromLayout ?? "-"}|P:${input?.fromPage ?? "-"}</p>`,
+    );
+    unmount = router()
+      .route("/", HomePage)
+      .route("/layout-only", LayoutOnlyPage)
+      .clientLoader("/layout-only", loader(layoutOnly))
+      .mount(el);
+
+    navigate("/layout-only");
+    await flush();
+
+    expect(el.innerHTML).toContain("L:only-layout");
+    expect(layoutOnly).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("mixed: layout clientLoad + page server loader on same route — client uses clientLoader only (page server load not merged)", async () => {
+    const layoutClient = mock(async () => ({ fromLayout: "L" }));
+    const pageServer = mock(async () => ({ fromPage: "P" }));
+    const MixedPage = ilha.render(
+      ({ input }: any) => `<p>L:${input?.fromLayout ?? "-"}|P:${input?.fromPage ?? "-"}</p>`,
+    );
+    unmount = router()
+      .route("/", HomePage)
+      .route("/mixed", MixedPage, loader(pageServer))
+      .clientLoader("/mixed", loader(layoutClient))
+      .mount(el);
+
+    navigate("/mixed");
+    await flush();
+
+    // clientLoader wins over .route() server loader — layout client runs, page server does not
+    expect(el.innerHTML).toContain("L:L");
+    expect(el.innerHTML).toContain("P:-");
+    expect(layoutClient).toHaveBeenCalledTimes(1);
+    expect(pageServer).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("follows a local loader redirect() on the client", async () => {
@@ -2599,6 +2748,63 @@ describe("wrapError / wrapLayout hydration", () => {
     await flushEffects();
     expect(el.textContent).toContain("1");
 
+    unmount();
+  });
+
+  it("nested wrapLayout passes full merged loader input to leaf when each layout passes a subset", async () => {
+    const Page = ilha
+      .input<{ a: number; b: number; c: number }>()
+      .render(({ input }) => html`<p data-abc>${input.a}-${input.b}-${input.c}</p>`);
+
+    const Inner = defineLayout((children) =>
+      ilha
+        .input<{ b: number }>()
+        .render(({ input }) => html`<div>${children({ b: input.b })}</div>`),
+    );
+    const Outer = defineLayout((children) =>
+      ilha
+        .input<{ a: number }>()
+        .render(({ input }) => html`<div>${children({ a: input.a })}</div>`),
+    );
+
+    const Wrapped = wrapLayout(Outer, wrapLayout(Inner, Page));
+    const merged = { a: 1, b: 2, c: 3 };
+    const ssr = await Wrapped.hydratable(merged, { name: "nested", snapshot: true });
+    expect(ssr).toContain("1-2-3");
+
+    el = makeEl(`<div data-router-view>${ssr}</div>`);
+    const { unmount } = ilhaMount({ nested: Wrapped }, { root: el });
+    await flushEffects();
+    expect(el.querySelector("[data-abc]")?.textContent).toBe("1-2-3");
+    unmount();
+  });
+
+  it("wrapLayout page slot keeps full merged loader input when layout passes a subset to Children", async () => {
+    const Page = ilha
+      .input<{ authSession: { id: string }; todos: string[] }>()
+      .onMount(({ input }) => {
+        if (!input.todos?.length) throw new Error("missing page loader keys on slot");
+      })
+      .render(({ input }) => html`<p data-todos>${input.todos.join(",")}</p>`);
+
+    const Layout = defineLayout((children) =>
+      ilha
+        .input<{ authSession: { id: string } }>()
+        .render(({ input }) => html`<main>${children({ authSession: input.authSession })}</main>`),
+    );
+
+    const Wrapped = wrapLayout(Layout, Page);
+    const merged = {
+      authSession: { id: "u1" },
+      todos: ["a", "b"],
+    };
+    const ssr = await Wrapped.hydratable(merged, { name: "index", snapshot: true });
+    expect(ssr).toContain("a,b");
+
+    el = makeEl(`<div data-router-view>${ssr}</div>`);
+    const { unmount } = ilhaMount({ index: Wrapped }, { root: el });
+    await flushEffects();
+    expect(el.querySelector("[data-todos]")?.textContent).toBe("a,b");
     unmount();
   });
 

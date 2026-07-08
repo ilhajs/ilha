@@ -905,6 +905,36 @@ describe("codegen — loader detection", () => {
     expect(loaders).toContain("+layout.ts");
   });
 
+  it("composeLoaders chains root layout, nested layout, and page server loads", async () => {
+    await writePage(
+      pagesDir,
+      "user/index.ts",
+      `export const load = async () => ({ page: true }); export default null;`,
+    );
+    await writePage(
+      pagesDir,
+      "+layout.ts",
+      `export const load = async () => ({ root: true }); export default null;`,
+    );
+    await writePage(
+      pagesDir,
+      "user/+layout.ts",
+      `export const load = async () => ({ nested: true }); export default null;`,
+    );
+    const { loaders } = await runCodegen();
+    const userLine = loaders.split("\n").find((l) => l.includes('attachLoader("/user"'));
+    expect(userLine).toContain("composeLoaders");
+    const ids = userLine!
+      .match(/composeLoaders\(\[([^\]]+)\]\)/)?.[1]!
+      .split(",")
+      .map((s) => s.trim());
+    expect(ids).toHaveLength(3);
+    expect(ids![0]).toMatch(/_l0/);
+    expect(ids![1]).toMatch(/_l1/);
+    expect(ids![2]).toMatch(/_p/);
+    expect(ids![2]).not.toMatch(/_l/);
+  });
+
   it("composeLoaders is used when Page and layout both have loaders", async () => {
     await writePage(
       pagesDir,
@@ -1113,6 +1143,50 @@ describe("codegen — clientLoad detection", () => {
     const { client } = await runCodegen();
     expect(client).toContain("composeLoaders([_cl0_l0, _cl0])");
     expect(client).toContain(`import { composeLoaders, router,`);
+  });
+
+  it("composes root, nested, and page clientLoads for a page under two layouts", async () => {
+    await writePage(
+      pagesDir,
+      "+layout.ts",
+      `export const clientLoad = async () => ({ root: true }); export default null;`,
+    );
+    await writePage(
+      pagesDir,
+      "user/+layout.ts",
+      `export const clientLoad = async () => ({ nested: true }); export default null;`,
+    );
+    await writePage(
+      pagesDir,
+      "user/index.ts",
+      `export const clientLoad = async () => ({ page: true }); export default null;`,
+    );
+    const { client } = await runCodegen();
+    expect(client).toContain(`import { composeLoaders, router,`);
+    const userClientLoader = client.split("\n").find((l) => l.includes('.clientLoader("/user"'));
+    expect(userClientLoader).toBeDefined();
+    expect(userClientLoader).toMatch(/composeLoaders\(\[_cl\d+_l0, _cl\d+_l1, _cl\d+\]\)/);
+  });
+
+  it("layout clientLoad + page load only wires layout into clientLoader and page into attachLoader", async () => {
+    await writePage(
+      pagesDir,
+      "+layout.ts",
+      `export const clientLoad = async () => ({ fromLayout: true }); export default null;`,
+    );
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({ fromPage: true }); export default null;`,
+    );
+    const { client, loaders } = await runCodegen();
+    // Client navigations run only the layout's clientLoad — not the page's server load.
+    expect(client).toContain(`.clientLoader("/", _cl0_l0)`);
+    expect(client).not.toContain("composeLoaders");
+    expect(client).toContain(`.markLoader("/")`);
+    // Server attachLoader composes server `load` exports only (page here; layout has no load).
+    expect(loaders).toContain(`pageRouter.attachLoader("/", _p0)`);
+    expect(loaders).not.toContain("_p0_l0");
   });
 
   it("a page with both load and clientLoad gets markLoader and clientLoader on the client", async () => {
