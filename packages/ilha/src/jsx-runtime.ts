@@ -158,11 +158,39 @@ function pushJsxAttr(chunks: string[], values: unknown[], name: string, value: u
   chunks.push('"');
 }
 
-function renderJsxElement(type: string, props: JsxProps, children: JsxChild[]): RawHtml {
+function escapeAttrValue(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+// Stamp the JSX `key` onto the root element of already-rendered HTML as
+// `data-key`, so the morph engine's keyed reconciliation can match children
+// produced by function components. No-op when the output doesn't start with
+// an element or the root already carries an explicit data-key.
+function injectDataKey(out: RawHtml, key: string): RawHtml {
+  const m = /^\s*<([a-zA-Z][a-zA-Z0-9:._-]*)/.exec(out.value);
+  if (!m) return out;
+  const openEnd = out.value.indexOf(">", m.index);
+  const openTag = out.value.slice(m.index, openEnd === -1 ? undefined : openEnd);
+  if (/\sdata-key\s*=/.test(openTag)) return out;
+  const insertAt = m.index + m[0].length;
+  return raw(
+    `${out.value.slice(0, insertAt)} data-key="${escapeAttrValue(key)}"${out.value.slice(insertAt)}`,
+  );
+}
+
+function renderJsxElement(
+  type: string,
+  props: JsxProps,
+  children: JsxChild[],
+  slotKey?: string,
+): RawHtml {
   const chunks = [`<${type}`];
   const values: unknown[] = [];
   if (props)
     for (const [name, value] of Object.entries(props)) pushJsxAttr(chunks, values, name, value);
+  if (slotKey !== undefined && props?.["data-key"] == null) {
+    pushJsxAttr(chunks, values, "data-key", slotKey);
+  }
   chunks[chunks.length - 1] += ">";
   if (!VOID_ELEMENTS.has(type)) {
     for (const child of children) {
@@ -185,12 +213,12 @@ export function jsx(
   const children: JsxChild[] =
     hasKeyArg || maybeKey === undefined ? restChildren : [maybeKey, ...restChildren];
   const normalizedChildren = normalizeJsxChildren(props, children);
+  const slotKey = extractJsxSlotKey(
+    props,
+    typeof keyFromArg === "string" || typeof keyFromArg === "number" ? keyFromArg : undefined,
+  );
 
   if (typeof type === "function") {
-    const slotKey = extractJsxSlotKey(
-      props,
-      typeof keyFromArg === "string" || typeof keyFromArg === "number" ? keyFromArg : undefined,
-    );
     const componentProps: Record<string, unknown> = {
       ...props,
       ...(normalizedChildren.length > 0 ? { children: normalizedChildren } : {}),
@@ -201,7 +229,7 @@ export function jsx(
       if (slotKey !== undefined) (out as { key?: string }).key = slotKey;
       return html`${out}`;
     }
-    if (isRawHtml(out)) return out;
+    if (isRawHtml(out)) return slotKey !== undefined ? injectDataKey(out, slotKey) : out;
     if (typeof out === "string" && isIsland(type)) {
       return __ilhaJsxSlot(type, componentProps, slotKey);
     }
@@ -218,7 +246,7 @@ export function jsx(
     return html`${out}`;
   }
 
-  return renderJsxElement(type, props, normalizedChildren);
+  return renderJsxElement(type, props, normalizedChildren, slotKey);
 }
 
 export const jsxs = jsx;

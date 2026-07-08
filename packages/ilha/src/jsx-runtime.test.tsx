@@ -108,6 +108,96 @@ describe("ilha JSX runtime", () => {
     expect((<input {...props} />).value).toBe('<input id="ok">');
   });
 
+  it("emits key as data-key on host elements", () => {
+    expect((<li key="a">x</li>).value).toBe('<li data-key="a">x</li>');
+    expect((<li key={7}>x</li>).value).toBe('<li data-key="7">x</li>');
+  });
+
+  it("does not override an explicit data-key with the JSX key", () => {
+    expect(
+      (
+        <li key="a" data-key="b">
+          x
+        </li>
+      ).value,
+    ).toBe('<li data-key="b">x</li>');
+  });
+
+  it("injects data-key into the root element of function component output", () => {
+    function Row({ label }: { label: string }) {
+      return html`<label class="row"><input type="checkbox" />${label}</label>`;
+    }
+
+    expect((<Row key="t1" label="first" />).value).toBe(
+      '<label data-key="t1" class="row"><input type="checkbox" />first</label>',
+    );
+  });
+
+  it("escapes the injected data-key value", () => {
+    function Row() {
+      return html`<div></div>`;
+    }
+
+    const out = (<Row key={'"><img src=x onerror=alert(1)>'} />).value;
+    expect(out).toBe('<div data-key="&quot;>&lt;img src=x onerror=alert(1)>"></div>');
+    expect(document.createRange().createContextualFragment(out).querySelector("img")).toBeNull();
+  });
+
+  it("keeps a keyed component's DOM identity when a sibling is prepended (checked state does not leak)", () => {
+    // Regression: without key propagation, prepending a todo made the new
+    // item positionally reuse the old first item's DOM, inheriting its
+    // user-toggled checked state and controller-owned data-checked attr.
+    type Todo = { id: string; title: string };
+    let setTodos!: (v?: Todo[]) => Todo[] | void;
+
+    function Row({ todo }: { todo: Todo }) {
+      return html`<label
+        ><span data-slot="checkbox"><input type="checkbox" data-todo-id="${todo.id}" /></span
+        >${todo.title}</label
+      >`;
+    }
+
+    const Island = ilha
+      .state("todos", [{ id: "t1", title: "first" }] as Todo[])
+      .render(({ state }) => {
+        setTodos = state.todos as typeof setTodos;
+        return (
+          <div>
+            {state.todos().map((todo) => (
+              <Row key={todo.id} todo={todo} />
+            ))}
+          </div>
+        );
+      });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+
+    // User checks the first todo; the checkbox controller reflects it onto
+    // the live checked property and the data-checked presence attr.
+    const firstInput = el.querySelector<HTMLInputElement>("input")!;
+    firstInput.checked = true;
+    firstInput.closest('[data-slot="checkbox"]')!.setAttribute("data-checked", "");
+
+    setTodos([
+      { id: "t2", title: "second" },
+      { id: "t1", title: "first" },
+    ]);
+
+    const inputs = Array.from(el.querySelectorAll<HTMLInputElement>("input"));
+    expect(inputs.length).toBe(2);
+    // The new item must come in fresh and unchecked...
+    expect(inputs[0]!.checked).toBe(false);
+    expect(inputs[0]!.closest('[data-slot="checkbox"]')!.hasAttribute("data-checked")).toBe(false);
+    // ...while the old item keeps its DOM node and checked state.
+    expect(inputs[1]).toBe(firstInput);
+    expect(inputs[1]!.checked).toBe(true);
+    expect(inputs[1]!.closest('[data-slot="checkbox"]')!.hasAttribute("data-checked")).toBe(true);
+
+    unmount();
+    cleanup(el);
+  });
+
   it("renders an array of strings as concatenated escaped HTML", () => {
     const items = ["foo", "bar", "baz"];
 
@@ -677,10 +767,10 @@ describe("ilha JSX runtime", () => {
     cleanup(el);
   });
 
-  it("strips key prop from rendered HTML", () => {
+  it("reflects key onto rendered HTML as data-key only", () => {
     const result = <li key="abc">item</li>;
-    expect(result.value).not.toContain("key=");
-    expect(result.value).toBe("<li>item</li>");
+    expect(result.value).not.toContain(" key=");
+    expect(result.value).toBe('<li data-key="abc">item</li>');
   });
 
   it("explicit children prop is overridden by JSX children", () => {
@@ -942,7 +1032,7 @@ describe("ilha JSX runtime", () => {
       return <span />;
     };
     const r = <C key="abc" id="x" />;
-    expect(r.value).toBe("<span></span>");
+    expect(r.value).toBe('<span data-key="abc"></span>');
     expect(received).not.toHaveProperty("key");
     expect(received).toHaveProperty("id", "x");
   });
@@ -1035,11 +1125,11 @@ describe("ilha JSX runtime", () => {
     expect((<a href={"\tjavascript:alert(1)"}>x</a>).value).not.toContain("javascript:");
   });
 
-  it("key prop does not appear on rendered element from function component", () => {
+  it("key on a function component surfaces only as data-key on its root element", () => {
     const Item = (props: { label: string }) => <li>{props.label}</li>;
     const result = <Item key="abc" label="x" />;
-    expect(result.value).toBe("<li>x</li>");
-    expect(result.value).not.toContain("key=");
+    expect(result.value).toBe('<li data-key="abc">x</li>');
+    expect(result.value).not.toContain(" key=");
   });
 
   it("bind:group SSR emits checked on matching radio input", () => {

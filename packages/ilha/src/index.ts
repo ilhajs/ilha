@@ -360,23 +360,30 @@ function morphChildren(fromParent: Element, toParent: Element): void {
     const toNode = toNodes[i]!;
     let fromNode: ChildNode | undefined = fromParent.childNodes[i];
 
-    if (fromKeyed !== null && toNode.nodeType === 1) {
-      const key = (toNode as Element).getAttribute("data-key");
-      if (key !== null) {
-        const match = fromKeyed.get(key);
+    if (fromKeyed !== null) {
+      const toKey = toNode.nodeType === 1 ? (toNode as Element).getAttribute("data-key") : null;
+      if (toKey !== null) {
+        const match = fromKeyed.get(toKey);
         if (match) {
+          // Consume the key so a duplicate data-key later in the new tree
+          // cannot steal this node back out of its settled position.
+          fromKeyed.delete(toKey);
           if (match !== fromNode) {
             fromParent.insertBefore(match, fromNode ?? null);
             fromNode = match;
           }
-        } else if (fromNode instanceof Element) {
-          const fromKey = fromNode.getAttribute("data-key");
-          if (fromKey !== null && toKeys!.has(fromKey)) {
-            // The element at this position belongs to a different SURVIVING
-            // key — insert the new child fresh instead of clobbering it.
-            fromParent.insertBefore(toNode.cloneNode(true), fromNode);
-            continue;
-          }
+        }
+      }
+      // The from-element at this position belongs to a DIFFERENT surviving
+      // key (the to-node is unkeyed, a text/comment node, or a new key) —
+      // insert the new child fresh instead of clobbering the survivor. When
+      // fromNode is the keyed match itself, its key equals toKey and this
+      // guard is skipped.
+      if (fromNode instanceof Element) {
+        const fromKey = fromNode.getAttribute("data-key");
+        if (fromKey !== null && fromKey !== toKey && toKeys!.has(fromKey)) {
+          fromParent.insertBefore(toNode.cloneNode(true), fromNode);
+          continue;
         }
       }
     }
@@ -412,6 +419,24 @@ function morphChildren(fromParent: Element, toParent: Element): void {
         (fromEl as HTMLInputElement).type !== (toEl as HTMLInputElement).type
       ) {
         fromParent.replaceChild(toEl.cloneNode(true), fromEl);
+        continue;
+      }
+
+      if (fromEl.localName === "input") {
+        // Attributes only set the DEFAULT checked/value; once the user (or a
+        // bind write) touches the live property, attribute updates alone no
+        // longer reflect in the UI, so a positionally-reused input would keep
+        // showing the previous item's state. Mirror the template's attribute
+        // into the property — but only when the attribute actually changed,
+        // so unrelated re-renders never clobber in-progress user input
+        // (same policy as textarea below).
+        const hadChecked = fromEl.hasAttribute("checked");
+        const hadValue = fromEl.getAttribute("value");
+        syncAttributes(fromEl, toEl);
+        const hasChecked = toEl.hasAttribute("checked");
+        if (hasChecked !== hadChecked) (fromEl as HTMLInputElement).checked = hasChecked;
+        const newValue = toEl.getAttribute("value");
+        if (newValue !== hadValue) (fromEl as HTMLInputElement).value = newValue ?? "";
         continue;
       }
 
