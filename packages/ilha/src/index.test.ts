@@ -8279,6 +8279,174 @@ describe("keyed morph (data-key)", () => {
     unmount();
     cleanup(el);
   });
+
+  it("protects surviving keyed elements from unkeyed nodes taking their position", () => {
+    let setItems!: (v?: string[]) => string[] | void;
+    const Island = ilha.state("items", ["a", "b"]).render(({ state }) => {
+      setItems = state.items as typeof setItems;
+      return html`<ul>
+        ${state
+          .items()
+          .map((k) =>
+            k.startsWith("#")
+              ? html`<li class="divider">${k}</li>`
+              : html`<li data-key="${k}">${k}</li>`,
+          )}
+      </ul>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const before = Array.from(el.querySelectorAll<HTMLLIElement>("li[data-key]"));
+
+    // An UNKEYED sibling lands at position 0 — the keyed survivors must be
+    // shifted down intact, not clobbered positionally.
+    setItems(["#divider", "a", "b"]);
+
+    const after = Array.from(el.querySelectorAll("li"));
+    expect(after.map((li) => li.textContent)).toEqual(["#divider", "a", "b"]);
+    expect(after[1]).toBe(before[0]!);
+    expect(after[2]).toBe(before[1]!);
+    unmount();
+    cleanup(el);
+  });
+
+  it("protects surviving keyed elements from text nodes taking their position", () => {
+    let setLabel!: (v?: string) => string | void;
+    const Island = ilha.state("label", "").render(({ state }) => {
+      setLabel = state.label as typeof setLabel;
+      return html`<div>${state.label()}<span data-key="k">keyed</span></div>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const keyed = el.querySelector("span")!;
+
+    // Empty string interpolation emits nothing; a non-empty one prepends a
+    // text node at the keyed element's position.
+    setLabel("hello");
+
+    const div = el.querySelector("div")!;
+    expect(div.textContent).toBe("hellokeyed");
+    expect(el.querySelector("span")).toBe(keyed);
+    unmount();
+    cleanup(el);
+  });
+
+  it("does not let a duplicate data-key steal an already-placed element", () => {
+    let setKeys!: (v?: string[]) => string[] | void;
+    const Island = ilha.state("keys", ["a", "b"]).render(({ state }) => {
+      setKeys = state.keys as typeof setKeys;
+      return html`<ul>
+        ${state.keys().map((k, i) => html`<li data-key="${k}">${k}${i}</li>`)}
+      </ul>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const firstA = el.querySelectorAll("li")[0]!;
+
+    // Author error (duplicate key) must degrade gracefully: the first "a"
+    // keeps the original node, the second renders as a fresh element.
+    setKeys(["a", "a", "b"]);
+
+    const after = Array.from(el.querySelectorAll("li"));
+    expect(after.map((li) => li.textContent)).toEqual(["a0", "a1", "b2"]);
+    expect(after[0]).toBe(firstA);
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("morph input property sync", () => {
+  it("updates the live checked property when the checked attribute changes", () => {
+    let setDone!: (v?: boolean) => boolean | void;
+    const Island = ilha.state("done", false).render(({ state }) => {
+      setDone = state.done as typeof setDone;
+      return html`<input type="checkbox" ${state.done() ? raw("checked") : ""} />`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const input = el.querySelector("input")!;
+    expect(input.checked).toBe(false);
+
+    // User clicks first — the live property is now dirty and no longer
+    // follows attribute changes on its own.
+    input.checked = true;
+
+    setDone(true);
+    expect(el.querySelector("input")).toBe(input);
+    expect(input.checked).toBe(true);
+
+    setDone(false);
+    expect(input.checked).toBe(false);
+    unmount();
+    cleanup(el);
+  });
+
+  it("preserves a user-toggled checkbox across unrelated re-renders", () => {
+    let setCount!: (v?: number) => number | void;
+    const Island = ilha.state("count", 0).render(({ state }) => {
+      setCount = state.count as typeof setCount;
+      return html`<div>
+        <p>${state.count()}</p>
+        <input type="checkbox" />
+      </div>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const input = el.querySelector("input")!;
+    input.checked = true;
+
+    // The checked attribute is absent in both trees — the user's live
+    // property state must survive the morph untouched.
+    setCount(1);
+    expect(el.querySelector("input")).toBe(input);
+    expect(input.checked).toBe(true);
+    unmount();
+    cleanup(el);
+  });
+
+  it("updates the live value property when the value attribute changes", () => {
+    let setName!: (v?: string) => string | void;
+    const Island = ilha.state("name", "ada").render(({ state }) => {
+      setName = state.name as typeof setName;
+      return html`<input type="text" value="${state.name()}" />`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const input = el.querySelector("input")!;
+    // User typed over the rendered value; a template change must win...
+    input.value = "typed";
+    setName("grace");
+    expect(input.value).toBe("grace");
+    unmount();
+    cleanup(el);
+  });
+
+  it("preserves in-progress typing when the value attribute is unchanged", () => {
+    let setCount!: (v?: number) => number | void;
+    const Island = ilha.state("count", 0).render(({ state }) => {
+      setCount = state.count as typeof setCount;
+      return html`<div>
+        <p>${state.count()}</p>
+        <input type="text" value="fixed" />
+      </div>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const input = el.querySelector("input")!;
+    input.value = "user typing";
+
+    setCount(1);
+    expect(input.value).toBe("user typing");
+    unmount();
+    cleanup(el);
+  });
 });
 
 describe("island.define() custom elements", () => {
