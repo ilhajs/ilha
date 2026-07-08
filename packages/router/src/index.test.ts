@@ -1125,6 +1125,23 @@ describe("defineLayout()", () => {
     expect(wrapped.toString()).toContain("<p>content</p>");
   });
 
+  it("SSR of a layout interpolating bare {children} emits the k:page slot", () => {
+    // Regression: wrapLayout's children wrapper lost the ilha.islandCall brand,
+    // so `${children}` in a layout template fell through interpolateValue's
+    // generic-function branch and rendered "[object Object]".
+    const Page = ilha.render(() => html`<p>page content</p>`);
+    const layout = defineLayout((children) =>
+      ilha.render(() => html`<div id="shell">${children}</div>`),
+    );
+
+    const Wrapped = wrapLayout(layout, Page as never);
+    const out = String(Wrapped());
+
+    expect(out).not.toContain("[object Object]");
+    expect(out).toContain('data-ilha-slot="k:page"');
+    expect(out).toContain("<p>page content</p>");
+  });
+
   it("returned island has .toString and .mount", () => {
     const layout = defineLayout((children) => ilha.render(() => children.toString()));
     const wrapped = layout(HomePage);

@@ -185,6 +185,11 @@ export function composeLoaders<Ls extends readonly Loader<any>[]>(
 
 const WRAP_LAYOUT_LEAF = Symbol.for("ilha.router.wrapLayout.leaf");
 const WRAP_LAYOUT_HANDLER = Symbol.for("ilha.router.wrapLayout.handler");
+// Brand carried by `.key()` callables — ilha's interpolateValue only treats a
+// bare-interpolated function (`{children}` in a layout) as an island call when
+// this symbol is present; without it the call result is escaped to
+// "[object Object]". Wrappers around keyed islands must re-apply it.
+const ISLAND_CALL = Symbol.for("ilha.islandCall");
 
 function extractHydratableInnerHtml(block: string): string {
   const m = block.match(/^<([a-zA-Z][\w-]*)\s[^>]*>([\s\S]*)<\/\1>\s*$/);
@@ -334,6 +339,7 @@ function layoutHtmlWithEmptyKPage(
   const shellChild = ((partial?: Record<string, unknown>) =>
     rawKeyed({ ...props, ...(partial ?? {}) })) as unknown as Island<any, any>;
   Object.assign(shellChild, { toString: () => "" });
+  (shellChild as unknown as Record<symbol, boolean>)[ISLAND_CALL] = true;
   return handler(shellChild).toString(props as never);
 }
 
@@ -371,6 +377,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
     return rawKeyedPage(slotProps as never);
   }) as unknown as Island<any, any>;
   Object.assign(KeyedPage, { toString: page.toString.bind(page) });
+  (KeyedPage as unknown as Record<symbol, boolean>)[ISLAND_CALL] = true;
   const Wrapped = layout(KeyedPage);
 
   (Wrapped as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] = leafPage;
