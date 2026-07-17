@@ -367,7 +367,7 @@ Call the returned unsubscribe before `store.dispose()` for per-island stores.
 
 `persist`'s sibling for the query string, from the `@ilha/store/query` entry point. Instead of one serialized blob, each state key gets **its own search param** (`?q=boots&page=2`) — shareable, reload-safe, back/forward-friendly. Prior art: [nuqs](https://nuqs.dev) for React.
 
-The canonical use case is a filter bar. UI state that drives data loading (search text, sort, page) belongs in the URL, because `@ilha/router` loaders re-run on every navigation and read `ctx.url.searchParams`. The cycle is **one-way**: store → URL → loader → render. The store is the _write_ path for the controls; the loader stays the _read_ path for data — on the server and the client.
+The canonical use case is a filter bar. UI state that drives data loading (search text, sort, page) belongs in the URL, because `@ilha/router` loaders re-run on every navigation and read `ctx.url.searchParams`. The cycle is **one-way**: store → URL → loader → render. The store is the _write_ path for the controls; the loader stays the _read_ path for data — on the server and the client. Because same-island navigations [update the mounted island in place](/guide/libraries/router#loaders) (no remount), the bound input keeps focus, caret, and scroll while the loader-driven parts of the page refresh.
 
 ```ts
 import { z } from "zod";

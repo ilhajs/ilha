@@ -1,4 +1,4 @@
-import { context, mount, ISLAND_MOUNT_INTERNAL } from "ilha";
+import { context, mount, ISLAND_MOUNT_INTERNAL, ISLAND_MOUNT_HANDLES } from "ilha";
 import type { Island, HydratableOptions } from "ilha";
 import ilha, { html } from "ilha";
 import { createRouter, addRoute, findRoute } from "rou3";
@@ -327,6 +327,12 @@ function injectKPageSlot(
 }
 
 /** Layout shell HTML with an empty `k:page` — avoids scanning MDX/twoslash inside `Wrapped.toString()`. */
+/** Shape returned by an island's `ISLAND_MOUNT_INTERNAL` hook. */
+type InternalMountHandle = {
+  unmount: () => void | Promise<void>;
+  updateProps: (props?: Record<string, unknown>) => void;
+};
+
 function layoutHtmlWithEmptyKPage(
   wrappedLayout: Island<any, any>,
   props: Record<string, unknown>,
@@ -476,6 +482,63 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
 
   wrapLeafPageMountHooks(leafPage);
 
+  // Capture the mounted page slot's handle so a same-island route update can
+  // push fresh loader props straight into the page even when the layout's own
+  // render never reads its input — in that case the layout island doesn't
+  // re-render, so mountSlots would never forward the new props to `k:page`.
+  // Keyed by page host so simultaneous mounts of the same wrapped island
+  // (two routers/documents) each track their own page instance.
+  const pageHandles = new Map<
+    Element,
+    { handle: InternalMountHandle; mountProps?: Record<string, unknown> }
+  >();
+  const pageInternalBase = (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
+    | ((host: Element, props?: Record<string, unknown>) => InternalMountHandle)
+    | undefined;
+  if (typeof pageInternalBase === "function") {
+    (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
+      host: Element,
+      props?: Record<string, unknown>,
+    ): InternalMountHandle => {
+      const handle = pageInternalBase(host, props);
+      const entry = { handle, mountProps: props };
+      pageHandles.set(host, entry);
+      return {
+        unmount: () => {
+          if (pageHandles.get(host) === entry) pageHandles.delete(host);
+          return handle.unmount();
+        },
+        updateProps: (p?: Record<string, unknown>) => {
+          // Slot-driven updates (layout re-render) refresh the baseline that
+          // direct route pushes spread layout-provided extras from.
+          entry.mountProps = p;
+          handle.updateProps(p);
+        },
+      };
+    };
+  }
+
+  /**
+   * In-place prop update for one mounted layout instance: refresh the
+   * merged-input ref (so any layout re-render passes fresh props to `k:page`),
+   * push the merged loader props directly into the page mounted under *this*
+   * layout host (spread over its latest slot props so layout-provided extras
+   * survive), then update the layout island's own input. Page-first ordering
+   * lets a layout that *does* read its input re-render afterwards and win with
+   * its own fresher slot props.
+   */
+  const layoutUpdateProps =
+    (layoutHost: Element, coreUpdate: ((p?: Record<string, unknown>) => void) | undefined) =>
+    (p?: Record<string, unknown>): void => {
+      setLayoutMergedInput(p);
+      for (const [pageHost, entry] of pageHandles) {
+        if (layoutHost.contains(pageHost)) {
+          entry.handle.updateProps({ ...(entry.mountProps ?? {}), ...(p ?? {}) });
+        }
+      }
+      coreUpdate?.(p);
+    };
+
   const layoutMount = Wrapped.mount.bind(Wrapped);
   const layoutInternal = (Wrapped as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
     | ((
@@ -499,22 +562,34 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   Wrapped.mount = (host: Element, props?: Record<string, unknown>) => {
     setLayoutMergedInput(props as Record<string, unknown> | undefined);
     prepareLayoutMountHost(host);
-    return layoutMount(host, props as never);
+    const unmount = layoutMount(host, props as never);
+    // Replace the core handle registered during mount with one whose
+    // updateProps flows through the layout tree (merged-input ref + page
+    // slot) — so a router adopting this host can update it in place.
+    const core = ISLAND_MOUNT_HANDLES.get(host);
+    ISLAND_MOUNT_HANDLES.set(host, {
+      unmount,
+      updateProps: layoutUpdateProps(host, core?.updateProps),
+    });
+    return unmount;
   };
 
   (Wrapped as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
     host: Element,
     props?: Record<string, unknown>,
-  ) => {
+  ): InternalMountHandle => {
     setLayoutMergedInput(props as Record<string, unknown> | undefined);
     prepareLayoutMountHost(host);
-    if (typeof layoutInternal === "function") {
-      return layoutInternal(host, props);
-    }
-    return {
-      unmount: layoutMount(host, props as never),
-      updateProps: () => {},
+    const base: InternalMountHandle =
+      typeof layoutInternal === "function"
+        ? layoutInternal(host, props)
+        : { unmount: layoutMount(host, props as never), updateProps: () => {} };
+    const enhanced: InternalMountHandle = {
+      unmount: base.unmount,
+      updateProps: layoutUpdateProps(host, base.updateProps),
     };
+    ISLAND_MOUNT_HANDLES.set(host, enhanced);
+    return enhanced;
   };
 
   Wrapped.hydratable = async (
@@ -1032,6 +1107,69 @@ export function prefetch(pathWithSearch: string): void {
 // ─────────────────────────────────────────────
 
 /**
+ * Handle for the currently mounted route view. `updateProps` is null when the
+ * mount path can't push props in place (404/error/static fallbacks, islands
+ * without the internal mount hook) — those always remount on navigation.
+ */
+type RouteMountHandle = {
+  unmount: () => void;
+  updateProps: ((props: Record<string, unknown>) => void) | null;
+};
+
+const noopRouteHandle = (): RouteMountHandle => ({ unmount: () => {}, updateProps: null });
+
+/** Mount an island keeping the full internal handle so later same-island
+ * navigations can push new loader props instead of remounting. */
+function mountIslandWithHandle(
+  island: Island<any, any>,
+  host: Element,
+  props?: Record<string, unknown>,
+): RouteMountHandle {
+  const internal = (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
+    | ((host: Element, props?: Record<string, unknown>) => InternalMountHandle)
+    | undefined;
+  if (typeof internal === "function") {
+    const h = internal(host, props);
+    return { unmount: () => void h.unmount(), updateProps: (p) => h.updateProps(p) };
+  }
+  return { unmount: island.mount(host, props), updateProps: null };
+}
+
+/**
+ * Same-island fast path: fetch fresh loader data and push it into the mounted
+ * island via `updateProps` — ilha's fine-grained morph reconciles the DOM, so
+ * focus, caret, selection, and scroll survive (the reason persistQuery-driven
+ * filter inputs don't blur while typing). Returns "updated" when applied (or
+ * redirected), "remount" when the caller must run the full teardown + mount
+ * path (loader error / not-found need boundary DOM; the full path re-fetches,
+ * accepted for these rare cases). Throws AbortError when superseded.
+ */
+async function updateRouteInPlace(
+  handle: RouteMountHandle,
+  pathWithSearch: string,
+  signal: AbortSignal,
+): Promise<"updated" | "remount"> {
+  if (!handle.updateProps) return "remount";
+  const clientMatch = findRoute(_rou3, "GET", pathWithSearch.split("?")[0] ?? "");
+  const hasLoader = !!clientMatch?.data?.hasLoader;
+  const result: LoaderFetchResult = hasLoader
+    ? await fetchLoaderData(pathWithSearch, signal)
+    : { kind: "data", data: {} };
+  signal.throwIfAborted();
+  if (result.kind === "redirect") {
+    clientRedirect(result.to);
+    return "updated";
+  }
+  if (result.kind !== "data") return "remount";
+  // Loader head entries keep title/meta in sync (e.g. title varies with
+  // ?page=). Only apply when the loader contributed some — an empty apply
+  // would sweep managed tags set at mount time.
+  if (result.headEntries?.length) applyHeadEntriesToDocument([...result.headEntries]);
+  handle.updateProps(result.data);
+  return "updated";
+}
+
+/**
  * Mounts a route island with proper hydration for client-side navigation.
  * Looks up the island in the reverse registry, runs the loader (via fetch),
  * renders it with hydration markers, and mounts it for interactivity.
@@ -1043,20 +1181,20 @@ async function mountRouteWithHydration(
   signal: AbortSignal,
   registry?: Record<string, Island<any, any>>,
   reverseRegistry?: Map<Island<any, any>, string>,
-): Promise<() => void> {
+): Promise<RouteMountHandle> {
   if (!island) {
     if (_notFound) {
       const nf = _notFound;
       return withViewSwap(() => {
         host.innerHTML = `<div data-router-view data-router-not-found>${nf.toString()}</div>`;
         const nfHost = host.firstElementChild;
-        return nfHost ? nf.mount(nfHost) : () => {};
+        return { unmount: nfHost ? nf.mount(nfHost) : () => {}, updateProps: null };
       });
     }
     await withViewSwap(() => {
       host.innerHTML = `<div data-router-empty></div>`;
     });
-    return () => {};
+    return noopRouteHandle();
   }
 
   // Fetch loader data *only if* the matched route has a loader registered.
@@ -1072,28 +1210,34 @@ async function mountRouteWithHydration(
 
   if (loaderResult.kind === "redirect") {
     clientRedirect(loaderResult.to);
-    return () => {};
+    return noopRouteHandle();
   }
   if (loaderResult.kind === "error") {
     // Route the loader error through the nearest `+error` boundary when one
     // is registered; fall back to the minimal inline error div.
     const boundary = clientMatch?.data?.errorHandler;
     if (boundary) {
-      return withViewSwap(() =>
-        mountLoaderErrorBoundary(boundary, host, loaderResult.status, loaderResult.message),
-      );
+      return withViewSwap(() => ({
+        unmount: mountLoaderErrorBoundary(
+          boundary,
+          host,
+          loaderResult.status,
+          loaderResult.message,
+        ),
+        updateProps: null,
+      }));
     }
     const escaped = escapeHtml(loaderResult.message);
     await withViewSwap(() => {
       host.innerHTML = `<div data-router-view data-router-error="${loaderResult.status}">${escaped}</div>`;
     });
-    return () => {};
+    return noopRouteHandle();
   }
   if (loaderResult.kind === "not-found") {
     await withViewSwap(() => {
       host.innerHTML = `<div data-router-empty></div>`;
     });
-    return () => {};
+    return noopRouteHandle();
   }
   props = loaderResult.data;
 
@@ -1112,7 +1256,7 @@ async function mountRouteWithHydration(
       applyHeadEntriesToDocument(headStore.entries);
       host.innerHTML = `<div data-router-view>${html}</div>`;
     });
-    return () => {};
+    return noopRouteHandle();
   }
 
   // Find the island name via reverse map (O(1)) or linear scan as fallback
@@ -1126,7 +1270,7 @@ async function mountRouteWithHydration(
       applyHeadEntriesToDocument(headStore.entries);
       host.innerHTML = `<div data-router-view>${html}</div>`;
     });
-    return () => {};
+    return noopRouteHandle();
   }
 
   // Render with hydration markers and mount for interactivity
@@ -1136,9 +1280,10 @@ async function mountRouteWithHydration(
   return withViewSwap(() => {
     applyHeadEntriesToDocument(headStore.entries);
     host.innerHTML = `<div data-router-view>${html}</div>`;
-    // Mount the island for interactivity
+    // Mount the island for interactivity, keeping the updateProps handle so
+    // later same-island navigations can update in place.
     const islandHost = host.querySelector(`[data-ilha="${name}"]`);
-    return islandHost ? island.mount(islandHost) : () => {};
+    return islandHost ? mountIslandWithHandle(island, islandHost) : noopRouteHandle();
   });
 }
 
@@ -1541,7 +1686,15 @@ export function navigate(to: string, opts: NavigateOptions = {}): void {
   _lastNavKey = currentNavKey();
   syncRouteFromLocation();
   if (opts.scroll !== false) {
-    scrollAfterNavigate(adapter.readLocation().hash);
+    const dest = adapter.readLocation();
+    // Same-island navigations (?page=, filter writes) are a param change, not
+    // a page change — keep the scroll position. An explicit hash target still
+    // scrolls, and island-changed navigations keep the scroll-to-top behavior.
+    const fromMatch = findRoute(_rou3, "GET", cur.pathname);
+    const destMatch = findRoute(_rou3, "GET", dest.pathname);
+    const sameIsland =
+      fromMatch?.data?.island != null && destMatch?.data?.island === fromMatch.data.island;
+    if (!sameIsland || (dest.hash && dest.hash !== "#")) scrollAfterNavigate(dest.hash);
   }
   runAfterNavigateHooks({ from: current, to, type });
 }
@@ -2357,6 +2510,22 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         // same-pattern navigations keep the island identity but must still
         // re-run loaders when params or search change.
         let currentMountedPath: string = routePath() + routeSearch();
+        // Handle for the route view the router itself mounted (client navs).
+        // Null right after SSR hydration — the initial island was mounted by
+        // ilha.mount(), whose handle we adopt lazily below.
+        let viewHandle: RouteMountHandle | null = null;
+
+        // Adopt the SSR-hydrated island mounted by ilha.mount() so the very
+        // first same-island navigation updates in place too (the persistQuery
+        // typing case) instead of remounting and blurring the input.
+        const adoptHydratedHandle = (): RouteMountHandle | null => {
+          const el = viewHost.querySelector("[data-ilha]");
+          if (!el) return null;
+          const h = ISLAND_MOUNT_HANDLES.get(el);
+          return h
+            ? { unmount: () => void h.unmount(), updateProps: (p) => h.updateProps(p) }
+            : null;
+        };
 
         const reverseRegistry = registry ? buildReverseRegistry(registry) : undefined;
 
@@ -2378,10 +2547,24 @@ export function router(options: RouterOptions = {}): RouterBuilder {
             queueMicrotask(async () => {
               if (thisNav !== navVersion) return;
               const settle = beginNavigation();
-              unmountView?.();
-              unmountView = null;
               try {
-                unmountView = await mountRouteWithHydration(
+                // Same island — push the fresh loader data into the mounted
+                // view (fine-grained morph): focus, caret, and scroll survive.
+                if (current !== null && current === currentMountedIsland) {
+                  const handle = viewHandle ?? adoptHydratedHandle();
+                  if (handle?.updateProps) {
+                    const outcome = await updateRouteInPlace(handle, pathWithSearch, signal);
+                    if (outcome === "updated") {
+                      viewHandle = handle;
+                      currentMountedPath = pathWithSearch;
+                      return;
+                    }
+                  }
+                }
+                // Island changed (or in-place not possible) — full swap.
+                viewHandle?.unmount();
+                viewHandle = null;
+                viewHandle = await mountRouteWithHydration(
                   current,
                   viewHost,
                   pathWithSearch,
@@ -2434,8 +2617,8 @@ export function router(options: RouterOptions = {}): RouterBuilder {
                 reverseRegistry,
               );
               // A navigation that started while we awaited owns the view now.
-              if (thisNav === navVersion) unmountView = um;
-              else um();
+              if (thisNav === navVersion) viewHandle = um;
+              else um.unmount();
             } catch (e: any) {
               if (e?.name !== "AbortError") {
                 console.error("[ilha-router] initial client loader render failed:", e);
@@ -2467,6 +2650,20 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           try {
             const loc = getAdapter().readLocation();
             const pathWithSearch = loc.pathname + loc.search;
+            // Post-mutation refresh of the same mounted island — update in
+            // place so a form being saved doesn't lose focus.
+            if (island !== null && island === currentMountedIsland) {
+              const handle = viewHandle ?? adoptHydratedHandle();
+              if (handle?.updateProps) {
+                if ((await updateRouteInPlace(handle, pathWithSearch, ac.signal)) === "updated") {
+                  if (thisNav === navVersion) {
+                    viewHandle = handle;
+                    currentMountedPath = pathWithSearch;
+                  }
+                  return;
+                }
+              }
+            }
             const um = await mountRouteWithHydration(
               island,
               viewHost,
@@ -2476,12 +2673,12 @@ export function router(options: RouterOptions = {}): RouterBuilder {
               reverseRegistry,
             );
             if (thisNav === navVersion) {
-              unmountView?.();
-              unmountView = um;
+              viewHandle?.unmount();
+              viewHandle = um;
               currentMountedIsland = island;
               currentMountedPath = pathWithSearch;
             } else {
-              um();
+              um.unmount();
             }
           } catch (e: any) {
             if (e?.name !== "AbortError") console.error("[ilha-router] invalidate failed:", e);
@@ -2497,7 +2694,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           navAbort?.abort();
           unmountNavHandler();
           navHost.remove();
-          unmountView?.();
+          viewHandle?.unmount();
           _linkCleanup?.();
           _navChangeCleanup?.();
           _linkCleanup = null;
@@ -2507,7 +2704,12 @@ export function router(options: RouterOptions = {}): RouterBuilder {
       }
 
       // SPA mode — RouterView renders HTML but islands need .mount() for interactivity.
-      let unmountIsland: (() => void) | null = null;
+      let mountedHandle: RouteMountHandle | null = null;
+      // Which island `mountedHandle` actually belongs to. Distinct from
+      // `currentMountedIsland`, which is set optimistically before the loader
+      // await (NavHandler dedup) — a superseded mount can leave the two
+      // disagreeing, and the in-place path must key off what is really mounted.
+      let mountedHandleIsland: Island<any, any> | null = null;
       let currentMountedIsland: Island<any, any> | null = null;
       // Logical URL (pathname + search, no hash) the view was mounted for —
       // same-pattern navigations keep the island identity but must still
@@ -2526,15 +2728,26 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         island: Island<any, any> | null,
         signal: AbortSignal,
       ): Promise<void> {
-        unmountIsland?.();
-        unmountIsland = null;
+        // Same island already mounted — keep it and push new loader props in
+        // place (focus/caret/scroll survive); tear down only when the matched
+        // island identity changes or the mount path can't update in place.
+        const sameIsland =
+          island !== null && island === mountedHandleIsland && mountedHandle?.updateProps != null;
+        const teardown = () => {
+          mountedHandle?.unmount();
+          mountedHandle = null;
+          mountedHandleIsland = null;
+        };
+        if (!sameIsland) teardown();
         currentMountedIsland = island;
         currentMountedPath = routePath() + routeSearch();
         if (!island) {
           // RouterView rendered the 404 island's HTML statically; mount it so
           // it gets a real island lifecycle (events, effects) like any route.
           const nfHost = host?.querySelector<Element>("[data-router-not-found]");
-          if (_notFound && nfHost) unmountIsland = _notFound.mount(nfHost);
+          if (_notFound && nfHost) {
+            mountedHandle = { unmount: _notFound.mount(nfHost), updateProps: null };
+          }
           return;
         }
         const viewHost = host?.querySelector<Element>("[data-router-view]");
@@ -2558,11 +2771,13 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           // one is registered; otherwise render the same inline error marker
           // as `mountRouteWithHydration` instead of hiding the failure behind
           // an island rendered with empty props.
+          if (sameIsland) teardown();
           const boundary = clientMatch?.data?.errorHandler;
           if (boundary) {
-            unmountIsland = await withViewSwap(() =>
-              mountLoaderErrorBoundary(boundary, viewHost, result.status, result.message),
-            );
+            mountedHandle = await withViewSwap(() => ({
+              unmount: mountLoaderErrorBoundary(boundary, viewHost, result.status, result.message),
+              updateProps: null,
+            }));
             return;
           }
           const escaped = escapeHtml(result.message);
@@ -2573,6 +2788,16 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         }
         const props = result.kind === "data" ? result.data : {};
 
+        if (sameIsland && mountedHandle?.updateProps) {
+          // Loader head entries keep title/meta in sync; skip when empty so a
+          // no-head loader doesn't sweep tags applied at mount time.
+          if (result.kind === "data" && result.headEntries?.length) {
+            applyHeadEntriesToDocument([...result.headEntries]);
+          }
+          mountedHandle.updateProps(props);
+          return;
+        }
+
         // In SPA mode RouterView is already showing the island's no-props HTML.
         // Re-render with props, morph, and mount for interactivity. Loader
         // head entries seed the store so `document.title`/meta stay in sync.
@@ -2580,11 +2805,12 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           entries: [...(result.kind === "data" ? (result.headEntries ?? []) : [])],
         };
         const html = await withHeadStore(headStore, () => island.toString(props));
-        unmountIsland = await withViewSwap(() => {
+        mountedHandle = await withViewSwap(() => {
           applyHeadEntriesToDocument(headStore.entries);
           viewHost.innerHTML = html;
-          return island.mount(viewHost, props);
+          return mountIslandWithHandle(island, viewHost, props);
         });
+        mountedHandleIsland = island;
       }
 
       // Initial mount — no need to wait for a loader fetch since the first
@@ -2645,7 +2871,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         ++navVersion;
         _revalidate = null;
         navAbort?.abort();
-        unmountIsland?.();
+        mountedHandle?.unmount();
         unmountNavHandler();
         navHost.remove();
         unmountView?.();

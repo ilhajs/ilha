@@ -532,6 +532,18 @@ const ISLAND_CALL = Symbol.for("ilha.islandCall");
 export const ISLAND_MOUNT_INTERNAL = Symbol.for("ilha.islandMountInternal");
 const ISLAND_SLOT_TAG = Symbol.for("ilha.islandSlotTag");
 
+/** @internal Live mount handles keyed by host element. Lets @ilha/router adopt
+ * islands hydrated by `ilha.mount()` (whose handles it never saw) and push new
+ * loader props into them in place instead of remounting. Entries are removed
+ * on unmount. Not part of the public surface. */
+export const ISLAND_MOUNT_HANDLES: WeakMap<
+  Element,
+  {
+    unmount: () => void | Promise<void>;
+    updateProps: (props?: Record<string, unknown>) => void;
+  }
+> = new WeakMap();
+
 const SLOT_ATTR = "data-ilha-slot";
 const PROPS_ATTR = "data-ilha-props";
 const STATE_ATTR = "data-ilha-state";
@@ -3417,6 +3429,7 @@ class IlhaBuilder<
       const unmount = (): void | Promise<void> => {
         if (tornDown) return;
         tornDown = true;
+        ISLAND_MOUNT_HANDLES.delete(host);
         if (__DEV__ && _mountedHosts) _mountedHosts.delete(host);
         stopRender();
         detachListeners();
@@ -3463,7 +3476,15 @@ class IlhaBuilder<
         inputSignal(next);
       };
 
-      return { unmount, updateProps };
+      const handle = { unmount, updateProps };
+      ISLAND_MOUNT_HANDLES.set(
+        host,
+        handle as {
+          unmount: () => void | Promise<void>;
+          updateProps: (props?: Record<string, unknown>) => void;
+        },
+      );
+      return handle;
     }
 
     /**
