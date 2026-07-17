@@ -11,7 +11,7 @@
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",
     "@fontsource-variable/geist-mono": "^5.2.8",
-    "@ilha/router": "^0.8.5",
+    "@ilha/router": "^0.8.6",
     "@ilha/store": "^0.7.2",
     "areia": "^0.1.36",
     "dedent": "^1.7.2",

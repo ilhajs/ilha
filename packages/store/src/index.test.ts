@@ -1335,6 +1335,15 @@ describe("persist()", () => {
     stop();
   });
 
+  it("hydration is synchronous — getState() immediately after persist() sees stored data", () => {
+    window.localStorage.setItem("p1b", JSON.stringify({ count: 42, label: "restored" }));
+    const s = store({ count: 0, label: "" }).build();
+    const stop = persist(s, "p1b");
+    // Eager, non-reactive read right after persist() — no effect/subscribe involved.
+    expect(s.getState()).toEqual({ count: 42, label: "restored" });
+    stop();
+  });
+
   it("writes state on every commit", () => {
     const s = store({ count: 0 }).build();
     const stop = persist(s, "p2");

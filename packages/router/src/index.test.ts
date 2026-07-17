@@ -3041,3 +3041,194 @@ describe("SSR compound render-part regression (Areia Resizable pattern)", () => 
     expect(result).not.toMatch(/<\/main>\s*<div data-slot="resizable-panel"/);
   });
 });
+
+// ─────────────────────────────────────────────
+// Same-pattern navigation — loaders re-run when only params/search change
+// ─────────────────────────────────────────────
+
+describe("same-pattern navigation re-runs loaders (SPA / client loader)", () => {
+  let el: Element;
+  let unmount: (() => void) | null = null;
+  let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
+
+  const flush = async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+  };
+
+  beforeEach(() => {
+    setLocation("/");
+    el = makeEl();
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
+      return new Response(JSON.stringify({ kind: "data", data: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+  });
+
+  afterEach(() => {
+    unmount?.();
+    unmount = null;
+    fetchSpy.mockRestore();
+    cleanup(el);
+    setLocation("/");
+  });
+
+  const TablePage = ilha.render(
+    ({ input }: any) => `<p>table:${input?.table ?? "?"}|page:${input?.page ?? "-"}</p>`,
+  );
+
+  function mountTableRouter(load: ReturnType<typeof mock>) {
+    unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .route("/t/:name", TablePage, loader(load as any))
+      .mount(el);
+  }
+
+  it("re-runs the loader when only a param changes (/t/a → /t/b)", async () => {
+    const load = mock(async ({ params }: any) => ({ table: params.name }));
+    mountTableRouter(load);
+
+    navigate("/t/a");
+    await flush();
+    expect(el.innerHTML).toContain("table:a");
+
+    navigate("/t/b");
+    await flush();
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load.mock.calls[1]?.[0]?.params?.name).toBe("b");
+    expect(el.innerHTML).toContain("table:b");
+  });
+
+  it("re-runs the loader when only search changes (?page=1 → ?page=2)", async () => {
+    const load = mock(async ({ params, url }: any) => ({
+      table: params.name,
+      page: url.searchParams.get("page"),
+    }));
+    mountTableRouter(load);
+
+    navigate("/t/a?page=1");
+    await flush();
+    expect(el.innerHTML).toContain("page:1");
+
+    navigate("/t/a?page=2");
+    await flush();
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(load.mock.calls[1]?.[0]?.url?.searchParams.get("page")).toBe("2");
+    expect(el.innerHTML).toContain("page:2");
+  });
+
+  it("does not re-run the loader for an identical URL", async () => {
+    const load = mock(async ({ params }: any) => ({ table: params.name }));
+    mountTableRouter(load);
+
+    navigate("/t/a");
+    await flush();
+    navigate("/t/a");
+    await flush();
+
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-run the loader for a hash-only change", async () => {
+    const load = mock(async ({ params }: any) => ({ table: params.name }));
+    mountTableRouter(load);
+
+    navigate("/t/a");
+    await flush();
+    navigate("/t/a#section");
+    await flush();
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(el.innerHTML).toContain("table:a");
+  });
+
+  it("rapid same-pattern navigations mount only the final result", async () => {
+    const load = mock(async ({ params }: any) => ({ table: params.name }));
+    mountTableRouter(load);
+
+    navigate("/t/a");
+    navigate("/t/b");
+    navigate("/t/c");
+    await flush();
+    await flush();
+
+    expect(el.innerHTML).toContain("table:c");
+    expect(el.innerHTML).not.toContain("table:a");
+    expect(el.innerHTML).not.toContain("table:b");
+  });
+
+  it("cross-pattern navigation still remounts exactly once", async () => {
+    const load = mock(async ({ params }: any) => ({ table: params.name }));
+    mountTableRouter(load);
+
+    navigate("/t/a");
+    await flush();
+    navigate("/about");
+    await flush();
+
+    expect(el.innerHTML).toContain("about");
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("same-pattern navigation re-runs loaders (hydrate / server loader)", () => {
+  const flush = async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+  };
+
+  it("re-fetches loader data from the endpoint on param-only and search-only navigations", async () => {
+    const TablePage = ilha.render(
+      ({ input }: any) => `<p>table:${input?.table ?? "?"}|page:${input?.page ?? "-"}</p>`,
+    );
+    const reg = { home: HomePage, table: TablePage };
+
+    const requested: string[] = [];
+    const fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (url: any) => {
+      const u = new URL(String(url), "http://localhost");
+      const path = u.searchParams.get("path") ?? "";
+      requested.push(path);
+      const target = new URL(path, "http://localhost");
+      const table = target.pathname.split("/").pop();
+      return new Response(
+        JSON.stringify({
+          kind: "data",
+          data: { table, page: target.searchParams.get("page") },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    setLocation("/t/a");
+    const el = makeEl(`<div data-router-view><p>table:a|page:-</p></div>`);
+
+    // markLoader simulates the SSR-split client graph: hasLoader without the
+    // loader function itself, so navigation must fetch the loader endpoint.
+    const unmount = router()
+      .route("/", HomePage)
+      .route("/t/:name", TablePage)
+      .markLoader("/t/:name")
+      .mount(el, { hydrate: true, registry: reg });
+    await flush();
+
+    navigate("/t/b");
+    await flush();
+    expect(requested).toContain("/t/b");
+    expect(el.innerHTML).toContain("table:b");
+
+    navigate("/t/b?page=2");
+    await flush();
+    expect(requested).toContain("/t/b?page=2");
+    expect(el.innerHTML).toContain("page:2");
+
+    unmount();
+    cleanup(el);
+    fetchSpy.mockRestore();
+    setLocation("/");
+  });
+});
