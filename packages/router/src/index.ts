@@ -486,9 +486,12 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   // push fresh loader props straight into the page even when the layout's own
   // render never reads its input — in that case the layout island doesn't
   // re-render, so mountSlots would never forward the new props to `k:page`.
-  const pageHandleRef: {
-    current: { handle: InternalMountHandle; mountProps?: Record<string, unknown> } | null;
-  } = { current: null };
+  // Keyed by page host so simultaneous mounts of the same wrapped island
+  // (two routers/documents) each track their own page instance.
+  const pageHandles = new Map<
+    Element,
+    { handle: InternalMountHandle; mountProps?: Record<string, unknown> }
+  >();
   const pageInternalBase = (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
     | ((host: Element, props?: Record<string, unknown>) => InternalMountHandle)
     | undefined;
@@ -499,32 +502,40 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
     ): InternalMountHandle => {
       const handle = pageInternalBase(host, props);
       const entry = { handle, mountProps: props };
-      pageHandleRef.current = entry;
+      pageHandles.set(host, entry);
       return {
         unmount: () => {
-          if (pageHandleRef.current === entry) pageHandleRef.current = null;
+          if (pageHandles.get(host) === entry) pageHandles.delete(host);
           return handle.unmount();
         },
-        updateProps: handle.updateProps,
+        updateProps: (p?: Record<string, unknown>) => {
+          // Slot-driven updates (layout re-render) refresh the baseline that
+          // direct route pushes spread layout-provided extras from.
+          entry.mountProps = p;
+          handle.updateProps(p);
+        },
       };
     };
   }
 
   /**
-   * In-place prop update for the whole layout tree: refresh the merged-input
-   * ref (so any layout re-render passes fresh props to `k:page`), push the
-   * merged loader props directly into the mounted page (spread over its
-   * mount-time props so layout-provided extras survive), then update the
-   * layout island's own input. Page-first ordering lets a layout that *does*
-   * read its input re-render afterwards and win with its own fresher slot
-   * props.
+   * In-place prop update for one mounted layout instance: refresh the
+   * merged-input ref (so any layout re-render passes fresh props to `k:page`),
+   * push the merged loader props directly into the page mounted under *this*
+   * layout host (spread over its latest slot props so layout-provided extras
+   * survive), then update the layout island's own input. Page-first ordering
+   * lets a layout that *does* read its input re-render afterwards and win with
+   * its own fresher slot props.
    */
   const layoutUpdateProps =
-    (coreUpdate: ((p?: Record<string, unknown>) => void) | undefined) =>
+    (layoutHost: Element, coreUpdate: ((p?: Record<string, unknown>) => void) | undefined) =>
     (p?: Record<string, unknown>): void => {
       setLayoutMergedInput(p);
-      const entry = pageHandleRef.current;
-      entry?.handle.updateProps({ ...(entry.mountProps ?? {}), ...(p ?? {}) });
+      for (const [pageHost, entry] of pageHandles) {
+        if (layoutHost.contains(pageHost)) {
+          entry.handle.updateProps({ ...(entry.mountProps ?? {}), ...(p ?? {}) });
+        }
+      }
       coreUpdate?.(p);
     };
 
@@ -558,7 +569,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
     const core = ISLAND_MOUNT_HANDLES.get(host);
     ISLAND_MOUNT_HANDLES.set(host, {
       unmount,
-      updateProps: layoutUpdateProps(core?.updateProps),
+      updateProps: layoutUpdateProps(host, core?.updateProps),
     });
     return unmount;
   };
@@ -575,7 +586,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
         : { unmount: layoutMount(host, props as never), updateProps: () => {} };
     const enhanced: InternalMountHandle = {
       unmount: base.unmount,
-      updateProps: layoutUpdateProps(base.updateProps),
+      updateProps: layoutUpdateProps(host, base.updateProps),
     };
     ISLAND_MOUNT_HANDLES.set(host, enhanced);
     return enhanced;
