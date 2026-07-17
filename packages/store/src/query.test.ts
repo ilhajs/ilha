@@ -200,6 +200,24 @@ describe("persistQuery()", () => {
     stop();
   });
 
+  it("an external navigation cancels a pending debounced write", async () => {
+    const s = filtersStore();
+    const navigate = makeNavigate();
+    const stop = persistQuery(s, { navigate, debounce: 20 });
+
+    s.setState({ q: "stale" }); // debounced, still pending
+    // Back/forward lands on a different owned-param state before the flush.
+    history.replaceState(null, "", "/list?q=fresh");
+    window.dispatchEvent(new Event("popstate"));
+
+    expect(s.getState().q).toBe("fresh");
+    await sleep(60);
+    // The stale pending write must not have navigated over the external URL.
+    expect(navigate).toHaveBeenCalledTimes(0);
+    expect(location.search).toBe("?q=fresh");
+    stop();
+  });
+
   it("teardown flushes a pending debounced write and stops syncing", async () => {
     const s = filtersStore();
     const navigate = makeNavigate();

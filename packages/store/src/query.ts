@@ -237,6 +237,14 @@ export function persistQuery<TState extends object>(
     });
     if (!differs) return;
 
+    // The external URL supersedes any pending debounced write — cancel it so
+    // a later flush can't clobber the URL with pre-navigation state.
+    if (timer != null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    pendingState = null;
+
     applying = true;
     try {
       for (const e of entries) {
