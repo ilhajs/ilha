@@ -363,6 +363,58 @@ persist(cartStore, "cart");
 
 Call the returned unsubscribe before `store.dispose()` for per-island stores.
 
+## URL persistence — `persistQuery(store, options?)`
+
+`persist`'s sibling for the query string, from the `@ilha/store/query` entry point. Instead of one serialized blob, each state key gets **its own search param** (`?q=boots&page=2`) — shareable, reload-safe, back/forward-friendly. Prior art: [nuqs](https://nuqs.dev) for React.
+
+The canonical use case is a filter bar. UI state that drives data loading (search text, sort, page) belongs in the URL, because `@ilha/router` loaders re-run on every navigation and read `ctx.url.searchParams`. The cycle is **one-way**: store → URL → loader → render. The store is the _write_ path for the controls; the loader stays the _read_ path for data — on the server and the client.
+
+```ts
+import { z } from "zod";
+import { store } from "@ilha/store";
+import { persistQuery } from "@ilha/store/query";
+
+export const filters = store(
+  z.object({
+    q: z.string().default(""),
+    page: z.coerce.number().int().min(1).default(1),
+    sort: z.string().default(""),
+  }),
+).build();
+
+persistQuery(filters, { debounce: 250 });
+```
+
+```tsx
+// The search input binds to the store; persistQuery debounces the URL write.
+<input type="search" bind:value={filters.q} />
+```
+
+```ts
+// The loader is the read path — it re-runs automatically on every query write.
+export const load = ({ url }) =>
+  searchProducts(url.searchParams.get("q") ?? "");
+```
+
+What it does:
+
+1. **URL is the source of truth on init**: owned params are parsed from `location.search` and written through `setState`, so schema stores coerce and validate (`?page=3` → `3`); invalid values (`?page=banana`) degrade to the key's default — never throw.
+2. **Writes through the router**: store commits navigate via `@ilha/router`'s `navigate()` (auto-detected; **not** raw `history.replaceState`), so loaders re-run and route signals stay live. Params it doesn't own are preserved — several stores can share one URL.
+3. **Syncs back**: back/forward and link navigations that change owned params write into the store, without echoing another navigation.
+4. **Clean URLs**: with `omitDefaults` (default on), a param is removed when its value equals the store default — no `?page=1&q=` noise.
+
+Returns an unsubscribe (flushes any pending debounced write). No-op on the server.
+
+| Option         | Default        | Description                                                                                              |
+| -------------- | -------------- | -------------------------------------------------------------------------------------------------------- |
+| `params`       | all state keys | Keys to persist: `{ q: "search" }` renames, `{ tags: { serialize, deserialize } }` adds a codec          |
+| `history`      | `"replace"`    | `"replace"`, `"push"`, or `(changedKeys) => "push" \| "replace"` (e.g. push for `page`, replace for `q`) |
+| `debounce`     | `0`            | Coalesce URL writes (ms) — for per-keystroke bound inputs. A push flushes a pending replace first        |
+| `omitDefaults` | `true`         | Drop params whose value equals the store default (`""` counts as equal to a `""` default)                |
+| `navigate`     | auto-detect    | Injected URL writer; without `@ilha/router` installed, falls back to the History API with a dev warning  |
+
+Values serialize with `String()` by default; deserialization hands the raw string to `setState`, so schema stores coerce it (`z.coerce.number()`). For arrays, dates, etc., give the key a `{ serialize, deserialize }` codec in `params`.
+
 ## SSR — `dehydrate()` / `hydrate()`
 
 Stores are module-level singletons, so on a concurrent SSR server they must **not** be written during a render — request A's data would leak into request B. Instead, state travels the same way ilha island state does: serialized into the HTML, then seeded on the client.

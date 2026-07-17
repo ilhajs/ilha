@@ -390,6 +390,35 @@ persist(cartStore, "cart");
 
 Call the returned unsubscribe before `store.dispose()` for per-island stores.
 
+## URL persistence — `persistQuery(store, options?)`
+
+`persist`'s sibling for the query string ([nuqs](https://nuqs.dev)-style), from the `@ilha/store/query` entry point. Each state key maps to **its own search param** (`?q=boots&page=2`) — shareable, reload-safe, back/forward-friendly. Writes go through `@ilha/router`'s `navigate()` (auto-detected, or injected via `options.navigate`) so loaders re-run; the URL seeds the store on init (schema-coerced/validated, invalid params degrade to defaults); back/forward syncs back into the store without echo loops. With `omitDefaults` (default), default-valued params are dropped from the URL.
+
+```ts
+import { z } from "zod";
+import { store } from "@ilha/store";
+import { persistQuery } from "@ilha/store/query";
+
+const filters = store(
+  z.object({
+    q: z.string().default(""),
+    page: z.coerce.number().int().min(1).default(1),
+  }),
+).build();
+
+persistQuery(filters, { debounce: 250 });
+```
+
+| Option         | Default        | Description                                                                                             |
+| -------------- | -------------- | ------------------------------------------------------------------------------------------------------- |
+| `params`       | all state keys | Keys to persist: `{ q: "search" }` renames, `{ tags: { serialize, deserialize } }` adds a codec         |
+| `history`      | `"replace"`    | `"replace"`, `"push"`, or `(changedKeys) => "push" \| "replace"`                                        |
+| `debounce`     | `0`            | Coalesce URL writes (ms); a push flushes a pending debounced replace first                              |
+| `omitDefaults` | `true`         | Drop params whose value equals the store default                                                        |
+| `navigate`     | auto-detect    | Injected URL writer; without `@ilha/router` installed, falls back to the History API with a dev warning |
+
+Returns an unsubscribe (flushes any pending debounced write). No-op on the server — loaders reading `ctx.url.searchParams` remain the way to consume query state there. See the [store guide](https://ilhajs.dev/guide/libraries/store) for the full filter-bar walkthrough.
+
 ## SSR — `dehydrate()` / `hydrate()`
 
 Stores are module-level singletons, so on a concurrent SSR server they must **not** be written during a render — request A's data would leak into request B. Instead, state travels the same way ilha island state does: serialized into the HTML, then seeded on the client.
