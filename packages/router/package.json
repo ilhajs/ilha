@@ -1,6 +1,6 @@
 {
   "name": "@ilha/router",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "A tiny SPA router for Ilha",
   "keywords": [
     "frontend",

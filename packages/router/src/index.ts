@@ -96,6 +96,10 @@ export type Loader<T> = (ctx: LoaderContext) => Promise<T> | T;
 /**
  * Identity function for declaring a loader. Exists purely as a type anchor and
  * a marker for the Vite plugin to detect by export name.
+ *
+ * Loaders must read `ctx.params`/`ctx.url` rather than `useRoute()` — the
+ * route store still holds the previous route while a navigation's loader is
+ * in flight, so `useRoute().params()` inside a loader reads stale params.
  */
 export function loader<T>(fn: Loader<T>): Loader<T> {
   return fn;
@@ -2349,6 +2353,10 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         // destroying the event listeners and signal bindings ilha.mount() wired up.
         const viewHost = host.querySelector<Element>("[data-router-view]") ?? host;
         let currentMountedIsland: Island<any, any> | null = activeIsland();
+        // Logical URL (pathname + search, no hash) the view was mounted for —
+        // same-pattern navigations keep the island identity but must still
+        // re-run loaders when params or search change.
+        let currentMountedPath: string = routePath() + routeSearch();
 
         const reverseRegistry = registry ? buildReverseRegistry(registry) : undefined;
 
@@ -2356,7 +2364,11 @@ export function router(options: RouterOptions = {}): RouterBuilder {
 
         const NavHandler = ilha.render((): string => {
           const current = activeIsland();
-          if (current !== currentMountedIsland) {
+          // Read the route-store signals (not location directly) so this
+          // handler re-runs on param/search-only navigations. Hash excluded —
+          // fragment changes must not re-run loaders.
+          const pathWithSearch = routePath() + routeSearch();
+          if (current !== currentMountedIsland || pathWithSearch !== currentMountedPath) {
             const thisNav = ++navVersion;
             // Cancel any in-flight loader fetch for the previous nav
             navAbort?.abort();
@@ -2369,11 +2381,10 @@ export function router(options: RouterOptions = {}): RouterBuilder {
               unmountView?.();
               unmountView = null;
               try {
-                const loc = getAdapter().readLocation();
                 unmountView = await mountRouteWithHydration(
                   current,
                   viewHost,
-                  loc.pathname + loc.search,
+                  pathWithSearch,
                   signal,
                   registry,
                   reverseRegistry,
@@ -2389,6 +2400,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
                 settle();
               }
               currentMountedIsland = current;
+              currentMountedPath = pathWithSearch;
             });
           }
           return "";
@@ -2454,10 +2466,11 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           const settle = beginNavigation();
           try {
             const loc = getAdapter().readLocation();
+            const pathWithSearch = loc.pathname + loc.search;
             const um = await mountRouteWithHydration(
               island,
               viewHost,
-              loc.pathname + loc.search,
+              pathWithSearch,
               ac.signal,
               registry,
               reverseRegistry,
@@ -2466,6 +2479,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
               unmountView?.();
               unmountView = um;
               currentMountedIsland = island;
+              currentMountedPath = pathWithSearch;
             } else {
               um();
             }
@@ -2495,6 +2509,10 @@ export function router(options: RouterOptions = {}): RouterBuilder {
       // SPA mode — RouterView renders HTML but islands need .mount() for interactivity.
       let unmountIsland: (() => void) | null = null;
       let currentMountedIsland: Island<any, any> | null = null;
+      // Logical URL (pathname + search, no hash) the view was mounted for —
+      // same-pattern navigations keep the island identity but must still
+      // re-run loaders when params or search change.
+      let currentMountedPath: string | null = null;
       let navVersion = 0;
 
       unmountView = RouterView.mount(host);
@@ -2511,6 +2529,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         unmountIsland?.();
         unmountIsland = null;
         currentMountedIsland = island;
+        currentMountedPath = routePath() + routeSearch();
         if (!island) {
           // RouterView rendered the 404 island's HTML statically; mount it so
           // it gets a real island lifecycle (events, effects) like any route.
@@ -2579,7 +2598,11 @@ export function router(options: RouterOptions = {}): RouterBuilder {
 
       const NavHandler = ilha.render((): string => {
         const current = activeIsland();
-        if (current !== currentMountedIsland) {
+        // Read the route-store signals (not location directly) so this
+        // handler re-runs on param/search-only navigations. Hash excluded —
+        // fragment changes must not re-run loaders.
+        const pathWithSearch = routePath() + routeSearch();
+        if (current !== currentMountedIsland || pathWithSearch !== currentMountedPath) {
           const thisNav = ++navVersion;
           navAbort?.abort();
           navAbort = new AbortController();
