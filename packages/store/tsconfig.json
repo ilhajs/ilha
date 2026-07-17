@@ -3,6 +3,7 @@
   "compilerOptions": {
     "paths": {
       "@ilha/store": ["./src/index.ts"],
+      "@ilha/router": ["../router/src/index.ts"],
       "ilha": ["../ilha/src/index.ts"],
       "ilha/jsx-runtime": ["../ilha/src/jsx-runtime.ts"],
       "ilha/jsx-dev-runtime": ["../ilha/src/jsx-dev-runtime.ts"]
