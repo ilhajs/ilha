@@ -240,10 +240,25 @@ describe("same-island in-place updates (SPA mode)", () => {
     expect(el.innerHTML).toContain("<li>a</li>");
     const input = el.querySelector<HTMLInputElement>("input[data-q]")!;
     input.focus();
+    input.setSelectionRange(0, 0);
+
+    // happy-dom doesn't blur on detach like real engines do, so also assert
+    // via MutationObserver that no ancestor of the input is ever removed —
+    // the real-browser condition for focus surviving the navigation.
+    const removals: Node[] = [];
+    const obs = new MutationObserver(() => {});
+    obs.observe(el, { childList: true, subtree: true });
 
     navigate("/l?q=ab");
     await flush();
 
+    for (const record of obs.takeRecords()) {
+      for (const node of record.removedNodes) {
+        if (node === input || (node as Element).contains?.(input)) removals.push(node);
+      }
+    }
+    obs.disconnect();
+    expect(removals).toEqual([]);
     expect(el.querySelector("input[data-q]")).toBe(input);
     expect(document.activeElement).toBe(input);
     expect(el.innerHTML).toContain("<li>ab</li>");
