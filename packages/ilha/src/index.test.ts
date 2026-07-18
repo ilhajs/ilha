@@ -8896,3 +8896,132 @@ describe("morph identity-sensitive replace warning (dev)", () => {
     }
   });
 });
+
+describe("morph shrink teardown scoped to diverging positional slots", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  const Item = ilha
+    .input(z.object({ label: z.string() }))
+    .state("n", 0)
+    .on("button@click", ({ state }) => state.n(state.n() + 1))
+    .render(
+      ({ input, state }) =>
+        html`<span data-item>${input.label}:${state.n()}<button>+</button></span>`,
+    );
+
+  function mountList() {
+    let setLabels!: (v: string[]) => void;
+    const List = ilha.state<string[]>("labels", ["a", "b", "c"]).render(({ state }) => {
+      setLabels = state.labels as unknown as typeof setLabels;
+      return html`<ul>
+        ${state.labels().map((l) => Item({ label: l }))}
+      </ul>`;
+    });
+    const el = makeEl();
+    const unmount = List.mount(el);
+    return { el, unmount, setLabels: (v: string[]) => setLabels(v) };
+  }
+
+  it("removing the LAST item preserves earlier positional slots (state, DOM identity)", () => {
+    const { el, unmount, setLabels } = mountList();
+    const first = el.querySelector("[data-ilha-slot='p:0']")!;
+    first.querySelector<HTMLButtonElement>("button")!.click();
+    expect(first.textContent).toBe("a:1+");
+
+    setLabels(["a", "b"]);
+
+    // p:0's props are unchanged — it must keep its element and its state.
+    expect(el.querySelector("[data-ilha-slot='p:0']")).toBe(first);
+    expect(first.textContent).toBe("a:1+");
+    expect(el.querySelectorAll("[data-item]").length).toBe(2);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("removing a MIDDLE item remounts only from the diverging position", () => {
+    const { el, unmount, setLabels } = mountList();
+    const first = el.querySelector("[data-ilha-slot='p:0']")!;
+    first.querySelector<HTMLButtonElement>("button")!.click();
+    const second = el.querySelector("[data-ilha-slot='p:1']")!;
+
+    // Remove "b": p:0 ("a") is untouched, p:1 now represents "c" — diverges.
+    setLabels(["a", "c"]);
+
+    expect(el.querySelector("[data-ilha-slot='p:0']")).toBe(first);
+    expect(first.textContent).toBe("a:1+");
+    expect(el.querySelector("[data-ilha-slot='p:1']")).not.toBe(second);
+    expect(el.querySelector("[data-ilha-slot='p:1']")!.textContent).toBe("c:0+");
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("morph <select> keyed option reorder", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("a keyed reorder without attribute changes preserves the user's live selection", () => {
+    let setOrder!: (v: string[]) => void;
+    const Island = ilha.state<string[]>("order", ["a", "b", "c"]).render(({ state }) => {
+      setOrder = state.order as unknown as typeof setOrder;
+      return `<select>${state
+        .order()
+        .map(
+          (v) =>
+            `<option data-key="${v}" value="${v}"${v === "a" ? " selected" : ""}>${v}</option>`,
+        )
+        .join("")}</select>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const select = el.querySelector("select")!;
+    expect(select.value).toBe("a");
+    // User picks "c" — diverging from the template's `selected` attr on "a".
+    select.value = "c";
+
+    setOrder(["c", "a", "b"]);
+
+    // Options moved but no per-option attribute changed → live selection kept.
+    expect(select.value).toBe("c");
+    expect(Array.from(select.options, (o) => o.value)).toEqual(["c", "a", "b"]);
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("morph selection restore with retained focus", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("caret survives a template-driven value write on the focused input", () => {
+    let setV!: (v: string) => void;
+    const Island = ilha.state("v", "ab").render(({ state }) => {
+      setV = state.v as unknown as typeof setV;
+      return `<input value="${state.v()}" />`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const input = el.querySelector("input")!;
+    input.focus();
+    input.setSelectionRange(1, 1);
+
+    setV("ax");
+
+    expect(input.value).toBe("ax");
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(1);
+    expect(input.selectionEnd).toBe(1);
+
+    unmount();
+    cleanup(el);
+  });
+});

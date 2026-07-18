@@ -291,6 +291,11 @@ function isStableInlineSlotMount(
   return true;
 }
 
+/** Serialized form of slot props, matching the decoded `data-ilha-props` attr. */
+function serializeSlotProps(props: Record<string, unknown> | undefined): string {
+  return props === undefined ? "" : JSON.stringify(props);
+}
+
 // ---------------------------------------------
 // Simplified morph engine
 // ---------------------------------------------
@@ -522,14 +527,28 @@ function morphChildren(fromParent: Element, toParent: Element): void {
         // UI. Mirror template-driven `selected` changes into the live
         // property, but never touch the selection when the attributes didn't
         // change, so unrelated re-renders can't clobber the user's choice.
-        const before = Array.from((fromEl as HTMLSelectElement).options, (o) =>
-          o.hasAttribute("selected"),
-        );
+        // Track pre-morph state by option ELEMENT identity, not by index — a
+        // keyed reorder moves options, and an index comparison would misread
+        // the shifted positions as attribute changes and reset the user's
+        // live selection. New options count as previously unselected, so an
+        // appended `selected` option triggers the mirror.
+        const before = new Map<HTMLOptionElement, { attr: boolean; live: boolean }>();
+        for (const o of (fromEl as HTMLSelectElement).options) {
+          before.set(o, { attr: o.hasAttribute("selected"), live: o.selected });
+        }
         syncAttributes(fromEl, toEl);
         morphChildren(fromEl, toEl);
         const options = Array.from((fromEl as HTMLSelectElement).options);
-        if (options.some((o, i) => o.hasAttribute("selected") !== (before[i] ?? false))) {
+        if (options.some((o) => o.hasAttribute("selected") !== (before.get(o)?.attr ?? false))) {
           for (const o of options) o.selected = o.hasAttribute("selected");
+        } else {
+          // No template-driven change: re-assert each surviving option's live
+          // selectedness — some engines recompute it from attributes when an
+          // option node is moved, which would silently drop the user's choice.
+          for (const o of options) {
+            const prev = before.get(o);
+            if (prev && o.selected !== prev.live) o.selected = prev.live;
+          }
         }
         continue;
       }
@@ -600,21 +619,36 @@ function snapshotFocusForMorph(): MorphFocusSnapshot | null {
 function restoreFocusAfterMorph(snapshot: MorphFocusSnapshot | null): void {
   if (!snapshot) return;
   const { active, selection, range } = snapshot;
-  if (!active.isConnected || document.activeElement === active) return;
+  if (!active.isConnected) return;
   try {
-    active.focus({ preventScroll: true });
+    if (document.activeElement !== active) {
+      active.focus({ preventScroll: true });
+    }
+    // Selection can be disturbed even when focus survives — a template-driven
+    // value write moves an input's caret to the end, and morphing text nodes
+    // inside a contenteditable collapses its range. Restore in both cases;
+    // skip when the live selection already matches, so no-op morphs stay
+    // side-effect free.
     if (selection && selection.start !== null) {
-      (active as HTMLInputElement).setSelectionRange(
-        selection.start,
-        selection.end,
-        selection.dir ?? "none",
-      );
+      const el = active as HTMLInputElement;
+      if (el.selectionStart !== selection.start || el.selectionEnd !== selection.end) {
+        el.setSelectionRange(selection.start, selection.end, selection.dir ?? "none");
+      }
     }
     if (range && range.startContainer.isConnected) {
       const sel = window.getSelection();
       if (sel) {
-        sel.removeAllRanges();
-        sel.addRange(range);
+        const current = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+        const matches =
+          current !== null &&
+          current.startContainer === range.startContainer &&
+          current.startOffset === range.startOffset &&
+          current.endContainer === range.endContainer &&
+          current.endOffset === range.endOffset;
+        if (!matches) {
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
       }
     }
   } catch {
@@ -3559,17 +3593,32 @@ class IlhaBuilder<
 
         const applyMorph = () => {
           if (epoch !== renderEpoch) return;
-          const listShrunk = newSlotMap.size < prevMountedCount;
-          for (const [id, entry] of mountedSlots) {
-            if (!newSlotMap.has(id)) continue;
-            if (!entry.el.isConnected) continue;
-            // Positional ids (p:N) are reused when a list item is removed. After
-            // any shrink, do not preserve positional slots — controller-driven DOM
-            // (e.g. Areia checkbox) may diverge from the template and a reused
-            // host would leave orphaned subtrees. Fresh mount from the stub is
-            // safer.
-            if (listShrunk && id.startsWith("p:")) {
-              teardownMountedSlot(id, entry);
+          // Positional ids (p:N) are reused when a list item is removed: after
+          // a shrink, every surviving p: slot at or after the removed item's
+          // position now represents a DIFFERENT item under the same id, and a
+          // reused host (controller-driven DOM, e.g. Areia checkbox) would
+          // keep the wrong item's subtree. Detect the first position whose
+          // incoming props diverge from what the slot host currently carries
+          // and tear down only from there — earlier positional slots keep
+          // their state, DOM, and focus.
+          if (newSlotMap.size < prevMountedCount) {
+            let divergeFrom = Infinity;
+            for (const [id, entry] of mountedSlots) {
+              if (!id.startsWith("p:")) continue;
+              const next = newSlotMap.get(id);
+              if (!next) continue; // disappearing ids were torn down above
+              const index = Number(id.slice(2));
+              if (Number.isNaN(index) || index >= divergeFrom) continue;
+              const incoming = serializeSlotProps(next.props);
+              const current = entry.el.getAttribute(PROPS_ATTR) ?? "";
+              if (incoming !== current) divergeFrom = index;
+            }
+            for (const [id, entry] of mountedSlots) {
+              if (!newSlotMap.has(id)) continue;
+              if (!entry.el.isConnected) continue;
+              if (id.startsWith("p:") && Number(id.slice(2)) >= divergeFrom) {
+                teardownMountedSlot(id, entry);
+              }
             }
           }
 
