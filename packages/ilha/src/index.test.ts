@@ -8502,3 +8502,526 @@ describe("island.define() custom elements", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// morph keeps child-island slot hosts attached across parent re-renders
+//
+// Detaching an ancestor of document.activeElement blurs it permanently in real
+// engines (happy-dom does not emulate that, so these tests assert DOM identity
+// via MutationObserver instead of focus alone). Regression: the router's
+// layout in-place updates re-render the layout island, and the page slot host
+// (k:page) must be patched in place — never replaceWith'd — or a focused
+// persistQuery-bound search input blurs on every keystroke-driven navigation.
+// ---------------------------------------------------------------------------
+
+describe("morph slot-host stability (focus preservation)", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  /** Collect ancestors-of-`target` removed from `root` during the observation window. */
+  function observeRemovals(root: Element, target: Node) {
+    const obs = new MutationObserver(() => {});
+    obs.observe(root, { childList: true, subtree: true });
+    return {
+      removedAncestors(): Node[] {
+        const out: Node[] = [];
+        for (const record of obs.takeRecords()) {
+          for (const node of record.removedNodes) {
+            if (node === target || (node as Element).contains?.(target)) out.push(node);
+          }
+        }
+        return out;
+      },
+      disconnect: () => obs.disconnect(),
+    };
+  }
+
+  const Page = ilha.input(z.object({ rows: z.array(z.string()).default([]) })).render(
+    ({ input }) =>
+      html`<div>
+        <input data-q />
+        <p data-rows>${input.rows.join(",")}</p>
+      </div>`,
+  );
+
+  it("child props change: slot host patched in place, focused input never detached, caret intact", () => {
+    let setRows!: (rows: string[]) => void;
+    const Parent = ilha.state<string[]>("rows", ["a", "b", "c"]).render(({ state }) => {
+      setRows = state.rows as unknown as typeof setRows;
+      return html`<section>
+        <aside>sidebar</aside>
+        ${Page.key("page")({ rows: state.rows() })}
+      </section>`;
+    });
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+
+    const input = el.querySelector<HTMLInputElement>("input[data-q]")!;
+    const slotHost = el.querySelector("[data-ilha-slot='k:page']")!;
+    input.focus();
+    input.value = "hi";
+    input.setSelectionRange(1, 1);
+
+    const watch = observeRemovals(el, input);
+    setRows(["x", "y"]);
+
+    expect(watch.removedAncestors()).toEqual([]);
+    watch.disconnect();
+    expect(el.querySelector("[data-ilha-slot='k:page']")).toBe(slotHost);
+    expect(el.querySelector("input[data-q]")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(1);
+    expect(el.querySelector("[data-rows]")!.textContent).toBe("x,y");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("layout-only change: sidebar updates, page slot host still never detached", () => {
+    let setMeta!: (m: string) => void;
+    const Parent = ilha
+      .state("meta", "m1")
+      .state<string[]>("rows", ["a"])
+      .render(({ state }) => {
+        setMeta = state.meta as unknown as typeof setMeta;
+        return html`<section>
+          <aside>${state.meta()}</aside>
+          ${Page.key("page")({ rows: state.rows() })}
+        </section>`;
+      });
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+    const input = el.querySelector<HTMLInputElement>("input[data-q]")!;
+    input.focus();
+
+    const watch = observeRemovals(el, input);
+    setMeta("m2");
+
+    expect(watch.removedAncestors()).toEqual([]);
+    watch.disconnect();
+    expect(el.querySelector("aside")!.textContent).toBe("m2");
+    expect(el.querySelector("input[data-q]")).toBe(input);
+    expect(document.activeElement).toBe(input);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("nested keyed slots (two levels): both hops stay attached", () => {
+    const Middle = ilha
+      .input(z.object({ rows: z.array(z.string()).default([]) }))
+      .render(({ input }) => html`<div data-mid>${Page.key("page")({ rows: input.rows })}</div>`);
+
+    let setRows!: (rows: string[]) => void;
+    const Outer = ilha.state<string[]>("rows", ["a"]).render(({ state }) => {
+      setRows = state.rows as unknown as typeof setRows;
+      return html`<main>${Middle.key("mid")({ rows: state.rows() })}</main>`;
+    });
+
+    const el = makeEl();
+    const unmount = Outer.mount(el);
+    const input = el.querySelector<HTMLInputElement>("input[data-q]")!;
+    input.focus();
+
+    const watch = observeRemovals(el, input);
+    setRows(["x", "y"]);
+
+    expect(watch.removedAncestors()).toEqual([]);
+    watch.disconnect();
+    expect(el.querySelector("input[data-q]")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(el.querySelector("[data-rows]")!.textContent).toBe("x,y");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("slot identity change (same key, different island) still unmounts and remounts", () => {
+    let unmountedA = 0;
+    const A = ilha
+      .effect(() => () => {
+        unmountedA++;
+      })
+      .render(() => html`<p data-a>A</p>`);
+    const B = ilha.render(() => html`<p data-b>B</p>`);
+
+    let setWhich!: (w: string) => void;
+    const Parent = ilha.state("which", "a").render(({ state }) => {
+      setWhich = state.which as unknown as typeof setWhich;
+      return html`<div>${state.which() === "a" ? A.key("x") : B.key("x")}</div>`;
+    });
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+    expect(el.querySelector("[data-a]")).not.toBeNull();
+
+    setWhich("b");
+    expect(unmountedA).toBe(1);
+    expect(el.querySelector("[data-a]")).toBeNull();
+    expect(el.querySelector("[data-b]")).not.toBeNull();
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// morph engine hardening: select sync, data-morph-preserve, leaving-slot
+// adoption, identical-output fast path, identity-sensitive replace warning
+// ---------------------------------------------------------------------------
+
+describe("morph <select> live selection sync", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("template-driven `selected` change updates the live selection", () => {
+    let setSel!: (v: string) => void;
+    const Island = ilha.state("sel", "a").render(({ state }) => {
+      setSel = state.sel as unknown as typeof setSel;
+      const sel = state.sel();
+      return `<select><option value="a"${sel === "a" ? " selected" : ""}>A</option><option value="b"${sel === "b" ? " selected" : ""}>B</option></select>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const select = el.querySelector("select")!;
+    expect(select.value).toBe("a");
+
+    setSel("b");
+    expect(select.value).toBe("b");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("unrelated re-renders never clobber the user's live selection", () => {
+    let setCount!: (n: number) => void;
+    const Island = ilha.state("count", 0).render(({ state }) => {
+      setCount = state.count as unknown as typeof setCount;
+      return html`<div>
+        <p>${state.count()}</p>
+        <select>
+          <option value="a">A</option>
+          <option value="b">B</option>
+        </select>
+      </div>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const select = el.querySelector("select")!;
+    // User picks "b" — no `selected` attributes are involved.
+    select.value = "b";
+
+    setCount(1);
+    expect(el.querySelector("p")!.textContent).toBe("1");
+    expect(select.value).toBe("b");
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("morph data-morph-preserve contract", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("preserves listed attributes and class against template overwrite/removal", () => {
+    let setCount!: (n: number) => void;
+    const Island = ilha.state("count", 0).render(({ state }) => {
+      setCount = state.count as unknown as typeof setCount;
+      return html`<div>
+        <p>${state.count()}</p>
+        <span data-widget class="from-template">w</span>
+      </div>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const widget = el.querySelector("[data-widget]")!;
+    // A controller imperatively takes ownership of some attributes.
+    widget.setAttribute("data-morph-preserve", "class data-open");
+    widget.setAttribute("data-open", "");
+    widget.setAttribute("class", "from-controller");
+
+    setCount(1);
+    expect(el.querySelector("p")!.textContent).toBe("1");
+    expect(widget.getAttribute("class")).toBe("from-controller");
+    expect(widget.hasAttribute("data-open")).toBe(true);
+    expect(widget.hasAttribute("data-morph-preserve")).toBe(true);
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("morph leaving-slot adoption guard", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("a same-position remount during an async leave never loses the new subtree", async () => {
+    let releaseLeave!: () => void;
+    const Slow = ilha
+      .transition({
+        leave: () => new Promise<void>((r) => (releaseLeave = r)),
+      })
+      .render(() => html`<p data-slow>slow</p>`);
+    const Fast = ilha.render(() => html`<p data-fast>fast</p>`);
+
+    let setWhich!: (w: string) => void;
+    const Parent = ilha.state("which", "slow").render(({ state }) => {
+      setWhich = state.which as unknown as typeof setWhich;
+      return html`<div>${state.which() === "slow" ? Slow.key("x") : Fast.key("x")}</div>`;
+    });
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+    expect(el.querySelector("[data-slow]")).not.toBeNull();
+
+    // Swap islands under the same key while the leave transition is pending.
+    setWhich("fast");
+    await new Promise((r) => setTimeout(r, 0));
+    // Let the leave finish — its deferred removal must not delete the
+    // freshly mounted island's DOM.
+    releaseLeave();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(el.querySelector("[data-fast]")).not.toBeNull();
+    expect(el.querySelector("[data-slow]")).toBeNull();
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("morph identical-output fast path", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("re-render with identical markup performs zero DOM mutations, handlers keep working", () => {
+    let clicks = 0;
+    let poke!: (n: number) => void;
+    const Island = ilha
+      .state("unrelated", 0)
+      .on("button@click", () => {
+        clicks++;
+      })
+      .render(({ state }) => {
+        poke = state.unrelated as unknown as typeof poke;
+        // Output does not depend on `unrelated` — but read it so the render
+        // effect re-runs when it changes.
+        void state.unrelated();
+        return html`<div><button>go</button></div>`;
+      });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+
+    const obs = new MutationObserver(() => {});
+    obs.observe(el, { childList: true, subtree: true, attributes: true, characterData: true });
+    poke(1);
+    poke(2);
+    expect(obs.takeRecords()).toEqual([]);
+    obs.disconnect();
+
+    el.querySelector<HTMLButtonElement>("button")!.click();
+    expect(clicks).toBe(1);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("identical markup still pushes fresh slot props into mounted children", () => {
+    const seen: number[] = [];
+    const Child = ilha
+      .input(z.object({ onTick: z.custom<(n: number) => void>((v) => typeof v === "function") }))
+      .on("button@click", ({ input }) => input.onTick(1))
+      .render(() => html`<button data-child>tick</button>`);
+
+    let bump!: (n: number) => void;
+    const Parent = ilha.state("n", 0).render(({ state }) => {
+      bump = state.n as unknown as typeof bump;
+      const n = state.n();
+      // Markup is identical across re-renders; only the captured closure
+      // changes. Functions don't serialize into the stub markup.
+      return html`<div>${Child({ onTick: () => seen.push(n) })}</div>`;
+    });
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+
+    bump(5);
+    el.querySelector<HTMLButtonElement>("[data-child]")!.click();
+    expect(seen).toEqual([5]);
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("morph identity-sensitive replace warning (dev)", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("warns when a positional replace destroys an iframe", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      let setMode!: (m: string) => void;
+      const Island = ilha.state("mode", "frame").render(({ state }) => {
+        setMode = state.mode as unknown as typeof setMode;
+        return state.mode() === "frame"
+          ? html`<div><iframe src="about:blank"></iframe></div>`
+          : html`<div><section>text</section></div>`;
+      });
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      setMode("text");
+
+      const warned = warnSpy.mock.calls.some((c) => String(c[0]).includes("iframe"));
+      expect(warned).toBe(true);
+
+      unmount();
+      cleanup(el);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+describe("morph shrink teardown scoped to diverging positional slots", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  const Item = ilha
+    .input(z.object({ label: z.string() }))
+    .state("n", 0)
+    .on("button@click", ({ state }) => state.n(state.n() + 1))
+    .render(
+      ({ input, state }) =>
+        html`<span data-item>${input.label}:${state.n()}<button>+</button></span>`,
+    );
+
+  function mountList() {
+    let setLabels!: (v: string[]) => void;
+    const List = ilha.state<string[]>("labels", ["a", "b", "c"]).render(({ state }) => {
+      setLabels = state.labels as unknown as typeof setLabels;
+      return html`<ul>
+        ${state.labels().map((l) => Item({ label: l }))}
+      </ul>`;
+    });
+    const el = makeEl();
+    const unmount = List.mount(el);
+    return { el, unmount, setLabels: (v: string[]) => setLabels(v) };
+  }
+
+  it("removing the LAST item preserves earlier positional slots (state, DOM identity)", () => {
+    const { el, unmount, setLabels } = mountList();
+    const first = el.querySelector("[data-ilha-slot='p:0']")!;
+    first.querySelector<HTMLButtonElement>("button")!.click();
+    expect(first.textContent).toBe("a:1+");
+
+    setLabels(["a", "b"]);
+
+    // p:0's props are unchanged — it must keep its element and its state.
+    expect(el.querySelector("[data-ilha-slot='p:0']")).toBe(first);
+    expect(first.textContent).toBe("a:1+");
+    expect(el.querySelectorAll("[data-item]").length).toBe(2);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("removing a MIDDLE item remounts only from the diverging position", () => {
+    const { el, unmount, setLabels } = mountList();
+    const first = el.querySelector("[data-ilha-slot='p:0']")!;
+    first.querySelector<HTMLButtonElement>("button")!.click();
+    const second = el.querySelector("[data-ilha-slot='p:1']")!;
+
+    // Remove "b": p:0 ("a") is untouched, p:1 now represents "c" — diverges.
+    setLabels(["a", "c"]);
+
+    expect(el.querySelector("[data-ilha-slot='p:0']")).toBe(first);
+    expect(first.textContent).toBe("a:1+");
+    expect(el.querySelector("[data-ilha-slot='p:1']")).not.toBe(second);
+    expect(el.querySelector("[data-ilha-slot='p:1']")!.textContent).toBe("c:0+");
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("morph <select> keyed option reorder", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("a keyed reorder without attribute changes preserves the user's live selection", () => {
+    let setOrder!: (v: string[]) => void;
+    const Island = ilha.state<string[]>("order", ["a", "b", "c"]).render(({ state }) => {
+      setOrder = state.order as unknown as typeof setOrder;
+      return `<select>${state
+        .order()
+        .map(
+          (v) =>
+            `<option data-key="${v}" value="${v}"${v === "a" ? " selected" : ""}>${v}</option>`,
+        )
+        .join("")}</select>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const select = el.querySelector("select")!;
+    expect(select.value).toBe("a");
+    // User picks "c" — diverging from the template's `selected` attr on "a".
+    select.value = "c";
+
+    setOrder(["c", "a", "b"]);
+
+    // Options moved but no per-option attribute changed → live selection kept.
+    expect(select.value).toBe("c");
+    expect(Array.from(select.options, (o) => o.value)).toEqual(["c", "a", "b"]);
+
+    unmount();
+    cleanup(el);
+  });
+});
+
+describe("morph selection restore with retained focus", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("caret survives a template-driven value write on the focused input", () => {
+    let setV!: (v: string) => void;
+    const Island = ilha.state("v", "ab").render(({ state }) => {
+      setV = state.v as unknown as typeof setV;
+      return `<input value="${state.v()}" />`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const input = el.querySelector("input")!;
+    input.focus();
+    input.setSelectionRange(1, 1);
+
+    setV("ax");
+
+    expect(input.value).toBe("ax");
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(1);
+    expect(input.selectionEnd).toBe(1);
+
+    unmount();
+    cleanup(el);
+  });
+});

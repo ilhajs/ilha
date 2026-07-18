@@ -1,6 +1,6 @@
 {
   "name": "@ilha/store",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "Shared reactive store for Ilha islands.",
   "keywords": [
     "forms",
@@ -56,15 +56,15 @@
     "cleanup": "rimraf dist node_modules"
   },
   "devDependencies": {
-    "@ilha/router": "0.8.7",
+    "@ilha/router": "0.8.8",
     "alien-signals": "3.2.1",
-    "ilha": "0.9.3",
+    "ilha": "0.9.4",
     "zod": "4.4.3"
   },
   "peerDependencies": {
-    "@ilha/router": ">=0.8.7",
+    "@ilha/router": ">=0.8.8",
     "alien-signals": "^3.2.1",
-    "ilha": ">=0.9.3"
+    "ilha": ">=0.9.4"
   },
   "peerDependenciesMeta": {
     "@ilha/router": {

@@ -291,6 +291,7 @@ function isStableInlineSlotMount(
   return true;
 }
 
+/** Serialized form of slot props, matching the decoded `data-ilha-props` attr. */
 function serializeSlotProps(props: Record<string, unknown> | undefined): string {
   return props === undefined ? "" : JSON.stringify(props);
 }
@@ -320,8 +321,45 @@ const MORPH_CONTROLLER_ATTRS = new Set([
   "data-panel-open",
 ]);
 
+/**
+ * Opt-in contract for controller-owned attributes: an element carrying
+ * `data-morph-preserve="attr-a attr-b class"` keeps those attributes exactly
+ * as they are in the live DOM — the morph neither overwrites nor removes them.
+ * The Areia list above stays as a built-in default for `[data-slot]` elements.
+ */
+const MORPH_PRESERVE_ATTR = "data-morph-preserve";
+
 function shouldPreserveMorphAttr(el: Element, name: string): boolean {
+  // The marker itself is imperatively owned — never let a template that
+  // omits it strip it (templates that DO emit it can still set it).
+  if (name === MORPH_PRESERVE_ATTR) return el.hasAttribute(MORPH_PRESERVE_ATTR);
+  const custom = el.getAttribute(MORPH_PRESERVE_ATTR);
+  if (custom !== null) {
+    for (const token of custom.split(/\s+/)) {
+      if (token === name) return true;
+    }
+  }
   return el.matches(MORPH_CONTROLLER_SLOT_SELECTOR) && MORPH_CONTROLLER_ATTRS.has(name);
+}
+
+/** Elements whose imperative state cannot be recreated after a detach —
+ * iframes reload, media restarts, canvas pixels vanish. */
+const MORPH_IDENTITY_SENSITIVE_SELECTOR = "iframe,video,audio,canvas,embed,object";
+
+/** Dev-only: a positional replace is about to destroy an identity-sensitive
+ * element that a `data-key` would have preserved. */
+function warnIfMorphDestroys(node: ChildNode): void {
+  if (!__DEV__ || !(node instanceof Element)) return;
+  const hit = node.matches(MORPH_IDENTITY_SENSITIVE_SELECTOR)
+    ? node
+    : node.querySelector(MORPH_IDENTITY_SENSITIVE_SELECTOR);
+  if (hit) {
+    warn(
+      `morph: replacing a subtree destroys a <${hit.localName}> element — its state ` +
+        `(embedded document, playback position, canvas contents) is lost. Give the ` +
+        `element or its containing list items a data-key so the morph can preserve identity.`,
+    );
+  }
 }
 
 function syncAttributes(from: Element, to: Element): void {
@@ -335,23 +373,37 @@ function syncAttributes(from: Element, to: Element): void {
   }
 }
 
+/**
+ * Morph identity key: explicit `data-key`, or the child-island slot id.
+ * Slot hosts are matched by id like keyed list items so a mounted child
+ * island's host element is reconciled IN PLACE on parent re-renders — never
+ * detached and reinserted, which would blur a focused element inside it.
+ */
+function morphKeyOf(el: Element): string | null {
+  const k = el.getAttribute("data-key");
+  if (k !== null) return `k:${k}`;
+  const s = el.getAttribute(SLOT_ATTR);
+  return s === null ? null : `s:${s}`;
+}
+
 function morphChildren(fromParent: Element, toParent: Element): void {
   const toNodes = Array.from(toParent.childNodes);
 
-  // Keyed reconciliation: element children carrying data-key are matched by
-  // key and MOVED into position instead of positionally overwritten, so list
-  // reorders preserve element identity — focus, selection, CSS transitions,
-  // and any imperatively attached state travel with the element.
+  // Keyed reconciliation: element children carrying data-key (or a slot id)
+  // are matched by key and MOVED into position instead of positionally
+  // overwritten, so list reorders preserve element identity — focus,
+  // selection, CSS transitions, and any imperatively attached state travel
+  // with the element.
   let fromKeyed: Map<string, Element> | null = null;
   for (const child of fromParent.children) {
-    const k = child.getAttribute("data-key");
+    const k = morphKeyOf(child);
     if (k !== null && !(fromKeyed ??= new Map()).has(k)) fromKeyed.set(k, child);
   }
   let toKeys: Set<string> | null = null;
   if (fromKeyed !== null) {
     toKeys = new Set();
     for (const child of toParent.children) {
-      const k = child.getAttribute("data-key");
+      const k = morphKeyOf(child);
       if (k !== null) toKeys.add(k);
     }
   }
@@ -361,7 +413,7 @@ function morphChildren(fromParent: Element, toParent: Element): void {
     let fromNode: ChildNode | undefined = fromParent.childNodes[i];
 
     if (fromKeyed !== null) {
-      const toKey = toNode.nodeType === 1 ? (toNode as Element).getAttribute("data-key") : null;
+      const toKey = toNode.nodeType === 1 ? morphKeyOf(toNode as Element) : null;
       if (toKey !== null) {
         const match = fromKeyed.get(toKey);
         if (match) {
@@ -380,7 +432,7 @@ function morphChildren(fromParent: Element, toParent: Element): void {
       // fromNode is the keyed match itself, its key equals toKey and this
       // guard is skipped.
       if (fromNode instanceof Element) {
-        const fromKey = fromNode.getAttribute("data-key");
+        const fromKey = morphKeyOf(fromNode);
         if (fromKey !== null && fromKey !== toKey && toKeys!.has(fromKey)) {
           fromParent.insertBefore(toNode.cloneNode(true), fromNode);
           continue;
@@ -394,6 +446,7 @@ function morphChildren(fromParent: Element, toParent: Element): void {
     }
 
     if (fromNode.nodeType !== toNode.nodeType) {
+      warnIfMorphDestroys(fromNode);
       fromParent.replaceChild(toNode.cloneNode(true), fromNode);
       continue;
     }
@@ -410,8 +463,35 @@ function morphChildren(fromParent: Element, toParent: Element): void {
       const toEl = toNode as Element;
 
       if (fromEl.localName !== toEl.localName || fromEl.namespaceURI !== toEl.namespaceURI) {
+        warnIfMorphDestroys(fromEl);
         fromParent.replaceChild(toEl.cloneNode(true), fromEl);
         continue;
+      }
+
+      // A slot host mid leave-transition no longer participates in matching
+      // (its slot id was stripped at teardown). If the template claims this
+      // position, replace it outright — the deferred removal then no-ops on
+      // the detached element instead of deleting a newly adopted subtree.
+      if (fromEl.hasAttribute(LEAVING_ATTR)) {
+        fromParent.replaceChild(toEl.cloneNode(true), fromEl);
+        continue;
+      }
+
+      // Same-id child-island slot host: the mounted child owns this subtree.
+      // Patch only the incoming slot props attr and leave everything else —
+      // attributes the child island stamped on its host (state snapshots,
+      // css markers) and the entire child DOM stay untouched, and the host
+      // is never detached (detaching an ancestor of document.activeElement
+      // would blur it permanently).
+      {
+        const slotId = toEl.getAttribute(SLOT_ATTR);
+        if (slotId !== null && fromEl.getAttribute(SLOT_ATTR) === slotId) {
+          const props = toEl.getAttribute(PROPS_ATTR);
+          if (props !== null && fromEl.getAttribute(PROPS_ATTR) !== props) {
+            fromEl.setAttribute(PROPS_ATTR, props);
+          }
+          continue;
+        }
       }
 
       if (
@@ -440,6 +520,39 @@ function morphChildren(fromParent: Element, toParent: Element): void {
         continue;
       }
 
+      if (fromEl.localName === "select") {
+        // Like input value/checked: `selected` attributes only set the
+        // DEFAULT selection — once the user (or a bind write) touches the
+        // live selection, attribute updates alone no longer reflect in the
+        // UI. Mirror template-driven `selected` changes into the live
+        // property, but never touch the selection when the attributes didn't
+        // change, so unrelated re-renders can't clobber the user's choice.
+        // Track pre-morph state by option ELEMENT identity, not by index — a
+        // keyed reorder moves options, and an index comparison would misread
+        // the shifted positions as attribute changes and reset the user's
+        // live selection. New options count as previously unselected, so an
+        // appended `selected` option triggers the mirror.
+        const before = new Map<HTMLOptionElement, { attr: boolean; live: boolean }>();
+        for (const o of (fromEl as HTMLSelectElement).options) {
+          before.set(o, { attr: o.hasAttribute("selected"), live: o.selected });
+        }
+        syncAttributes(fromEl, toEl);
+        morphChildren(fromEl, toEl);
+        const options = Array.from((fromEl as HTMLSelectElement).options);
+        if (options.some((o) => o.hasAttribute("selected") !== (before.get(o)?.attr ?? false))) {
+          for (const o of options) o.selected = o.hasAttribute("selected");
+        } else {
+          // No template-driven change: re-assert each surviving option's live
+          // selectedness — some engines recompute it from attributes when an
+          // option node is moved, which would silently drop the user's choice.
+          for (const o of options) {
+            const prev = before.get(o);
+            if (prev && o.selected !== prev.live) o.selected = prev.live;
+          }
+        }
+        continue;
+      }
+
       syncAttributes(fromEl, toEl);
 
       if (fromEl.localName === "textarea") {
@@ -464,10 +577,91 @@ function morphChildren(fromParent: Element, toParent: Element): void {
   }
 }
 
+type MorphFocusSnapshot = {
+  active: HTMLElement;
+  selection: {
+    start: number | null;
+    end: number | null;
+    dir: "forward" | "backward" | "none" | null;
+  } | null;
+  range: Range | null;
+};
+
+/**
+ * Invariant: the morph must never lose focus for an element that survives it.
+ * Surviving slot hosts and keyed elements are patched in place, but a genuine
+ * reorder still detaches-and-reinserts an ancestor of `document.activeElement`,
+ * which blurs it in real engines — snapshot before, restore after.
+ */
+function snapshotFocusForMorph(): MorphFocusSnapshot | null {
+  if (typeof document === "undefined") return null;
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || active === document.body) return null;
+  let selection: MorphFocusSnapshot["selection"] = null;
+  let range: Range | null = null;
+  try {
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+      selection = {
+        start: active.selectionStart,
+        end: active.selectionEnd,
+        dir: active.selectionDirection,
+      };
+    } else if (active.isContentEditable) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) range = sel.getRangeAt(0).cloneRange();
+    }
+  } catch {
+    // selection APIs are best-effort (type=email inputs throw on selectionStart)
+  }
+  return { active, selection, range };
+}
+
+function restoreFocusAfterMorph(snapshot: MorphFocusSnapshot | null): void {
+  if (!snapshot) return;
+  const { active, selection, range } = snapshot;
+  if (!active.isConnected) return;
+  try {
+    if (document.activeElement !== active) {
+      active.focus({ preventScroll: true });
+    }
+    // Selection can be disturbed even when focus survives — a template-driven
+    // value write moves an input's caret to the end, and morphing text nodes
+    // inside a contenteditable collapses its range. Restore in both cases;
+    // skip when the live selection already matches, so no-op morphs stay
+    // side-effect free.
+    if (selection && selection.start !== null) {
+      const el = active as HTMLInputElement;
+      if (el.selectionStart !== selection.start || el.selectionEnd !== selection.end) {
+        el.setSelectionRange(selection.start, selection.end, selection.dir ?? "none");
+      }
+    }
+    if (range && range.startContainer.isConnected) {
+      const sel = window.getSelection();
+      if (sel) {
+        const current = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+        const matches =
+          current !== null &&
+          current.startContainer === range.startContainer &&
+          current.startOffset === range.startOffset &&
+          current.endContainer === range.endContainer &&
+          current.endOffset === range.endOffset;
+        if (!matches) {
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+    }
+  } catch {
+    // focus/selection restore is best-effort
+  }
+}
+
 function morphInner(from: Element, to: Element): void {
   if (from.localName !== to.localName || from.namespaceURI !== to.namespaceURI)
     throw new Error("[ilha] morph: elements must match");
+  const focus = snapshotFocusForMorph();
   morphChildren(from, to);
+  restoreFocusAfterMorph(focus);
 }
 
 // ---------------------------------------------
@@ -545,6 +739,11 @@ export const ISLAND_MOUNT_HANDLES: WeakMap<
 > = new WeakMap();
 
 const SLOT_ATTR = "data-ilha-slot";
+/** Marks a slot host whose child island is mid leave-transition: it has been
+ * unmounted (and its slot id stripped) but stays connected so the leave
+ * animation can paint. The morph replaces such elements instead of matching
+ * or mutating them. */
+const LEAVING_ATTR = "data-ilha-leaving";
 const PROPS_ATTR = "data-ilha-props";
 const STATE_ATTR = "data-ilha-state";
 const CSS_ATTR = "data-ilha-css";
@@ -2922,7 +3121,12 @@ class IlhaBuilder<
         if (result instanceof Promise) {
           // Keep the child subtree connected so transition.leave (e.g. WAAPI) can
           // paint. Replacing with a stub immediately detached the host and made
-          // leave animations invisible.
+          // leave animations invisible. Strip the slot identity and mark the
+          // element as leaving so the morph, the slot index, and a same-id
+          // remount can never adopt it — its deferred remove() would otherwise
+          // delete the NEW island's DOM out from under it.
+          entry.el.removeAttribute(SLOT_ATTR);
+          entry.el.setAttribute(LEAVING_ATTR, "");
           leavingSlots.set(id, { el: entry.el, token });
           return result.finally(() => remove());
         }
@@ -3267,6 +3471,10 @@ class IlhaBuilder<
       // re-paint. Without this, the DOM stays stuck on the initial-render
       // value because the effect's first run short-circuits.
       const initialRenderedHtml = initial.html;
+      // Rendered string the live DOM is known to match — set whenever a morph
+      // (or a first-pass short-circuit with matching DOM) completes. Enables
+      // the identical-output fast path below.
+      let lastRendered: string | null = null;
       let renderEpoch = 0;
       const stopRender = effect(() => {
         const epoch = ++renderEpoch;
@@ -3306,6 +3514,7 @@ class IlhaBuilder<
               if (next) entry.updateProps(next.props);
             }
             if (rendered === initialRenderedHtml) {
+              lastRendered = rendered;
               return;
             }
             // onMount or other setup changed output — morph to refresh SSR DOM.
@@ -3315,6 +3524,7 @@ class IlhaBuilder<
           // typical case: no onMount has run yet, or onMount hasn't written
           // any state.
           if (rendered === initialRenderedHtml) {
+            lastRendered = rendered;
             return;
           }
           // Client mount: the eager render inlines child SSR, but the first
@@ -3336,6 +3546,25 @@ class IlhaBuilder<
           // reconcile so the DOM and mounted children catch up. The child
           // islands that were already mounted by the eager mountSlots get
           // their new props pushed via updateProps.
+        }
+
+        // Identical-output fast path: the DOM, listener wiring, and template
+        // bindings all derive from the rendered string, so when a re-render
+        // produces the exact markup the DOM already matches (a dependency
+        // changed without affecting this island's output) there is nothing to
+        // morph or rewire. Slot props are compared as live objects — functions
+        // and other non-serializable props can differ while the serialized
+        // stub markup doesn't — so still push them into mounted children.
+        if (
+          rendered === lastRendered &&
+          mountedSlots.size === newSlotMap.size &&
+          [...newSlotMap].every(([id, next]) => mountedSlots.get(id)?.island === next.island)
+        ) {
+          for (const [id, entry] of mountedSlots) {
+            const next = newSlotMap.get(id);
+            if (next) entry.updateProps(next.props);
+          }
+          return;
         }
 
         detachListeners();
@@ -3364,43 +3593,54 @@ class IlhaBuilder<
 
         const applyMorph = () => {
           if (epoch !== renderEpoch) return;
-          // Detach preserved slot elements from the live DOM, replacing each
-          // with an empty stub that matches what the template emitted.
-          const preserved = new Map<string, Element>();
-          const listShrunk = newSlotMap.size < prevMountedCount;
-          for (const [id, entry] of mountedSlots) {
-            if (!newSlotMap.has(id)) continue;
-            if (!entry.el.isConnected) continue;
-            // Positional ids (p:N) are reused when a list item is removed. After
-            // any shrink, do not preserve positional slots — controller-driven DOM
-            // (e.g. Areia checkbox) may diverge from the template and rehome
-            // would leave orphaned subtrees. Fresh mount from the stub is safer.
-            if (listShrunk && id.startsWith("p:")) {
-              teardownMountedSlot(id, entry);
-              continue;
+          // Positional ids (p:N) are reused when a list item is removed: after
+          // a shrink, every surviving p: slot at or after the removed item's
+          // position now represents a DIFFERENT item under the same id, and a
+          // reused host (controller-driven DOM, e.g. Areia checkbox) would
+          // keep the wrong item's subtree. Detect the first position whose
+          // incoming props diverge from what the slot host currently carries
+          // and tear down only from there — earlier positional slots keep
+          // their state, DOM, and focus.
+          if (newSlotMap.size < prevMountedCount) {
+            let divergeFrom = Infinity;
+            for (const [id, entry] of mountedSlots) {
+              if (!id.startsWith("p:")) continue;
+              const next = newSlotMap.get(id);
+              if (!next) continue; // disappearing ids were torn down above
+              const index = Number(id.slice(2));
+              if (Number.isNaN(index) || index >= divergeFrom) continue;
+              const incoming = serializeSlotProps(next.props);
+              const current = entry.el.getAttribute(PROPS_ATTR) ?? "";
+              if (incoming !== current) divergeFrom = index;
             }
-            const stubTag = entry.el.tagName.toLowerCase();
-            const stub = document.createElement(stubTag);
-            stub.setAttribute(SLOT_ATTR, id);
-            const incomingProps = serializeSlotProps(newSlotMap.get(id)?.props);
-            if (incomingProps !== "") stub.setAttribute(PROPS_ATTR, incomingProps);
-            entry.el.replaceWith(stub);
-            preserved.set(id, entry.el);
+            for (const [id, entry] of mountedSlots) {
+              if (!newSlotMap.has(id)) continue;
+              if (!entry.el.isConnected) continue;
+              if (id.startsWith("p:") && Number(id.slice(2)) >= divergeFrom) {
+                teardownMountedSlot(id, entry);
+              }
+            }
           }
 
+          // Surviving slot hosts are reconciled IN PLACE by the slot-aware
+          // morph (matched by slot id, children untouched) — they are never
+          // detached, so a focused element inside a child island keeps focus.
+          // morphInner itself guards focus/selection against genuine reorders.
           const tpl = document.createElement("template");
           const morphRootTag = host.tagName.toLowerCase();
           tpl.innerHTML = `<${morphRootTag}>${html}</${morphRootTag}>`;
           morphInner(host, tpl.content.firstElementChild as Element);
+          lastRendered = rendered;
 
-          // Rehome preserved slots: swap post-morph stubs back to live elements.
-          if (preserved.size > 0) {
-            const rehomeIndex = buildSlotIndex();
-            for (const [id, liveEl] of preserved) {
-              const stub = rehomeIndex.get(id);
-              if (!stub) continue;
-              stub.replaceWith(liveEl);
-            }
+          // Rehome mounted slots the morph could not keep in place (a slot
+          // host moved to a different parent): the template left a fresh stub
+          // with the same id — swap the live element in.
+          let rehomeIndex: Map<string, Element> | null = null;
+          for (const [id, entry] of mountedSlots) {
+            if (!newSlotMap.has(id) || entry.el.isConnected) continue;
+            rehomeIndex ??= buildSlotIndex();
+            const stub = rehomeIndex.get(id);
+            if (stub && stub !== entry.el) stub.replaceWith(entry.el);
           }
 
           attachListeners();

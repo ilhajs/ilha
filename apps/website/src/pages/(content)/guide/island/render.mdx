@@ -272,6 +272,17 @@ When `order` changes to `["c", "a", "b"]`, the existing `<li>` elements are move
 
 Use `data-key` for plain rendered list items like this. For list items that are themselves child islands with their own local state, use [`Island.key()`](#child-islands) instead — it stabilizes the child island's slot identity rather than a plain element.
 
+**Always key identity-sensitive elements.** An `<iframe>`, `<video>`, `<audio>`, `<canvas>`, `<embed>`, or `<object>` that gets caught in a positional replace loses state that can't be recreated — the iframe reloads its document, media restarts, canvas pixels vanish. Give such elements (or the list items containing them) a `data-key` so the morph preserves their identity; in development, ilha warns when a replace destroys one.
+
+**Controller-owned attributes.** When outside code (a component controller, a third-party script) imperatively manages attributes on an element inside an island, list them in `data-morph-preserve` so re-renders don't overwrite or strip them — `class` can be listed too:
+
+```html
+<div
+  data-widget
+  data-morph-preserve="class data-open aria-expanded"
+></div>
+```
+
 ## Fragments
 
 Use fragments when a render function needs to return siblings without an extra wrapper:
