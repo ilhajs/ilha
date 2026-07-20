@@ -36,7 +36,7 @@ function paintChildren(kids: unknown): unknown {
 
 function slotPropsFromSsr(ssr: string, slotId: string): Record<string, unknown> | null {
   const re = new RegExp(
-    `data-ilha-slot="${slotId.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}"[^>]*data-ilha-props='([^']*)'`,
+    `data-ilha-slot="${slotId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"[^>]*data-ilha-props='([^']*)'`,
   );
   const m = ssr.match(re);
   if (!m) return null;

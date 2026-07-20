@@ -160,6 +160,37 @@ describe("stress: slot props serialization", () => {
     cleanup(el);
   });
 
+  it("does not treat {value, extra} objects as legacy RawHtml children", () => {
+    const seen: unknown[] = [];
+    const Child = ilha.input<{ children?: unknown }>().render(({ input }) => {
+      seen.push(input.children);
+      return html`<div data-root></div>`;
+    });
+
+    const el = makeEl();
+    el.setAttribute(
+      "data-ilha-props",
+      JSON.stringify({
+        children: [{ value: "<b>x</b>", kind: "note" }],
+      }),
+    );
+    const unmount = Child.mount(el);
+    const kids = seen[0] as unknown[];
+    expect(Array.isArray(kids)).toBe(true);
+    expect(kids[0]).toEqual({ value: "<b>x</b>", kind: "note" });
+    expect(kids[0] && typeof kids[0] === "object" && RAW in (kids[0] as object)).toBe(false);
+    unmount();
+    cleanup(el);
+  });
+
+  it("encodeSlotPropValue rejects circular slot props predictably", () => {
+    const cyclic: Record<string, unknown> = { page: 1 };
+    cyclic.self = cyclic;
+    const Child = ilha.input<{ page: number }>().render(() => html`<div></div>`);
+    const Parent = ilha.render(() => html`<div>${Child(cyclic as never)}</div>`);
+    expect(() => String(Parent())).toThrow(/circular reference/);
+  });
+
   it("revives tagged __ilha raw markers from attr props", () => {
     const Child = ilha
       .input<{ children?: unknown }>()

@@ -320,19 +320,28 @@ function isRawHtmlValue(v: unknown): v is RawHtml {
   return !!(v && typeof v === "object" && SLOT_RAW in v);
 }
 
-function encodeSlotPropValue(value: unknown): unknown {
+function encodeSlotPropValue(value: unknown, seen?: WeakSet<object>): unknown {
   if (value == null) return value;
   if (typeof value === "function" || typeof value === "symbol") return undefined;
   if (typeof value !== "object") return value;
   if (isRawHtmlValue(value)) return { __ilha: "raw", value: value.value };
+
+  const visited = seen ?? new WeakSet<object>();
+  if (visited.has(value as object)) {
+    throw new TypeError("encodeSlotPropValue: circular reference in slot props");
+  }
+  visited.add(value as object);
+
   if (Array.isArray(value)) {
-    return value.map((item) => encodeSlotPropValue(item)).filter((item) => item !== undefined);
+    return value
+      .map((item) => encodeSlotPropValue(item, visited))
+      .filter((item) => item !== undefined);
   }
   if (Object.getPrototypeOf(value) !== Object.prototype) return undefined;
   const obj = value as Record<string, unknown>;
   const encoded: Record<string, unknown> = {};
   for (const key of Object.keys(obj)) {
-    const next = encodeSlotPropValue(obj[key]);
+    const next = encodeSlotPropValue(obj[key], visited);
     if (next !== undefined || obj[key] === null) encoded[key] = next as unknown;
   }
   return encoded;
@@ -352,8 +361,28 @@ function reviveSlotPropValue(value: unknown): unknown {
   return out;
 }
 
+/**
+ * Exact legacy shape produced when RawHtml lost its brand under JSON.stringify:
+ * a plain object with a single own key `value` that is a string.
+ */
+function isLegacyRawHtmlBlob(value: unknown): value is { value: string } {
+  if (!value || typeof value !== "object" || isRawHtmlValue(value)) return false;
+  if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+  const keys = Object.keys(value as object);
+  return (
+    keys.length === 1 &&
+    keys[0] === "value" &&
+    typeof (value as { value: unknown }).value === "string"
+  );
+}
+
 /** Revive attr-parsed props (RawHtml tags). Children stay as plain data if present. */
 function reviveSlotProps(props: Record<string, unknown>): Record<string, unknown> {
+  // Callers normally pass safeParseSnapshot output (already a plain object),
+  // but guard so a mistaken non-object never throws inside revival.
+  if (typeof props !== "object" || props === null || Array.isArray(props)) {
+    return {};
+  }
   const out = reviveSlotPropValue(props) as Record<string, unknown>;
   // Legacy / debug attrs may still carry children as `{ value: string }` blobs
   // after JSON.stringify stripped the RawHtml brand — restore them so a child
@@ -364,27 +393,11 @@ function reviveSlotProps(props: Record<string, unknown>): Record<string, unknown
 
 function reviveLegacyChildren(children: unknown): unknown {
   if (!Array.isArray(children)) {
-    if (
-      children &&
-      typeof children === "object" &&
-      "value" in (children as object) &&
-      typeof (children as { value: unknown }).value === "string" &&
-      !isRawHtmlValue(children)
-    ) {
-      return makeRawHtml((children as { value: string }).value);
-    }
+    if (isLegacyRawHtmlBlob(children)) return makeRawHtml(children.value);
     return reviveSlotPropValue(children);
   }
   return children.map((child) => {
-    if (
-      child &&
-      typeof child === "object" &&
-      "value" in (child as object) &&
-      typeof (child as { value: unknown }).value === "string" &&
-      !isRawHtmlValue(child)
-    ) {
-      return makeRawHtml((child as { value: string }).value);
-    }
+    if (isLegacyRawHtmlBlob(child)) return makeRawHtml(child.value);
     return reviveSlotPropValue(child);
   });
 }
@@ -3272,6 +3285,14 @@ class IlhaBuilder<
         return index;
       }
 
+      /** Push live props from a fresh slot map into already-mounted children. */
+      function pushUpdatedProps(nextSlots: IslandRenderCtx["slots"]): void {
+        for (const [id, entry] of mountedSlots) {
+          const next = nextSlots.get(id);
+          if (next) entry.updateProps(next.props);
+        }
+      }
+
       function mountSlots(slotMap: IslandRenderCtx["slots"]) {
         // Unmount slots that are no longer present (conditionally removed).
         for (const [id, entry] of mountedSlots) {
@@ -3623,10 +3644,7 @@ class IlhaBuilder<
           // Hydration: listeners/bindings were wired to SSR DOM — never morph
           // on the first effect pass (layout + page slots both use this path).
           if (preserveSSRDom) {
-            for (const [id, entry] of mountedSlots) {
-              const next = newSlotMap.get(id);
-              if (next) entry.updateProps(next.props);
-            }
+            pushUpdatedProps(newSlotMap);
             if (rendered === initialRenderedHtml) {
               lastRendered = rendered;
               return;
@@ -3654,10 +3672,7 @@ class IlhaBuilder<
           ) {
             // Slot set is stable, but live props (functions, children RawHtml)
             // are not reflected in the stub markup — still push them.
-            for (const [id, entry] of mountedSlots) {
-              const next = newSlotMap.get(id);
-              if (next) entry.updateProps(next.props);
-            }
+            pushUpdatedProps(newSlotMap);
             return;
           }
           // Divergence: a state write between the eager initial render and
@@ -3680,10 +3695,7 @@ class IlhaBuilder<
           mountedSlots.size === newSlotMap.size &&
           [...newSlotMap].every(([id, next]) => mountedSlots.get(id)?.island === next.island)
         ) {
-          for (const [id, entry] of mountedSlots) {
-            const next = newSlotMap.get(id);
-            if (next) entry.updateProps(next.props);
-          }
+          pushUpdatedProps(newSlotMap);
           return;
         }
 
