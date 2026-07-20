@@ -1,5 +1,5 @@
 ---
-title: css&grave;&grave;
+title: css
 description: A passthrough tagged template for CSS strings that enables editor tooling and syntax highlighting.
 order: 305
 ---
@@ -78,13 +78,13 @@ const styles = css`
 
 `css\`\``and`.css()` are intentionally separate:
 
-|                | css&grave;&grave;             | .css()                               |
+|                | css                           | .css()                               |
 | -------------- | ----------------------------- | ------------------------------------ |
 | What it is     | Named export, tagged template | Builder chain method                 |
 | Runtime effect | None — returns a plain string | Attaches scoped styles to the island |
 | Purpose        | Editor tooling support        | Actual style attachment              |
 
-A common pattern is to use both together: author styles with css&grave;&grave; for tooling support, then pass the result to [`.css()`](/guide/island/css) to attach them:
+A common pattern is to use both together: author styles with css for tooling support, then pass the result to [`.css()`](/guide/island/css) to attach them:
 
 ```tsx twoslash
 import ilha, { css } from "ilha";
@@ -146,5 +146,5 @@ const Card = ilha
 
 ## Notes
 
-- css&grave;&grave; requires editor tooling to provide any benefit. The [vscode-styled-components](https://marketplace.visualstudio.com/items?itemName=styled-components.vscode-styled-components) extension and Prettier's `prettier-plugin-styled-components` recognize the `css` tag and apply CSS formatting automatically.
+- css requires editor tooling to provide any benefit. The [vscode-styled-components](https://marketplace.visualstudio.com/items?itemName=styled-components.vscode-styled-components) extension and Prettier's `prettier-plugin-styled-components` recognize the `css` tag and apply CSS formatting automatically.
 - The tag works with any string content — there is no validation or parsing at runtime. Syntax errors in your CSS will not be caught by ilha itself, only by your editor or browser.
