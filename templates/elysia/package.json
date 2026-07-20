@@ -10,11 +10,11 @@
   },
   "dependencies": {
     "@elysiajs/static": "^1.4.10",
-    "@ilha/router": "^0.8.8",
-    "@ilha/store": "^0.7.6",
+    "@ilha/router": "^0.8.9",
+    "@ilha/store": "^0.7.7",
     "areia": "^0.1.37",
     "elysia": "^1.4.29",
-    "ilha": "^0.9.4",
+    "ilha": "^0.9.5",
     "quando": "^0.1.6"
   },
   "devDependencies": {

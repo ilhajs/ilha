@@ -420,6 +420,8 @@ const Card = ilha.render(
 );
 ```
 
+Props (including JSX `children` and function callbacks) stay on the **live slot map** during parent render/mount. `data-ilha-props` only carries JSON-safe scalars for hydration hints — never rely on it for children or handlers. Nested islands under layout shells (`defineLayout` / `wrapLayout`) use the same path as page-level composition.
+
 **Keyed children** — use `.key()` when a child may reorder or appear conditionally. Keys must be unique within a parent render:
 
 ```ts

@@ -643,7 +643,7 @@ describe("ilha JSX runtime", () => {
     ));
 
     expect(normalizeHtml(Parent.toString())).toBe(
-      "<section><h1>Parent</h1><div data-ilha-slot=\"p:0\" data-ilha-props='{}'><button>0</button></div></section>",
+      '<section><h1>Parent</h1><div data-ilha-slot="p:0"><button>0</button></div></section>',
     );
   });
 
