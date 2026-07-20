@@ -9025,3 +9025,32 @@ describe("morph selection restore with retained focus", () => {
     cleanup(el);
   });
 });
+
+describe("slot props attr omits children and functions", () => {
+  it("SSR slot embeds only JSON-safe scalar props", () => {
+    const Child = ilha
+      .input<{ page: number; setPage?: (n: number) => void; children?: unknown }>()
+      .render(({ input }) => html`<p data-page=${String(input.page)}>${input.children as any}</p>`);
+
+    const Parent = ilha.render(
+      () =>
+        html`<div>
+          ${Child({
+            page: 3,
+            setPage: () => {},
+            children: [{ [Symbol.for("ilha.raw")]: true, value: "<em>hi</em>" }],
+          })}
+        </div>`,
+    );
+
+    const out = String(Parent());
+    expect(out).toContain('data-ilha-slot="p:0"');
+    expect(out).toContain("<em>hi</em>");
+    const m = out.match(/data-ilha-props='([^']*)'/);
+    expect(m).not.toBeNull();
+    const props = JSON.parse(m![1]!.replace(/&quot;/g, '"'));
+    expect(props).toEqual({ page: 3 });
+    expect(props.children).toBeUndefined();
+    expect(props.setPage).toBeUndefined();
+  });
+});

@@ -291,9 +291,108 @@ function isStableInlineSlotMount(
   return true;
 }
 
+/**
+ * Props safe to embed in `data-ilha-props`.
+ * Functions cannot round-trip through JSON; children are owned by the live slot
+ * map (client) and/or the inlined SSR subtree — never depend on the attr for them.
+ * RawHtml is tagged so a rare attr-only mount can revive `Symbol.for("ilha.raw")`.
+ */
+function slotPropsForAttr(
+  props: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (props === undefined) return undefined;
+  let out: Record<string, unknown> | undefined;
+  for (const key of Object.keys(props)) {
+    if (key === "children") continue;
+    const value = props[key];
+    if (typeof value === "function" || typeof value === "symbol") continue;
+    const encoded = encodeSlotPropValue(value);
+    if (encoded === undefined && value !== undefined && value !== null) continue;
+    (out ??= {})[key] = encoded as unknown;
+  }
+  return out;
+}
+
+// Use Symbol.for directly — these helpers sit above the RAW const binding.
+const SLOT_RAW = Symbol.for("ilha.raw");
+
+function isRawHtmlValue(v: unknown): v is RawHtml {
+  return !!(v && typeof v === "object" && SLOT_RAW in v);
+}
+
+function encodeSlotPropValue(value: unknown): unknown {
+  if (value == null) return value;
+  if (typeof value === "function" || typeof value === "symbol") return undefined;
+  if (typeof value !== "object") return value;
+  if (isRawHtmlValue(value)) return { __ilha: "raw", value: value.value };
+  if (Array.isArray(value)) {
+    return value.map((item) => encodeSlotPropValue(item)).filter((item) => item !== undefined);
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype) return undefined;
+  const obj = value as Record<string, unknown>;
+  const encoded: Record<string, unknown> = {};
+  for (const key of Object.keys(obj)) {
+    const next = encodeSlotPropValue(obj[key]);
+    if (next !== undefined || obj[key] === null) encoded[key] = next as unknown;
+  }
+  return encoded;
+}
+
+function makeRawHtml(value: string): RawHtml {
+  return { [SLOT_RAW]: true, value } as unknown as RawHtml;
+}
+
+function reviveSlotPropValue(value: unknown): unknown {
+  if (value == null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(reviveSlotPropValue);
+  const obj = value as Record<string, unknown>;
+  if (obj.__ilha === "raw" && typeof obj.value === "string") return makeRawHtml(obj.value);
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(obj)) out[key] = reviveSlotPropValue(obj[key]);
+  return out;
+}
+
+/** Revive attr-parsed props (RawHtml tags). Children stay as plain data if present. */
+function reviveSlotProps(props: Record<string, unknown>): Record<string, unknown> {
+  const out = reviveSlotPropValue(props) as Record<string, unknown>;
+  // Legacy / debug attrs may still carry children as `{ value: string }` blobs
+  // after JSON.stringify stripped the RawHtml brand — restore them so a child
+  // island that only sees attr props can still paint compound children.
+  if ("children" in out) out.children = reviveLegacyChildren(out.children);
+  return out;
+}
+
+function reviveLegacyChildren(children: unknown): unknown {
+  if (!Array.isArray(children)) {
+    if (
+      children &&
+      typeof children === "object" &&
+      "value" in (children as object) &&
+      typeof (children as { value: unknown }).value === "string" &&
+      !isRawHtmlValue(children)
+    ) {
+      return makeRawHtml((children as { value: string }).value);
+    }
+    return reviveSlotPropValue(children);
+  }
+  return children.map((child) => {
+    if (
+      child &&
+      typeof child === "object" &&
+      "value" in (child as object) &&
+      typeof (child as { value: unknown }).value === "string" &&
+      !isRawHtmlValue(child)
+    ) {
+      return makeRawHtml((child as { value: string }).value);
+    }
+    return reviveSlotPropValue(child);
+  });
+}
+
 /** Serialized form of slot props, matching the decoded `data-ilha-props` attr. */
 function serializeSlotProps(props: Record<string, unknown> | undefined): string {
-  return props === undefined ? "" : JSON.stringify(props);
+  const safe = slotPropsForAttr(props);
+  return safe === undefined ? "" : JSON.stringify(safe);
 }
 
 // ---------------------------------------------
@@ -837,7 +936,16 @@ interface BindRecord {
   accessor: ExternalSignal;
 }
 
-const renderCtxStack: IslandRenderCtx[] = [];
+// Shared across duplicate ilha copies in one realm (app + component library).
+// Module-local stacks break nested islands: a child island closed over copy B
+// cannot see the parent render context from copy A, so it SSR-stringifies
+// instead of returning an IslandCall and the parent only records a slot shell.
+const RENDER_CTX_STACK = Symbol.for("ilha.renderCtxStack");
+
+function renderCtxStack(): IslandRenderCtx[] {
+  const g = globalThis as typeof globalThis & { [RENDER_CTX_STACK]?: IslandRenderCtx[] };
+  return (g[RENDER_CTX_STACK] ??= []);
+}
 
 function pushRenderCtx(liveHost?: Element, asyncChildren?: boolean): IslandRenderCtx {
   const ctx: IslandRenderCtx = {
@@ -847,16 +955,17 @@ function pushRenderCtx(liveHost?: Element, asyncChildren?: boolean): IslandRende
     pending: asyncChildren ? new Map() : undefined,
     binds: [],
   };
-  renderCtxStack.push(ctx);
+  renderCtxStack().push(ctx);
   return ctx;
 }
 
 function popRenderCtx(): void {
-  renderCtxStack.pop();
+  renderCtxStack().pop();
 }
 
 function currentRenderCtx(): IslandRenderCtx | undefined {
-  return renderCtxStack[renderCtxStack.length - 1];
+  const stack = renderCtxStack();
+  return stack[stack.length - 1];
 }
 
 // Brand checks use `Symbol.for`, which resolves to the SAME symbol across
@@ -903,7 +1012,8 @@ function emitIslandSlot(
 
   const slotTag = getIslandSlotTag(island);
 
-  const propsAttr = props ? ` ${PROPS_ATTR}='${escapeHtml(JSON.stringify(props))}'` : "";
+  const attrProps = slotPropsForAttr(props);
+  const propsAttr = attrProps ? ` ${PROPS_ATTR}='${escapeHtml(JSON.stringify(attrProps))}'` : "";
 
   // Client re-render path: emit an EMPTY stub. Post-morph, mountSlots rehomes
   // the preserved live slot element (with all its mounted children, listeners,
@@ -939,7 +1049,7 @@ function emitIslandSlot(
       // Child rendered synchronously — inline its HTML as usual.
       return wrapIslandSlotHtml(slotTag, id, propsAttr, String(result));
     } finally {
-      renderCtxStack.push(ctx);
+      renderCtxStack().push(ctx);
     }
   }
 
@@ -2958,7 +3068,9 @@ class IlhaBuilder<
         const rawProps = host.getAttribute(PROPS_ATTR);
         if (rawProps) {
           const parsed = safeParseSnapshot(rawProps, PROPS_ATTR);
-          if (parsed !== undefined) props = parsed as Partial<TInput>;
+          if (parsed !== undefined) {
+            props = reviveSlotProps(parsed as Record<string, unknown>) as Partial<TInput>;
+          }
         }
       }
 
@@ -3202,7 +3314,9 @@ class IlhaBuilder<
             const rawProps = slotEl.getAttribute(PROPS_ATTR) ?? slotEl.getAttribute("data-props");
             if (rawProps) {
               const parsed = safeParseSnapshot(rawProps, `props on [${SLOT_ATTR}="${id}"]`);
-              if (parsed !== undefined) slotProps = parsed as Record<string, unknown>;
+              if (parsed !== undefined) {
+                slotProps = reviveSlotProps(parsed as Record<string, unknown>);
+              }
             }
           }
 
@@ -3538,6 +3652,12 @@ class IlhaBuilder<
             [...newSlotMap.keys()].every((id) => mountedSlots.has(id)) &&
             isStableInlineSlotMount(initialRenderedHtml, rendered, newSlotMap.keys())
           ) {
+            // Slot set is stable, but live props (functions, children RawHtml)
+            // are not reflected in the stub markup — still push them.
+            for (const [id, entry] of mountedSlots) {
+              const next = newSlotMap.get(id);
+              if (next) entry.updateProps(next.props);
+            }
             return;
           }
           // Divergence: a state write between the eager initial render and
@@ -4038,7 +4158,7 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
     const rawProps = host.getAttribute(PROPS_ATTR);
     if (rawProps) {
       const parsed = safeParseSnapshot(rawProps, `${PROPS_ATTR} on [data-ilha="${name}"]`);
-      if (parsed !== undefined) props = parsed as Record<string, unknown>;
+      if (parsed !== undefined) props = reviveSlotProps(parsed as Record<string, unknown>);
     }
 
     unmounts.push(island.mount(host, props));
