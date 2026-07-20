@@ -63,7 +63,7 @@
     },
     "packages/store": {
       "name": "@ilha/store",
-      "version": "0.7.5",
+      "version": "0.7.6",
       "devDependencies": {
         "@ilha/router": "0.8.8",
         "alien-signals": "3.2.1",

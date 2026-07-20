@@ -8,7 +8,15 @@ import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { z } from "zod";
 
 import { store } from "./index";
-import { persistQuery, type NavigateFn } from "./query";
+import {
+  persistQuery,
+  codec,
+  readQuery,
+  querySpec,
+  withQuery,
+  storeHref,
+  type NavigateFn,
+} from "./query";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -156,6 +164,48 @@ describe("persistQuery()", () => {
     stop();
   });
 
+  it("per-key debounce: q waits, f writes immediately", async () => {
+    const s = store({ q: "", f: [] as { column: string }[] }).build();
+    const navigate = makeNavigate();
+    const stop = persistQuery(s, {
+      navigate,
+      debounce: { q: 40, f: 0 },
+      params: {
+        q: codec.string(),
+        f: codec.json(),
+      },
+    });
+
+    s.setState({ q: "boots" });
+    expect(navigate).toHaveBeenCalledTimes(0);
+    s.setState({ f: [{ column: "x" }] });
+    // f has debounce 0 → immediate write includes pending q
+    expect(navigate).toHaveBeenCalledTimes(1);
+    const sp = new URL(navigate.mock.calls[0]![0], location.origin).searchParams;
+    expect(sp.get("q")).toBe("boots");
+    expect(sp.get("f")).toBe(JSON.stringify([{ column: "x" }]));
+    stop();
+  });
+
+  it("per-key history map: f pushes, q replaces", () => {
+    const s = store({ q: "", f: [] as string[] }).build();
+    const navigate = makeNavigate();
+    const stop = persistQuery(s, {
+      navigate,
+      history: { q: "replace", f: "push" },
+      params: {
+        q: codec.string(),
+        f: codec.json(),
+      },
+    });
+
+    s.setState({ q: "a" });
+    expect(navigate.mock.calls[0]![1]?.replace).toBe(true);
+    s.setState({ f: [1] as unknown as string[] });
+    expect(navigate.mock.calls[1]![1]?.replace).toBe(false);
+    stop();
+  });
+
   it("two stores persisting different keys don't clobber each other", () => {
     const a = store({ q: "" }).build();
     const b = store({ page: "1" }).build();
@@ -197,6 +247,73 @@ describe("persistQuery()", () => {
     const sp = new URL(location.href).searchParams;
     expect(sp.get("tags")).toBe("x");
     expect(sp.get("internal")).toBeNull();
+    stop();
+  });
+
+  it("built-in codec.json round-trips arrays through URL", () => {
+    type F = { column: string; op: string; value: string };
+    history.replaceState(
+      null,
+      "",
+      "/list?f=" + encodeURIComponent(JSON.stringify([{ column: "name", op: "eq", value: "a" }])),
+    );
+    const s = store({ f: [] as F[] }).build();
+    const navigate = makeNavigate();
+    const stop = persistQuery(s, {
+      navigate,
+      params: { f: codec.json<F[]>() },
+    });
+    expect(s.getState().f).toEqual([{ column: "name", op: "eq", value: "a" }]);
+    s.setState({ f: [{ column: "age", op: "gt", value: "10" }] });
+    expect(JSON.parse(new URL(location.href).searchParams.get("f")!)).toEqual([
+      { column: "age", op: "gt", value: "10" },
+    ]);
+    stop();
+  });
+
+  it("built-in codec.stringArray escapes commas", () => {
+    const s = store({ tags: [] as string[] }).build();
+    const navigate = makeNavigate();
+    const stop = persistQuery(s, {
+      navigate,
+      params: { tags: codec.stringArray() },
+    });
+    s.setState({ tags: ["a,b", "c"] });
+    const raw = new URL(location.href).searchParams.get("tags")!;
+    expect(raw).toContain(encodeURIComponent("a,b"));
+    // re-hydrate
+    history.replaceState(null, "", "/list?tags=" + encodeURIComponent(raw));
+    // URLSearchParams may decode once — seed a fresh store
+    const s2 = store({ tags: [] as string[] }).build();
+    const stop2 = persistQuery(s2, {
+      navigate: makeNavigate(),
+      params: { tags: codec.stringArray() },
+    });
+    expect(s2.getState().tags).toEqual(["a,b", "c"]);
+    stop();
+    stop2();
+  });
+
+  it("applyFromUrl accepts schema-cloned arrays via serialize equality", () => {
+    history.replaceState(null, "", "/list?tags=" + encodeURIComponent("a,b"));
+    const s = store(
+      z.object({
+        tags: z.array(z.string()).default([]),
+      }),
+    )
+      .onError(() => {})
+      .build();
+    const navigate = makeNavigate();
+    const stop = persistQuery(s, {
+      navigate,
+      params: {
+        tags: {
+          serialize: (t) => t.join(","),
+          deserialize: (raw) => (raw === "" ? [] : raw.split(",")),
+        },
+      },
+    });
+    expect(s.getState().tags).toEqual(["a", "b"]);
     stop();
   });
 
@@ -248,5 +365,90 @@ describe("persistQuery()", () => {
     } finally {
       g.window = win;
     }
+  });
+});
+
+describe("readQuery / querySpec", () => {
+  it("readQuery parses with the same codecs as persistQuery (isomorphic)", () => {
+    const initial = { q: "", page: 1, f: [] as { id: number }[] };
+    const opts = {
+      params: {
+        f: codec.json<{ id: number }[]>(),
+        page: codec.int({ min: 1, default: 1 }),
+      },
+    };
+    const url = new URL(
+      "http://x/list?q=hi&page=3&f=" + encodeURIComponent(JSON.stringify([{ id: 1 }])),
+    );
+    const parsed = readQuery(initial, url, opts);
+    expect(parsed).toEqual({ q: "hi", page: 3, f: [{ id: 1 }] });
+
+    // missing → defaults
+    expect(readQuery(initial, new URL("http://x/list"), opts)).toEqual(initial);
+  });
+
+  it("querySpec shares parse + persist options", () => {
+    const spec = querySpec(
+      { q: "", page: 1 as number, tags: [] as string[] },
+      {
+        params: {
+          page: codec.int({ min: 1, default: 1 }),
+          tags: codec.stringArray(),
+        },
+        debounce: { q: 250 },
+        history: { page: "push" },
+      },
+    );
+
+    const parsed = spec.parse("?q=x&page=2&tags=a,b");
+    expect(parsed.q).toBe("x");
+    expect(parsed.page).toBe(2);
+    expect(parsed.tags).toEqual(["a", "b"]);
+
+    expect(spec.persistOptions.debounce).toEqual({ q: 250 });
+
+    history.replaceState(null, "", "/list?q=from-url");
+    const s = store(spec.defaults).build();
+    const navigate = makeNavigate();
+    const stop = spec.persist(s, { navigate });
+    expect(s.getState().q).toBe("from-url");
+    stop();
+  });
+
+  it("withQuery merges without dropping foreign keys", () => {
+    expect(withQuery("/list?q=boots&tab=all", { page: 2 })).toBe("/list?q=boots&tab=all&page=2");
+    expect(withQuery("/list?page=1", { page: null })).toBe("/list");
+  });
+
+  it("storeHref serializes owned keys and preserves foreign params", () => {
+    history.replaceState(null, "", "/list?tab=all&q=old");
+    const s = store({ q: "old", page: 1 }).build();
+    s.setState({ q: "new", page: 3 });
+    const href = storeHref(s, { page: 4 }, {});
+    const u = new URL(href, location.origin);
+    expect(u.searchParams.get("tab")).toBe("all");
+    expect(u.searchParams.get("q")).toBe("new");
+    expect(u.searchParams.get("page")).toBe("4");
+  });
+});
+
+describe("codec", () => {
+  it("int / bool / enum / isoDate", () => {
+    expect(codec.int({ min: 1 }).deserialize!("3")).toBe(3);
+    expect(codec.int({ min: 1, default: 1 }).deserialize!("0")).toBe(1);
+    expect(codec.bool().serialize!(true)).toBe("1");
+    expect(codec.bool().deserialize!("yes")).toBe(true);
+    expect(codec.enum(["asc", "desc"] as const).deserialize!("desc")).toBe("desc");
+    const d = new Date("2020-01-01T00:00:00.000Z");
+    expect(codec.isoDate().deserialize!(codec.isoDate().serialize!(d)!).toISOString()).toBe(
+      d.toISOString(),
+    );
+  });
+
+  it("jsonb round-trips", () => {
+    const c = codec.jsonb<{ a: number }>();
+    const raw = c.serialize!({ a: 1 })!;
+    expect(raw).not.toContain("+");
+    expect(c.deserialize!(raw)).toEqual({ a: 1 });
   });
 });

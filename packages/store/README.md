@@ -390,34 +390,96 @@ persist(cartStore, "cart");
 
 Call the returned unsubscribe before `store.dispose()` for per-island stores.
 
-## URL persistence — `persistQuery(store, options?)`
+## URL persistence — `persistQuery` / `querySpec` / `codec`
 
 `persist`'s sibling for the query string ([nuqs](https://nuqs.dev)-style), from the `@ilha/store/query` entry point. Each state key maps to **its own search param** (`?q=boots&page=2`) — shareable, reload-safe, back/forward-friendly. Writes go through `@ilha/router`'s `navigate()` (auto-detected, or injected via `options.navigate`) so loaders re-run; the URL seeds the store on init (schema-coerced/validated, invalid params degrade to defaults); back/forward syncs back into the store without echo loops. With `omitDefaults` (default), default-valued params are dropped from the URL.
+
+### First-paint read path (loader vs store)
+
+`persistQuery` only seeds the store when it is called (typically island `onMount`). Island mount order is roughly: first render (store still at defaults) → `onMount` → `persistQuery` → applyFromUrl. Anything that must match the URL on **first paint** (filter chips, active pills, "N filters") should read the **loader snapshot**, not the store.
+
+| Concern                                   | Read from                                                 |
+| ----------------------------------------- | --------------------------------------------------------- |
+| Data (where, list)                        | loader / `url.searchParams`                               |
+| Bound controls (`bind:value`)             | store (after `persistQuery`)                              |
+| Chrome that must match URL on first paint | loader via `readQuery` / `querySpec.parse`, not the store |
+
+### Shared definition — `querySpec` + stock `codec`s
+
+Define codecs **once**; reuse in the loader and on the client:
 
 ```ts
 import { z } from "zod";
 import { store } from "@ilha/store";
-import { persistQuery } from "@ilha/store/query";
+import { codec, querySpec } from "@ilha/store/query";
 
-const filters = store(
+const FilterSchema = z.object({
+  column: z.string(),
+  op: z.string(),
+  value: z.string(),
+});
+
+const spec = querySpec(
+  { q: "", page: 1, f: [] as z.infer<typeof FilterSchema>[] },
+  {
+    params: {
+      page: codec.int({ min: 1, default: 1 }),
+      f: codec.json(),
+    },
+    debounce: { q: 250, f: 0 }, // per-key
+    history: { q: "replace", f: "push", page: "push" },
+  },
+);
+
+export const filters = store(
   z.object({
     q: z.string().default(""),
     page: z.coerce.number().int().min(1).default(1),
+    f: z.array(FilterSchema).default([]),
   }),
 ).build();
 
-persistQuery(filters, { debounce: 250 });
+// loader (server or client) — isomorphic, no window
+export const clientLoad = loader(({ url }) => {
+  const { q, page, f } = spec.parse(url);
+  return { q, page, f, rows: api.list({ q, page, f }) };
+});
+
+// island
+export default ilha
+  .onMount(() => spec.persist(filters)) // return unsub as cleanup
+  .render(({ input }) => /* chips from input.f; bind:value={filters.q} */);
 ```
 
-| Option         | Default        | Description                                                                                             |
-| -------------- | -------------- | ------------------------------------------------------------------------------------------------------- |
-| `params`       | all state keys | Keys to persist: `{ q: "search" }` renames, `{ tags: { serialize, deserialize } }` adds a codec         |
-| `history`      | `"replace"`    | `"replace"`, `"push"`, or `(changedKeys) => "push" \| "replace"`                                        |
-| `debounce`     | `0`            | Coalesce URL writes (ms); a push flushes a pending debounced replace first                              |
-| `omitDefaults` | `true`         | Drop params whose value equals the store default                                                        |
-| `navigate`     | auto-detect    | Injected URL writer; without `@ilha/router` installed, falls back to the History API with a dev warning |
+Built-in codecs: `codec.string`, `codec.int`, `codec.number`, `codec.bool`, `codec.stringArray`, `codec.json`, `codec.jsonb`, `codec.isoDate`, `codec.enum`. Prefer these over `String(array)` (`String([]) === ""`, `String([{…}]) === "[object Object]"`). Object/array keys without a codec get a **dev warning** and fall back to `JSON.stringify`.
 
-Returns an unsubscribe (flushes any pending debounced write). No-op on the server — loaders reading `ctx.url.searchParams` remain the way to consume query state there. See the [store guide](https://ilhajs.dev/guide/libraries/store) for the full filter-bar walkthrough.
+### Options
+
+| Option         | Default        | Description                                                                                          |
+| -------------- | -------------- | ---------------------------------------------------------------------------------------------------- |
+| `params`       | all state keys | Keys to persist: `{ q: "search" }` renames, `{ tags: codec.stringArray() }` adds a codec             |
+| `history`      | `"replace"`    | `"replace"`, `"push"`, per-key map `{ f: "push" }`, or `(changedKeys) => mode`                       |
+| `debounce`     | `0`            | Number **or** per-key map `{ q: 250, f: 0 }`; a push flushes a pending debounced replace first       |
+| `omitDefaults` | `true`         | Drop params whose value equals the store default                                                     |
+| `navigate`     | auto-detect    | Injected URL writer; without `@ilha/router`, History API fallback (dev warning). Early writes queue. |
+
+### Lifecycle
+
+Call from island `onMount` and return the unsubscribe as cleanup — do **not** call at module scope (SSR no-op / multi-tab weirdness) or leave dangling subscribers on remount (dev warns on double-subscribe). Singleton stores shared across routes should `reset()` on route param change or be keyed by route so stale `f` does not survive navigation.
+
+### Merge helpers — don't rebuild the query string from scratch
+
+`persistQuery` preserves foreign params; app code that builds `URLSearchParams` from only `page`/`sort` will drop `q`/`f`. Use:
+
+```ts
+import { withQuery, storeHref } from "@ilha/store/query";
+
+withQuery("/list?q=boots&tab=all", { page: 2 }); // → keeps q + tab
+storeHref(filters, { page: 2 }, spec.persistOptions);
+spec.href({ page: 2 }); // owned keys from defaults + patch
+```
+
+Returns an unsubscribe (flushes any pending debounced write). No-op on the server — loaders should use `spec.parse(url)` / `readQuery(store, url)`. See the [store guide](https://ilhajs.dev/guide/libraries/store) for the full filter-bar walkthrough.
 
 ## SSR — `dehydrate()` / `hydrate()`
 
