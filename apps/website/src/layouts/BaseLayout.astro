@@ -1,10 +1,7 @@
 ---
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
-import "@shikijs/twoslash/style-rich.css";
 import "../styles/globals.css";
-import "../styles/prose.css";
-import "../styles/twoslash.css";
 import { config } from "virtual:nimbus/config";
 import { getCollectionLlmsUrl, getVersionStatus } from "@cloudflare/nimbus-docs";
 import AgentDirective from "@/components/AgentDirective.astro";
@@ -12,7 +9,10 @@ import { SearchDialog } from "@/components/ui/search";
 import NimbusHead from "@cloudflare/nimbus-docs/components/NimbusHead.astro";
 import type { BasePageProps } from "@cloudflare/nimbus-docs/types";
 
-type Props = BasePageProps;
+type Props = BasePageProps & {
+  /** When true, skip docs chrome scripts (copy anchors) used only on MDX pages. */
+  docsChrome?: boolean;
+};
 
 const {
   title,
@@ -24,6 +24,7 @@ const {
   head: pageHead = [],
   collection,
   entryId,
+  docsChrome = false,
 } = Astro.props;
 
 const lang = config.locale ?? "en";
@@ -116,10 +117,14 @@ const llmsUrl = Astro.site
     <slot />
     {config.search !== false && <SearchDialog />}
 
-    <script>
-      import { codeCopy, headingAnchors } from "@cloudflare/nimbus-docs/client";
-      codeCopy();
-      headingAnchors();
-    </script>
+    {
+      docsChrome && (
+        <script>
+          import { codeCopy, headingAnchors } from "@cloudflare/nimbus-docs/client";
+          codeCopy();
+          headingAnchors();
+        </script>
+      )
+    }
   </body>
 </html>

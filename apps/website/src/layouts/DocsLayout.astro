@@ -17,6 +17,9 @@ import { PageActions } from "@/components/ui/page-actions";
 import { Badge } from "@/components/ui/badge";
 import type { DocsPageProps } from "@cloudflare/nimbus-docs/types";
 import { getVersionStatus, getVersionAlternates } from "@cloudflare/nimbus-docs";
+import "@shikijs/twoslash/style-rich.css";
+import "../styles/prose.css";
+import "../styles/twoslash.css";
 
 type Props = DocsPageProps & { audience?: "human" };
 
@@ -74,7 +77,7 @@ const hasContentFooter = Astro.slots.has("content-footer");
 const hasPagination = Astro.slots.has("pagination");
 ---
 
-<BaseLayout title={title} description={description} noindex={noindex || draft} markdownUrl={markdownUrl} socialImage={socialImage} lastUpdated={lastUpdated} head={head} collection={collection} entryId={entryId}>
+<BaseLayout title={title} description={description} noindex={noindex || draft} markdownUrl={markdownUrl} socialImage={socialImage} lastUpdated={lastUpdated} head={head} collection={collection} entryId={entryId} docsChrome>
   <div class="flex flex-col min-h-screen">
     {hasHeader ? <slot name="header" /> : <Header collection={collection} entryId={entryId} showSidebar={showSidebar} />}
 

@@ -36,7 +36,7 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
 <BaseLayout title={config.title} description={META_DESCRIPTION}>
   <div class="landing-page bg-background text-foreground flex min-h-screen flex-col">
     <Header showSidebar={false} />
-    <Toaster client:load />
+    <Toaster client:idle />
 
     <main id="main-content" class="flex-1">
       <section class="landing-hero border-border border-b">
@@ -73,7 +73,7 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
               </div>
               <div class="landing-install">
                 <ClipboardText
-                  client:load
+                  client:idle
                   text="npx giget@latest gh:ilhajs/ilha/templates/vite my-app"
                   tooltip
                   class="w-full min-w-0 text-left"
@@ -205,7 +205,7 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
             </div>
             <div class="min-w-0">
               <UsefulExtrasSnippets
-                client:load
+                client:visible
                 routingHtml={routingHtml}
                 storeHtml={storeHtml}
                 astroHtml={astroHtml}
@@ -226,7 +226,7 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
             </p>
           </div>
           <div class="landing-panel">
-            <ProjectCreatorForm client:load />
+            <ProjectCreatorForm client:visible />
           </div>
         </div>
       </section>
