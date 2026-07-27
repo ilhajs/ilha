@@ -1,0 +1,267 @@
+---
+import { Code as AstroCode } from "astro:components";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Header from "../components/Header.astro";
+import Preview from "../components/Preview.astro";
+import HeroTechCards from "../components/landing/HeroTechCards.astro";
+import { ProjectCreatorForm, UsefulExtrasSnippets } from "../components/landing/LandingIslands";
+import { LinkButton } from "../components/ui/link-button";
+import {
+  ILHA_ASTRO_CODE,
+  ILHA_ROUTER_CODE,
+  ILHA_STORE_CODE,
+  META_DESCRIPTION,
+  PREVIEW_CODE,
+  PRIMARY_ILHA_CARDS,
+  URLS,
+  USEFUL_EXTRAS_CARD,
+} from "../lib/landing-const";
+import { highlightLandingCode } from "../lib/landing-highlight";
+import { playgroundUrl } from "../lib/playground";
+import { ClipboardText } from "areia";
+import { Toaster } from "areia/sonner";
+import { config } from "virtual:nimbus/config";
+import "../styles/landing.css";
+
+const NITRO_SANDBOX = `${URLS.SANDBOX.replace("{template}", "nitro")}?file=src%2Fpages%2Findex.tsx`;
+const PLAYGROUND_URL = playgroundUrl(PREVIEW_CODE);
+
+const [routingHtml, storeHtml, astroHtml] = await Promise.all([
+  highlightLandingCode(ILHA_ROUTER_CODE, "ts"),
+  highlightLandingCode(ILHA_STORE_CODE, "ts"),
+  highlightLandingCode(ILHA_ASTRO_CODE, "ts"),
+]);
+---
+
+<BaseLayout title={config.title} description={META_DESCRIPTION}>
+  <div class="landing-page bg-background text-foreground flex min-h-screen flex-col">
+    <Header showSidebar={false} />
+    <Toaster client:load />
+
+    <main class="flex-1">
+      <section class="landing-hero border-border border-b">
+        <div
+          class="landing-shell grid min-w-0 gap-10 py-16 sm:gap-14 sm:py-24 lg:gap-16 lg:py-32"
+        >
+          <div class="landing-hero-copy landing-copy min-w-0 gap-6 sm:gap-7">
+            <div class="grid w-full min-w-0 justify-items-center gap-4 sm:gap-5">
+              <h1 class="landing-display">The most versatile web UI library.</h1>
+              <p class="landing-lede">
+                Islands that render to plain HTML on the server and hydrate on the client —
+                with a core under 2,500 lines.
+              </p>
+            </div>
+            <div class="grid w-full min-w-0 max-w-xl justify-items-stretch gap-3.5 sm:justify-items-center">
+              <div class="flex w-full min-w-0 flex-col items-stretch gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-3">
+                <LinkButton
+                  href="/guide/getting-started/introduction"
+                  variant="primary"
+                  icon
+                  class="w-full justify-center sm:w-auto sm:flex-none"
+                >
+                  Get Started
+                </LinkButton>
+                <LinkButton
+                  href={NITRO_SANDBOX}
+                  variant="secondary"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="w-full justify-center sm:w-auto sm:flex-none"
+                >
+                  Open Sandbox
+                </LinkButton>
+              </div>
+              <div class="landing-install">
+                <ClipboardText
+                  client:load
+                  text="npx giget@latest gh:ilhajs/ilha/templates/vite my-app"
+                  tooltip
+                  class="w-full min-w-0 text-left"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="landing-hero-visual w-full min-w-0 max-w-full">
+            <div class="landing-preview-frame">
+              <div class="landing-preview-chrome">
+                <span class="landing-preview-dot" aria-hidden="true"></span>
+                <span class="landing-preview-dot" aria-hidden="true"></span>
+                <span class="landing-preview-dot" aria-hidden="true"></span>
+                <a
+                  href={PLAYGROUND_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="landing-preview-label"
+                >
+                  playground.ilha.build
+                </a>
+              </div>
+              <div class="landing-preview-body">
+                <Preview code={PREVIEW_CODE} size="lg" mobilePreview />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="border-border border-b">
+        <div class="landing-shell py-8 sm:py-10">
+          <p class="landing-proof m-0 justify-self-center">
+            <span>Under 2,500 lines</span>
+            <span>TypeScript-first</span>
+            <span>No virtual DOM</span>
+          </p>
+        </div>
+      </section>
+
+      <section class="border-border border-b">
+        <div class="landing-shell grid gap-10 py-16 sm:gap-12 sm:py-20 lg:py-24">
+          <div class="landing-copy">
+            <p class="landing-eyebrow">Why Ilha</p>
+            <h2 class="landing-section-title">Most pages don’t need a framework runtime.</h2>
+            <p class="landing-lede">
+              Ilha keeps the document as HTML, then mounts tiny islands where interaction earns
+              the JavaScript — so first paint stays fast and the core stays readable.
+            </p>
+          </div>
+          <HeroTechCards />
+        </div>
+      </section>
+
+      {
+        PRIMARY_ILHA_CARDS.map((tab, index) => {
+          const reverse = index % 2 === 1;
+          return (
+            <section class="border-border border-b">
+              <div class="landing-shell py-16 sm:py-20 lg:py-24">
+                <div
+                  class:list={[
+                    "grid items-center gap-10 lg:grid-cols-2 lg:gap-14 xl:gap-16",
+                    reverse && "lg:[&>*:first-child]:order-2",
+                  ]}
+                >
+                  <div class="grid gap-5">
+                    <p class="landing-eyebrow">{tab.label}</p>
+                    <h2 class="landing-section-title">{tab.title}</h2>
+                    <p class="landing-lede">{tab.description}</p>
+                    <ul class="text-muted-foreground m-0 grid gap-2.5 text-sm sm:text-[0.9375rem]">
+                      {tab.points.map((point) => (
+                        <li class="flex items-center gap-2.5">
+                          <span class="bg-foreground/55 size-1 shrink-0 rounded-full" />
+                          <span>{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div class="landing-code min-w-0">
+                    <div class="landing-code-chrome">
+                      <span>{tab.file}</span>
+                      <span>tsx</span>
+                    </div>
+                    <AstroCode
+                      code={tab.code}
+                      lang="tsx"
+                      themes={{ light: "github-light", dark: "github-dark" }}
+                      defaultColor={false}
+                      class="!my-0 text-xs leading-relaxed"
+                    />
+                  </div>
+                </div>
+              </div>
+            </section>
+          );
+        })
+      }
+
+      <section class="border-border border-b">
+        <div class="landing-shell py-16 sm:py-20 lg:py-24">
+          <div class="grid items-center gap-10 lg:grid-cols-2 lg:gap-14 xl:gap-16 lg:[&>*:first-child]:order-2">
+            <div class="grid gap-5">
+              <p class="landing-eyebrow">{USEFUL_EXTRAS_CARD.label}</p>
+              <h2 class="landing-section-title">{USEFUL_EXTRAS_CARD.title}</h2>
+              <p class="landing-lede">{USEFUL_EXTRAS_CARD.description}</p>
+              <ul class="text-muted-foreground m-0 grid gap-2.5 text-sm sm:text-[0.9375rem]">
+                {
+                  USEFUL_EXTRAS_CARD.points.map((point) => (
+                    <li class="flex items-center gap-2.5">
+                      <span class="bg-foreground/55 size-1 shrink-0 rounded-full" />
+                      <span>{point}</span>
+                    </li>
+                  ))
+                }
+              </ul>
+            </div>
+            <div class="min-w-0">
+              <UsefulExtrasSnippets
+                client:load
+                routingHtml={routingHtml}
+                storeHtml={storeHtml}
+                astroHtml={astroHtml}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="border-border border-b">
+        <div class="landing-shell grid gap-8 py-16 sm:gap-10 sm:py-20 lg:py-24">
+          <div class="grid max-w-2xl gap-4">
+            <p class="landing-eyebrow">Start</p>
+            <h2 class="landing-section-title">From zero to a running island in one command.</h2>
+            <p class="landing-lede">
+              Pick a template, optional project name, and copy the giget command — or open a
+              StackBlitz sandbox and poke at it live.
+            </p>
+          </div>
+          <div class="landing-panel">
+            <ProjectCreatorForm client:load />
+          </div>
+        </div>
+      </section>
+
+      <section class="landing-close">
+        <div
+          class="landing-shell flex flex-col items-start justify-between gap-8 py-20 sm:flex-row sm:items-center sm:py-24 lg:py-28"
+        >
+          <div class="grid max-w-xl gap-4">
+            <p class="landing-eyebrow">Next</p>
+            <h2 class="landing-section-title">Read the guide. Ship an island today.</h2>
+            <p class="landing-lede">
+              Learn the island API, then walk through interactive counter tutorials.
+            </p>
+          </div>
+          <div class="flex w-full shrink-0 flex-col gap-2.5 sm:w-auto sm:flex-row sm:gap-3">
+            <LinkButton
+              href="/guide/getting-started/introduction"
+              variant="primary"
+              icon
+              class="w-full sm:w-auto"
+            >
+              Read the guide
+            </LinkButton>
+            <LinkButton href="/tutorial/counter/state" variant="secondary" class="w-full sm:w-auto">
+              Try the tutorial
+            </LinkButton>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer
+      class="border-border text-muted-foreground mt-auto border-t px-5 py-8 text-center text-sm leading-relaxed sm:px-6 sm:py-10"
+    >
+      Made with{" "}
+      <a href="https://ilha.build" class="text-foreground hover:underline">Ilha</a>
+      , in Europe ·
+      <a
+        href={URLS.GITHUB}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-foreground hover:underline"
+      >
+        GitHub
+      </a>
+    </footer>
+  </div>
+</BaseLayout>

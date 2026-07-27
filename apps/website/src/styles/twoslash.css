@@ -1,0 +1,92 @@
+/* Twoslash popovers over Nimbus dual-theme code blocks. */
+
+/*
+ * Clip chain (both must be visible or absolute popups stay trapped):
+ *   .nb-code-figure { overflow: hidden }
+ *   pre.astro-code { overflow-x: auto } → also forces overflow-y to auto
+ * Twoslash class lands on the figure; popups live under pre > code > .line.
+ */
+.nb-code-figure.twoslash,
+.nb-code-figure.twoslash > pre.astro-code {
+  overflow: visible !important;
+}
+
+/* Lift the whole hovered line above later lines (same stacking context). */
+.nb-code-figure.twoslash pre.astro-code .line:has(.twoslash-hover:hover),
+.nb-code-figure.twoslash pre.astro-code .line:has(.twoslash-hover:focus-within),
+.nb-code-figure.twoslash pre.astro-code .line:has(.twoslash-query-persisted) {
+  position: relative;
+  z-index: 70;
+}
+
+.nb-code-figure.twoslash .twoslash-hover {
+  position: relative;
+}
+
+/*
+ * Desktop: flip above the token (style-rich defaults to translateY under it).
+ * Cap size + wrap so long IlhaBuilder generics do not grow the page.
+ */
+.nb-code-figure.twoslash .twoslash-popup-container {
+  z-index: 70;
+  left: 0;
+  right: auto;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(28rem, calc(100vw - 2rem));
+  max-height: min(40vh, 18rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  transform: translateY(calc(-100% - 0.45em));
+}
+
+.nb-code-figure.twoslash .twoslash-popup-code,
+.nb-code-figure.twoslash .twoslash-popup-docs,
+.nb-code-figure.twoslash .twoslash-popup-error {
+  max-width: 100%;
+}
+
+.nb-code-figure.twoslash .twoslash-popup-code,
+.nb-code-figure.twoslash .twoslash-popup-code pre,
+.nb-code-figure.twoslash .twoslash-popup-code code {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.nb-code-figure.twoslash .twoslash-popup-arrow {
+  top: auto;
+  bottom: -4px;
+  transform: rotate(135deg);
+}
+
+/*
+ * Narrow viewports: dock as a bottom sheet so left-edge-of-token positioning
+ * cannot push past the screen (absolute + max-width still overflows when the
+ * hover target sits near the right edge).
+ */
+@media (max-width: 40rem) {
+  .nb-code-figure.twoslash .twoslash-popup-container {
+    position: fixed;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    top: auto;
+    width: auto;
+    max-width: none;
+    max-height: min(45vh, 16rem);
+    transform: none;
+  }
+
+  .nb-code-figure.twoslash .twoslash-popup-arrow {
+    display: none;
+  }
+}
+
+[data-mode="dark"] .twoslash-popup-container {
+  --twoslash-popup-bg: var(--nb-card, var(--nb-background));
+  --twoslash-popup-color: var(--nb-foreground);
+  --twoslash-border-color: var(--nb-border);
+}
