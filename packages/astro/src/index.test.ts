@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import ilha, { html } from "ilha";
+import ilha, { __ilhaJsxSlot, html } from "ilha";
 
 import hydrate from "./client";
 import ilhaIntegration, { getRenderer } from "./index";
@@ -78,6 +78,43 @@ describe("@ilha/astro server renderer", () => {
     expect(markup).toBe('<div class="card"><p>hi</p></div>');
   });
 
+  it("renderToStaticMarkup() keeps island markup hydratable when nested in a plain function", async () => {
+    // Astro slot children: Counter was SSR'd as its own hydratable island, then
+    // interpolated into Panel. Panel stays unwrapped (no nested data-ilha-slot).
+    const Panel = ({ children }: { children?: unknown }) =>
+      html`<section class="panel">${children}</section>`;
+    const { html: islandMarkup } = await renderer.renderToStaticMarkup(
+      Counter,
+      { label: "Clicks" },
+      {},
+      { displayName: "Counter" } as never,
+    );
+    const { html: markup } = await renderer.renderToStaticMarkup(
+      Panel,
+      {},
+      { default: islandMarkup },
+      { displayName: "Panel" } as never,
+    );
+    expect(markup).toContain('class="panel"');
+    expect(markup).toContain('data-ilha="Counter"');
+    expect(markup).toContain("data-ilha-state=");
+    expect(markup).toContain("Clicks:0");
+    expect(markup).not.toContain('data-ilha="Panel"');
+  });
+
+  it("renderToStaticMarkup() wraps plain components that JSX-nest islands", async () => {
+    // Mirrors Areia docs: plain KitchenSinkGrid returning <Dialog /> via JSX.
+    // `__ilhaJsxSlot` is what the JSX runtime emits for nested islands.
+    const Panel = () =>
+      html`<section class="panel">${__ilhaJsxSlot(Counter, { label: "Clicks" })}</section>`;
+    const { html: markup } = await renderer.renderToStaticMarkup(Panel, {}, {}, {
+      displayName: "Panel",
+    } as never);
+    expect(markup).toContain('data-ilha="Panel"');
+    expect(markup).toContain("data-ilha-slot=");
+    expect(markup).toContain("Clicks:0");
+  });
+
   it("renderToStaticMarkup() throws a helpful error for components it cannot render", async () => {
     await expect(
       renderer.renderToStaticMarkup(() => undefined, {}, {}, { displayName: "Mystery" } as never),
@@ -98,6 +135,64 @@ describe("@ilha/astro client hydration", () => {
     await hydrate(el)(Counter, {}, {}, { client: "load" });
 
     const button = el.querySelector("button")!;
+    button.click();
+    expect(button.textContent).toBe("Clicks:1");
+
+    el.dispatchEvent(new Event("astro:unmount"));
+    el.remove();
+  });
+
+  it("hydrates an island nested inside a plain function component's markup", async () => {
+    // Separate Astro islands: hydrate Counter itself (Panel is just surrounding HTML).
+    const Panel = ({ children }: { children?: unknown }) =>
+      html`<section class="panel">${children}</section>`;
+    const { html: islandMarkup } = await renderer.renderToStaticMarkup(
+      Counter,
+      { label: "Clicks" },
+      {},
+      { displayName: "Counter" } as never,
+    );
+    const { html: markup } = await renderer.renderToStaticMarkup(
+      Panel,
+      {},
+      { default: islandMarkup },
+      { displayName: "Panel" } as never,
+    );
+
+    const el = document.createElement("div");
+    el.setAttribute("ssr", "");
+    el.innerHTML = markup;
+    document.body.appendChild(el);
+
+    await hydrate(el)(Counter, {}, {}, { client: "load" });
+
+    expect(el.querySelector(".panel")).not.toBeNull();
+    const button = el.querySelector("button")!;
+    expect(button.textContent).toBe("Clicks:0");
+    button.click();
+    expect(button.textContent).toBe("Clicks:1");
+
+    el.dispatchEvent(new Event("astro:unmount"));
+    el.remove();
+  });
+
+  it("hydrates islands JSX-nested inside a plain function when the plain component is the Astro island", async () => {
+    const Panel = () =>
+      html`<section class="panel">${__ilhaJsxSlot(Counter, { label: "Clicks" })}</section>`;
+    const { html: markup } = await renderer.renderToStaticMarkup(Panel, {}, {}, {
+      displayName: "Panel",
+    } as never);
+
+    const el = document.createElement("div");
+    el.setAttribute("ssr", "");
+    el.innerHTML = markup;
+    document.body.appendChild(el);
+
+    // Astro hydrates Panel (plain), not Counter — nested island must still mount.
+    await hydrate(el)(Panel, {}, {}, { client: "load" });
+
+    const button = el.querySelector("button")!;
+    expect(button.textContent).toBe("Clicks:0");
     button.click();
     expect(button.textContent).toBe("Clicks:1");
 
