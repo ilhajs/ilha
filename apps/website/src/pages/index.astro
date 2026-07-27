@@ -38,7 +38,7 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
     <Header showSidebar={false} />
     <Toaster client:load />
 
-    <main class="flex-1">
+    <main id="main-content" class="flex-1">
       <section class="landing-hero border-border border-b">
         <div
           class="landing-shell grid min-w-0 gap-10 py-16 sm:gap-14 sm:py-24 lg:gap-16 lg:py-32"
@@ -97,8 +97,19 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
                   playground.ilha.build
                 </a>
               </div>
-              <div class="landing-preview-body">
-                <Preview code={PREVIEW_CODE} size="lg" mobilePreview />
+              <div class="landing-preview-split">
+                <div class="landing-preview-code">
+                  <AstroCode
+                    code={PREVIEW_CODE}
+                    lang="tsx"
+                    themes={{ light: "github-light", dark: "github-dark" }}
+                    defaultColor={false}
+                    class="!my-0 text-xs leading-relaxed sm:text-[0.8125rem]"
+                  />
+                </div>
+                <div class="landing-preview-run">
+                  <Preview code={PREVIEW_CODE} size="lg" mobilePreview activate="click" />
+                </div>
               </div>
             </div>
           </div>

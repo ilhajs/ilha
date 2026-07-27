@@ -245,33 +245,70 @@ a.landing-preview-label:hover {
   text-underline-offset: 0.15em;
 }
 
-.landing-preview-body {
+.landing-preview-split {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (min-width: 1024px) {
+  .landing-preview-split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.landing-preview-code {
+  min-width: 0;
+  max-width: 100%;
+  max-height: 22rem;
+  overflow: auto;
+  border-bottom: 1px solid var(--nb-border);
+  background: var(--nb-background);
+}
+
+@media (min-width: 1024px) {
+  .landing-preview-code {
+    max-height: none;
+    border-bottom: 0;
+    border-right: 1px solid var(--nb-border);
+  }
+}
+
+.landing-preview-code pre.astro-code {
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  min-height: 100%;
+}
+
+.landing-preview-run {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
 }
 
 /* Explicit heights so the iframe never collapses to the ~150px default. */
-.landing-preview-body > div {
+.landing-preview-run > .ilha-preview {
   height: 18rem;
+  border: 0 !important;
+  border-radius: 0 !important;
 }
 
 @media (min-width: 640px) {
-  .landing-preview-body > div {
-    height: 48rem;
+  .landing-preview-run > .ilha-preview {
+    height: 28rem;
   }
 }
 
 @media (min-width: 1024px) {
-  .landing-preview-body > div {
+  .landing-preview-run > .ilha-preview {
     height: 40rem;
   }
-}
 
-.landing-preview-frame .landing-preview-body,
-.landing-preview-frame .landing-preview-body > div {
-  border: 0 !important;
-  border-radius: 0 !important;
+  .landing-preview-code {
+    height: 40rem;
+  }
 }
 
 .landing-preview-frame iframe {

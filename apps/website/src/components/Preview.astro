@@ -5,6 +5,12 @@
  *
  * When `mobilePreview` is set, one iframe loads `mode=preview` below `sm`
  * and the full editor at `sm+` (src chosen client-side — never two iframes).
+ *
+ * `activate` controls when the iframe `src` is set:
+ * - `eager` (default): load immediately
+ * - `visible`: load when near the viewport
+ * - `click`: show a centered CTA until the user clicks "Run playground"
+ *   (always loads `mode=preview` — no editor pane)
  */
 import { playgroundUrl } from "@/lib/playground";
 
@@ -13,9 +19,10 @@ interface Props {
   size?: "sm" | "lg";
   /** On viewports below `sm`, embed preview-only mode. */
   mobilePreview?: boolean;
+  activate?: "eager" | "visible" | "click";
 }
 
-const { code, size, mobilePreview = false } = Astro.props;
+const { code, size, mobilePreview = false, activate = "eager" } = Astro.props;
 
 const editorSrc = playgroundUrl(code);
 const previewSrc = playgroundUrl(code, "preview");
@@ -30,48 +37,121 @@ const heightClass =
         ? "h-72 sm:h-[48rem] lg:h-[40rem]"
         : "h-[25rem] sm:h-[40rem]"
       : "h-[25rem]";
+
+// Click-to-load always uses preview mode (code lives outside the frame).
+const previewOnly = activate === "click";
+const eager = activate === "eager";
+const initialSrc =
+  eager && !mobilePreview ? editorSrc : eager && mobilePreview ? previewSrc : undefined;
 ---
 
 <div
   class:list={[
-    "border-border bg-background relative flex w-full min-w-0 max-w-full overflow-hidden rounded-lg border",
+    "ilha-preview border-border bg-background relative flex w-full min-w-0 max-w-full overflow-hidden rounded-lg border",
     heightClass,
   ]}
+  data-ilha-preview
+  data-activate={activate}
+  data-preview-src={previewSrc}
+  data-editor-src={editorSrc}
+  data-mobile-preview={mobilePreview && !previewOnly ? "" : undefined}
+  data-preview-only={previewOnly ? "" : undefined}
+  data-activated={eager ? "1" : undefined}
 >
   {
-    mobilePreview ? (
-      <>
-        <iframe
-          data-editor-src={editorSrc}
-          data-preview-src={previewSrc}
-          title="ilha playground"
-          class="block h-full w-full min-w-0 max-w-full flex-1 border-0"
-          loading="lazy"
-        />
-        <script is:inline>
-          (() => {
-            const iframe = document.currentScript?.previousElementSibling;
-            if (!(iframe instanceof HTMLIFrameElement)) return;
-            const editor = iframe.dataset.editorSrc;
-            const preview = iframe.dataset.previewSrc;
-            if (!editor || !preview) return;
-            const mq = window.matchMedia("(min-width: 640px)");
-            const sync = () => {
-              const next = mq.matches ? editor : preview;
-              if (iframe.getAttribute("src") !== next) iframe.src = next;
-            };
-            sync();
-            mq.addEventListener("change", sync);
-          })();
-        </script>
-      </>
-    ) : (
-      <iframe
-        src={editorSrc}
-        title="ilha playground preview"
-        class="block h-full w-full min-w-0 max-w-full flex-1 border-0"
-        loading="lazy"
-      />
+    activate === "click" && (
+      <div
+        class="ilha-preview-gate bg-background absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 p-6 text-center"
+        data-ilha-preview-gate
+      >
+        <p class="text-muted-foreground m-0 max-w-[16rem] text-sm leading-relaxed">
+          Try this tasks island live in the playground.
+        </p>
+        <button
+          type="button"
+          class="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:outline-ring inline-flex cursor-pointer items-center justify-center rounded-lg px-4 py-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2"
+          data-ilha-preview-run
+        >
+          Run playground
+        </button>
+      </div>
     )
   }
+  <iframe
+    title="ilha playground"
+    data-ilha-preview-frame
+    src={initialSrc}
+    loading="lazy"
+    class="block h-full w-full min-w-0 max-w-full flex-1 border-0"
+  >
+  </iframe>
 </div>
+
+<script>
+  function mq() {
+    return window.matchMedia("(min-width: 640px)");
+  }
+
+  function editorMode(root: HTMLElement) {
+    if (root.hasAttribute("data-preview-only")) return false;
+    return !root.hasAttribute("data-mobile-preview") || mq().matches;
+  }
+
+  function targetSrc(root: HTMLElement) {
+    const preview = root.dataset.previewSrc ?? "";
+    const editor = root.dataset.editorSrc ?? "";
+    return editorMode(root) ? editor : preview;
+  }
+
+  function activate(root: HTMLElement) {
+    if (root.dataset.activated === "1") {
+      syncMode(root);
+      return;
+    }
+    root.dataset.activated = "1";
+    const frame = root.querySelector<HTMLIFrameElement>("[data-ilha-preview-frame]");
+    if (!frame) return;
+    frame.src = targetSrc(root);
+    root.querySelector("[data-ilha-preview-gate]")?.remove();
+  }
+
+  function syncMode(root: HTMLElement) {
+    if (root.dataset.activated !== "1") return;
+    if (!root.hasAttribute("data-mobile-preview")) return;
+    const frame = root.querySelector<HTMLIFrameElement>("[data-ilha-preview-frame]");
+    if (!frame) return;
+    const next = targetSrc(root);
+    if (frame.getAttribute("src") !== next) frame.src = next;
+  }
+
+  function wire(root: HTMLElement) {
+    const mode = root.dataset.activate ?? "eager";
+
+    if (mode === "click") {
+      root.querySelector("[data-ilha-preview-run]")?.addEventListener(
+        "click",
+        () => activate(root),
+        { once: true },
+      );
+    } else if (mode === "visible") {
+      const io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) {
+            activate(root);
+            io.disconnect();
+          }
+        },
+        { rootMargin: "200px 0px" },
+      );
+      io.observe(root);
+    } else {
+      activate(root);
+    }
+
+    if (root.hasAttribute("data-mobile-preview")) {
+      mq().addEventListener("change", () => syncMode(root));
+    }
+  }
+
+  document.querySelectorAll<HTMLElement>("[data-ilha-preview]").forEach(wire);
+</script>
