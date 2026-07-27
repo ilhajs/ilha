@@ -1,11 +1,29 @@
+import ilha, { raw } from "ilha";
+
 interface MountableIsland {
   mount(host: Element, props?: Record<string, unknown>): () => void;
 }
 
 type PlainComponent = (props: Record<string, unknown>) => unknown;
 
+const RAW = Symbol.for("ilha.raw");
+
 function isMountable(Component: unknown): Component is MountableIsland {
   return !!Component && typeof (Component as MountableIsland).mount === "function";
+}
+
+function isRawHtml(value: unknown): value is { value: string } {
+  return !!(value && typeof value === "object" && RAW in (value as object));
+}
+
+function wrapPlainAsIsland(Component: PlainComponent, merged: Record<string, unknown>) {
+  return ilha.render(() => {
+    const result = Component(merged);
+    if (result == null) return raw("");
+    if (typeof result === "string") return raw(result);
+    if (isRawHtml(result)) return raw(result.value);
+    return raw("");
+  });
 }
 
 // Astro renders our SSR output (a `[data-ilha]` element) as a light-DOM child
@@ -15,10 +33,13 @@ function isMountable(Component: unknown): Component is MountableIsland {
 // `client:only` islands have no `ssr` attribute and no SSR markup — mount them
 // fresh with the props Astro passes into the client renderer.
 //
-// Non-island components (e.g. Areia's `ContextMenu` without callbacks) have no
-// `.mount()`, but calling them schedules client-side auto-bind against the
-// already-SSR'd markup (`data-areia-*`). Re-invoke so `client:*` actually
-// wires interactivity; discard the return value — the DOM is already correct.
+// Non-island components (e.g. Areia's `Button`) have no `.mount()`, but calling
+// them schedules client-side auto-bind against the already-SSR'd markup
+// (`data-areia-*`). Re-invoke so `client:*` actually wires interactivity.
+//
+// When a plain component nests islands, SSR emits a `data-ilha` shell (see
+// server.ts). Mount that shell so nested `data-ilha-slot` children get
+// `.mount()` / `.onMount()` — re-invoke alone cannot hydrate nested islands.
 export default (element: HTMLElement) =>
   async (
     Component: unknown,
@@ -47,6 +68,21 @@ export default (element: HTMLElement) =>
     for (const [name, value] of Object.entries(slotted ?? {})) {
       merged[name === "default" ? "children" : name] = value;
     }
+
+    const nestedHost = element.querySelector<HTMLElement>("[data-ilha]");
+    if (nestedHost?.querySelector("[data-ilha-slot]")) {
+      try {
+        const Shell = wrapPlainAsIsland(Component as PlainComponent, merged);
+        const unmount = Shell.mount(nestedHost);
+        element.addEventListener("astro:unmount", () => unmount(), { once: true });
+      } catch {
+        throw new Error(
+          `[@ilha/astro] Failed to mount nested islands inside plain component — expected a function that returns ilha RawHtml/string.`,
+        );
+      }
+      return;
+    }
+
     try {
       (Component as PlainComponent)(merged);
     } catch {
