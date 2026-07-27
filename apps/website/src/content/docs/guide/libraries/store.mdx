@@ -1,0 +1,586 @@
+---
+title: "@ilha/store"
+description: Shared reactive store for Ilha islands (alien-signals). Includes /form helpers for type-safe, schema-validated forms.
+sidebar:
+  order: 402
+---
+
+`@ilha/store` is shared reactive state for ilha apps. It sits outside any island and uses [alien-signals](https://github.com/stackblitz/alien-signals) — the same engine as island [`.state()`](/guide/island/state) — so stores and islands share one reactive graph without bridging.
+
+The `@ilha/store/form` import path adds small helpers on [Standard Schema](https://standardschema.dev) (Zod, Valibot, ArkType, and others). See [Forms](#forms) below.
+
+Island [`.state()`](/guide/island/state) is **local** to one component. Use `@ilha/store` when state must be **shared** across islands or updated from non-island code.
+
+## Install
+
+<PackageManagers pkg="@ilha/store" />
+
+`ilha` is an optional peer dependency. Install both so `bind:*` directives and signal tracking work in templates.
+
+## Import paths
+
+| Import path        | Use it for                                                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `@ilha/store`      | `store`, store types, subscriptions, `select`, `bind`, `persist`, `dehydrate`/`hydrate`, `shallowEqual`, and `effectScope` |
+| `@ilha/store/form` | Form extraction, validation, issue-to-error mapping, `preventDefault` for `.on()` handlers                                 |
+
+## Quick start
+
+```ts
+import { store } from "@ilha/store";
+
+const counterStore = store({ count: 0, label: "counter" })
+  .derived("doubled", (ctx) => ctx.get().count * 2)
+  .middleware((patch, ctx, next) => {
+    // guard: floor count at zero
+    if (patch.count !== undefined && patch.count < 0) return;
+    next(patch);
+  })
+  .action("increment", (_, ctx) => ({
+    count: ctx.get().count + 1,
+  }))
+  .action("decrement", (_, ctx) => ({
+    count: ctx.get().count - 1,
+  }))
+  .action("setLabel", (label: string) => ({ label }))
+  .on("change", (state) => {
+    localStorage.setItem("counter", JSON.stringify(state));
+  })
+  .build();
+
+counterStore.count(); // 0  — reactive read
+counterStore.count(5); // write → goes through middleware
+counterStore.doubled(); // 10 — reactive derived
+counterStore.increment(); // 6
+counterStore.getState(); // { count: 6, label: "counter" }
+```
+
+## When to use
+
+ilha's built-in `.state()` is the right choice when only one island reads and writes a piece of state. Use `@ilha/store` when state needs to be:
+
+- **Shared across multiple islands** — e.g. a cart, auth session, or active theme
+- **Updated from outside an island** — e.g. from a WebSocket handler or global event bus
+- **Persisted or derived globally** — e.g. synced to `localStorage` via `.on("change", …)`
+- **Form state** — pair with `@ilha/store/form` helpers for typed validation and error mapping
+
+## API
+
+### `store(initialState)` · `store(schema)`
+
+Returns a `StoreBuilder`. Chain builder methods then call `.build()` to get a live reactive store. `.build()` throws if any key collides across state, derived, actions, and built-in method names (`setState`, `reset`, `subscribe`, `select`, `bind`, `getState`, `getInitialState`, `dispose`).
+
+```ts
+const s = store({ count: 0 }).build();
+
+store<{ foo: string }>({ foo: "bar" }).build(); // explicit POJO type
+```
+
+Or pass a [Standard Schema](https://standardschema.dev) so writes validate the merged state. Invalid commits are rejected; use `.onError()` to handle them. Initial state is parsed from the schema (use `.default()` on fields you want at startup).
+
+**Per-keystroke writes skip full-schema validation.** State-key accessor writes (`s.email("dr")`) and `bind:*` writes commit **without** running the schema, so drafts like a half-typed email stay in state — otherwise every keystroke short of a valid value would be rejected. This means `getState()` can hold schema-invalid state while the user is typing. Full validation runs on `setState`, action patches, and `reset`. Validate explicitly at trust boundaries (submit handlers) with `validateWithSchema(schema, store.getState())`.
+
+```ts
+import { z } from "zod";
+
+const s = store(
+  z.object({
+    email: z.email().default("ada@example.com"),
+  }),
+)
+  .onError(({ error, issues }) => {
+    /* toast, fieldErrors: error.fieldErrors */
+  })
+  .build();
+```
+
+Builder methods are **immutable** — each returns a new `StoreBuilder`.
+
+### `.derived(key, fn)`
+
+Registers a computed value. `fn` receives `ctx`; `ctx.get()` returns the current raw state.
+
+```ts
+store({ count: 0 })
+  .derived("doubled", (ctx) => ctx.get().count * 2)
+  .build();
+```
+
+Derived accessors expose an envelope — `()`/`.value`, `.loading`, `.error`. For sync deriveds, `.loading` is always `false`.
+
+**Async derived** — `fn` can be `async`. It re-runs when its `ctx.get()` dependencies change, aborts stale runs via `ctx.signal`, and surfaces the async lifecycle:
+
+```ts
+const userStore = store({ id: 1 })
+  .derived("user", async (ctx) => {
+    const res = await fetch(`/api/users/${ctx.get().id}`, {
+      signal: ctx.signal,
+    });
+    return res.json();
+  })
+  .build();
+
+userStore.user.loading; // true while fetching
+userStore.user(); // User | undefined
+userStore.user.error; // Error | undefined on rejection
+```
+
+Re-running (when `id` changes) keeps the previous `.value` visible while `.loading` is `true`.
+
+Sync deriveds are evaluated once eagerly at `.build()` (to detect promise-returning functions); async deriveds start their first run at `.build()` too. Keep derived functions cheap and side-effect-free — don't assume they only run when read.
+
+### `.action(key, fn)`
+
+Registers a named mutation. `fn` may be sync or `async`. Return a `Partial` patch (or `Promise` of one) to merge through middleware, or `void` / `Promise<void>` when writes use `ctx.set` only or you only run side effects (e.g. `return void toast.error(...)` after `await`).
+
+```ts
+// Zero-arg — omit or leave first param unannotated
+.action("increment", (_, ctx) => ({ count: ctx.get().count + 1 }))
+
+// Typed props — annotate the first parameter
+.action("setLabel", (label: string) => ({ label }))
+```
+
+`ctx` exposes `{ get(), getInitial(), set(patch) }`. Use `ctx.set` for async/multi-step actions (no return value needed):
+
+```ts
+.action("load", (_, ctx) => {
+  ctx.set({ loading: true });
+  fetchUser(ctx.get().id).then((user) => ctx.set({ user, loading: false }));
+})
+```
+
+Every action exposes a reactive **`.pending`** flag — `true` while any async invocation is in flight (sync actions never set it). Read it in a render for per-action loading UI:
+
+```ts
+ilha.render(
+  () =>
+    html`<button disabled=${() => s.save.pending}>
+      Save
+    </button>`,
+);
+```
+
+### `.middleware(fn)`
+
+Intercepts every state mutation before it commits. Receives `(patch, ctx, next)`. Call `next(patch)` to continue or return early to block. Applies to accessor writes, `setState`, actions, and `bind` writes.
+
+```ts
+store({ count: 0 }).middleware((patch, ctx, next) => {
+  console.log("before:", ctx.get().count);
+  next(patch);
+});
+```
+
+Multiple middlewares compose in registration order.
+
+### `.on(event, handler)`
+
+Registers a lifecycle listener. `handler` receives `(nextState, prevState)`.
+
+| Event      | When it fires                                    |
+| ---------- | ------------------------------------------------ |
+| `"init"`   | Once, synchronously inside `.build()`            |
+| `"change"` | After every committed mutation (post-middleware) |
+
+`"change"` handlers are isolated: one throwing handler doesn't abort the commit or block later handlers — the error is routed to `.onError()` as `source: "listener"`.
+
+### `.onError(handler)`
+
+Runs when a commit fails schema validation (state stays at the last good snapshot), when an async action rejects, or when a `"change"` listener throws. Context: `{ error, source, patch?, path?, issues?, get() }` where `source` is `"validate" | "action" | "listener"`. For validation failures, `error` is a `StoreValidationError` (`issues`, `fieldErrors`). Without a handler, `console.error` is used.
+
+### `.build()`
+
+Finalizes the builder and returns a live reactive store.
+
+---
+
+### Built-in store methods
+
+#### State accessors
+
+Every state key is a **signal-shaped accessor** on the built store — call to read, call with a value to write:
+
+```ts
+s.count(); // reactive read
+s.count(5); // write → goes through middleware
+```
+
+Writes are reactive: any ilha render or derived that called `s.count()` re-runs. Accessors carry `[SIGNAL_ACCESSOR]` so they work directly in `html` templates and `bind:*` directives.
+
+#### `store.setState(patch)`
+
+Atomic multi-key write — one commit, one `"change"`, one re-render. Routes through middleware.
+
+```ts
+s.setState({ a: 1, b: 2 });
+```
+
+#### `store.reset()`
+
+Resets to the initial state captured at `.build()` time. Routes through middleware; no-op if already at initial state.
+
+#### `store.dispose()`
+
+Tears the store down: stops all `subscribe` effects and async-derived effects, aborts in-flight async deriveds (via `ctx.signal`), and turns further writes into no-ops. Reads keep working on the last committed state. Idempotent.
+
+Module-level singleton stores never need this. Call it when a store's lifetime is shorter than the page — e.g. a store created per island instance — otherwise its effects (and any refetching async deriveds) leak.
+
+```ts
+const draftStore = store({ text: "" })
+  .derived("preview", async (ctx) =>
+    renderPreview(ctx.get().text, ctx.signal),
+  )
+  .build();
+
+// when the island unmounts:
+draftStore.dispose();
+```
+
+#### `store.getState()` / `store.getInitialState()`
+
+Raw `TState` snapshots — no derived values, no actions. The initial state is deep-cloned at `.build()` time (falling back to a shallow copy for non-cloneable values like functions), so mutating the original object you passed to `store()` — or nested state later — can't corrupt `reset()` or `getInitialState()`.
+
+#### `store.subscribe(listener)` / `store.subscribe(selector, listener, options?)`
+
+Full-state and slice forms. Neither fires on initial subscription. Both return an unsubscribe function.
+
+```ts
+const unsub = s.subscribe((state, prev) =>
+  console.log(state, prev),
+);
+const unsub2 = s.subscribe(
+  (s) => s.count,
+  (count, prev) => {
+    /* … */
+  },
+);
+unsub();
+```
+
+Slice comparison defaults to `Object.is`, so an object-building selector (`s => ({ a: s.a, b: s.b })`) fires on every commit — it returns a fresh object each time. Pass `{ equal: shallowEqual }` (exported from `@ilha/store`) to compare one level deep instead.
+
+#### `store.select(selector)` — reactive read accessor
+
+Projects a slice into a `() => S` signal accessor. Hoist outside render functions — each call allocates a fresh `computed`.
+
+```ts
+const count = s.select((st) => st.count);
+count(); // reactive
+```
+
+Use state accessors directly (`s.count()`) instead of `select` when you don't need an ad-hoc projection.
+
+#### `store.bind(selector)` — two-way `bind:*`
+
+Returns a read/write accessor for ilha's `bind:*` directives. Accepts property-path selectors only (`s => s.user.name`). Writes go through middleware but **skip full-schema validation** (see [`store(schema)`](#storeinitialstate--storeschema)) so in-progress input still commits.
+
+```ts
+const query = s.bind((st) => st.search.query);
+// <input bind:value={query} />
+```
+
+## `effectScope`
+
+Re-exported from alien-signals. Runs a setup function inside a reactive scope and returns `stop()` to tear down every `subscribe` effect registered inside it. Use it to scope _your_ subscriptions; use [`store.dispose()`](#storedispose) to tear down the whole store, including its async-derived effects.
+
+```ts
+import { store, effectScope } from "@ilha/store";
+
+const stop = effectScope(() => {
+  myStore.subscribe((s) => console.log(s.count));
+});
+
+stop();
+```
+
+## Usage with ilha islands
+
+State and derived accessors are signal-shaped — use them **directly** inside `.render()`, `.derived()`, and `.effect()` without `.select()` wrappers:
+
+```tsx
+import { store } from "@ilha/store";
+import ilha, { html } from "ilha";
+
+const cartStore = store({ items: [] as string[] })
+  .action("add", (item: string, ctx) => ({
+    items: [...ctx.get().items, item],
+  }))
+  .derived("count", (ctx) => ctx.get().items.length)
+  .build();
+
+// State and derived read directly — no .select() needed
+export const CartBadge = ilha.render(
+  () => html`<span>${cartStore.count()}</span>`,
+);
+
+export const CartList = ilha.render(
+  () =>
+    html`<ul>
+      ${cartStore.items().map((item) => html`<li>${item}</li>`)}
+    </ul>`,
+);
+```
+
+Both islands stay in sync. `CartBadge` re-renders only when `count` changes; `CartList` only when `items` changes.
+
+Use `.select()` for ad-hoc projections not worth a named `.derived()`, and `.bind()` for two-way form fields.
+
+**Note:** `state.todos.select((t) => t[i].done)` in island templates is ilha’s nested [`.select()` for `bind:*`](/guide/island/render#nested-fields-with-select) — not `store.select()` on `@ilha/store`.
+
+## Persistence — `persist(store, key, options?)`
+
+Keeps a store in sync with `localStorage` (or any `getItem`/`setItem` backend):
+
+1. **Hydrates** on call: reads `key` and merges the stored patch via `setState` — middleware runs and schema stores validate, so corrupt or stale-shaped payloads are rejected instead of applied.
+2. **Writes through** on every commit.
+3. **Cross-tab sync**: mirrors writes from other tabs via `storage` events (default `localStorage` backend only; disable with `crossTab: false`).
+
+Returns an unsubscribe. No-op on the server.
+
+```ts
+import { store, persist } from "@ilha/store";
+
+const cartStore = store({ items: [] as string[] }).build();
+persist(cartStore, "cart");
+```
+
+| Option        | Default               | Description                                 |
+| ------------- | --------------------- | ------------------------------------------- |
+| `storage`     | `window.localStorage` | Any `{ getItem, setItem }` backend          |
+| `crossTab`    | `true`                | Apply `storage` events from other tabs      |
+| `serialize`   | `JSON.stringify`      | State → string                              |
+| `deserialize` | `JSON.parse`          | String → patch (validated on schema stores) |
+
+Call the returned unsubscribe before `store.dispose()` for per-island stores.
+
+## URL persistence — `persistQuery(store, options?)`
+
+`persist`'s sibling for the query string, from the `@ilha/store/query` entry point. Instead of one serialized blob, each state key gets **its own search param** (`?q=boots&page=2`) — shareable, reload-safe, back/forward-friendly. Prior art: [nuqs](https://nuqs.dev) for React.
+
+The canonical use case is a filter bar. UI state that drives data loading (search text, sort, page) belongs in the URL, because `@ilha/router` loaders re-run on every navigation and read `ctx.url.searchParams`. The cycle is **one-way**: store → URL → loader → render. The store is the _write_ path for the controls; the loader stays the _read_ path for data — on the server and the client. Because same-island navigations [update the mounted island in place](/guide/libraries/router#loaders) (no remount), the bound input keeps focus, caret, and scroll while the loader-driven parts of the page refresh.
+
+```ts
+import { z } from "zod";
+import { store } from "@ilha/store";
+import { persistQuery } from "@ilha/store/query";
+
+export const filters = store(
+  z.object({
+    q: z.string().default(""),
+    page: z.coerce.number().int().min(1).default(1),
+    sort: z.string().default(""),
+  }),
+).build();
+
+persistQuery(filters, { debounce: 250 });
+```
+
+```tsx
+// The search input binds to the store; persistQuery debounces the URL write.
+<input type="search" bind:value={filters.q} />
+```
+
+```ts
+// The loader is the read path — it re-runs automatically on every query write.
+export const load = ({ url }) =>
+  searchProducts(url.searchParams.get("q") ?? "");
+```
+
+What it does:
+
+1. **URL is the source of truth on init**: owned params are parsed from `location.search` and written through `setState`, so schema stores coerce and validate (`?page=3` → `3`); invalid values (`?page=banana`) degrade to the key's default — never throw.
+2. **Writes through the router**: store commits navigate via `@ilha/router`'s `navigate()` (auto-detected; **not** raw `history.replaceState`), so loaders re-run and route signals stay live. Params it doesn't own are preserved — several stores can share one URL.
+3. **Syncs back**: back/forward and link navigations that change owned params write into the store, without echoing another navigation.
+4. **Clean URLs**: with `omitDefaults` (default on), a param is removed when its value equals the store default — no `?page=1&q=` noise.
+
+Returns an unsubscribe (flushes any pending debounced write). No-op on the server.
+
+| Option         | Default        | Description                                                                                              |
+| -------------- | -------------- | -------------------------------------------------------------------------------------------------------- |
+| `params`       | all state keys | Keys to persist: `{ q: "search" }` renames, `{ tags: { serialize, deserialize } }` adds a codec          |
+| `history`      | `"replace"`    | `"replace"`, `"push"`, or `(changedKeys) => "push" \| "replace"` (e.g. push for `page`, replace for `q`) |
+| `debounce`     | `0`            | Coalesce URL writes (ms) — for per-keystroke bound inputs. A push flushes a pending replace first        |
+| `omitDefaults` | `true`         | Drop params whose value equals the store default (`""` counts as equal to a `""` default)                |
+| `navigate`     | auto-detect    | Injected URL writer; without `@ilha/router` installed, falls back to the History API with a dev warning  |
+
+Values serialize with `String()` by default; deserialization hands the raw string to `setState`, so schema stores coerce it (`z.coerce.number()`). For arrays, dates, etc., give the key a `{ serialize, deserialize }` codec in `params`.
+
+## SSR — `dehydrate()` / `hydrate()`
+
+Stores are module-level singletons, so on a concurrent SSR server they must **not** be written during a render — request A's data would leak into request B. Instead, state travels the same way ilha island state does: serialized into the HTML, then seeded on the client.
+
+- **`dehydrate(storeOrState)`** → JSON string. On a concurrent server pass a **request-local object** (e.g. loader data), not the shared store. Passing the store itself is fine in non-concurrent contexts (prerendering, tests).
+- **`hydrate(store, raw)`** → parses with the same guards as ilha's island snapshots (size cap, depth cap, must-be-plain-object, prototype-polluting keys stripped) and merges via `setState` — middleware runs and schema stores validate, so corrupt payloads are rejected. Returns `true` when the snapshot passes the parse/guard checks and is handed to `setState` (schema validation may still reject the patch there), `false` when it is ignored.
+
+```ts
+// server (inside the loader / request handler)
+const payload = dehydrate({ items: cartItems }); // request-local data
+// stamp into the shell, escaped for the embedding context:
+// <script type="application/json" id="cart-state">
+//   ${payload.replace(/</g, "\\u003c")}
+// </script>
+```
+
+```ts
+// client — page island's onMount (runs on hydration)
+import { hydrate } from "@ilha/store";
+
+ilha.onMount(() => {
+  hydrate(
+    cartStore,
+    document.getElementById("cart-state")?.textContent,
+  );
+});
+```
+
+## Forms
+
+Three small helpers for building typed, validated forms with any [Standard Schema](https://standardschema.dev)-compatible library.
+
+```ts
+import {
+  extractFormData,
+  validateWithSchema,
+  validateWithSchemaAsync,
+  issuesToErrors,
+  preventDefault,
+} from "@ilha/store/form";
+```
+
+### `extractFormData(source)`
+
+Turns an `HTMLFormElement` (or `FormData`) into a plain object. Single fields stay scalar; repeated keys collapse to arrays. File inputs pass through as `File` values.
+
+```ts
+const data = extractFormData(event.target as HTMLFormElement);
+// → { email: "ada@example.com", role: ["admin", "editor"] }
+```
+
+### `validateWithSchema(schema, data)`
+
+Runs a Standard Schema synchronously. Never throws. Returns `{ ok: true, data }` or `{ ok: false, issues }`. Use `validateWithSchemaAsync` for async refinements.
+
+### `issuesToErrors(issues)`
+
+Flattens Standard Schema issues into `Record<string, string[]>` keyed by dot-separated path. Form-level errors (no path) land under `""`.
+
+```ts
+issuesToErrors([
+  { message: "Required", path: ["email"] },
+  { message: "Invalid", path: ["user", "email"] },
+]);
+// → { email: ["Required"], "user.email": ["Invalid"] }
+```
+
+### `preventDefault(fn)`
+
+Wraps an ilha `.on()` handler so `event.preventDefault()` runs first, then your callback receives the same context (`event`, `state`, `target`, …).
+
+```ts
+ilha.on(
+  "form@submit",
+  preventDefault(({ event }) => {
+    const data = extractFormData(
+      event.target as HTMLFormElement,
+    );
+    // ...
+  }),
+);
+```
+
+### Full example — contact form
+
+```tsx
+import { store } from "@ilha/store";
+import {
+  extractFormData,
+  validateWithSchema,
+  issuesToErrors,
+  preventDefault,
+} from "@ilha/store/form";
+import type { FormErrors } from "@ilha/store/form";
+import ilha, { html } from "ilha";
+import { z } from "zod";
+
+const ContactSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.email("Invalid email"),
+  message: z.string().min(10, "Too short"),
+});
+
+const formStore = store({ errors: {} as FormErrors })
+  .action("submit", (event: SubmitEvent) => {
+    const result = validateWithSchema(
+      ContactSchema,
+      extractFormData(event.target as HTMLFormElement),
+    );
+    return {
+      errors: result.ok ? {} : issuesToErrors(result.issues),
+    };
+  })
+  .build();
+
+const errors = formStore.errors; // state accessor — reactive
+
+export default ilha
+  .on(
+    "form@submit",
+    preventDefault(({ event }) => formStore.submit(event)),
+  )
+  .render(
+    () => html`
+      <form>
+        <input name="name" />
+        ${errors().name
+          ? html`<p role="alert">${errors().name![0]}</p>`
+          : ""}
+        <input name="email" type="email" />
+        ${errors().email
+          ? html`<p role="alert">${errors().email![0]}</p>`
+          : ""}
+        <button type="submit">Send</button>
+      </form>
+    `,
+  );
+```
+
+## TypeScript
+
+```ts
+import type {
+  StoreBuilder, // the builder type
+  BuiltStore, // the built store type
+  StateAccessor, // <T>: () => T and (value: T) => void
+  DerivedAccessor, // <T>: () => T | undefined, .loading, .value, .error
+  DerivedValue, // <T>: { loading, value, error } — the derived envelope
+  DerivedCtx, // { get(), signal } — passed to .derived()
+  ActionCtx, // { get(), getInitial(), set() } — passed to .action()
+  MiddlewareCtx, // { get(), getInitial() } — passed to .middleware()
+  StoreErrorContext, // { error, source, path?, patch?, issues?, get() } — .onError()
+  StoreErrorSource, // "validate" | "action" | "listener"
+  StoreValidationError,
+  StoreBindable, // <S>: read/write accessor for bind:*
+  Listener, // (state, prevState) => void
+  SliceListener, // (slice, prevSlice) => void
+  SubscribeOptions, // { equal? } — selector-form subscribe options
+  ActionInvoker, // callable action with reactive .pending
+  PersistStorage, // { getItem, setItem } — persist() backend
+  PersistOptions, // { storage?, crossTab?, serialize?, deserialize? }
+  Unsub, // () => void
+} from "@ilha/store";
+
+import type {
+  FormResult, // { ok: true, data } | { ok: false, issues }
+  FormErrors, // Record<string, string[]>
+} from "@ilha/store/form";
+```
+
+## Related
+
+| Topic              | Guide                             |
+| ------------------ | --------------------------------- |
+| Core `ilha` API    | [ilha](/guide/libraries/ilha)     |
+| Island-local state | [State](/guide/island/state)      |
+| Multi-page apps    | [Router](/guide/libraries/router) |
+| Astro integration  | [Astro](/guide/libraries/astro)   |

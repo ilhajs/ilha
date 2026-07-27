@@ -1,0 +1,77 @@
+---
+/**
+ * Embeds the Ilha playground for a code sample.
+ * Used in MDX docs as <Preview code={example} size="lg" />.
+ *
+ * When `mobilePreview` is set, one iframe loads `mode=preview` below `sm`
+ * and the full editor at `sm+` (src chosen client-side — never two iframes).
+ */
+import { playgroundUrl } from "@/lib/playground";
+
+interface Props {
+  code: string;
+  size?: "sm" | "lg";
+  /** On viewports below `sm`, embed preview-only mode. */
+  mobilePreview?: boolean;
+}
+
+const { code, size, mobilePreview = false } = Astro.props;
+
+const editorSrc = playgroundUrl(code);
+const previewSrc = playgroundUrl(code, "preview");
+
+// Explicit heights only — do not mix with h-full on the outer wrapper
+// (parent often has no height, which collapses the iframe to ~150px).
+const heightClass =
+  size === "sm"
+    ? "h-64"
+    : size === "lg"
+      ? mobilePreview
+        ? "h-72 sm:h-[48rem] lg:h-[40rem]"
+        : "h-[25rem] sm:h-[40rem]"
+      : "h-[25rem]";
+---
+
+<div
+  class:list={[
+    "border-border bg-background relative flex w-full min-w-0 max-w-full overflow-hidden rounded-lg border",
+    heightClass,
+  ]}
+>
+  {
+    mobilePreview ? (
+      <>
+        <iframe
+          data-editor-src={editorSrc}
+          data-preview-src={previewSrc}
+          title="ilha playground"
+          class="block h-full w-full min-w-0 max-w-full flex-1 border-0"
+          loading="lazy"
+        />
+        <script is:inline>
+          (() => {
+            const iframe = document.currentScript?.previousElementSibling;
+            if (!(iframe instanceof HTMLIFrameElement)) return;
+            const editor = iframe.dataset.editorSrc;
+            const preview = iframe.dataset.previewSrc;
+            if (!editor || !preview) return;
+            const mq = window.matchMedia("(min-width: 640px)");
+            const sync = () => {
+              const next = mq.matches ? editor : preview;
+              if (iframe.getAttribute("src") !== next) iframe.src = next;
+            };
+            sync();
+            mq.addEventListener("change", sync);
+          })();
+        </script>
+      </>
+    ) : (
+      <iframe
+        src={editorSrc}
+        title="ilha playground preview"
+        class="block h-full w-full min-w-0 max-w-full flex-1 border-0"
+        loading="lazy"
+      />
+    )
+  }
+</div>

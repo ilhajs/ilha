@@ -1,0 +1,386 @@
+/* Landing-only atmosphere — theme-aware, no purple/glow stacks. */
+
+.landing-page {
+  --landing-grid-color: color-mix(in oklch, var(--nb-foreground) 5.5%, transparent);
+  --landing-wash: color-mix(in oklch, var(--nb-foreground) 5%, transparent);
+  --landing-wash-strong: color-mix(in oklch, var(--nb-foreground) 8%, transparent);
+  --landing-ink-fade: color-mix(in oklch, var(--nb-foreground) 55%, transparent);
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+[data-mode="dark"] .landing-page {
+  --landing-grid-color: color-mix(in oklch, var(--nb-foreground) 7.5%, transparent);
+  --landing-wash: color-mix(in oklch, var(--nb-foreground) 7%, transparent);
+  --landing-wash-strong: color-mix(in oklch, var(--nb-foreground) 11%, transparent);
+}
+
+.landing-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+}
+
+.landing-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image:
+    linear-gradient(to right, var(--landing-grid-color) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--landing-grid-color) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 90% 75% at 50% 8%, #000 15%, transparent 72%);
+  pointer-events: none;
+}
+
+.landing-hero::after {
+  content: "";
+  position: absolute;
+  inset: -8% 5% auto;
+  z-index: -1;
+  height: min(34rem, 60vh);
+  background:
+    radial-gradient(ellipse 55% 70% at 50% 0%, var(--landing-wash-strong), transparent 72%),
+    radial-gradient(ellipse 40% 50% at 18% 20%, var(--landing-wash), transparent 70%),
+    radial-gradient(ellipse 40% 50% at 82% 20%, var(--landing-wash), transparent 70%);
+  pointer-events: none;
+}
+
+/* Page track: grid-centered, no per-child mx-auto. */
+.landing-shell {
+  display: grid;
+  width: min(72rem, 100%);
+  max-width: 100%;
+  min-width: 0;
+  justify-self: center;
+  padding-inline: 1.25rem;
+  box-sizing: border-box;
+}
+
+@media (min-width: 640px) {
+  .landing-shell {
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .landing-shell {
+    padding-inline: 2rem;
+  }
+}
+
+.landing-page main > section {
+  display: grid;
+  justify-items: stretch;
+}
+
+/* Centered copy stack — justify-items, not margin hacks. */
+.landing-copy {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 1rem;
+  width: min(40rem, 100%);
+  max-width: 100%;
+  min-width: 0;
+  justify-self: center;
+}
+
+.landing-copy .landing-display,
+.landing-copy .landing-section-title,
+.landing-copy .landing-lede,
+.landing-copy .landing-eyebrow {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.landing-eyebrow {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 550;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--nb-muted-foreground);
+}
+
+.landing-display {
+  margin: 0;
+  font-size: clamp(2rem, 4.8vw, 3.25rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+  text-wrap: balance;
+}
+
+.landing-section-title {
+  margin: 0;
+  font-size: clamp(1.625rem, 3.4vw, 2.5rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+  text-wrap: balance;
+}
+
+.landing-lede {
+  margin: 0;
+  width: min(36rem, 100%);
+  color: var(--nb-muted-foreground);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  text-wrap: balance;
+}
+
+.landing-copy .landing-lede {
+  width: min(34rem, 100%);
+  justify-self: center;
+}
+
+@media (min-width: 640px) {
+  .landing-lede {
+    font-size: 1.125rem;
+    line-height: 1.7;
+  }
+}
+
+.landing-hero-copy {
+  animation: landing-rise 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.landing-hero-visual {
+  animation: landing-rise 0.9s 0.1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes landing-rise {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero-copy,
+  .landing-hero-visual {
+    animation: none;
+  }
+}
+
+.landing-hero-visual {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.landing-preview-frame {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--nb-border);
+  border-radius: 0.75rem;
+  background: var(--nb-card);
+  box-shadow:
+    0 1px 0 color-mix(in oklch, var(--nb-foreground) 3%, transparent),
+    0 12px 28px -20px color-mix(in oklch, var(--nb-foreground) 10%, transparent);
+}
+
+@media (min-width: 640px) {
+  .landing-preview-frame {
+    border-radius: 0.875rem;
+  }
+}
+
+[data-mode="dark"] .landing-preview-frame {
+  box-shadow:
+    0 1px 0 color-mix(in oklch, var(--nb-foreground) 6%, transparent),
+    0 14px 32px -22px color-mix(in oklch, var(--nb-foreground) 18%, transparent);
+}
+
+.landing-preview-chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow: hidden;
+  border-bottom: 1px solid var(--nb-border);
+  background: color-mix(in oklch, var(--nb-muted) 65%, var(--nb-card));
+  padding: 0.55rem 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .landing-preview-chrome {
+    padding: 0.65rem 0.9rem;
+  }
+}
+
+.landing-preview-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--nb-foreground) 18%, transparent);
+}
+
+.landing-preview-label {
+  margin-left: 0.35rem;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--nb-muted-foreground);
+  font-size: 0.75rem;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+a.landing-preview-label:hover {
+  color: var(--nb-foreground);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.landing-preview-body {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Explicit heights so the iframe never collapses to the ~150px default. */
+.landing-preview-body > div {
+  height: 18rem;
+}
+
+@media (min-width: 640px) {
+  .landing-preview-body > div {
+    height: 48rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .landing-preview-body > div {
+    height: 40rem;
+  }
+}
+
+.landing-preview-frame .landing-preview-body,
+.landing-preview-frame .landing-preview-body > div {
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+.landing-preview-frame iframe {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.landing-proof {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem 0;
+  color: var(--landing-ink-fade);
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+}
+
+.landing-proof span {
+  display: inline-flex;
+  align-items: center;
+}
+
+.landing-proof span:not(:last-child)::after {
+  content: "·";
+  margin-inline: 0.75rem;
+  color: color-mix(in oklch, var(--nb-foreground) 28%, transparent);
+}
+
+.landing-panel {
+  border: 1px solid var(--nb-border);
+  border-radius: 0.875rem;
+  background: var(--nb-card);
+  padding: 1.25rem;
+  box-shadow: 0 1px 0 color-mix(in oklch, var(--nb-foreground) 3%, transparent);
+}
+
+@media (min-width: 640px) {
+  .landing-panel {
+    padding: 1.75rem;
+  }
+}
+
+.landing-code {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--nb-border);
+  border-radius: 0.875rem;
+  background: var(--nb-card);
+  box-shadow: 0 1px 0 color-mix(in oklch, var(--nb-foreground) 3%, transparent);
+}
+
+.landing-code-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--nb-border);
+  background: color-mix(in oklch, var(--nb-muted) 55%, var(--nb-card));
+  padding: 0.55rem 0.85rem;
+  color: var(--nb-muted-foreground);
+  font-family: var(--nb-font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+}
+
+.landing-code pre.astro-code {
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+.landing-close {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  border-top: 1px solid var(--nb-border);
+}
+
+.landing-close::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 70% 80% at 50% 100%, var(--landing-wash-strong), transparent 70%),
+    linear-gradient(to bottom, transparent, color-mix(in oklch, var(--nb-muted) 35%, transparent));
+  pointer-events: none;
+}
+
+.landing-install {
+  width: 100%;
+  max-width: min(40rem, 100%);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.landing-install :is(button, [role="button"], div) {
+  max-width: 100%;
+  min-width: 0;
+  border-radius: 0.65rem;
+}
+
+.landing-install :is(code, pre, span) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

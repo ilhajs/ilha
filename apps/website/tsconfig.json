@@ -1,8 +1,12 @@
 {
-  "extends": "imprensa/tsconfig.json",
+  "extends": "astro/tsconfigs/strict",
   "compilerOptions": {
-    "noUnusedLocals": false
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "jsx": "react-jsx",
+    "jsxImportSource": "ilha"
   },
-  "include": ["src", "vite.config.ts"],
-  "exclude": [".ilha", "dist", "node_modules"]
+  "include": [".astro/types.d.ts", "**/*"],
+  "exclude": ["dist"]
 }

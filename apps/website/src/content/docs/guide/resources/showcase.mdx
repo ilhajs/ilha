@@ -1,0 +1,51 @@
+---
+title: Showcase
+description: A collection of websites and projects built with ilha.
+sidebar:
+  order: 501
+---
+
+export const SHOWCASE = [
+  {
+    title: "Ilha Website",
+    image: "/showcase-ilha.jpg",
+    link: "https://ilha.build",
+  },
+  {
+    title: "Areia UI",
+    image: "/showcase-areia.jpg",
+    link: "https://areia.ilha.build",
+  },
+  {
+    title: "thojensen.com",
+    image: "/showcase-thojensen.jpg",
+    link: "https://thojensen.com",
+  },
+  {
+    title: "Imprensa",
+    image: "/showcase-imprensa.jpg",
+    link: "https://imprensa.ilha.build",
+  },
+];
+
+<div class="not-prose grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  {SHOWCASE.map((item) => (
+    <a
+      key={item.title}
+      href={item.link}
+      target="_blank"
+      rel="noopener noreferrer"
+      class="group overflow-hidden rounded-xl border border-border bg-card no-underline transition-colors hover:border-border-strong"
+    >
+      <img
+        alt={item.title}
+        loading="lazy"
+        class="aspect-video w-full object-cover"
+        src={item.image}
+      />
+      <div class="p-3 text-sm font-medium text-foreground group-hover:text-primary">
+        {item.title}
+      </div>
+    </a>
+  ))}
+</div>

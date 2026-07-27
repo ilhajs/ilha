@@ -1,0 +1,145 @@
+---
+title: "@ilha/astro"
+description: Astro integration that renders and hydrates Ilha islands as Astro components.
+sidebar:
+  order: 403
+---
+
+`@ilha/astro` is an [Astro](https://astro.build) integration for Ilha islands. You register it once, then import any island into an `.astro` page and hydrate it with a [client directive](https://docs.astro.build/en/reference/directives-reference/#client-directives).
+
+It is a separate package from `ilha`. Add it when you build with Astro and want Ilha islands as first-class Astro components.
+
+## Install
+
+<PackageManagers pkg="@ilha/astro" />
+
+`astro` and `ilha` are peer dependencies. Install both alongside `@ilha/astro`.
+
+## Quick start
+
+Add the integration to your Astro config:
+
+```ts
+// astro.config.mjs
+import { defineConfig } from "astro/config";
+import ilha from "@ilha/astro";
+
+export default defineConfig({
+  integrations: [ilha()],
+});
+```
+
+Define an island as usual, then use it in a page with a client directive:
+
+```ts
+// src/islands/counter.ts
+import ilha, { html } from "ilha";
+
+export const Counter = ilha
+  .input<{ start?: number }>()
+  .state("count", (input) => input.start ?? 0)
+  .on("button@click", ({ state }) =>
+    state.count(state.count() + 1),
+  )
+  .render(
+    ({ state }) =>
+      html`<button type="button">${state.count()}</button>`,
+  );
+```
+
+```astro
+---
+import { Counter } from "../islands/counter";
+---
+
+<Counter client:load start={10} />
+```
+
+Astro SSR-renders the island on the server. On the client, `@ilha/astro` calls the island's own `.mount()` against the existing markup — no flicker, and `.onMount()` is skipped when the state snapshot already matches the DOM.
+
+## How it works
+
+| Phase  | What happens                                                                                                                                    |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server | The renderer calls [`.hydratable()`](/guide/island/hydratable), which wraps SSR output in a `[data-ilha]` host with serialized props and state. |
+| Client | The client entry finds that `[data-ilha]` host inside Astro's `<astro-island>` and calls `.mount()` for hydration.                              |
+
+Hydration is driven by Ilha's `data-ilha-*` attributes, so every Astro client directive works as expected.
+
+```
+server                              client
+──────────────────────────────────  ────────────────────────────────────
+.renderToStaticMarkup(island)       @ilha/astro/client.js
+  → island.hydratable(props, …)       → find [data-ilha] inside <astro-island>
+  → data-ilha-state snapshot          → island.mount(host)
+  → data-ilha-props on host           → astro:unmount → unmount()
+```
+
+## Client directives
+
+| Directive        | Behavior                                                             |
+| ---------------- | -------------------------------------------------------------------- |
+| `client:load`    | Hydrate as soon as the page loads.                                   |
+| `client:idle`    | Hydrate when the browser is idle.                                    |
+| `client:visible` | Hydrate when the island enters the viewport.                         |
+| `client:media`   | Hydrate when a media query matches.                                  |
+| `client:only`    | Skip SSR. Mount fresh in the browser with the props Astro passes in. |
+
+Use `client:only` when the island needs browser-only APIs during first paint. For everything else, prefer a directive that SSR-renders first so users see content before JavaScript runs.
+
+```astro
+---
+import { Counter } from "../islands/counter";
+---
+
+<Counter client:only="ilha" start={0} />
+```
+
+## Plain function components
+
+The renderer also accepts plain functions that return Ilha `RawHtml` or a string — the same shape Areia's static exports use (for example `Button` without callbacks).
+
+On the server, `@ilha/astro` calls the function and emits the HTML with no `data-ilha` wrapper. On the client, it re-invokes the function so libraries that schedule auto-bind against SSR markup (for example `data-areia-*` hosts) still wire up under `client:*`.
+
+```ts
+import { html } from "ilha";
+
+export const Button = ({ label }: { label: string }) =>
+  html`<button class="btn" type="button">${label}</button>`;
+```
+
+```astro
+---
+import { Button } from "../components/button";
+---
+
+<Button client:load label="Save" />
+```
+
+If client re-invocation fails, the integration throws a sanitized `[@ilha/astro]` error and does not expose the original exception.
+
+## Import paths
+
+| Import path             | Use it for                                      |
+| ----------------------- | ----------------------------------------------- |
+| `@ilha/astro`           | Astro integration (`ilha()` / `getRenderer()`). |
+| `@ilha/astro/client.js` | Client hydration entry (registered by Astro).   |
+| `@ilha/astro/server.js` | Server renderer entry (registered by Astro).    |
+
+You almost never import the client or server entrypoints yourself. `ilha()` registers them through Astro's renderer API.
+
+## Notes
+
+- Ilha islands do not support Astro's `<slot />` or children forwarding. Pass data through props and render inside the island's `.render()` function.
+- `client:only` mounts with `Component.mount(element, props)` against an empty host. Prefer SSR + hydrate when you can.
+- Peer ranges: `astro` `^7.0.0`, `ilha` `>=0.9.5`.
+
+## Related
+
+| Topic                     | Guide                                  |
+| ------------------------- | -------------------------------------- |
+| Core `ilha` API           | [ilha](/guide/libraries/ilha)          |
+| Hydratable SSR            | [Hydratable](/guide/island/hydratable) |
+| Mount and discovery       | [Mount](/guide/helpers/mount)          |
+| Shared cross-island state | [Store](/guide/libraries/store)        |
+| Multi-page SPA routing    | [Router](/guide/libraries/router)      |
