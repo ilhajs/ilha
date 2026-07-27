@@ -7,8 +7,6 @@ An [Astro](https://astro.build) integration that renders and hydrates [Ilha](htt
 ## Installation
 
 ```bash
-npm install @ilha/astro
-# or Bun
 bun add @ilha/astro
 ```
 

@@ -12,6 +12,9 @@ function isMountable(Component: unknown): Component is MountableIsland {
 // of the `<astro-island>` element it passes here — find it and hand it to
 // ilha's own hydration, which reads props/state straight off the DOM.
 //
+// `client:only` islands have no `ssr` attribute and no SSR markup — mount them
+// fresh with the props Astro passes into the client renderer.
+//
 // Non-island components (e.g. Areia's `ContextMenu` without callbacks) have no
 // `.mount()`, but calling them schedules client-side auto-bind against the
 // already-SSR'd markup (`data-areia-*`). Re-invoke so `client:*` actually
@@ -23,7 +26,13 @@ export default (element: HTMLElement) =>
     slotted: Record<string, string>,
     _metadata: Record<string, string>,
   ) => {
-    if (!element.hasAttribute("ssr")) return;
+    if (!element.hasAttribute("ssr")) {
+      if (isMountable(Component)) {
+        const unmount = Component.mount(element, props);
+        element.addEventListener("astro:unmount", () => unmount(), { once: true });
+      }
+      return;
+    }
 
     if (isMountable(Component)) {
       const host = element.querySelector<HTMLElement>("[data-ilha]") ?? element;
@@ -41,7 +50,8 @@ export default (element: HTMLElement) =>
     try {
       (Component as PlainComponent)(merged);
     } catch {
-      // SSR already produced markup; a throw here only means the component
-      // couldn't re-run its client scheduler with serialized props.
+      throw new Error(
+        `[@ilha/astro] Failed to bind client component — expected a function that can re-run against SSR markup.`,
+      );
     }
   };

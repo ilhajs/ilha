@@ -3,7 +3,7 @@
 ## Project overview
 
 - Ilha is a tiny, isomorphic web UI library built around the islands architecture — ship minimal JavaScript, hydrate only what matters.
-- It is a Bun monorepo containing three packages (`ilha`, `@ilha/router`, `@ilha/store`), one documentation app (`apps/website`), and scaffolding templates (`templates/`).
+- It is a Bun monorepo containing four packages (`ilha`, `@ilha/router`, `@ilha/store`, `@ilha/astro`), one documentation app (`apps/website`), and scaffolding templates (`templates/`).
 - The core package (`packages/ilha`) is the island builder: signal-based reactivity, SSR rendering, DOM hydration, and a JSX runtime — no virtual DOM, no compiler.
 - `@ilha/router` provides an isomorphic SPA router with a Vite file-system routing plugin; `@ilha/store` provides cross-island global state backed by alien-signals.
 - The documentation site (`apps/website`) is built with Nimbus (Astro), Ilha, and Areia. It prerenders to static HTML and is deployed to Vercel.

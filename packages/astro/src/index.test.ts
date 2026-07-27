@@ -105,10 +105,19 @@ describe("@ilha/astro client hydration", () => {
     el.remove();
   });
 
-  it("skips hydration when the astro-island wasn't server-rendered", async () => {
+  it("mounts client:only islands fresh in the browser", async () => {
     const el = document.createElement("div");
-    await hydrate(el)(Counter, {}, {}, { client: "only" });
-    expect(el.innerHTML).toBe("");
+    document.body.appendChild(el);
+
+    await hydrate(el)(Counter, { label: "Clicks" }, {}, { client: "only" });
+
+    const button = el.querySelector("button")!;
+    expect(button.textContent).toBe("Clicks:0");
+    button.click();
+    expect(button.textContent).toBe("Clicks:1");
+
+    el.dispatchEvent(new Event("astro:unmount"));
+    el.remove();
   });
 
   it("re-invokes static components without mutating SSR markup", async () => {
