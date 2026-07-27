@@ -29,11 +29,22 @@ export default defineConfig({
 });
 ```
 
+Islands in these examples use JSX. Set `jsx` and `jsxImportSource` in `tsconfig.json` (or use `/** @jsxImportSource ilha */` per file) — see [`.render()` — JSX setup](/guide/island/render#jsx-setup):
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "ilha"
+  }
+}
+```
+
 Define an island as usual, then use it in a page with a client directive:
 
-```ts
-// src/islands/counter.ts
-import ilha, { html } from "ilha";
+```tsx
+// src/islands/counter.tsx
+import ilha from "ilha";
 
 export const Counter = ilha
   .input<{ start?: number }>()
@@ -41,10 +52,9 @@ export const Counter = ilha
   .on("button@click", ({ state }) =>
     state.count(state.count() + 1),
   )
-  .render(
-    ({ state }) =>
-      html`<button type="button">${state.count()}</button>`,
-  );
+  .render(({ state }) => (
+    <button type="button">{state.count()}</button>
+  ));
 ```
 
 ```astro
@@ -101,11 +111,12 @@ The renderer also accepts plain functions that return Ilha `RawHtml` or a string
 
 On the server, `@ilha/astro` calls the function and emits the HTML with no `data-ilha` wrapper. On the client, it re-invokes the function so libraries that schedule auto-bind against SSR markup (for example `data-areia-*` hosts) still wire up under `client:*`.
 
-```ts
-import { html } from "ilha";
-
-export const Button = ({ label }: { label: string }) =>
-  html`<button class="btn" type="button">${label}</button>`;
+```tsx
+export const Button = ({ label }: { label: string }) => (
+  <button class="btn" type="button">
+    {label}
+  </button>
+);
 ```
 
 ```astro
