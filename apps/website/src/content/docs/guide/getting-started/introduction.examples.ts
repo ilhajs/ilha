@@ -3,12 +3,12 @@ import { Button } from "areia";
 
 export default ilha
   .state("count", 0)
-  .on("button@click", ({ state }) =>
-    state.count(state.count() + 1))
-  .render(({ state }) => (
+  .action("increment", (_, { state }) =>
+    state.count((count) => count + 1))
+  .render(({ state, action }) => (
     <div class="flex flex-col gap-2">
       <p>Count: {state.count()}</p>
-      <Button>Increment</Button>
+      <Button onclick={action.increment}>Increment</Button>
     </div>
   ));
 `;

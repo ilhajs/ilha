@@ -35,9 +35,10 @@ const chevron = `<svg viewBox="0 0 16 16">
     <path d="M4 6l4 4 4-4"/>
 </svg>`;
 
-const Dropdown = ilha
+const Dropdown = ilha(() => (
   // [!code highlight]
-  .render(() => <button>Options {raw(chevron)}</button>);
+  <button>Options {raw(chevron)}</button>
+));
 ```
 
 ```tsx twoslash

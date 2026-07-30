@@ -50,10 +50,10 @@ fill: "forwards",
 
 export default ilha
   .state("open", true)
-  .on("button@click", ({ state }) => state.open(!state.open()))
-  .render(({ state }) => (
+  .action("toggle", (_, { state }) => state.open((open) => !open))
+  .render(({ state, action }) => (
     <div class="flex min-h-52 flex-col gap-4">
-      <Button variant="outline">
+      <Button variant="outline" onclick={action.toggle}>
         {state.open() ? "Dismiss panel" : "Show panel"}
       </Button>
       {state.open() ? <Panel /> : null}

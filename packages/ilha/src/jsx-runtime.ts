@@ -1,4 +1,12 @@
-import { __ilhaJsxSlot, html, raw, type RawHtml } from "./index";
+import {
+  __ilhaJsxEvent,
+  __ilhaJsxSlot,
+  html,
+  raw,
+  type NativeEventHandler,
+  type NativeEventModifier,
+  type RawHtml,
+} from "./index";
 export type { JSX } from "./jsx-types";
 
 type JsxChild = unknown;
@@ -13,6 +21,43 @@ const RENDER_PART = Symbol.for("ilha.renderPart");
 
 const SAFE_NAME_RE = /^[A-Za-z_:][A-Za-z0-9:._-]*$/;
 const SAFE_BIND_LOCAL_RE = /^[A-Za-z][A-Za-z0-9]*$/;
+const SAFE_EVENT_PROP_RE = /^on([a-z][a-z0-9-]*)(?::(abortable|once|capture|passive))?$/;
+const JSX_ATTRIBUTE_ALIASES: Record<string, string> = {
+  className: "class",
+  htmlFor: "for",
+  acceptCharset: "accept-charset",
+  httpEquiv: "http-equiv",
+  accentHeight: "accent-height",
+  alignmentBaseline: "alignment-baseline",
+  baselineShift: "baseline-shift",
+  clipPath: "clip-path",
+  clipRule: "clip-rule",
+  dominantBaseline: "dominant-baseline",
+  fillOpacity: "fill-opacity",
+  fillRule: "fill-rule",
+  floodColor: "flood-color",
+  floodOpacity: "flood-opacity",
+  fontFamily: "font-family",
+  fontSize: "font-size",
+  fontStyle: "font-style",
+  fontWeight: "font-weight",
+  markerEnd: "marker-end",
+  markerMid: "marker-mid",
+  markerStart: "marker-start",
+  stopColor: "stop-color",
+  stopOpacity: "stop-opacity",
+  strokeDasharray: "stroke-dasharray",
+  strokeDashoffset: "stroke-dashoffset",
+  strokeLinecap: "stroke-linecap",
+  strokeLinejoin: "stroke-linejoin",
+  strokeMiterlimit: "stroke-miterlimit",
+  strokeOpacity: "stroke-opacity",
+  strokeWidth: "stroke-width",
+  textAnchor: "text-anchor",
+  vectorEffect: "vector-effect",
+  xlinkHref: "xlink:href",
+};
+const STRING_BOOLEAN_ATTRIBUTES = new Set(["contenteditable", "draggable", "spellcheck"]);
 const VOID_ELEMENTS = new Set([
   "area",
   "base",
@@ -113,8 +158,20 @@ function serializeStyle(value: Record<string, unknown>): string {
     .join(";");
 }
 
-function pushJsxAttr(chunks: string[], values: unknown[], name: string, value: unknown): void {
-  if (value == null || value === false || name === "children" || name === "key") return;
+function pushJsxAttr({
+  chunks,
+  values,
+  eventSpecs,
+  name,
+  value,
+}: {
+  chunks: string[];
+  values: unknown[];
+  eventSpecs: string[];
+  name: string;
+  value: unknown;
+}): void {
+  if (value == null || name === "children" || name === "key") return;
   if (name === "__proto__" || name === "constructor" || name === "prototype") return;
 
   if (name.startsWith("bind:")) {
@@ -130,21 +187,38 @@ function pushJsxAttr(chunks: string[], values: unknown[], name: string, value: u
   }
 
   if (!SAFE_NAME_RE.test(name)) return;
-  let safeName = name;
-  if (safeName === "className") safeName = "class";
-  if (safeName === "htmlFor") safeName = "for";
-  if (safeName.startsWith("on")) return;
+  const safeName = JSX_ATTRIBUTE_ALIASES[name] ?? name;
+  if (safeName.startsWith("on")) {
+    const eventMatch = SAFE_EVENT_PROP_RE.exec(safeName);
+    if (typeof value !== "function" || !eventMatch) return;
+    const eventName = eventMatch[1]!;
+    const modifier = eventMatch[2] as NativeEventModifier | undefined;
+    const index = __ilhaJsxEvent({
+      type: eventName,
+      handler: value as NativeEventHandler,
+      modifier,
+    });
+    if (index !== undefined) eventSpecs.push(`${eventName}:${index}`);
+    return;
+  }
+  const securityName = safeName.toLowerCase();
   // srcdoc decodes HTML entities back into live markup, so attribute escaping
-  // does not neutralize it — a bound srcdoc is an XSS hole. Refuse it outright.
-  if (safeName === "srcdoc") return;
-  if (safeName === "class") value = normalizeClass(value);
-  if (safeName === "style" && value && typeof value === "object") {
+  // does not neutralize it — a bound srcdoc is an XSS hole. Refuse it outright,
+  // including JSX's camelCase srcDoc alias.
+  if (securityName === "srcdoc") return;
+  const stringBoolean =
+    securityName.startsWith("aria-") || STRING_BOOLEAN_ATTRIBUTES.has(securityName);
+  if (typeof value === "boolean" && stringBoolean) value = String(value);
+  else if (value === false) return;
+  if (safeName === "class" && !isRawHtml(value)) value = normalizeClass(value);
+  if (safeName === "style" && value && typeof value === "object" && !isRawHtml(value)) {
     value = serializeStyle(value as Record<string, unknown>);
   }
   // Coerce non-string values (boxed strings, objects with toString) before
   // the scheme check so they cannot smuggle an unsafe URL past it.
   if (
-    (URL_ATTRS.has(safeName) || /:(href|src|action|formaction|cite|data|poster)$/.test(safeName)) &&
+    (URL_ATTRS.has(securityName) ||
+      /:(href|src|action|formaction|cite|data|poster)$/.test(securityName)) &&
     !isSafeUrl(typeof value === "string" ? value : String(value))
   ) {
     return;
@@ -178,18 +252,30 @@ function injectDataKey(out: RawHtml, key: string): RawHtml {
   );
 }
 
-function renderJsxElement(
-  type: string,
-  props: JsxProps,
-  children: JsxChild[],
-  slotKey?: string,
-): RawHtml {
+function renderJsxElement({
+  type,
+  props,
+  children,
+  slotKey,
+}: {
+  type: string;
+  props: JsxProps;
+  children: JsxChild[];
+  slotKey?: string;
+}): RawHtml {
   const chunks = [`<${type}`];
   const values: unknown[] = [];
-  if (props)
-    for (const [name, value] of Object.entries(props)) pushJsxAttr(chunks, values, name, value);
+  const eventSpecs: string[] = [];
+  if (props) {
+    for (const [name, value] of Object.entries(props)) {
+      pushJsxAttr({ chunks, values, eventSpecs, name, value });
+    }
+  }
   if (slotKey !== undefined && props?.["data-key"] == null) {
-    pushJsxAttr(chunks, values, "data-key", slotKey);
+    pushJsxAttr({ chunks, values, eventSpecs, name: "data-key", value: slotKey });
+  }
+  if (eventSpecs.length > 0) {
+    chunks[chunks.length - 1] += ` data-ilha-on="${eventSpecs.join(",")}"`;
   }
   chunks[chunks.length - 1] += ">";
   if (!VOID_ELEMENTS.has(type)) {
@@ -231,7 +317,7 @@ export function jsx(
     }
     if (isRawHtml(out)) return slotKey !== undefined ? injectDataKey(out, slotKey) : out;
     if (typeof out === "string" && isIsland(type)) {
-      return __ilhaJsxSlot(type, componentProps, slotKey);
+      return __ilhaJsxSlot({ island: type, props: componentProps, key: slotKey });
     }
     if (typeof out === "string") return html`${out}`;
     if (
@@ -246,7 +332,7 @@ export function jsx(
     return html`${out}`;
   }
 
-  return renderJsxElement(type, props, normalizedChildren, slotKey);
+  return renderJsxElement({ type, props, children: normalizedChildren, slotKey });
 }
 
 export const jsxs = jsx;

@@ -15,7 +15,7 @@ It lets you render on the server and mount in the browser with fine-grained sign
 
 An **island** is a self-contained component that knows how to render itself to HTML and how to activate itself in the browser. That means the same component can be used for server-side rendering, client-side mounting, or both together in a hydration flow.
 
-ilha is built around a fluent builder chain. You declare input, state, derived values, event handlers, effects, transitions, and styles, then finish with [`.render()`](/guide/island/render) to produce a reusable component.
+You can start with a plain JSX function, wrap it with `ilha()` when it needs an independent island boundary, then expand it into the fluent builder when it needs local capabilities.
 
 ## Why it exists
 
@@ -36,6 +36,42 @@ A typical island reads a lot like a small HTML-aware module:
 <Preview code={example} />
 
 The same component can render to a string on the server and mount into the DOM on the client. That keeps the component logic in one place instead of splitting it across separate templates and client scripts.
+
+## Choose the smallest component form
+
+Ilha has two runtime modes: transparent plain components and independent islands. Islands have two authoring forms, so you can add capabilities without redesigning your component.
+
+| Start with                                | Use it when                                                                             |
+| ----------------------------------------- | --------------------------------------------------------------------------------------- |
+| `const View = () => JSX`                  | You need reusable markup inside another island                                          |
+| `const View = ilha(() => JSX)`            | The component needs an independent mount, hydration, reactive scope, or event lifecycle |
+| `ilha.state(...).action(...).render(...)` | The island needs local state, derived values, actions, input, or lifecycle hooks        |
+
+Start plain:
+
+```tsx twoslash
+const Status = () => <p>Ready</p>;
+```
+
+Promote the same render function when it needs an island boundary:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Status = ilha(() => <p>Ready</p>);
+```
+
+Expand it into the builder when it needs local capabilities:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Status = ilha
+  .state("message", "Ready")
+  .render(({ state }) => <p>{state.message()}</p>);
+```
+
+Both `ilha(() => JSX)` and the builder return the same kind of `Island`. The shorthand is equivalent to `ilha.render(() => JSX)`.
 
 ## Core ideas
 
@@ -60,7 +96,7 @@ The fluent API lets you layer behavior step by step:
 - [`.input()`](/guide/island/input) for typed props.
 - [`.state()`](/guide/island/state) for local reactive state.
 - [`.derived()`](/guide/island/derived) for computed values.
-- [`.on()`](/guide/island/on) for events.
+- [Native event handlers and `.action()`](/guide/island/action#call-actions-from-events) for events and operations.
 - [`.effect()`](/guide/island/effect) and [`.onMount()`](/guide/island/onmount) for side effects.
 - [`.css()`](/guide/island/css) for scoped styles.
 - [`.render()`](/guide/island/render) to finalize the component.

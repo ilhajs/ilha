@@ -98,6 +98,16 @@ describe("state accessors", () => {
     expect(s.label()).toBe("y");
   });
 
+  it("accepts updater functions for state keys and selected fields", () => {
+    const s = store({ count: 1, user: { visits: 2 } }).build();
+
+    s.count((previous) => previous + 1);
+    s.user.select((user) => user.visits)((previous) => previous * 3);
+
+    expect(s.count()).toBe(2);
+    expect(s.user().visits).toBe(6);
+  });
+
   it("returns the same accessor reference on each access (cached)", () => {
     const s = store({ count: 0 }).build();
     expect(s.count).toBe(s.count);
@@ -1149,6 +1159,15 @@ describe("bind()", () => {
     expect(s.label()).toBe("y");
   });
 
+  it("accepts updater functions", () => {
+    const s = store({ label: "a" }).build();
+    const labelBind = s.bind((state) => state.label);
+
+    labelBind((previous) => previous + "b");
+
+    expect(s.label()).toBe("ab");
+  });
+
   it("write path is intercepted by middleware", () => {
     const seen: unknown[] = [];
     const s = store({ name: "a" })
@@ -1470,10 +1489,7 @@ describe("dehydrate() / hydrate()", () => {
     hydrate(s, '{"nested":{"ok":false,"__proto__":{"polluted":true}},"constructor":{"x":1}}');
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     expect(s.getState().nested.ok).toBe(false);
-    expect(
-      "constructor" in s.getState() &&
-        Object.prototype.hasOwnProperty.call(s.getState(), "constructor"),
-    ).toBe(false);
+    expect("constructor" in s.getState() && Object.hasOwn(s.getState(), "constructor")).toBe(false);
   });
 });
 

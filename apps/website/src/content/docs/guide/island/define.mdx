@@ -2,7 +2,7 @@
 title: .define()
 description: Register an island as a custom element so it can be used from plain HTML or any other framework.
 sidebar:
-  order: 212
+  order: 213
 ---
 
 Registers the island as a **custom element** — usable from plain HTML, or from any framework that can render arbitrary tags, without touching ilha's `mount()` API at all. This is one of the easiest ways to drop an ilha island into an existing app, a CMS template, or a static page.
@@ -123,7 +123,7 @@ function Page() {
 ```tsx twoslash
 import ilha from "ilha";
 
-const Badge = ilha.render(() => <span>hi</span>);
+const Badge = ilha(() => <span>hi</span>);
 
 // Safe to call during module init even on the server —
 // logs a dev warning and returns without registering anything.

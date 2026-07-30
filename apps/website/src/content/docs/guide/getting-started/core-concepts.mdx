@@ -13,6 +13,33 @@ An island is a self-contained UI component that can render itself to HTML on the
 
 This makes ilha a good fit for server-rendered pages that only need interactivity in specific places. Instead of turning the whole page into one client app, you can activate only the parts that need to be interactive.
 
+A plain JSX function is not an island boundary. It is a transparent component whose events and reactive reads belong to the containing island. Wrap it with `ilha()` only when it needs independent ownership.
+
+## Choose the smallest component form
+
+Start with the least machinery your component needs:
+
+| Form                           | Ownership                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------ |
+| `const View = () => JSX`       | The containing island owns its rendering, events, and cleanup                        |
+| `const View = ilha(() => JSX)` | `View` owns an independent reactive scope, lifecycle, mount, and hydration           |
+| `ilha.state(...).render(...)`  | The island also owns builder capabilities such as state, derived values, and actions |
+
+Promotion keeps the markup intact. A component without props can wrap the same render function directly. For a component with props, read them from `input` or keep the plain view as a child:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const LabelView = ({ label }: { label: string }) => (
+  <span>{label}</span>
+);
+const Label = ilha<{ label: string }>(({ input }) => (
+  <LabelView label={input.label} />
+));
+```
+
+Replace the shorthand with a builder chain when the island needs another capability.
+
 ## Isomorphic components
 
 The same island can be used in two ways:
@@ -44,21 +71,21 @@ Inside JSX, you can render the signal value directly:
 
 This keeps reactive state small and direct. You read what you need, update what you need, and the island updates accordingly.
 
-## Builder chain
+## Configure an island
 
-You create islands with a fluent builder chain. Each method adds one capability, and [`.render()`](/guide/island/render) finalizes the component.
+Use the fluent builder chain when an island needs local capabilities. Each method adds one capability, and [`.render()`](/guide/island/render) finalizes the component.
 
 A typical island might include:
 
 - [`.input()`](/guide/island/input) for typed props.
 - [`.state()`](/guide/island/state) for local reactive state.
 - [`.derived()`](/guide/island/derived) for computed or async values.
-- [`.on()`](/guide/island/on) for event handlers.
+- [Native event handlers and `.action()`](/guide/island/action#call-actions-from-events) for event handling and operations.
 - [`.effect()`](/guide/island/effect) and [`.onMount()`](/guide/island/onmount) for side effects.
 - [`.css()`](/guide/island/css) for scoped styles.
 - [`.render()`](/guide/island/render) to produce the final island.
 
-This step-by-step structure is one of the core design ideas in ilha. Instead of putting everything in one large options object, you compose behavior in a readable chain.
+This step-by-step structure is one of the core design ideas in ilha. Instead of putting everything in one large options object, you compose behavior in a readable chain. An island with no builder capabilities can use the shorter `ilha(() => JSX)` form.
 
 ## JSX rendering
 
@@ -69,7 +96,7 @@ const userInput = "Ilha is awesome";
 // ---cut---
 import ilha from "ilha";
 
-const Message = ilha.render(() => <p>{userInput}</p>);
+const Message = ilha(() => <p>{userInput}</p>);
 ```
 
 JSX output follows safe rendering rules: interpolated values are escaped by default, arrays render without commas, and ilha values such as child islands can be nested directly. If you really need to inject trusted markup, you can opt into that explicitly with [`raw()`](/guide/helpers/raw).
@@ -86,7 +113,7 @@ For async work, the accessor also exposes `loading`, `value`, and `error`, so lo
 
 ilha separates user interaction from side effects.
 
-Use [`.on()`](/guide/island/on) for DOM events such as clicks, input, and change events. Use [`.effect()`](/guide/island/effect) when you want reactive behavior that runs after mount and reruns when its dependencies change. Use [`.onMount()`](/guide/island/onmount) when something should run once after the island is attached to the DOM.
+Use [native handlers and `.action()`](/guide/island/action#call-actions-from-events) for DOM events and reusable operations. Use [`.effect()`](/guide/island/effect) when you want reactive behavior that runs after mount and reruns when its dependencies change. Use [`.onMount()`](/guide/island/onmount) when something should run once after the island is attached to the DOM.
 
 This separation helps keep component logic easier to scan:
 

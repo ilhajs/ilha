@@ -96,6 +96,20 @@ const s = store(
 
 Builder methods are **immutable** — each returns a new `StoreBuilder`.
 
+State accessors and `store.bind()` accept either a value or an updater function:
+
+```ts
+const s = store({ count: 0, profile: { visits: 1 } }).build();
+
+s.count((previous) => previous + 1);
+s.profile.select((profile) => profile.visits)(
+  (previous) => previous + 1,
+);
+s.bind((state) => state.count)((previous) => previous + 1);
+```
+
+The updater receives the latest selected value. If the stored value is a function, return its replacement from an outer updater function.
+
 ### `.derived(key, fn)`
 
 Registers a computed value. `fn` receives `ctx`; `ctx.get()` returns the current raw state.
@@ -152,13 +166,12 @@ Registers a named mutation. `fn` may be sync or `async`. Return a `Partial` patc
 
 Every action exposes a reactive **`.pending`** flag — `true` while any async invocation is in flight (sync actions never set it). Read it in a render for per-action loading UI:
 
-```ts
-ilha.render(
-  () =>
-    html`<button disabled=${() => s.save.pending}>
-      Save
-    </button>`,
-);
+```tsx
+ilha(() => (
+  <button disabled={s.save.pending}>
+    {s.save.pending ? "Saving…" : "Save"}
+  </button>
+));
 ```
 
 ### `.middleware(fn)`
@@ -206,7 +219,7 @@ s.count(); // reactive read
 s.count(5); // write → goes through middleware
 ```
 
-Writes are reactive: any ilha render or derived that called `s.count()` re-runs. Accessors carry `[SIGNAL_ACCESSOR]` so they work directly in `html` templates and `bind:*` directives.
+Writes are reactive: any ilha render or derived that called `s.count()` re-runs. Accessors carry `[SIGNAL_ACCESSOR]`, so JSX tracks them and `bind:*` directives accept them directly.
 
 #### `store.setState(patch)`
 
@@ -300,7 +313,7 @@ State and derived accessors are signal-shaped — use them **directly** inside `
 
 ```tsx
 import { store } from "@ilha/store";
-import ilha, { html } from "ilha";
+import ilha from "ilha";
 
 const cartStore = store({ items: [] as string[] })
   .action("add", (item: string, ctx) => ({
@@ -310,16 +323,17 @@ const cartStore = store({ items: [] as string[] })
   .build();
 
 // State and derived read directly — no .select() needed
-export const CartBadge = ilha.render(
-  () => html`<span>${cartStore.count()}</span>`,
-);
+export const CartBadge = ilha(() => (
+  <span>{cartStore.count()}</span>
+));
 
-export const CartList = ilha.render(
-  () =>
-    html`<ul>
-      ${cartStore.items().map((item) => html`<li>${item}</li>`)}
-    </ul>`,
-);
+export const CartList = ilha(() => (
+  <ul>
+    {cartStore.items().map((item) => (
+      <li key={item}>{item}</li>
+    ))}
+  </ul>
+));
 ```
 
 Both islands stay in sync. `CartBadge` re-renders only when `count` changes; `CartList` only when `items` changes.
@@ -500,7 +514,7 @@ import {
   preventDefault,
 } from "@ilha/store/form";
 import type { FormErrors } from "@ilha/store/form";
-import ilha, { html } from "ilha";
+import ilha from "ilha";
 import { z } from "zod";
 
 const ContactSchema = z.object({
@@ -528,21 +542,19 @@ export default ilha
     "form@submit",
     preventDefault(({ event }) => formStore.submit(event)),
   )
-  .render(
-    () => html`
-      <form>
-        <input name="name" />
-        ${errors().name
-          ? html`<p role="alert">${errors().name![0]}</p>`
-          : ""}
-        <input name="email" type="email" />
-        ${errors().email
-          ? html`<p role="alert">${errors().email![0]}</p>`
-          : ""}
-        <button type="submit">Send</button>
-      </form>
-    `,
-  );
+  .render(() => (
+    <form>
+      <input name="name" />
+      {errors().name ? (
+        <p role="alert">{errors().name[0]}</p>
+      ) : null}
+      <input name="email" type="email" />
+      {errors().email ? (
+        <p role="alert">{errors().email[0]}</p>
+      ) : null}
+      <button type="submit">Send</button>
+    </form>
+  ));
 ```
 
 ## TypeScript
@@ -551,7 +563,7 @@ export default ilha
 import type {
   StoreBuilder, // the builder type
   BuiltStore, // the built store type
-  StateAccessor, // <T>: () => T and (value: T) => void
+  StateAccessor, // <T>: () => T and (value | updater) => void
   DerivedAccessor, // <T>: () => T | undefined, .loading, .value, .error
   DerivedValue, // <T>: { loading, value, error } — the derived envelope
   DerivedCtx, // { get(), signal } — passed to .derived()

@@ -38,3 +38,5 @@ templates/*/bun.lock
 repomix-output.xml
 diff.txt
 .nimbus
+.pi*
+test-results

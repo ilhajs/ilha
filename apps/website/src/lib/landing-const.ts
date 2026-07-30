@@ -7,7 +7,7 @@ export const URLS = {
 } as const;
 
 export const META_DESCRIPTION =
-  "Ilha ships interactive UI as plain HTML, then hydrates only what needs to move. Tiny core.";
+  "Build typed interactive UI that renders to plain HTML and hydrates only where it needs to move. No compiler or virtual DOM.";
 
 export const COUNTER_CODE = `import ilha, { mount } from "ilha";
 
@@ -16,28 +16,27 @@ const Signup = ilha
   .derived("ready", ({ state }) =>
     state.email().includes("@")
   )
-  .on("[data-action=join]@click", async ({ state }) => {
+  .action("join", async (event: SubmitEvent, { state }) => {
+    event.preventDefault();
     await fetch("/api/waitlist", {
       method: "POST",
       body: JSON.stringify({ email: state.email() }),
     });
   })
-  .render(({ state, derived }) => (
-    <form class="card">
+  .render(({ state, derived, action }) => (
+    <form class="card" onsubmit={action.join}>
       <input
         name="email"
         bind:value={state.email}
         placeholder="you@company.com"
       />
-      <button
-        data-action="join"
-        disabled={!derived.ready()}
-      >
-        Join waitlist
+      <button disabled={!derived.ready()}>
+        {action.join.pending ? "Joining…" : "Join waitlist"}
       </button>
     </form>
   ));
 
+// Hydrate matching server-rendered Signup hosts.
 mount({ Signup });`;
 
 export const SIGNALS_CODE = `import ilha from "ilha";
@@ -75,8 +74,9 @@ const island = await ProductCard.hydratable(
   { name: "ProductCard", snapshot: true },
 );
 
-// Or mount client-side when SEO is not required.
-mount({ ProductCard });`;
+// Or render directly into a client-side host.
+const host = document.querySelector("#product-card")!;
+ProductCard.mount(host, { featured: true });`;
 
 export const ILHA_ROUTER_CODE = `// vite.config.ts
 import { pages } from "@ilha/router/vite";
@@ -90,8 +90,8 @@ export default defineConfig({
 //   index.tsx        → /
 //   pricing.tsx      → /pricing
 //   blog/[slug].tsx  → /blog/:slug
-import { pageRouter } from "ilha:pages";
-pageRouter.start();`;
+import { pageRouter, registry } from "ilha:pages/client";
+pageRouter.hydrate(registry);`;
 
 export const ILHA_STORE_CODE = `// src/lib/cart.ts
 import { store } from "@ilha/store";
@@ -121,7 +121,6 @@ export default defineConfig({
 
 export const PREVIEW_CODE = `import ilha from "ilha";
 import { Button, Checkbox, Input, LayerCard } from "areia";
-import { each } from "quando";
 
 let nextId = 4;
 
@@ -133,49 +132,54 @@ export default ilha
   ])
   .state("draft", "")
   .derived("pending", ({ state }) =>
-    state.tasks().filter((t) => !t.done)
+    state.tasks().filter((task) => !task.done)
   )
-  .on("form@submit", ({ state, event }) => {
+  .action("add", (event: SubmitEvent, { state }) => {
     event.preventDefault();
     const label = state.draft().trim();
     if (!label) return;
-    state.tasks([
-      ...state.tasks(),
-      { id: nextId++, label, done: false }
+    state.tasks((tasks) => [
+      ...tasks,
+      { id: nextId++, label, done: false },
     ]);
     state.draft("");
   })
-  .on("[data-remove]@click", ({ state, target }) => {
-    const id = Number(target.dataset.remove);
-    state.tasks(state.tasks().filter((t) => t.id !== id));
+  .action("remove", (id: number, { state }) => {
+    state.tasks((tasks) =>
+      tasks.filter((task) => task.id !== id)
+    );
   })
-  .render(({ state, derived }) => (
+  .render(({ state, derived, action }) => (
     <LayerCard>
       <LayerCard.Title>
         My Tasks ({derived.pending().length})
       </LayerCard.Title>
       <LayerCard.Content class="p-0">
         <ul class="divide-y divide-areia-border">
-          {each(state.tasks())
-            .as((task, i) => (
-              <li
-                key={task.id}
-                class="flex items-center gap-2 p-2"
+          {state.tasks().map((task, index) => (
+            <li
+              key={task.id}
+              class="flex items-center gap-2 p-2"
+            >
+              <div class="flex-1">
+                <Checkbox
+                  bind:checked={state.tasks.select(
+                    (tasks) => tasks[index].done
+                  )}
+                  label={task.label}
+                />
+              </div>
+              <Button
+                onclick={() => action.remove(task.id)}
+                size="sm"
               >
-                <div class="flex-1">
-                  <Checkbox
-                    bind:checked={state.tasks.select((tasks) => tasks[i].done)}
-                    label={task.label}
-                  />
-                </div>
-                <Button data-remove={task.id} size="sm">
-                  ✕
-                </Button>
-              </li>
-            ))
-            .else(<div class="p-2">No tasks</div>)}
+                ✕
+              </Button>
+            </li>
+          ))}
         </ul>
         <form
+          onsubmit={action.add}
           class="flex gap-2 border-t border-areia-border p-2"
         >
           <Input
@@ -183,7 +187,7 @@ export default ilha
             bind:value={state.draft}
             class="flex-1"
           />
-          <Button type="submit" disabled={state.draft.length}>
+          <Button type="submit" disabled={!state.draft()}>
             Add
           </Button>
         </form>
@@ -196,30 +200,30 @@ export const PRIMARY_ILHA_CARDS = [
   {
     id: "syntax",
     label: "Syntax",
-    title: "One island holds the whole interaction.",
+    title: "Read the feature from top to bottom.",
     description:
-      "State, events, and markup live in one builder chain — so interactive UI stays local, readable, and easy to move.",
-    points: ["Svelte-like reactivity", "React-flavored templating", "No app shell required"],
+      "Typed state, derived values, actions, and markup stay in one builder chain. The interaction is local, portable, and easy to delete.",
+    points: ["Lowercase native events", "Typed reusable actions", "No app shell required"],
     file: "signup.tsx",
     code: COUNTER_CODE,
   },
   {
     id: "signals",
     label: "Signals",
-    title: "Update only what the user touched.",
+    title: "Signals are functions, not ceremony.",
     description:
-      "Signals track what your UI actually reads. Pages stay quiet until something changes — then only that part moves.",
-    points: ["Fine-grained updates", "Abortable async work", "No app-wide re-render loop"],
+      "Read a signal by calling it. Write a value or pass an updater. Async derived work cancels when its dependencies change.",
+    points: ["Functional setters", "Abortable async work", "No app-wide render loop"],
     file: "signals.tsx",
     code: SIGNALS_CODE,
   },
   {
     id: "rendering",
     label: "Rendering",
-    title: "Choose HTML, hydration, or client — per island.",
+    title: "Render each island the way the page needs.",
     description:
-      "Keep most of the page as static HTML. Opt into SSR hydration or client-only where the interaction earns the JavaScript.",
-    points: ["Static HTML", "Server-rendered hydration", "Client-only islands"],
+      "Call .toString() for synchronous HTML, await the island for async SSR, or emit hydratable markup with explicit state snapshots.",
+    points: ["Synchronous HTML", "Awaited server rendering", "Independent hydration"],
     file: "product-card.tsx",
     code: RENDERING_CODE,
   },
@@ -229,7 +233,7 @@ export const USEFUL_EXTRAS_CARD = {
   label: "Libraries",
   title: "Grow the stack only when the product asks.",
   description:
-    "Start with a single import. Add file-based routes or Zustand-shaped stores when navigation or shared state shows up — not before.",
+    "Start with a single import. Add file-based routes or signal-based shared stores when navigation or shared state shows up — not before.",
   points: [
     "File-based routes and dynamic pages",
     "Shared cart and session state",

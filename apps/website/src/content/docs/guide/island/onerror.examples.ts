@@ -7,7 +7,7 @@ export default ilha
   .on("button@click", ({ state }) => {
     if (state.count() > 1)
       throw new Error("too many clicks");
-    state.count(state.count() + 1);
+    state.count((count) => count + 1);
   })
   .onError(({ error }) => {
     toast.error(error.message);

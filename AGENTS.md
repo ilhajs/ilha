@@ -33,11 +33,16 @@
 
 ## Island API conventions
 
-- Define an island by chaining the builder: `.state()` → `.on()` → `.render()`.
+- Define configured islands with the builder, ending in `.render()`. Declare `.action()` before consumers such as `.on()` or `.render()`.
+- For an island without builder configuration, use `ilha(() => JSX)`. Use `ilha<Props>(({ input }) => JSX)` for typed input; this returns a complete island with its own reactive scope and lifecycle.
+- Keep plain function components transparent: `const View = () => JSX` belongs to its containing island, while `const View = ilha(() => JSX)` creates an independent island boundary.
+- Prefer lowercase native event props (`onclick={handler}` in JSX and `onclick=${handler}` in `html`` `) for element-local events. Prefer `.action()` for reusable operations. Reserve `.on()` for selectors, host listeners, full handler context, or combined modifiers.
 - Mount islands with `mount({ IslandName })` — it auto-discovers `[data-ilha="IslandName"]` elements.
-- For SSR, use `renderToString(island, state)` server-side; the client restores state via hydration with zero flicker.
-- Keep the public API surface minimal: `ilha` (default export), `html`, `mount`, `renderToString`, and the JSX runtime exports are the stable contracts — do not rename or remove them.
-- When adding new public exports, update `packages/ilha/src/public-types.ts` and add corresponding tests in `index.test.ts` or `jsx-runtime.test.tsx`.
+- For synchronous SSR, always use `Island.toString(props)`. For async SSR, always write `await Island(props)`. Never document or introduce an unawaited direct `Island(props)` call.
+- Use `await Island.hydratable(props, options)` when emitting hydration markup; the client restores serialized props and snapshots through `mount()`.
+- Functional signal setters use the setter directly (`count((previous) => previous + 1)`). To store a function value, return it from an updater wrapper (`callback(() => nextCallback)`).
+- Keep the public API surface minimal and preserve the default export, builder methods, named helpers, island methods, and JSX runtime contracts.
+- When changing public types, update `packages/ilha/src/public-types.ts` and add runtime tests in `index.test.ts` or `jsx-runtime.test.tsx`.
 
 ## Testing
 
@@ -60,7 +65,8 @@ Docs live in `apps/website/src/content/docs/**/*.mdx` (guides under `guide/`, tu
 - **Prefer active voice.** "`mount()` discovers every `[data-ilha]` element," not "elements are discovered by `mount()`."
 - **Keep it tight.** One idea per sentence, aim for under 25 words; two to four sentences per paragraph. Use numbered lists for sequences and tables for option matrices.
 - **Headings in sentence case, written for intent.** "Set up SSR," not "SSR Configuration." Never skip heading levels. Page titles come from frontmatter (`title`); do not add a duplicate `# Title` H1 in the MDX body — DocsLayout already renders it.
-- **One term per concept.** Use `island`, `state`, `signal`, `mount`, `hydration`, `renderToString` consistently — match the names in code exactly and do not drift between synonyms.
+- **One term per concept.** Use `island`, `state`, `signal`, `mount`, `hydration`, `.toString()`, and `.hydratable()` consistently — match the names in code exactly and do not drift between synonyms.
+- **Make rendering mode explicit.** Use `Island.toString(props)` in synchronous examples, `await Island(props)` in asynchronous examples, and `await Island.hydratable(props, options)` for hydration markup. Never show an unawaited `Island(props)` call.
 - **Be direct, cut filler.** Drop "simply," "just," "in order to," "it's worth noting that." No "powerful," "blazing fast," "seamless."
 - **Show, then explain.** Lead with a minimal, runnable code example, then describe what it does. Examples must be type-correct and copy-pasteable.
 - **Every new feature updates the docs.** Add or revise the relevant guide page, then run `bun run fmt` (oxfmt formats MDX). Build the site (`cd apps/website && bun run build`) to confirm the page prerenders without dead-link errors. Register MDX components in `apps/website/src/components.ts`. Put Preview demo source in a sibling `*.examples.ts` file when the sample contains PascalCase JSX tags (Nimbus MDX validation treats those as components).
@@ -72,6 +78,7 @@ Each production docs build emits `dist/llms.txt`, `dist/llms-full.txt`, and per-
 ## Agent behavior
 
 - Prefer small, focused changes. The core library is intentionally single-file (`index.ts`); keep it that way unless there is a compelling architectural reason to split.
-- When adding a new island API method, chain it onto the existing builder pattern — do not introduce a parallel API surface.
-- If you are unsure how a change affects SSR serialization, hydration state restoration, or the JSX runtime, ask for clarification rather than guessing.
+- When adding a new island API method, chain it onto the existing builder pattern unless it is an intentional shorthand consistent with an existing operation, such as `ilha(renderFn)` for `ilha.render(renderFn)`.
+- Prefer destructured named option objects for internal helpers with more than two logical inputs. Preserve public positional APIs and required JSX runtime signatures.
+- If you are unsure how a change affects SSR serialization, hydration state restoration, nested island ownership, or the JSX runtime, ask for clarification rather than guessing.
 - If you introduce a new feature or change documented behavior, update the corresponding MDX guide and verify `bun run build` passes in `apps/website`.

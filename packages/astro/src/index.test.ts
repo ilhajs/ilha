@@ -106,7 +106,13 @@ describe("@ilha/astro server renderer", () => {
     // Mirrors Areia docs: plain KitchenSinkGrid returning <Dialog /> via JSX.
     // `__ilhaJsxSlot` is what the JSX runtime emits for nested islands.
     const Panel = () =>
-      html`<section class="panel">${__ilhaJsxSlot(Counter, { label: "Clicks" })}</section>`;
+      html`<section class="panel">
+        ${__ilhaJsxSlot({
+          island: Counter,
+          props: { label: "Clicks" },
+          key: undefined,
+        })}
+      </section>`;
     const { html: markup } = await renderer.renderToStaticMarkup(Panel, {}, {}, {
       displayName: "Panel",
     } as never);
@@ -178,7 +184,13 @@ describe("@ilha/astro client hydration", () => {
 
   it("hydrates islands JSX-nested inside a plain function when the plain component is the Astro island", async () => {
     const Panel = () =>
-      html`<section class="panel">${__ilhaJsxSlot(Counter, { label: "Clicks" })}</section>`;
+      html`<section class="panel">
+        ${__ilhaJsxSlot({
+          island: Counter,
+          props: { label: "Clicks" },
+          key: undefined,
+        })}
+      </section>`;
     const { html: markup } = await renderer.renderToStaticMarkup(Panel, {}, {}, {
       displayName: "Panel",
     } as never);

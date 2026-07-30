@@ -49,11 +49,13 @@ import ilha from "ilha";
 export const Counter = ilha
   .input<{ start?: number }>()
   .state("count", (input) => input.start ?? 0)
-  .on("button@click", ({ state }) =>
-    state.count(state.count() + 1),
-  )
-  .render(({ state }) => (
-    <button type="button">{state.count()}</button>
+  .action("increment", (_, { state }) => {
+    state.count((count) => count + 1);
+  })
+  .render(({ state, action }) => (
+    <button type="button" onclick={action.increment}>
+      {state.count()}
+    </button>
   ));
 ```
 
@@ -109,7 +111,11 @@ import { Counter } from "../islands/counter";
 
 The renderer also accepts plain functions that return Ilha `RawHtml` or a string — the same shape Areia's static exports use (for example `Button` without callbacks).
 
-On the server, `@ilha/astro` calls the function and emits the HTML with no `data-ilha` wrapper. On the client, it re-invokes the function so libraries that schedule auto-bind against SSR markup (for example `data-areia-*` hosts) still wire up under `client:*`.
+On the server, `@ilha/astro` calls the function and emits the HTML with no `data-ilha` wrapper. With SSR-backed directives such as `client:load`, the client re-invokes the function so libraries that schedule auto-bind against SSR markup (for example `data-areia-*` hosts) still wire up.
+
+Plain Astro function components do not create an Ilha island lifecycle. Lowercase event props such as `onclick` therefore stay inert when you render the function directly through Astro. Plain functions also cannot use `client:only`, because there is no island to mount without SSR markup.
+
+Promote independently interactive UI with `ilha(() => JSX)`; use the builder form when it needs state, actions, or other local capabilities. Plain function children rendered inside an island inherit its event lifecycle.
 
 ```tsx
 export const Button = ({ label }: { label: string }) => (

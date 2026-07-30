@@ -1468,8 +1468,11 @@ const _activeIslandSig = context<Island<any, any> | null>("router.active", null)
 function activeIsland(value?: Island<any, any> | null): Island<any, any> | null {
   const store = activeRouteStore();
   if (arguments.length > 0) {
-    if (store) return (store.island = value ?? null);
-    return (_activeIslandSig(value ?? null), value ?? null);
+    const next = value ?? null;
+    if (store) return (store.island = next);
+    if (next === null) _activeIslandSig(null);
+    else _activeIslandSig(() => next);
+    return next;
   }
   return store ? store.island : _activeIslandSig();
 }
@@ -2833,6 +2836,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           navAbort?.abort();
           navAbort = new AbortController();
           const signal = navAbort.signal;
+
           queueMicrotask(() => {
             if (thisNav !== navVersion) return;
             const settle = beginNavigation();

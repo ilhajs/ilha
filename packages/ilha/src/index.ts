@@ -60,11 +60,15 @@ function warn(msg: string): void {
 // round-trip (dropped or silently transformed by JSON.stringify), so authors
 // hear about hydration divergence instead of debugging it. Returns a
 // "path: reason" description, or null when the value is JSON-safe.
-function findNonJsonSafeValue(
-  value: unknown,
-  path: string,
-  seen: WeakSet<object> = new WeakSet(),
-): string | null {
+function findNonJsonSafeValue({
+  value,
+  path,
+  seen = new WeakSet(),
+}: {
+  value: unknown;
+  path: string;
+  seen?: WeakSet<object>;
+}): string | null {
   if (value === null || typeof value === "string" || typeof value === "boolean") return null;
   if (typeof value === "number") {
     return Number.isFinite(value) ? null : `${path}: non-finite number becomes null`;
@@ -82,7 +86,7 @@ function findNonJsonSafeValue(
     if (seen.has(value)) return `${path}: circular reference throws in JSON.stringify`;
     seen.add(value);
     for (let i = 0; i < value.length; i++) {
-      const found = findNonJsonSafeValue(value[i], `${path}[${i}]`, seen);
+      const found = findNonJsonSafeValue({ value: value[i], path: `${path}[${i}]`, seen });
       if (found) return found;
     }
     return null;
@@ -93,7 +97,7 @@ function findNonJsonSafeValue(
     if (seen.has(value)) return `${path}: circular reference throws in JSON.stringify`;
     seen.add(value);
     for (const [k, v] of Object.entries(value)) {
-      const found = findNonJsonSafeValue(v, `${path}.${k}`, seen);
+      const found = findNonJsonSafeValue({ value: v, path: `${path}.${k}`, seen });
       if (found) return found;
     }
   }
@@ -123,7 +127,7 @@ function exceedsMaxDepth(value: unknown, depth: number): boolean {
     return false;
   }
   for (const key in value as Record<string, unknown>) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    if (!Object.hasOwn(value, key)) continue;
     if (exceedsMaxDepth((value as Record<string, unknown>)[key], depth + 1)) return true;
   }
   return false;
@@ -193,7 +197,7 @@ function shallowEqualInput(a: unknown, b: unknown): boolean {
   const bk = Object.keys(b as object);
   if (ak.length !== bk.length) return false;
   for (const k of ak) {
-    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
+    if (!Object.hasOwn(b, k)) return false;
     if (!Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) {
       return false;
     }
@@ -262,15 +266,29 @@ function getIslandSlotTag(island: AnyIsland): string {
   return "div";
 }
 
-function wrapIslandSlotHtml(tag: string, id: string, propsAttr: string, inner: string): string {
+function wrapIslandSlotHtml({
+  tag,
+  id,
+  propsAttr,
+  inner,
+}: {
+  tag: string;
+  id: string;
+  propsAttr: string;
+  inner: string;
+}): string {
   return `<${tag} ${SLOT_ATTR}="${escapeHtml(id)}"${propsAttr}>${inner}</${tag}>`;
 }
 
-function isStableInlineSlotMount(
-  initialHtml: string,
-  renderedHtml: string,
-  slotIds: Iterable<string>,
-): boolean {
+function isStableInlineSlotMount({
+  initialHtml,
+  renderedHtml,
+  slotIds,
+}: {
+  initialHtml: string;
+  renderedHtml: string;
+  slotIds: Iterable<string>;
+}): boolean {
   if (typeof document === "undefined") return false;
   const initialRoot = parseHtmlFragment(initialHtml);
   const renderedRoot = parseHtmlFragment(renderedHtml);
@@ -932,6 +950,10 @@ interface IslandRenderCtx {
   // here, and emits a data-ilha-bind sentinel attribute referencing the
   // entry by index. Mount-time wiring reads these back out.
   binds: BindRecord[];
+  // JSX event props (onclick={handler}, etc.) share the containing island's
+  // lifecycle. Plain function components execute inside this same context,
+  // so their handlers are collected and disposed with the parent island.
+  events: JsxEventRecord[];
 }
 
 type BindKind =
@@ -947,6 +969,23 @@ type BindKind =
 interface BindRecord {
   kind: BindKind;
   accessor: ExternalSignal;
+}
+
+export type NativeEventModifier = "abortable" | "once" | "capture" | "passive";
+
+export interface NativeEventContext {
+  readonly signal: AbortSignal;
+}
+
+export type NativeEventHandler<E extends Event = Event> = (
+  event: E,
+  context: NativeEventContext,
+) => unknown;
+
+interface JsxEventRecord {
+  type: string;
+  handler: NativeEventHandler;
+  modifier?: NativeEventModifier;
 }
 
 // Shared across duplicate ilha copies in one realm (app + component library).
@@ -967,6 +1006,7 @@ function pushRenderCtx(liveHost?: Element, asyncChildren?: boolean): IslandRende
     liveHost,
     pending: asyncChildren ? new Map() : undefined,
     binds: [],
+    events: [],
   };
   renderCtxStack().push(ctx);
   return ctx;
@@ -999,11 +1039,15 @@ function isIslandCall(v: unknown): v is IslandCall {
 
 // Emit a slot marker for an island at this interpolation site.
 // Records the slot in the active render context so mount can find it.
-function emitIslandSlot(
-  island: AnyIsland,
-  props: Record<string, unknown> | undefined,
-  key: string | undefined,
-): string {
+function emitIslandSlot({
+  island,
+  props,
+  key,
+}: {
+  island: AnyIsland;
+  props: Record<string, unknown> | undefined;
+  key: string | undefined;
+}): string {
   const ctx = currentRenderCtx();
 
   // Assign id: user key wins; otherwise use positional index. Keys are
@@ -1035,7 +1079,7 @@ function emitIslandSlot(
   // thing afterwards. New (not-yet-mounted) slots stay as stubs and get mounted
   // by mountSlots.
   if (ctx?.liveHost) {
-    return wrapIslandSlotHtml(slotTag, id, propsAttr, "");
+    return wrapIslandSlotHtml({ tag: slotTag, id, propsAttr, inner: "" });
   }
 
   // SSR path: render the child's HTML inline.
@@ -1056,11 +1100,16 @@ function emitIslandSlot(
         // Emit a stub containing a unique comment marker; resolveAsyncChildren
         // replaces the marker with the resolved inner HTML. Escaped
         // interpolations can never produce the marker text (it contains `<`).
-        return wrapIslandSlotHtml(slotTag, id, propsAttr, asyncSlotMarker(id));
+        return wrapIslandSlotHtml({
+          tag: slotTag,
+          id,
+          propsAttr,
+          inner: asyncSlotMarker(id),
+        });
       }
 
       // Child rendered synchronously — inline its HTML as usual.
-      return wrapIslandSlotHtml(slotTag, id, propsAttr, String(result));
+      return wrapIslandSlotHtml({ tag: slotTag, id, propsAttr, inner: String(result) });
     } finally {
       renderCtxStack().push(ctx);
     }
@@ -1069,7 +1118,7 @@ function emitIslandSlot(
   // Sync SSR path (no async children support). The child's renderToString
   // pushes its own render context so grandchildren are scoped correctly.
   const inner = island.toString(props);
-  return wrapIslandSlotHtml(slotTag, id, propsAttr, inner);
+  return wrapIslandSlotHtml({ tag: slotTag, id, propsAttr, inner });
 }
 
 // Unique inline placeholder for an async child's HTML. HTML comments survive
@@ -1097,14 +1146,38 @@ async function resolveAsyncChildren(
 // Signal accessor
 // ---------------------------------------------
 
-interface MarkedSignalAccessor<T> {
+type NonFunctionValue<T> = T extends (...args: any[]) => any ? never : T;
+
+export type SignalSetter<T> = NonFunctionValue<T> | ((previous: T) => T);
+
+declare const SIGNAL_WRITER_TYPE: unique symbol;
+
+/** @internal Type-level write target carried by signal accessors. */
+export interface SignalWriter<T> {
+  readonly [SIGNAL_WRITER_TYPE]?: (value: T) => void;
+}
+
+interface MarkedSignalAccessor<T> extends SignalWriter<T> {
   (): T;
-  (...args: [value: T]): void;
+  (...args: [value: SignalSetter<T>]): void;
   select<S>(selector: (state: T) => S): MarkedSignalAccessor<S>;
   [SIGNAL_ACCESSOR]: true;
 }
 
-function markSignalAccessor<T>(fn: { (): T; (value: T): void }): MarkedSignalAccessor<T> {
+function resolveSignalSetter<T>(read: () => T, value: SignalSetter<T>): T {
+  if (typeof value !== "function") return value as T;
+  const prevSub = setActiveSub(undefined);
+  try {
+    return (value as (previous: T) => T)(read());
+  } finally {
+    setActiveSub(prevSub);
+  }
+}
+
+function markSignalAccessor<T>(fn: {
+  (): T;
+  (value: SignalSetter<T>): void;
+}): MarkedSignalAccessor<T> {
   (fn as unknown as Record<symbol, boolean>)[SIGNAL_ACCESSOR] = true;
   const accessor = fn as MarkedSignalAccessor<T>;
   accessor.select = <S>(selector: (state: T) => S) => createSelectAccessor(accessor, selector);
@@ -1130,14 +1203,23 @@ function getAtPath(obj: unknown, path: readonly PathSegment[]): unknown {
   return cur;
 }
 
-function setAtPath(obj: unknown, path: readonly PathSegment[], value: unknown): unknown {
+function setAtPath({
+  object,
+  path,
+  value,
+}: {
+  object: unknown;
+  path: readonly PathSegment[];
+  value: unknown;
+}): unknown {
+  const obj = object;
   if (path.length === 0) return value;
   const [head, ...rest] = path;
   if (Array.isArray(obj)) {
     const idx = head as number;
     if (idx < 0 || idx >= obj.length) return obj;
     const next = obj[idx];
-    const updated = rest.length === 0 ? value : setAtPath(next, rest, value);
+    const updated = rest.length === 0 ? value : setAtPath({ object: next, path: rest, value });
     if (Object.is(next, updated)) return obj;
     const copy = obj.slice();
     copy[idx] = updated;
@@ -1147,7 +1229,7 @@ function setAtPath(obj: unknown, path: readonly PathSegment[], value: unknown): 
     const record = obj as Record<string, unknown>;
     const key = String(head);
     const next = record[key];
-    const updated = rest.length === 0 ? value : setAtPath(next, rest, value);
+    const updated = rest.length === 0 ? value : setAtPath({ object: next, path: rest, value });
     if (rest.length === 0) {
       if (Object.is(next, value)) return obj;
     } else if (Object.is(next, updated)) {
@@ -1155,7 +1237,7 @@ function setAtPath(obj: unknown, path: readonly PathSegment[], value: unknown): 
     }
     return { ...record, [key]: updated };
   }
-  return rest.length === 0 ? value : setAtPath(undefined, rest, value);
+  return rest.length === 0 ? value : setAtPath({ object: undefined, path: rest, value });
 }
 
 function toPathSegment(prop: string | symbol): PathSegment | null {
@@ -1206,8 +1288,15 @@ function createSelectAccessor<T, S>(
     if (args.length === 0) {
       return path.length === 0 ? selector(root()) : (getAtPath(root(), path) as S);
     }
-    const next = path.length === 0 ? (args[0] as T) : (setAtPath(root(), path, args[0]) as T);
-    if (!Object.is(root(), next)) root(next);
+    const previousRoot = root();
+    const previousSelected =
+      path.length === 0 ? selector(previousRoot) : (getAtPath(previousRoot, path) as S);
+    const value = resolveSignalSetter(() => previousSelected, args[0] as SignalSetter<S>);
+    const next =
+      path.length === 0
+        ? (value as unknown as T)
+        : (setAtPath({ object: previousRoot, path, value }) as T);
+    if (!Object.is(previousRoot, next)) root((() => next) as SignalSetter<T>);
   }) as MarkedSignalAccessor<S>;
 }
 
@@ -1248,9 +1337,9 @@ function interpolateValue(v: unknown): string {
     // calling it with no props yields the concrete IslandCall. A plain
     // IslandCall (e.g. `Item({...})`) is already concrete.
     const call = typeof v === "function" ? (v as () => IslandCall)() : v;
-    return emitIslandSlot(call.island, call.props, call.key);
+    return emitIslandSlot({ island: call.island, props: call.props, key: call.key });
   }
-  if (isIsland(v)) return emitIslandSlot(v, undefined, undefined);
+  if (isIsland(v)) return emitIslandSlot({ island: v, props: undefined, key: undefined });
   if (isSignalAccessor(v)) return escapeHtml(v());
   if (typeof v === "function") return escapeHtml((v as () => unknown)());
   return escapeHtml(v);
@@ -1288,9 +1377,38 @@ const BIND_VALID_KINDS = new Set<BindKind>([
   "this",
 ]);
 
-// Matches a `bind:NAME=` (with optional opening `"` or `'`) at the end of a
-// static chunk. The trailing chunk position is enforced by the `$` anchor.
+// Matches a `bind:NAME=` or lowercase `onNAME=` (with an optional opening
+// quote) at the end of a static chunk. The `$` anchor prevents matching text
+// outside the currently interpolated attribute.
 const BIND_PREFIX_RE = /\bbind:([a-zA-Z]+)\s*=\s*("|')?$/;
+const EVENT_PREFIX_RE = /(?:^|\s)on([a-z][a-z0-9-]*)(?::([a-z][a-z0-9-]*))?\s*=\s*("|')?$/;
+const NATIVE_EVENT_MODIFIERS = new Set<NativeEventModifier>([
+  "abortable",
+  "once",
+  "capture",
+  "passive",
+]);
+
+function isEventAttributePosition(source: string, index: number): boolean {
+  let open = -1;
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < index; i++) {
+    const char = source[i]!;
+    if (open === -1) {
+      if (char === "<") open = i;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === ">") {
+      open = -1;
+    }
+  }
+  if (open === -1 || quote !== null) return false;
+  return !/^\s*[!/?]/.test(source.slice(open + 1, index));
+}
 
 // Find the first `>` in a static chunk that actually closes the open tag,
 // skipping any `>` inside a quoted attribute value (e.g. placeholder="a > b").
@@ -1358,12 +1476,17 @@ function extractElementStaticValue(prefix: string): string | null {
 // Returns [valueAttrs, specFragment] — valueAttrs are HTML attributes to
 // inject into the element (may be empty for ref/file bindings), and
 // specFragment is the sentinel token for the combined data-ilha-bind attr.
-function emitBindSSR(
-  kind: BindKind,
-  index: number,
-  accessor: ExternalSignal,
-  prefixForStaticPeek: string,
-): [string, string] {
+function emitBindSSR({
+  kind,
+  index,
+  accessor,
+  prefixForStaticPeek,
+}: {
+  kind: BindKind;
+  index: number;
+  accessor: ExternalSignal;
+  prefixForStaticPeek: string;
+}): [string, string] {
   const spec = `${kind}:${index}`;
   // Reflect current value into output attributes. The morph engine will
   // pick this up on subsequent renders. For boolean attributes we emit
@@ -1422,11 +1545,12 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
   // the current interpolation matched a quoted bind: prefix. Track that
   // pending strip with this flag.
   let stripLeadingQuote: '"' | "'" | null = null;
-  // Accumulate bind specs for the current open tag and emit as a single
-  // data-ilha-bind attribute before the closing `>`.
+  // Accumulate bind and event specs for the current open tag and emit each as
+  // a single sentinel attribute before the closing `>`.
   let pendingBindSpecs = "";
-  // Quote state carried across chunks while bind specs are pending, so a `>`
-  // inside a quoted attribute value is not mistaken for the tag close.
+  let pendingEventSpecs = "";
+  // Quote state carried across chunks while specs are pending, so a `>` inside
+  // a quoted attribute value is not mistaken for the tag close.
   let pendingQuote: '"' | "'" | null = null;
   const ctx = currentRenderCtx();
 
@@ -1440,16 +1564,19 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
       stripLeadingQuote = null;
     }
 
-    // If the chunk contains a closing `>`, emit any pending bind specs
-    // right before the first `>` so they land inside the open tag.
-    if (pendingBindSpecs !== "") {
+    // If the chunk contains a closing `>`, emit any pending binding/event
+    // specs right before it so they land inside the current open tag.
+    if (pendingBindSpecs !== "" || pendingEventSpecs !== "") {
       const { index: gtIdx, quote } = findTagCloseIndex(chunk, pendingQuote);
       if (gtIdx !== -1) {
-        // Drop a self-closing `/` (plus surrounding whitespace) so the
-        // sentinel lands as the last attribute: `<input ... data-ilha-bind>`.
+        // Drop a self-closing `/` (plus surrounding whitespace) so sentinels
+        // become the final attributes on void elements.
         const head = chunk.slice(0, gtIdx).replace(/\s*\/\s*$/, "");
-        chunk = head + ` data-ilha-bind="${pendingBindSpecs}">` + chunk.slice(gtIdx + 1);
+        const bindAttr = pendingBindSpecs ? ` data-ilha-bind="${pendingBindSpecs}"` : "";
+        const eventAttr = pendingEventSpecs ? ` data-ilha-on="${pendingEventSpecs}"` : "";
+        chunk = head + bindAttr + eventAttr + ">" + chunk.slice(gtIdx + 1);
         pendingBindSpecs = "";
+        pendingEventSpecs = "";
         pendingQuote = null;
       } else {
         pendingQuote = quote;
@@ -1462,6 +1589,45 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
     }
 
     const value = values[i];
+    const eventMatch = chunk.match(EVENT_PREFIX_RE);
+
+    if (
+      eventMatch &&
+      isEventAttributePosition(result + chunk, result.length + chunk.length - eventMatch[0]!.length)
+    ) {
+      const eventName = eventMatch[1]!;
+      const rawModifier = eventMatch[2];
+      const modifier = NATIVE_EVENT_MODIFIERS.has(rawModifier as NativeEventModifier)
+        ? (rawModifier as NativeEventModifier)
+        : undefined;
+      const openQuote = (eventMatch[3] ?? null) as '"' | "'" | null;
+      const matchStart = chunk.length - eventMatch[0]!.length;
+      const cleanPrefix = chunk.slice(0, matchStart).replace(/\s+$/, "");
+
+      // Event functions are runtime-only. Never call or serialize them into an
+      // inline on* attribute, even when the template is rendered standalone.
+      result += cleanPrefix;
+      if (ctx && typeof value === "function") {
+        const index = ctx.events.length;
+        if (rawModifier && !modifier) {
+          if (__DEV__) {
+            warn(
+              `Unknown native event modifier ":${rawModifier}" on on${eventName}. ` +
+                `Supported modifiers are :once, :capture, :passive, and :abortable.`,
+            );
+          }
+        } else {
+          ctx.events.push({ type: eventName, handler: value as NativeEventHandler, modifier });
+          pendingEventSpecs += (pendingEventSpecs ? "," : "") + `${eventName}:${index}`;
+        }
+      } else if (__DEV__ && typeof value !== "function") {
+        warn(`on${eventName} requires an event handler function — got ${typeof value}.`);
+      }
+
+      if (openQuote) stripLeadingQuote = openQuote;
+      continue;
+    }
+
     const m = chunk.match(BIND_PREFIX_RE);
 
     if (m && isSignalAccessor(value)) {
@@ -1517,12 +1683,12 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
       const index = ctx.binds.length;
       ctx.binds.push({ kind: name as BindKind, accessor: value as ExternalSignal });
 
-      const [valueAttrs, spec] = emitBindSSR(
-        name as BindKind,
+      const [valueAttrs, spec] = emitBindSSR({
+        kind: name as BindKind,
         index,
-        value as ExternalSignal,
-        cleanPrefix,
-      );
+        accessor: value as ExternalSignal,
+        prefixForStaticPeek: cleanPrefix,
+      });
       result += cleanPrefix + valueAttrs;
       pendingBindSpecs += (pendingBindSpecs ? "," : "") + spec;
 
@@ -1539,10 +1705,9 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
 
     result += chunk + interpolateValue(value);
   }
-  // Emit any remaining pending bind specs (e.g. if the last chunk had no `>`).
-  if (pendingBindSpecs !== "") {
-    result += ` data-ilha-bind="${pendingBindSpecs}"`;
-  }
+  // Emit any remaining specs (e.g. if the final static chunk had no `>`).
+  if (pendingBindSpecs !== "") result += ` data-ilha-bind="${pendingBindSpecs}"`;
+  if (pendingEventSpecs !== "") result += ` data-ilha-on="${pendingEventSpecs}"`;
   return { [RAW]: true, value: dedentString(result) };
 }
 
@@ -1560,7 +1725,7 @@ function unwrapHtml(v: string | RawHtml): string {
 // Context registry
 // ---------------------------------------------
 
-type ContextSignal<T> = { (): T; (value: T): void };
+type ContextSignal<T> = { (): T; (value: SignalSetter<T>): void };
 const contextRegistry = new Map<string, ContextSignal<unknown>>();
 
 function ilhaContextFn<T>(key: string, initial: T): ContextSignal<T> {
@@ -1568,7 +1733,7 @@ function ilhaContextFn<T>(key: string, initial: T): ContextSignal<T> {
   const s = signal(initial);
   const accessor = (...args: unknown[]): unknown => {
     if (args.length === 0) return s();
-    s(args[0] as T);
+    s(resolveSignalSetter(() => s(), args[0] as SignalSetter<T>));
   };
   contextRegistry.set(key, accessor as ContextSignal<unknown>);
   return accessor as ContextSignal<T>;
@@ -1608,7 +1773,7 @@ export function ilhaSignal<T>(initial: T): SignalAccessor<T> {
   const s = signal(initial);
   return markSignalAccessor((...args: unknown[]): unknown => {
     if (args.length === 0) return s();
-    s(args[0] as T);
+    s(resolveSignalSetter(() => s(), args[0] as SignalSetter<T>));
   }) as SignalAccessor<T>;
 }
 
@@ -1811,12 +1976,17 @@ function createDerivedProxy<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown>,
->(
-  entries: DerivedEntry<TInput, TStateMap>[],
-  state: IslandState<TStateMap>,
-  input: TInput,
-  derivedSnapshot?: Record<string, DerivedValue<unknown>>,
-): { proxy: IslandDerived<TDerivedMap>; setup: () => () => void } {
+>({
+  entries,
+  state,
+  input,
+  derivedSnapshot,
+}: {
+  entries: DerivedEntry<TInput, TStateMap>[];
+  state: IslandState<TStateMap>;
+  input: TInput;
+  derivedSnapshot?: Record<string, DerivedValue<unknown>>;
+}): { proxy: IslandDerived<TDerivedMap>; setup: () => () => void } {
   const envelopes = new Map<string, ReturnType<typeof signal<DerivedValue<unknown>>>>();
 
   for (const entry of entries) {
@@ -1976,6 +2146,7 @@ function createDerivedProxy<
 export type ExternalSignal<T = unknown> = SignalAccessor<T>;
 
 const BIND_SENTINEL_ATTR = "data-ilha-bind";
+const EVENT_SENTINEL_ATTR = "data-ilha-on";
 
 // Per-element binding spec parsed from a `data-ilha-bind` sentinel. The
 // sentinel value is a comma-separated list of `kind:index` pairs so that
@@ -2098,11 +2269,108 @@ function resolveBindOps(
   }
 }
 
-// Walk the host's DOM for `[data-ilha-bind]` sentinels and wire each one
-// to its corresponding binding record. Called on initial mount and on
-// every re-render after morph (mirroring how event listeners are
-// reattached). Returns a teardown function that removes every listener
-// it added.
+function templateElementBelongsToHost(host: Element, candidate: Element): boolean {
+  if (candidate === host) return true;
+  let current: Element | null = candidate;
+  while (current && current !== host) {
+    if (current.hasAttribute(SLOT_ATTR) || current.hasAttribute("data-ilha")) return false;
+    current = current.parentElement;
+  }
+  return current === host;
+}
+
+// Walk the host's DOM for event sentinels owned by this island. Child island
+// slots have independent render-local indexes and must wire themselves.
+function applyJsxEvents({
+  host,
+  records,
+  reportError,
+  unmountSignal,
+  onceFired,
+}: {
+  host: Element;
+  records: JsxEventRecord[];
+  reportError: (error: unknown) => void;
+  unmountSignal: AbortSignal;
+  onceFired: WeakMap<Element, Set<string>>;
+}): () => void {
+  if (records.length === 0) return () => {};
+
+  const cleanups: Array<() => void> = [];
+  const elements: Element[] = [];
+  if (host.hasAttribute(EVENT_SENTINEL_ATTR)) elements.push(host);
+  elements.push(
+    ...Array.from(host.querySelectorAll<Element>(`[${EVENT_SENTINEL_ATTR}]`)).filter((element) =>
+      templateElementBelongsToHost(host, element),
+    ),
+  );
+
+  for (const el of elements) {
+    const sentinel = el.getAttribute(EVENT_SENTINEL_ATTR) ?? "";
+    for (const part of sentinel.split(",")) {
+      const separator = part.lastIndexOf(":");
+      if (separator < 1) continue;
+      const type = part.slice(0, separator);
+      const index = Number(part.slice(separator + 1));
+      if (!Number.isInteger(index) || index < 0) continue;
+      const record = records[index];
+      if (!record || record.type !== type) continue;
+      if (record.modifier === "once" && onceFired.get(el)?.has(type)) continue;
+
+      const listenerController = new AbortController();
+      let invocationController: AbortController | undefined;
+      const options: AddEventListenerOptions = {
+        once: record.modifier === "once",
+        capture: record.modifier === "capture",
+        passive: record.modifier === "passive",
+      };
+      const reportHandlerError = (error: unknown) => {
+        if ((error as { name?: string })?.name !== "AbortError") reportError(error);
+      };
+      const listener: EventListener = (event) => {
+        if (record.modifier === "once") {
+          let fired = onceFired.get(el);
+          if (!fired) onceFired.set(el, (fired = new Set()));
+          fired.add(type);
+        }
+        if (record.modifier === "abortable") {
+          invocationController?.abort();
+          invocationController = new AbortController();
+        }
+        const signal = invocationController
+          ? anySignal([listenerController.signal, invocationController.signal])
+          : listenerController.signal;
+        let result: unknown;
+        startBatch();
+        try {
+          result = record.handler(event, { signal });
+        } catch (error) {
+          reportHandlerError(error);
+          return;
+        } finally {
+          endBatch();
+        }
+        if (result != null && typeof (result as PromiseLike<unknown>).then === "function") {
+          void Promise.resolve(result).catch(reportHandlerError);
+        }
+      };
+      const stop = () => {
+        listenerController.abort();
+        invocationController?.abort();
+        el.removeEventListener(type, listener, options);
+      };
+      el.addEventListener(type, listener, options);
+      unmountSignal.addEventListener("abort", stop, { once: true });
+      cleanups.push(() => {
+        unmountSignal.removeEventListener("abort", stop);
+        stop();
+      });
+    }
+  }
+
+  return () => cleanups.forEach((cleanup) => cleanup());
+}
+
 function applyTemplateBindings(host: Element, binds: BindRecord[]): () => void {
   if (binds.length === 0) return () => {};
 
@@ -2114,7 +2382,7 @@ function applyTemplateBindings(host: Element, binds: BindRecord[]): () => void {
   const elements: Element[] = [];
   if (host.hasAttribute(BIND_SENTINEL_ATTR)) elements.push(host);
   for (const el of host.querySelectorAll<Element>(`[${BIND_SENTINEL_ATTR}]`)) {
-    elements.push(el);
+    if (templateElementBelongsToHost(host, el)) elements.push(el);
   }
 
   for (const el of elements) {
@@ -2320,13 +2588,48 @@ export interface KeyedIsland<TInput> {
 
 type AnyIsland = Island<any, any>;
 
+type AnyActionFn = (props: any, ctx: any) => unknown;
+type ActionMap = Record<string, AnyActionFn>;
+
+type ActionCall<P> = [P] extends [undefined]
+  ? () => void
+  : unknown extends P
+    ? () => void
+    : (props: P) => void;
+
+export type ActionAccessor<P = undefined, R = void> = ActionCall<P> & {
+  readonly pending: boolean;
+  readonly data: Awaited<R> | undefined;
+  readonly error: Error | undefined;
+};
+
+export type IslandActions<TActionMap extends ActionMap> = {
+  readonly [K in keyof TActionMap]: TActionMap[K] extends (props: infer P, ctx: any) => infer R
+    ? ActionAccessor<P, R>
+    : never;
+};
+
+export type ActionContext<
+  TInput,
+  TStateMap extends Record<string, unknown>,
+  TDerivedMap extends Record<string, unknown> = Record<never, never>,
+> = {
+  state: IslandState<TStateMap>;
+  derived: IslandDerived<TDerivedMap>;
+  input: TInput;
+  host: Element;
+  signal: AbortSignal;
+};
+
 type RenderContext<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown>,
+  TActionMap extends ActionMap = Record<never, never>,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
+  action: IslandActions<TActionMap>;
   input: TInput;
 };
 
@@ -2334,9 +2637,11 @@ export type EffectContext<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown> = Record<never, never>,
+  TActionMap extends ActionMap = Record<never, never>,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
+  action: IslandActions<TActionMap>;
   input: TInput;
   host: Element;
   /**
@@ -2352,9 +2657,11 @@ export type OnMountContext<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown> = Record<never, never>,
+  TActionMap extends ActionMap = Record<never, never>,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
+  action: IslandActions<TActionMap>;
   input: TInput;
   host: Element;
   hydrated: boolean;
@@ -2364,9 +2671,11 @@ export type HandlerContext<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown> = Record<never, never>,
+  TActionMap extends ActionMap = Record<never, never>,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
+  action: IslandActions<TActionMap>;
   input: TInput;
   host: Element;
   target: Element;
@@ -2401,9 +2710,11 @@ export type HandlerContextFor<
   TStateMap extends Record<string, unknown>,
   TEventName extends string,
   TDerivedMap extends Record<string, unknown> = Record<never, never>,
+  TActionMap extends ActionMap = Record<never, never>,
 > = {
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
+  action: IslandActions<TActionMap>;
   input: TInput;
   host: Element;
   target: HTMLTargetFor<TEventName>;
@@ -2427,6 +2738,15 @@ interface StateEntry<TInput> {
   init: StateInit<TInput, unknown>;
 }
 
+interface ActionEntry<
+  TInput,
+  TStateMap extends Record<string, unknown>,
+  TDerivedMap extends Record<string, unknown>,
+> {
+  key: string;
+  fn: (props: unknown, ctx: ActionContext<TInput, TStateMap, TDerivedMap>) => unknown;
+}
+
 // ---------------------------------------------
 // Event modifier parsing
 // ---------------------------------------------
@@ -2445,6 +2765,20 @@ function parseOnArgs(selectorOrCombined: string): ParsedOn {
   const parts = rawEvent.split(":");
   const eventType = parts[0]!;
   const modifiers = new Set(parts.slice(1));
+  if (__DEV__ && eventType.trim() === "") {
+    warn(`on(): "${selectorOrCombined}" has no event name.`);
+  }
+  if (__DEV__) {
+    const allowed = new Set(["once", "capture", "passive", "abortable"]);
+    for (const modifier of modifiers) {
+      if (modifier && !allowed.has(modifier)) {
+        warn(
+          `on(): unknown modifier ":${modifier}" in "${selectorOrCombined}". ` +
+            `Supported modifiers are :once, :capture, :passive, and :abortable.`,
+        );
+      }
+    }
+  }
   return {
     selector,
     eventType,
@@ -2493,20 +2827,24 @@ interface OnEntry<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown> = Record<never, never>,
+  TActionMap extends ActionMap = Record<never, never>,
 > {
   selector: string;
   event: string;
   options: AddEventListenerOptions;
   abortable: boolean;
-  handler: (ctx: HandlerContext<TInput, TStateMap, TDerivedMap>) => void | Promise<void>;
+  handler: (
+    ctx: HandlerContext<TInput, TStateMap, TDerivedMap, TActionMap>,
+  ) => void | Promise<void>;
 }
 
 interface EffectEntry<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown>,
+  TActionMap extends ActionMap = Record<never, never>,
 > {
-  fn: (ctx: EffectContext<TInput, TStateMap, TDerivedMap>) => (() => void) | void;
+  fn: (ctx: EffectContext<TInput, TStateMap, TDerivedMap, TActionMap>) => (() => void) | void;
 }
 
 /** Where the error originated. `"on"` covers sync throws and async rejections
@@ -2520,7 +2858,7 @@ interface EffectEntry<
 // Derived errors are intentionally NOT reported here: they are surfaced as
 // first-class state via derived.x.error(). Malformed SSR snapshots are not
 // reported either — they degrade gracefully (see safeParseSnapshot).
-export type ErrorSource = "on" | "effect" | "mount" | "transition";
+export type ErrorSource = "on" | "effect" | "mount" | "transition" | "action";
 
 // Global error handlers, invoked when an island reports an error and has no
 // local .onError() handler registered. Lets apps install a single app-wide
@@ -2556,11 +2894,13 @@ export type ErrorContext<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown> = Record<never, never>,
+  TActionMap extends ActionMap = Record<never, never>,
 > = {
   error: Error;
   source: ErrorSource;
   state: IslandState<TStateMap>;
   derived: IslandDerived<TDerivedMap>;
+  action: IslandActions<TActionMap>;
   input: TInput;
   host: Element;
 };
@@ -2569,16 +2909,18 @@ interface OnErrorEntry<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown>,
+  TActionMap extends ActionMap = Record<never, never>,
 > {
-  fn: (ctx: ErrorContext<TInput, TStateMap, TDerivedMap>) => void;
+  fn: (ctx: ErrorContext<TInput, TStateMap, TDerivedMap, TActionMap>) => void;
 }
 
 interface OnMountEntry<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown>,
+  TActionMap extends ActionMap = Record<never, never>,
 > {
-  fn: (ctx: OnMountContext<TInput, TStateMap, TDerivedMap>) => (() => void) | void;
+  fn: (ctx: OnMountContext<TInput, TStateMap, TDerivedMap, TActionMap>) => (() => void) | void;
 }
 
 interface TransitionOptions {
@@ -2603,16 +2945,18 @@ interface BuilderConfig<
   TInput,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown>,
+  TActionMap extends ActionMap = Record<never, never>,
 > {
   schema: StandardSchemaV1 | null;
   /** Shallow defaults merged before props (POJO `.input({ ... })` only). */
   defaultInput: Record<string, unknown> | null;
   states: StateEntry<TInput>[];
   deriveds: DerivedEntry<TInput, TStateMap>[];
-  ons: OnEntry<TInput, TStateMap, TDerivedMap>[];
-  effects: EffectEntry<TInput, TStateMap, TDerivedMap>[];
-  onMounts: OnMountEntry<TInput, TStateMap, TDerivedMap>[];
-  onErrors: OnErrorEntry<TInput, TStateMap, TDerivedMap>[];
+  actions: ActionEntry<TInput, TStateMap, TDerivedMap>[];
+  ons: OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>[];
+  effects: EffectEntry<TInput, TStateMap, TDerivedMap, TActionMap>[];
+  onMounts: OnMountEntry<TInput, TStateMap, TDerivedMap, TActionMap>[];
+  onErrors: OnErrorEntry<TInput, TStateMap, TDerivedMap, TActionMap>[];
   transition: TransitionOptions | null;
   css: string | null;
   /** Slot wrapper tag when this island is embedded in a parent (default div). */
@@ -2633,15 +2977,17 @@ class IlhaBuilder<
   TInput extends Record<string, unknown>,
   TStateMap extends Record<string, unknown>,
   TDerivedMap extends Record<string, unknown> = Record<never, never>,
+  TActionMap extends ActionMap = Record<never, never>,
 > {
-  readonly _cfg: BuilderConfig<TInput, TStateMap, TDerivedMap>;
+  readonly _cfg: BuilderConfig<TInput, TStateMap, TDerivedMap, TActionMap>;
 
-  constructor(cfg: BuilderConfig<TInput, TStateMap, TDerivedMap>) {
+  constructor(cfg: BuilderConfig<TInput, TStateMap, TDerivedMap, TActionMap>) {
     this._cfg = cfg;
   }
 
   input<T extends Record<string, unknown>>(): IlhaBuilder<
     T,
+    Record<never, never>,
     Record<never, never>,
     Record<never, never>
   >;
@@ -2650,14 +2996,20 @@ class IlhaBuilder<
   ): IlhaBuilder<
     StandardSchemaV1.InferOutput<S> & Record<string, unknown>,
     Record<never, never>,
+    Record<never, never>,
     Record<never, never>
   >;
   input<T extends Record<string, unknown>>(
     defaults: T,
-  ): IlhaBuilder<T, Record<never, never>, Record<never, never>>;
+  ): IlhaBuilder<T, Record<never, never>, Record<never, never>, Record<never, never>>;
   input(
     initialOrSchema?: StandardSchemaV1 | Record<string, unknown>,
-  ): IlhaBuilder<Record<string, unknown>, Record<never, never>, Record<never, never>> {
+  ): IlhaBuilder<
+    Record<string, unknown>,
+    Record<never, never>,
+    Record<never, never>,
+    Record<never, never>
+  > {
     let schema: StandardSchemaV1 | null = null;
     let defaultInput: Record<string, unknown> | null = null;
     if (initialOrSchema !== undefined) {
@@ -2669,6 +3021,7 @@ class IlhaBuilder<
       defaultInput,
       states: [],
       deriveds: [],
+      actions: [],
       ons: [],
       effects: [],
       onMounts: [],
@@ -2679,42 +3032,70 @@ class IlhaBuilder<
     });
   }
 
-  as<Tag extends string>(tag: Tag): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
+  as<Tag extends string>(tag: Tag): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
     return new IlhaBuilder({ ...this._cfg, as: assertValidSlotTagName(tag) });
   }
 
   state<V = undefined, K extends string = string>(
     key: K,
     init?: StateInit<TInput, V> | undefined,
-  ): IlhaBuilder<TInput, MergeState<TStateMap, K, V>, TDerivedMap> {
+  ): IlhaBuilder<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TActionMap> {
     const cfg = this._cfg;
+    if (__DEV__ && key.trim() === "") warn("state(): key must not be empty.");
+    if (__DEV__ && cfg.states.some((entry) => entry.key === key)) {
+      warn(`state(): duplicate key "${key}". The later declaration replaces the public accessor.`);
+    }
     return new IlhaBuilder({
       ...cfg,
       states: [...cfg.states, { key, init: init as StateInit<TInput, unknown> }],
-    } as unknown as BuilderConfig<TInput, MergeState<TStateMap, K, V>, TDerivedMap>);
+    } as unknown as BuilderConfig<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TActionMap>);
   }
 
   derived<K extends string, V>(
     key: K,
     fn: DerivedFn<TInput, TStateMap, V>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap & Record<K, V>> {
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap & Record<K, V>, TActionMap> {
     const cfg = this._cfg;
+    if (__DEV__ && key.trim() === "") warn("derived(): key must not be empty.");
+    if (__DEV__ && cfg.deriveds.some((entry) => entry.key === key)) {
+      warn(`derived(): duplicate key "${key}". Use a unique derived key.`);
+    }
     return new IlhaBuilder({
       ...cfg,
       deriveds: [...cfg.deriveds, { key, fn: fn as DerivedFn<TInput, TStateMap, unknown> }],
-    } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap & Record<K, V>>);
+    } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap & Record<K, V>, TActionMap>);
+  }
+
+  action<K extends string, P = undefined, R = void>(
+    key: K,
+    fn: (props: P, ctx: ActionContext<TInput, TStateMap, TDerivedMap>) => R,
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap & Record<K, typeof fn>> {
+    if (__DEV__ && key.trim() === "") warn("action(): key must not be empty.");
+    if (__DEV__ && this._cfg.actions.some((entry) => entry.key === key)) {
+      warn(`action(): duplicate key "${key}". Use a unique action key.`);
+    }
+    return new IlhaBuilder({
+      ...this._cfg,
+      actions: [
+        ...this._cfg.actions,
+        {
+          key,
+          fn: fn as (props: unknown, ctx: ActionContext<TInput, TStateMap, TDerivedMap>) => unknown,
+        },
+      ],
+    } as BuilderConfig<TInput, TStateMap, TDerivedMap, TActionMap & Record<K, typeof fn>>);
   }
 
   on<S extends string>(
     selectorOrCombined: S,
     handler: (
       ctx: S extends `${string}@${infer E}:${string}`
-        ? HandlerContextFor<TInput, TStateMap, E, TDerivedMap>
+        ? HandlerContextFor<TInput, TStateMap, E, TDerivedMap, TActionMap>
         : S extends `${string}@${infer E}`
-          ? HandlerContextFor<TInput, TStateMap, E, TDerivedMap>
-          : HandlerContext<TInput, TStateMap, TDerivedMap>,
+          ? HandlerContextFor<TInput, TStateMap, E, TDerivedMap, TActionMap>
+          : HandlerContext<TInput, TStateMap, TDerivedMap, TActionMap>,
     ) => void | Promise<void>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
     const parsed = parseOnArgs(selectorOrCombined);
     return new IlhaBuilder({
       ...this._cfg,
@@ -2726,7 +3107,7 @@ class IlhaBuilder<
           options: parsed.options,
           abortable: parsed.abortable,
           handler: handler as (
-            ctx: HandlerContext<TInput, TStateMap, TDerivedMap>,
+            ctx: HandlerContext<TInput, TStateMap, TDerivedMap, TActionMap>,
           ) => void | Promise<void>,
         },
       ],
@@ -2734,31 +3115,31 @@ class IlhaBuilder<
   }
 
   effect(
-    fn: (ctx: EffectContext<TInput, TStateMap, TDerivedMap>) => (() => void) | void,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
+    fn: (ctx: EffectContext<TInput, TStateMap, TDerivedMap, TActionMap>) => (() => void) | void,
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
     return new IlhaBuilder({ ...this._cfg, effects: [...this._cfg.effects, { fn }] });
   }
 
   onMount(
-    fn: (ctx: OnMountContext<TInput, TStateMap, TDerivedMap>) => (() => void) | void,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
+    fn: (ctx: OnMountContext<TInput, TStateMap, TDerivedMap, TActionMap>) => (() => void) | void,
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
     return new IlhaBuilder({ ...this._cfg, onMounts: [...this._cfg.onMounts, { fn }] });
   }
 
   onError(
-    fn: (ctx: ErrorContext<TInput, TStateMap, TDerivedMap>) => void,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
+    fn: (ctx: ErrorContext<TInput, TStateMap, TDerivedMap, TActionMap>) => void,
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
     return new IlhaBuilder({ ...this._cfg, onErrors: [...this._cfg.onErrors, { fn }] });
   }
 
-  transition(opts: TransitionOptions): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
+  transition(opts: TransitionOptions): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
     return new IlhaBuilder({ ...this._cfg, transition: opts });
   }
 
   css(
     strings: TemplateStringsArray | string,
     ...values: (string | number)[]
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap> {
+  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
     // Accept both tagged-template form and plain-string form. The tagged form
     // is the intended authoring style; plain-string keeps things flexible for
     // users who want to compose CSS externally.
@@ -2786,13 +3167,14 @@ class IlhaBuilder<
   }
 
   render(
-    fn: (ctx: RenderContext<TInput, TStateMap, TDerivedMap>) => string | RawHtml,
+    fn: (ctx: RenderContext<TInput, TStateMap, TDerivedMap, TActionMap>) => string | RawHtml,
   ): Island<TInput, TStateMap> {
     const {
       schema,
       defaultInput,
       states,
       deriveds,
+      actions,
       ons,
       effects,
       onMounts,
@@ -2827,38 +3209,48 @@ class IlhaBuilder<
       html: string;
       slots: IslandRenderCtx["slots"];
       binds: BindRecord[];
+      events: JsxEventRecord[];
     };
-    function renderWithCtx(fn: () => string | RawHtml, liveHost?: Element): RenderOut;
-    function renderWithCtx(
-      fn: () => string | RawHtml,
-      liveHost: Element | undefined,
-      asyncChildren: true,
-    ): Promise<RenderOut>;
-    function renderWithCtx(
-      fn: () => string | RawHtml,
-      liveHost?: Element,
-      asyncChildren?: boolean,
-    ): RenderOut | Promise<RenderOut> {
+    function renderWithCtx(options: {
+      render: () => string | RawHtml;
+      liveHost?: Element;
+      asyncChildren?: false;
+    }): RenderOut;
+    function renderWithCtx(options: {
+      render: () => string | RawHtml;
+      liveHost?: Element;
+      asyncChildren: true;
+    }): Promise<RenderOut>;
+    function renderWithCtx({
+      render,
+      liveHost,
+      asyncChildren,
+    }: {
+      render: () => string | RawHtml;
+      liveHost?: Element;
+      asyncChildren?: boolean;
+    }): RenderOut | Promise<RenderOut> {
       const ctx = pushRenderCtx(liveHost, asyncChildren);
       try {
-        const html = unwrapHtml(fn());
-        // slots/binds are fully populated synchronously by fn(); capture them
+        const html = unwrapHtml(render());
+        // slots/binds are fully populated synchronously by render(); capture them
         // so the render context can be popped within this synchronous frame
         // (resolveAsyncChildren only does string substitution and never reads
         // the active render context). This balances the stack eagerly and
         // avoids interleaving when two async islands render concurrently.
         const slots = ctx.slots;
         const binds = ctx.binds;
+        const events = ctx.events;
 
         if (ctx.pending && ctx.pending.size > 0) {
           const pending = ctx.pending;
           return (async () => {
             const resolvedHtml = await resolveAsyncChildren(html, pending);
-            return { html: resolvedHtml, slots, binds };
+            return { html: resolvedHtml, slots, binds, events };
           })();
         }
 
-        return { html, slots, binds };
+        return { html, slots, binds, events };
       } finally {
         popRenderCtx();
       }
@@ -2894,11 +3286,33 @@ class IlhaBuilder<
         const s = signal(initial);
         const accessor = markSignalAccessor((...args: unknown[]): unknown => {
           if (args.length === 0) return s();
-          s(args[0] as typeof initial);
+          s(resolveSignalSetter(() => s(), args[0] as SignalSetter<typeof initial>));
         });
         state[entry.key] = accessor;
       }
       return state as IslandState<TStateMap>;
+    }
+
+    function buildSsrActions(): IslandActions<TActionMap> {
+      const out: Record<string, unknown> = {};
+      for (const entry of actions) {
+        let warned = false;
+        const invoke = () => {
+          if (__DEV__ && !warned) {
+            warned = true;
+            warn(
+              `action.${entry.key}() was called during SSR and was ignored. Actions run only after mount.`,
+            );
+          }
+        };
+        Object.defineProperties(invoke, {
+          pending: { get: () => false, enumerable: true },
+          data: { get: () => undefined, enumerable: true },
+          error: { get: () => undefined, enumerable: true },
+        });
+        out[entry.key] = invoke;
+      }
+      return out as IslandActions<TActionMap>;
     }
 
     /** Detached host for SSR setup hooks; must not be `{}` (Areia/components call host.matches). */
@@ -2917,11 +3331,17 @@ class IlhaBuilder<
     }
 
     /** Run .onMount() before top-level SSR only (seed module/external state from `input`). */
-    function runOnMountForRender(
-      input: TInput,
-      state: IslandState<TStateMap>,
-      derived: RenderContext<TInput, TStateMap, TDerivedMap>["derived"],
-    ): void {
+    function runOnMountForRender({
+      input,
+      state,
+      derived,
+      action,
+    }: {
+      input: TInput;
+      state: IslandState<TStateMap>;
+      derived: RenderContext<TInput, TStateMap, TDerivedMap, TActionMap>["derived"];
+      action: IslandActions<TActionMap>;
+    }): void {
       if (onMounts.length === 0) return;
       // Child islands inlined via emitIslandSlot → island.toString() must not run onMount (DOM islands).
       if (currentRenderCtx()) return;
@@ -2929,9 +3349,9 @@ class IlhaBuilder<
       const ssrCleanups: Array<() => void> = [];
       for (const entry of onMounts) {
         const prevSub = setActiveSub(undefined);
-        let userCleanup: void | (() => void) = undefined;
+        let userCleanup!: void | (() => void);
         try {
-          userCleanup = entry.fn({ state, derived, input, host, hydrated: false });
+          userCleanup = entry.fn({ state, derived, action, input, host, hydrated: false });
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
           if (onErrors.length === 0) {
@@ -2939,7 +3359,7 @@ class IlhaBuilder<
           } else {
             for (const oe of onErrors) {
               try {
-                oe.fn({ error, source: "mount", state, derived, input, host });
+                oe.fn({ error, source: "mount", state, derived, action, input, host });
               } catch (handlerErr) {
                 console.error(handlerErr);
               }
@@ -2965,6 +3385,7 @@ class IlhaBuilder<
     function renderToString(props?: Partial<TInput>, sync = false): string | Promise<string> {
       const input = resolveInput(props);
       const state = buildSignalState(input);
+      const action = buildSsrActions();
 
       const results = deriveds.map((entry) => {
         const prevSub = setActiveSub(undefined);
@@ -2996,10 +3417,12 @@ class IlhaBuilder<
           }
         }
         const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
-        if (!currentRenderCtx()) runOnMountForRender(input, state, derived);
+        if (!currentRenderCtx()) runOnMountForRender({ input, state, derived, action });
         const prevSub = setActiveSub(undefined);
         try {
-          const { html } = renderWithCtx(() => fn({ state, derived, input }));
+          const { html } = renderWithCtx({
+            render: () => fn({ state, derived, action, input }),
+          });
           return stylePrefix + html;
         } finally {
           setActiveSub(prevSub);
@@ -3032,14 +3455,13 @@ class IlhaBuilder<
         const envelopes: Record<string, DerivedValue<unknown>> = {};
         for (const r of resolved) envelopes[r.key] = r.envelope;
         const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
-        if (!currentRenderCtx()) runOnMountForRender(input, state, derived);
+        if (!currentRenderCtx()) runOnMountForRender({ input, state, derived, action });
         const prevSub = setActiveSub(undefined);
         try {
-          const { html } = await renderWithCtx(
-            () => fn({ state, derived, input }),
-            undefined,
-            true,
-          );
+          const { html } = await renderWithCtx({
+            render: () => fn({ state, derived, action, input }),
+            asyncChildren: true,
+          });
           return stylePrefix + html;
         } finally {
           setActiveSub(prevSub);
@@ -3169,8 +3591,14 @@ class IlhaBuilder<
         TInput,
         TStateMap,
         TDerivedMap
-      >(deriveds as DerivedEntry<TInput, TStateMap>[], state, input, derivedSnapshot);
+      >({
+        entries: deriveds as DerivedEntry<TInput, TStateMap>[],
+        state,
+        input,
+        derivedSnapshot,
+      });
       let stopDerived: () => void = () => {};
+      let action = {} as IslandActions<TActionMap>;
 
       // Centralized error sink. Errors thrown by .on() handlers (sync or async)
       // and .effect() runs are routed through here. If any .onError() handlers
@@ -3188,12 +3616,104 @@ class IlhaBuilder<
         }
         for (const entry of onErrors) {
           try {
-            entry.fn({ error, source, state, derived, input, host });
+            entry.fn({ error, source, state, derived, action, input, host });
           } catch (handlerErr) {
             console.error(handlerErr);
           }
         }
       }
+
+      const actionEntries = actions as ActionEntry<TInput, TStateMap, TDerivedMap>[];
+      const actionObject: Record<string, unknown> = {};
+      let disposed = false;
+      cleanups.push(() => {
+        disposed = true;
+      });
+      for (const entry of actionEntries) {
+        type Envelope = { pending: number; data: unknown; error: Error | undefined };
+        const envelope = signal<Envelope>({ pending: 0, data: undefined, error: undefined });
+        const readEnvelope = () => untrack(() => envelope());
+        let latestRun = 0;
+        let warnedDuringRender = false;
+        const invoke = (props?: unknown): void => {
+          if (currentRenderCtx()) {
+            if (__DEV__ && !warnedDuringRender) {
+              warnedDuringRender = true;
+              warn(
+                `action.${entry.key}() was called during render and was ignored. Call actions from an event, effect, or mount hook.`,
+              );
+            }
+            return;
+          }
+          if (disposed) {
+            if (__DEV__) warn(`action.${entry.key}() was called after unmount and was ignored.`);
+            return;
+          }
+          const run = ++latestRun;
+          const runSignal = unmountController.signal;
+          const ctx: ActionContext<TInput, TStateMap, TDerivedMap> = {
+            state,
+            derived,
+            input,
+            host,
+            signal: runSignal,
+          };
+          let result: unknown;
+          let isAsync = false;
+          startBatch();
+          try {
+            result = entry.fn(props, ctx);
+            isAsync = result != null && typeof (result as PromiseLike<unknown>).then === "function";
+            const current = readEnvelope();
+            envelope(
+              isAsync
+                ? { pending: current.pending + 1, data: current.data, error: undefined }
+                : { pending: current.pending, data: result, error: undefined },
+            );
+          } catch (error) {
+            const normalized = error instanceof Error ? error : new Error(String(error));
+            envelope({ pending: readEnvelope().pending, data: undefined, error: normalized });
+            reportError(normalized, "action");
+            return;
+          } finally {
+            endBatch();
+          }
+          if (!isAsync) return;
+          void Promise.resolve(result)
+            .then((data) => {
+              if (disposed || runSignal.aborted || run !== latestRun) return;
+              const value = readEnvelope();
+              envelope({ pending: value.pending, data, error: undefined });
+            })
+            .catch((error: unknown) => {
+              if (
+                disposed ||
+                runSignal.aborted ||
+                (error as { name?: string })?.name === "AbortError"
+              ) {
+                return;
+              }
+              const normalized = error instanceof Error ? error : new Error(String(error));
+              if (run === latestRun) {
+                const value = readEnvelope();
+                envelope({ pending: value.pending, data: undefined, error: normalized });
+              }
+              reportError(normalized, "action");
+            })
+            .finally(() => {
+              if (disposed) return;
+              const value = readEnvelope();
+              envelope({ ...value, pending: Math.max(0, value.pending - 1) });
+            });
+        };
+        Object.defineProperties(invoke, {
+          pending: { get: () => envelope().pending > 0, enumerable: true },
+          data: { get: () => envelope().data, enumerable: true },
+          error: { get: () => envelope().error, enumerable: true },
+        });
+        actionObject[entry.key] = invoke;
+      }
+      action = actionObject as IslandActions<TActionMap>;
 
       // Mount-time enter transition. Routed through reportError so a throwing
       // or rejecting enter() surfaces via .onError()/global sink instead of an
@@ -3381,22 +3901,45 @@ class IlhaBuilder<
         type: string;
         fn: EventListener;
         options: AddEventListenerOptions;
-        entry: OnEntry<TInput, TStateMap, TDerivedMap>;
+        entry: OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>;
       };
       const listeners: ListenerEntry[] = [];
-      const firedOnce = new Set<OnEntry<TInput, TStateMap, TDerivedMap>>();
+      const firedOnce = new Set<OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>>();
       const invocationControllers = new WeakMap<
-        OnEntry<TInput, TStateMap, TDerivedMap>,
+        OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>,
         WeakMap<Element, AbortController>
       >();
+      const warnedMissingSelectors = new Set<OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>>();
+      const warnedInvalidSelectors = new Set<OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>>();
 
       function attachListeners() {
         for (const entry of ons) {
           if (entry.options.once && firedOnce.has(entry)) continue;
-          const targets =
-            entry.selector === "" ? [host] : Array.from(host.querySelectorAll(entry.selector));
+          let targets: Element[];
+          try {
+            targets =
+              entry.selector === ""
+                ? [host]
+                : Array.from(host.querySelectorAll(entry.selector)).filter((element) =>
+                    templateElementBelongsToHost(host, element),
+                  );
+          } catch {
+            if (__DEV__ && !warnedInvalidSelectors.has(entry)) {
+              warnedInvalidSelectors.add(entry);
+              warn(
+                `on(): selector "${entry.selector}" is not valid CSS. The listener was skipped.`,
+              );
+            }
+            continue;
+          }
 
-          if (__DEV__ && entry.selector !== "" && targets.length === 0) {
+          if (
+            __DEV__ &&
+            entry.selector !== "" &&
+            targets.length === 0 &&
+            !warnedMissingSelectors.has(entry)
+          ) {
+            warnedMissingSelectors.add(entry);
             warn(
               `on(): selector "${entry.selector}" matched no elements at mount time. ` +
                 `If the element is rendered later, this is expected — otherwise check your selector.`,
@@ -3454,6 +3997,7 @@ class IlhaBuilder<
                 result = entry.handler({
                   state,
                   derived,
+                  action,
                   input,
                   host,
                   target: handlerTarget,
@@ -3496,9 +4040,9 @@ class IlhaBuilder<
       function invokeOnMounts(): void {
         for (const entry of onMounts) {
           const prevSub = setActiveSub(undefined);
-          let userCleanup: (() => void) | void = undefined;
+          let userCleanup!: (() => void) | void;
           try {
-            userCleanup = entry.fn({ state, derived, input, host, hydrated });
+            userCleanup = entry.fn({ state, derived, action, input, host, hydrated });
           } catch (err) {
             reportError(err, "mount");
           } finally {
@@ -3529,16 +4073,25 @@ class IlhaBuilder<
       // knows which islands to mount into the existing [data-ilha-slot]
       // elements). In that case we pass the host as liveHost so emitIslandSlot
       // reuses the existing subtrees instead of re-SSR-ing children.
-      const initial = renderWithCtx(
-        () => fn({ state, derived, input }),
-        preserveSSRDom ? host : undefined,
-      );
+      const nativeOnceFired = new WeakMap<Element, Set<string>>();
+      const initial = renderWithCtx({
+        render: () => fn({ state, derived, action, input }),
+        liveHost: preserveSSRDom ? host : undefined,
+      });
       if (!preserveSSRDom) {
         host.innerHTML = stylePrefix + initial.html;
       }
 
       let stopBindings = applyTemplateBindings(host, initial.binds);
       cleanups.push(() => stopBindings());
+      let stopJsxEvents = applyJsxEvents({
+        host,
+        records: initial.events,
+        reportError: (error) => reportError(error, "on"),
+        unmountSignal: unmountController.signal,
+        onceFired: nativeOnceFired,
+      });
+      cleanups.push(() => stopJsxEvents());
 
       mountSlots(initial.slots);
       cleanups.push(() => mountedSlots.forEach((entry) => entry.unmount()));
@@ -3573,7 +4126,7 @@ class IlhaBuilder<
           // single run propagate atomically.
           startBatch();
           try {
-            userCleanup = entry.fn({ state, derived, input, host, signal: runSignal });
+            userCleanup = entry.fn({ state, derived, action, input, host, signal: runSignal });
           } catch (err) {
             reportError(err, "effect");
           } finally {
@@ -3636,7 +4189,22 @@ class IlhaBuilder<
           html: rendered,
           slots: newSlotMap,
           binds: newBinds,
-        } = renderWithCtx(() => fn({ state, derived, input }), host);
+          events: newEvents,
+        } = renderWithCtx({
+          render: () => fn({ state, derived, action, input }),
+          liveHost: host,
+        });
+
+        // Handler closures may change even when their rendered HTML does not.
+        // Refresh them on every reactive render, including all fast paths.
+        stopJsxEvents();
+        stopJsxEvents = applyJsxEvents({
+          host,
+          records: newEvents,
+          reportError: (error) => reportError(error, "on"),
+          unmountSignal: unmountController.signal,
+          onceFired: nativeOnceFired,
+        });
         const html = stylePrefix + rendered;
 
         if (!initialized) {
@@ -3668,7 +4236,11 @@ class IlhaBuilder<
             mountedSlots.size > 0 &&
             mountedSlots.size === newSlotMap.size &&
             [...newSlotMap.keys()].every((id) => mountedSlots.has(id)) &&
-            isStableInlineSlotMount(initialRenderedHtml, rendered, newSlotMap.keys())
+            isStableInlineSlotMount({
+              initialHtml: initialRenderedHtml,
+              renderedHtml: rendered,
+              slotIds: newSlotMap.keys(),
+            })
           ) {
             // Slot set is stable, but live props (functions, children RawHtml)
             // are not reflected in the stub markup — still push them.
@@ -3701,6 +4273,7 @@ class IlhaBuilder<
 
         detachListeners();
         stopBindings();
+        stopJsxEvents();
 
         const prevMountedCount = mountedSlots.size;
         const leavingPromises: Promise<unknown>[] = [];
@@ -3777,6 +4350,13 @@ class IlhaBuilder<
 
           attachListeners();
           stopBindings = applyTemplateBindings(host, newBinds);
+          stopJsxEvents = applyJsxEvents({
+            host,
+            records: newEvents,
+            reportError: (error) => reportError(error, "on"),
+            unmountSignal: unmountController.signal,
+            onceFired: nativeOnceFired,
+          });
           mountSlots(newSlotMap);
         };
 
@@ -3801,6 +4381,10 @@ class IlhaBuilder<
       const unmount = (): void | Promise<void> => {
         if (tornDown) return;
         tornDown = true;
+        // Disable actions and abort their signals as soon as teardown starts,
+        // before asynchronous leave transitions or child unmounts settle.
+        disposed = true;
+        unmountController.abort();
         ISLAND_MOUNT_HANDLES.delete(host);
         if (__DEV__ && _mountedHosts) _mountedHosts.delete(host);
         stopRender();
@@ -3870,7 +4454,7 @@ class IlhaBuilder<
      * The declared return type omits {@link IslandCall} because TypeScript
      * cannot narrow based on runtime stack state.
      */
-    const island = function (props?: Partial<TInput>): string | Promise<string> | IslandCall {
+    const island = ((props?: Partial<TInput>): string | Promise<string> | IslandCall => {
       if (currentRenderCtx()) {
         return {
           [ISLAND_CALL]: true,
@@ -3880,7 +4464,7 @@ class IlhaBuilder<
         };
       }
       return renderToString(props);
-    } as unknown as Island<TInput, TStateMap>;
+    }) as unknown as Island<TInput, TStateMap>;
 
     island.toString = (props?: Partial<TInput>) => renderToString(props, true) as string;
 
@@ -4104,7 +4688,7 @@ class IlhaBuilder<
         if (doSkipOnMount) snapshotData["_skipOnMount"] = true;
 
         if (__DEV__) {
-          const lossy = findNonJsonSafeValue(snapshotData, "snapshot");
+          const lossy = findNonJsonSafeValue({ value: snapshotData, path: "snapshot" });
           if (lossy) {
             warn(
               `hydratable("${name}"): state/derived snapshot is not JSON-safe ` +
@@ -4223,6 +4807,7 @@ const EMPTY_CFG: BuilderConfig<
   defaultInput: null,
   states: [],
   deriveds: [],
+  actions: [],
   ons: [],
   effects: [],
   onMounts: [],
@@ -4232,9 +4817,36 @@ const EMPTY_CFG: BuilderConfig<
   as: null,
 };
 
-const rootBuilder = new IlhaBuilder(EMPTY_CFG);
+type RootInput = Record<string, unknown>;
+type RootState = Record<never, never>;
+type RootDerived = Record<never, never>;
+type RootActions = Record<never, never>;
+type RootBuilder = IlhaBuilder<RootInput, RootState, RootDerived, RootActions>;
+type DirectIslandFactory = <TInput extends Record<string, unknown> = RootInput>(
+  fn: (ctx: RenderContext<TInput, RootState, RootDerived, RootActions>) => string | RawHtml,
+) => Island<TInput, RootState>;
+type IlhaRoot = RootBuilder & DirectIslandFactory;
 
-const ilha = Object.assign(rootBuilder, {
+const rootBuilder = new IlhaBuilder(EMPTY_CFG);
+const callableRoot = (<TInput extends Record<string, unknown> = RootInput>(
+  fn: (ctx: RenderContext<TInput, RootState, RootDerived, RootActions>) => string | RawHtml,
+): Island<TInput, RootState> => rootBuilder.input<TInput>().render(fn)) as IlhaRoot;
+
+// Keep the default export callable without sacrificing the fluent builder API.
+// Builder methods are installed as own methods so the function retains its
+// normal Function prototype (`call`, `bind`, and friends), while `_cfg` gives
+// those methods the same empty root configuration as `rootBuilder`.
+Object.defineProperty(callableRoot, "_cfg", {
+  value: rootBuilder._cfg,
+  enumerable: false,
+});
+for (const key of Object.getOwnPropertyNames(IlhaBuilder.prototype)) {
+  if (key === "constructor") continue;
+  const descriptor = Object.getOwnPropertyDescriptor(IlhaBuilder.prototype, key);
+  if (descriptor) Object.defineProperty(callableRoot, key, descriptor);
+}
+
+const ilha = Object.assign(callableRoot, {
   html: ilhaHtml,
   raw: ilhaRaw,
   mount: mountAll,
@@ -4249,13 +4861,34 @@ const ilha = Object.assign(rootBuilder, {
   onUncaughtError,
 });
 
+/** @internal Used by the separate JSX runtime to register a native event handler. */
+export function __ilhaJsxEvent({
+  type,
+  handler,
+  modifier,
+}: {
+  type: string;
+  handler: NativeEventHandler;
+  modifier?: NativeEventModifier;
+}): number | undefined {
+  const ctx = currentRenderCtx();
+  if (!ctx) return undefined;
+  const index = ctx.events.length;
+  ctx.events.push({ type, handler, modifier });
+  return index;
+}
+
 /** @internal Used by the separate JSX runtime entry to preserve island slot composition. */
-export function __ilhaJsxSlot(
-  island: unknown,
-  props: Record<string, unknown> | undefined,
-  key: string | undefined,
-): RawHtml {
-  return ilhaRaw(emitIslandSlot(island as AnyIsland, props, key));
+export function __ilhaJsxSlot({
+  island,
+  props,
+  key,
+}: {
+  island: unknown;
+  props: Record<string, unknown> | undefined;
+  key: string | undefined;
+}): RawHtml {
+  return ilhaRaw(emitIslandSlot({ island: island as AnyIsland, props, key }));
 }
 
 export const html = ilhaHtml;

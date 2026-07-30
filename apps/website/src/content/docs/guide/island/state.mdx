@@ -9,6 +9,8 @@ import { example } from "./state.examples";
 
 Declares a reactive signal local to the island. State is the primary way to store values that change over time and drive re-renders.
 
+Adding local state is a reason to expand `ilha(() => JSX)` into a builder chain. The component keeps the same island boundary; the builder adds state to it.
+
 [Interactive Tutorial](/tutorial/counter/state)
 
 ## Basic usage
@@ -22,9 +24,18 @@ Each state entry becomes a signal accessor — a function that both reads and wr
 ```ts
 state.count(); // read → returns current value
 state.count(5); // write → sets value to 5
+state.count((previous) => previous + 1); // update from the latest value
 ```
 
+Use the updater form when the next value depends on the previous value. Ilha calls the function once with the latest value and writes its return value.
+
 When a signal is written, the island re-renders automatically. Only the affected island updates — nothing outside it is touched.
+
+If the state value is itself a function, Ilha treats any function passed to the setter as an updater. Return the replacement function from an outer function:
+
+```ts
+state.callback(() => nextCallback);
+```
 
 ## Initializing from input
 
@@ -76,19 +87,22 @@ If you call `state.label()` explicitly it works the same way — both forms are 
 
 ## Updating state from events
 
-State accessors are plain functions, so they work directly as setters inside event handlers:
+Put reusable state updates in an action, then call the action from a lowercase native event prop:
 
 ```tsx twoslash
 import ilha from "ilha";
 
+// [!code word:action.toggle]
 const Toggle = ilha
   .state("open", false)
-  .on("button@click", ({ state }) => state.open(!state.open())) // [!code highlight]
-  .render(({ state }) => (
-    <div>
-      {state.open() ? <p>Content</p> : ""}
-      <button>{state.open() ? "Close" : "Open"}</button>
-    </div>
+  // [!code highlight:3]
+  .action("toggle", (_, { state }) =>
+    state.open((open) => !open),
+  )
+  .render(({ state, action }) => (
+    <button onclick={action.toggle}>
+      Toggle: {String(state.open())}
+    </button>
   ));
 ```
 

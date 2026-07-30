@@ -2,7 +2,7 @@
 title: .onMount()
 description: Register one-time setup functions that run after an island is mounted into the DOM.
 sidebar:
-  order: 206
+  order: 207
 ---
 
 import { example } from "./onmount.examples";
@@ -44,6 +44,7 @@ The function receives an `OnMountContext`:
 {
   state: IslandState; // reactive state signals
   derived: IslandDerived; // current derived values
+  action: IslandActions; // callable actions and their reactive status
   input: TInput; // resolved input props
   host: Element; // island root element
   hydrated: boolean; // true when mounted over SSR content
