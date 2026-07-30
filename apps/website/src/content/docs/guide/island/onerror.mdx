@@ -1,8 +1,8 @@
 ---
 title: .onError()
-description: Per-island .onError() handlers and app-wide onUncaughtError() for errors from .on(), .effect(), .onMount(), and transitions.
+description: Per-island .onError() handlers and app-wide onUncaughtError() for errors from events, effects, actions, mounting, and transitions.
 sidebar:
-  order: 207
+  order: 208
 ---
 
 import { example } from "./onerror.examples";
@@ -11,8 +11,9 @@ Registers a **per-island** error handler. The runtime routes uncaught errors thr
 
 Island errors that reach the sink include:
 
-- [`.on()`](/guide/island/on) — sync throws and async rejections (except filtered `AbortError`)
+- [`.on()`](/guide/island/action#use-on-for-advanced-listeners) — sync throws and async rejections (except filtered `AbortError`)
 - [`.effect()`](/guide/island/effect) — sync throws from the effect body or its cleanup
+- [`.action()`](/guide/island/action) — sync throws and async rejections, except cancellation
 - [`.onMount()`](/guide/island/onmount) — throws from the mount callback or its returned cleanup
 - [`.transition()`](/guide/island/transition) — throws or rejections from `enter` / `leave`
 
@@ -61,9 +62,10 @@ The handler receives an `ErrorContext`:
 ```ts
 {
   error: Error; // always wrapped to Error if a non-Error was thrown
-  source: "on" | "effect" | "mount" | "transition";
+  source: "on" | "effect" | "action" | "mount" | "transition";
   state: IslandState; // reactive state signals
   derived: IslandDerived; // current derived values
+  action: IslandActions; // callable actions and their reactive status
   input: TInput; // resolved input props
   host: Element; // island root element
 }

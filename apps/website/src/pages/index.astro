@@ -45,21 +45,22 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
         >
           <div class="landing-hero-copy landing-copy min-w-0 gap-6 sm:gap-7">
             <div class="grid w-full min-w-0 justify-items-center gap-4 sm:gap-5">
-              <h1 class="landing-display">The most versatile web UI library.</h1>
+              <p class="landing-eyebrow">UI that starts as HTML</p>
+              <h1 class="landing-display">Ship interactive HTML without a virtual DOM.</h1>
               <p class="landing-lede">
-                Islands that render to plain HTML on the server and hydrate on the client —
-                with a core under 2,500 lines.
+                Start with a component. Add typed state and actions when it needs to move. Ilha
+                renders plain HTML everywhere and hydrates only the islands you choose.
               </p>
             </div>
             <div class="grid w-full min-w-0 max-w-xl justify-items-stretch gap-3.5 sm:justify-items-center">
               <div class="flex w-full min-w-0 flex-col items-stretch gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-3">
                 <LinkButton
-                  href="/guide/getting-started/introduction"
+                  href="/guide/getting-started/installation"
                   variant="primary"
                   icon
                   class="w-full justify-center sm:w-auto sm:flex-none"
                 >
-                  Get Started
+                  Build your first island
                 </LinkButton>
                 <LinkButton
                   href={NITRO_SANDBOX}
@@ -68,7 +69,7 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
                   rel="noopener noreferrer"
                   class="w-full justify-center sm:w-auto sm:flex-none"
                 >
-                  Open Sandbox
+                  Open Nitro sandbox
                 </LinkButton>
               </div>
               <div class="landing-install">
@@ -119,8 +120,8 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
       <section class="border-border border-b">
         <div class="landing-shell py-8 sm:py-10">
           <p class="landing-proof m-0 justify-self-center">
-            <span>Under 2,500 lines</span>
-            <span>TypeScript-first</span>
+            <span>No compiler</span>
+            <span>Typed actions and signals</span>
             <span>No virtual DOM</span>
           </p>
         </div>
@@ -130,10 +131,11 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
         <div class="landing-shell grid gap-10 py-16 sm:gap-12 sm:py-20 lg:py-24">
           <div class="landing-copy">
             <p class="landing-eyebrow">Why Ilha</p>
-            <h2 class="landing-section-title">Most pages don’t need a framework runtime.</h2>
+            <h2 class="landing-section-title">Use components first. Create an island when interaction earns it.</h2>
             <p class="landing-lede">
-              Ilha keeps the document as HTML, then mounts tiny islands where interaction earns
-              the JavaScript — so first paint stays fast and the core stays readable.
+              Plain functions compose markup without a runtime boundary. Wrap one with
+              <code>ilha()</code> for independent mounting. When it needs local capabilities,
+              expand the shorthand into the builder and add state, actions, or lifecycle hooks.
             </p>
           </div>
           <HeroTechCards />
@@ -219,10 +221,10 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
         <div class="landing-shell grid gap-8 py-16 sm:gap-10 sm:py-20 lg:py-24">
           <div class="grid max-w-2xl gap-4">
             <p class="landing-eyebrow">Start</p>
-            <h2 class="landing-section-title">From zero to a running island in one command.</h2>
+            <h2 class="landing-section-title">Start in your stack. Keep your server.</h2>
             <p class="landing-lede">
-              Pick a template, optional project name, and copy the giget command — or open a
-              StackBlitz sandbox and poke at it live.
+              Pick a minimal starter for Vite or your server runtime. You get TypeScript, SSR,
+              hydration, and a working island without adopting an application framework.
             </p>
           </div>
           <div class="landing-panel">
@@ -237,9 +239,10 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
         >
           <div class="grid max-w-xl gap-4">
             <p class="landing-eyebrow">Next</p>
-            <h2 class="landing-section-title">Read the guide. Ship an island today.</h2>
+            <h2 class="landing-section-title">Your first island takes five minutes.</h2>
             <p class="landing-lede">
-              Learn the island API, then walk through interactive counter tutorials.
+              Learn the component-to-island path, then build a typed interactive counter one
+              capability at a time.
             </p>
           </div>
           <div class="flex w-full shrink-0 flex-col gap-2.5 sm:w-auto sm:flex-row sm:gap-3">

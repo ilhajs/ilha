@@ -9,6 +9,8 @@ import { example } from "./derived.examples";
 
 Declares a computed value that depends on state or input. Derived values can be synchronous or async, and they re-run automatically when any reactive dependency changes.
 
+When a shorthand island needs computed data, expand `ilha(() => JSX)` into `.derived(...).render(...)`. It remains the same kind of independently mounted island.
+
 [Interactive Tutorial](/tutorial/counter/derived)
 
 ## Basic usage
@@ -38,8 +40,12 @@ const Cart = ilha
   .state("price", 100)
   .state("qty", 3)
   .derived("total", ({ state }) => state.price() * state.qty())
-  .on("button@click", ({ derived }) => derived.total(0))
-  .render(({ derived }) => <p>Total: {derived.total()}</p>);
+  .action("resetTotal", (_, { derived }) => derived.total(0))
+  .render(({ derived, action }) => (
+    <button onclick={action.resetTotal}>
+      Total: {derived.total()}
+    </button>
+  ));
 ```
 
 The next time the derived function runs (for example after state changes or an async fetch resolves), it overwrites the optimistic value with the computed result.

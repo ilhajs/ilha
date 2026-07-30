@@ -108,6 +108,62 @@ const Island = ilha
 
 Both forms are equivalent. The no-call shorthand is purely a convenience.
 
+## Native event handlers
+
+Use lowercase `on*` attributes with function interpolations inside an island render:
+
+```ts twoslash
+import ilha, { html } from "ilha";
+
+const Form = ilha.state("name", "").render(
+  ({ state }) => html`
+    <form
+      onsubmit=${(event: SubmitEvent) => {
+        event.preventDefault();
+        console.log(state.name());
+      }}
+    >
+      <input
+        bind:value=${state.name}
+        onselect=${(event: Event) =>
+          console.log(event.currentTarget)}
+      />
+      <button type="submit">Save</button>
+    </form>
+  `,
+);
+```
+
+The same syntax works with `onclick`, `oninput`, `onchange`, `onreset`, and other native event names. The handler receives the native DOM event and a second context argument containing a lifecycle `signal`.
+
+Add one listener modifier after the event name:
+
+```ts twoslash
+import ilha, { html, type NativeEventContext } from "ilha";
+
+const Search = ilha(
+  () => html`
+    <input
+      oninput:abortable=${async (
+        event: InputEvent,
+        { signal }: NativeEventContext,
+      ) => {
+        const input = event.currentTarget as HTMLInputElement;
+        await fetch(`/api/search?q=${input.value}`, { signal });
+      }}
+    />
+  `,
+);
+```
+
+Use `:once`, `:capture`, `:passive`, or `:abortable`. The `:abortable` modifier aborts the previous invocation when the same event fires again. Native handlers accept one modifier.
+
+Event handlers work only while an island renders and mounts the template. Ilha refreshes closures after re-renders and aborts the handler signal when it replaces a listener or starts unmounting the island. A standalone `html`` ` result has no host or lifecycle, so Ilha omits its event function.
+
+Functions never become inline HTML attributes during SSR. Ilha emits inert markup and attaches each function with `addEventListener` during mount.
+
+Use [`bind:*`](/guide/island/render#template-bindings) for signal synchronization. Use [`.on()`](/guide/island/action#use-on-for-advanced-listeners) for selectors, host listeners, its full handler context, or combined modifiers.
+
 ## List rendering
 
 Arrays are processed recursively with no comma joining. The canonical list pattern is:

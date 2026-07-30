@@ -21,12 +21,14 @@ import ilha, { html } from "ilha";
 
 const Counter = ilha
   .state("count", 0)
-  .on("button@click", ({ state }) => state.count(state.count() + 1))
+  .action("increment", (_, { state }) => {
+    state.count((count) => count + 1);
+  })
   .render(
-    ({ state }) => html`
+    ({ state, action }) => html`
       <div>
         <p>Count: ${state.count()}</p>
-        <button>Increment</button>
+        <button onclick=${action.increment}>Increment</button>
       </div>
     `,
   );
@@ -42,15 +44,45 @@ Counter.mount(document.getElementById("app"));
 
 ## Core Concepts
 
-Islands are **self-contained reactive components** that know how to render themselves to an HTML string (SSR) and mount themselves into the DOM (client). You build an island using a fluent builder chain: declare inputs, state, events, effects, then call `.render()` to get a callable `Island` object.
+Islands are **self-contained reactive components** that know how to render themselves to an HTML string (SSR) and mount themselves into the DOM (client). Create one directly with `ilha(renderFn)`, or use the fluent builder when it needs local capabilities.
 
 State is managed with signals — when a signal changes, only the affected island re-renders using a minimal DOM morph. No virtual DOM diffing, no framework overhead.
+
+### Choose the smallest component form
+
+Ilha has two runtime modes with three authoring forms:
+
+| Form                                      | Use it when                                                                      |
+| ----------------------------------------- | -------------------------------------------------------------------------------- |
+| `const View = () => JSX`                  | You need reusable markup inside another island                                   |
+| `const View = ilha(() => JSX)`            | The component needs its own reactive scope, lifecycle, mount, or hydration       |
+| `ilha.state(...).action(...).render(...)` | The island needs local state, derived values, actions, input, or lifecycle hooks |
+
+Start with a plain component:
+
+```tsx
+const Status = () => <p>Ready</p>;
+```
+
+Promote it without changing its markup when it needs an island boundary:
+
+```tsx
+const Status = ilha(() => <p>Ready</p>);
+```
+
+Expand it into the builder when it needs local capabilities:
+
+```tsx
+const Status = ilha.state("message", "Ready").render(({ state }) => <p>{state.message()}</p>);
+```
+
+Both `ilha(() => JSX)` and the builder return a complete `Island`. A plain function remains transparent: its rendering, events, and cleanup belong to the containing island.
 
 ---
 
 ## Builder API
 
-Every island starts from the `ilha` builder object (or `ilha.input<T>()` / `ilha.input(schema)` if you need typed props).
+Use the `ilha` builder when an island needs capabilities such as typed input, state, derived values, actions, effects, or lifecycle hooks.
 
 ### `ilha.input<T>()` / `ilha.input(schema)`
 
@@ -99,7 +131,7 @@ state.count(); // → 0  (read)
 state.count(5); // → sets to 5 (write)
 ```
 
-Inside `html\`\``, you can interpolate signal accessors directly **without calling them** — `ilha` detects signal accessors and calls them for you, also applying HTML escaping:
+Inside `html\`\``, you can interpolate signal accessors directly **without calling them** —`ilha` detects signal accessors and calls them for you, also applying HTML escaping:
 
 ```ts
 html`<p>${state.count}</p>`; // same as html`<p>${state.count()}</p>`
@@ -129,15 +161,37 @@ Read with `derived.name()` like state. Each accessor also exposes `loading`, `va
 
 ---
 
+### `.action(key, fn)`
+
+Declares a reusable synchronous or asynchronous operation. Define actions before consumers, then call them from lowercase native event handlers:
+
+```tsx
+const Counter = ilha
+  .state("count", 0)
+  .action("increment", (amount: number, { state }) => {
+    state.count((count) => count + amount);
+    return state.count();
+  })
+  .render(({ state, action }) => (
+    <button onclick={() => action.increment(1)}>{state.count()}</button>
+  ));
+```
+
+Async actions expose reactive `pending`, `data`, and `error` properties. Action callbacks receive state, derived values, input, host, and an abort signal.
+
+---
+
 ### `.on(selector, handler)`
 
-Attaches a delegated event listener. The selector string uses the format `"cssSelector@eventName"`. Omit the selector part to target the island host itself.
+Prefer lowercase native event props for handlers owned by one rendered element. Use `.on()` when you need a CSS selector, an island-host listener, the full handler context, or combined modifiers.
+
+The selector string uses the format `"cssSelector@eventName"`. Omit the selector part to target the island host itself.
 
 ```ts
 ilha
   .state("count", 0)
-  .on("@click", ({ state }) => state.count(state.count() + 1)) // host click
-  .on("button.inc@click", ({ state }) => state.count(state.count() + 1)) // child click
+  .on("@click", ({ state }) => state.count((count) => count + 1)) // host click
+  .on("button.inc@click", ({ state }) => state.count((count) => count + 1)) // child click
   .on("input@input", ({ state, event }) => {
     state.query((event.target as HTMLInputElement).value);
   })
@@ -301,7 +355,7 @@ ilha
   .state("count", 0)
   .on("@click", ({ state }) => {
     if (state.count() > 5) throw new Error("too many clicks");
-    state.count(state.count() + 1);
+    state.count((count) => count + 1);
   })
   .onError(({ error, source }) => {
     console.error(`[${source}] ${error.message}`);
@@ -391,9 +445,9 @@ ilha.css(styles).render(() => `<div class="card">…</div>`);
 Child islands are interpolated directly inside a parent's html template. During SSR the child's HTML is rendered inline; during client mount the child is activated independently inside its own host element.
 
 ```ts
-const Icon = ilha.render(() => `<svg>…</svg>`);
+const Icon = ilha(() => `<svg>…</svg>`);
 
-const Card = ilha.render(
+const Card = ilha(
   () => html`
     <div class="card">
       ${Icon}
@@ -403,21 +457,19 @@ const Card = ilha.render(
 );
 ```
 
-**Passing props** — call the child island with a props object:
+**Passing props** — use JSX props when composing a child island:
 
-```ts
+```tsx
 const Badge = ilha
   .input(z.object({ label: z.string(), color: z.string().default("teal") }))
-  .render(({ input }) => html`<span style="background:${input.color}">${input.label}</span>`);
+  .render(({ input }) => <span style={{ background: input.color }}>{input.label}</span>);
 
-const Card = ilha.render(
-  () => html`
-    <div>
-      ${Badge({ label: "New", color: "coral" })}
-      <p>Content</p>
-    </div>
-  `,
-);
+const Card = ilha(() => (
+  <div>
+    <Badge label="New" color="coral" />
+    <p>Content</p>
+  </div>
+));
 ```
 
 Props (including JSX `children` and function callbacks) stay on the **live slot map** during parent render/mount. `data-ilha-props` only carries JSON-safe scalars for hydration hints — never rely on it for children or handlers. Nested islands under layout shells (`defineLayout` / `wrapLayout`) use the same path as page-level composition.
@@ -425,7 +477,7 @@ Props (including JSX `children` and function callbacks) stay on the **live slot 
 **Keyed children** — use `.key()` when a child may reorder or appear conditionally. Keys must be unique within a parent render:
 
 ```ts
-const List = ilha.render(
+const List = ilha(
   () =>
     html`<ul>
       ${items.map((item) => html`<li>${Item.key(item.id)({ name: item.name })}</li>`)}
@@ -456,25 +508,32 @@ The `leave` transition is awaited before cleanup runs.
 
 ---
 
-### `.render(fn)`
+### `.render(fn)` and `ilha(fn)`
 
-Finalises the builder and returns an `Island`. The render function receives `{ state, derived, input }` and must return a string or `RawHtml`.
+`.render()` finalises a configured builder and returns an `Island`. The render function receives `{ state, derived, action, input }` and returns a string or `RawHtml`.
 
 ```ts
-const MyIsland = ilha.state("x", 1).render(({ state, input }) => html`<p>${state.x}</p>`);
+const MyIsland = ilha.state("x", 1).render(({ state }) => html`<p>${state.x()}</p>`);
+```
+
+For an island without builder configuration, `ilha(fn)` is shorthand for `ilha.render(fn)`:
+
+```tsx
+const StaticIsland = ilha(() => <p>Hello</p>);
+const Label = ilha<{ label: string }>(({ input }) => <p>{input.label}</p>);
 ```
 
 ---
 
 ## Island Interface
 
-Every island produced by `.render()` exposes:
+Every island produced by `.render()` or `ilha(fn)` exposes:
 
-### `island(props?)` / `island.toString(props?)`
+### `island.toString(props?)`
 
-Render the island to an HTML string synchronously. `island.toString()` is always synchronous. If `.derived()` entries have async functions, they render in `loading: true` state when called synchronously.
+Render the island to an HTML string synchronously. If `.derived()` entries have async functions, they render in `loading: true` state.
 
-Calling `island(props)` returns a `string` (or `Promise<string>` when derived values are async and awaited).
+Use `await island(props)` instead when asynchronous derived values must settle before rendering. Always include `await` when using the callable form so a possible `Promise<string>` is never mistaken for a string.
 
 ```ts
 MyIsland.toString(); // always sync
@@ -580,8 +639,8 @@ import ilha, { signal, html } from "ilha";
 
 const username = signal("anonymous");
 
-const Header = ilha.render(() => html`<header>Hi, ${username()}!</header>`);
-const Footer = ilha.render(() => html`<footer>Logged in as ${username()}</footer>`);
+const Header = ilha(() => html`<header>Hi, ${username()}!</header>`);
+const Footer = ilha(() => html`<footer>Logged in as ${username()}</footer>`);
 
 // Both islands re-render when `username` changes from anywhere.
 username("alice");
@@ -792,11 +851,13 @@ import ilha from "ilha";
 
 const Counter = ilha
   .state("count", 0)
-  .on("button@click", ({ state }) => state.count(state.count() + 1))
-  .render(({ state }) => (
+  .action("increment", (_, { state }) => {
+    state.count((count) => count + 1);
+  })
+  .render(({ state, action }) => (
     <div>
       <p>Count: {state.count}</p>
-      <button>Increment</button>
+      <button onclick={action.increment}>Increment</button>
     </div>
   ));
 ```
@@ -814,25 +875,25 @@ Interpolated children follow the same rules as the `html` tag — strings are es
 | `bind:*`              | Two-way bindings, same as in `html` templates — pass a signal accessor: `<input bind:value={state.name} />`        |
 | `key`                 | Keys a child island for reorder-safe rendering (same as `.key()`). Keys must be non-empty and must not contain `:` |
 
-For safety, `on*` attributes (e.g. `onclick`) and `srcdoc` are stripped — attach event listeners with `.on()` instead — and URL attributes (`href`, `src`, `action`, …) with unsafe schemes like `javascript:` are dropped.
+Lowercase native event props such as `onclick={handler}` attach with `addEventListener` during island mount; executable handlers never become inline SSR attributes. `srcdoc` is stripped, and URL attributes (`href`, `src`, `action`, …) with unsafe schemes such as `javascript:` are dropped.
 
 ### Islands as components
 
-Islands are plain functions, so they compose as JSX components — props and keys work as you'd expect:
+Islands are callable JSX components, so props and keys work as expected. Unlike transparent plain components, each island keeps its own reactive scope and lifecycle:
 
 ```tsx
 const Badge = ilha
   .input<{ label: string }>()
   .render(({ input }) => <span class="badge">{input.label}</span>);
 
-const Card = ilha.render(() => (
+const Card = ilha(() => (
   <div class="card">
     <Badge label="New" />
     <p>Card content</p>
   </div>
 ));
 
-const List = ilha.render(() => (
+const List = ilha(() => (
   <ul>
     {items.map((item) => (
       <li>

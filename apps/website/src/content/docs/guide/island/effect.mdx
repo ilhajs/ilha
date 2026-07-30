@@ -2,7 +2,7 @@
 title: .effect()
 description: Register reactive side effects that run after mount and re-run when signal dependencies change.
 sidebar:
-  order: 205
+  order: 206
 ---
 
 import { example } from "./effect.examples";
@@ -77,6 +77,7 @@ The effect function receives an `EffectContext`:
 {
   state: IslandState; // reactive state signals
   derived: IslandDerived; // derived signal accessors (same as render / .on())
+  action: IslandActions; // callable actions and their reactive status
   input: TInput; // resolved input props
   host: Element; // island root element
   signal: AbortSignal; // aborts when the effect re-runs or the island unmounts
@@ -116,8 +117,8 @@ const Island = ilha
   .state("b", 0)
   .effect(({ state }) => {
     // These two writes produce a single re-render.
-    state.a(state.a() + 1);
-    state.b(state.b() + 1);
+    state.a((a) => a + 1);
+    state.b((b) => b + 1);
     console.log(state.a(), state.b());
   })
   .render(({ state }) => (

@@ -1411,7 +1411,7 @@ describe("router.runLoader()", () => {
       loader(async () => ({ nested: true, shared: "nested" })),
       loader(async () => ({ page: true, shared: "page" })),
     ]);
-    const Page = ilha.render(({ input }: any) => `<p>ok</p>`);
+    const Page = ilha(() => `<p>ok</p>`);
     const r = router().route("/user", Page).attachLoader("/user", composed);
     const result = await r.runLoader("/user");
     expect(result).toEqual({
@@ -2008,7 +2008,7 @@ describe("SPA client loaders", () => {
   });
 
   it("markLoader + endpoint fetch passes server-composed loader data to island", async () => {
-    fetchSpy.mockImplementation(async (url: string) => {
+    (fetchSpy as any).mockImplementation(async (url: string) => {
       if (typeof url === "string" && url.includes("/__ilha/loader")) {
         return new Response(
           JSON.stringify({

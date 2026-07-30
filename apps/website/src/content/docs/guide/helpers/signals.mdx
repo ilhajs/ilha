@@ -31,7 +31,10 @@ const count = signal(0);
 
 count(); // → 0  (read)
 count(5); // → sets to 5 (write)
+count((previous) => previous + 1); // → updates from the latest value
 ```
+
+The updater form also works with `context()` and nested `.select()` accessors. If a signal stores a function, return the replacement function from an updater: `callback(() => nextCallback)`.
 
 Reading the signal inside any reactive scope — `.render()`, `.derived()`, `.effect()` — automatically subscribes that scope, so when the signal changes, dependents re-run as if it were local state.
 
@@ -45,12 +48,12 @@ import ilha, { signal } from "ilha";
 const cartCount = signal(0);
 
 const CartButton = ilha
-  .on("button@click", () => cartCount(cartCount() + 1)) // [!code highlight]
-  .render(() => <button>Add to cart</button>);
+  .action("addToCart", () => cartCount((count) => count + 1)) // [!code highlight]
+  .render(({ action }) => (
+    <button onclick={action.addToCart}>Add to cart</button>
+  ));
 
-const CartBadge = ilha
-  // [!code highlight]
-  .render(() => <span>{cartCount()}</span>);
+const CartBadge = ilha(() => <span>{cartCount()}</span>); // [!code highlight]
 ```
 
 Both islands share the same `cartCount` signal. Clicking the button in `CartButton` updates the badge in `CartBadge` without any wiring between them.
@@ -64,13 +67,11 @@ import ilha, { signal } from "ilha";
 
 const query = signal("");
 
-const SearchInput = ilha.render(
+const SearchInput = ilha(
   () => <input type="search" bind:value={query} />, // [!code highlight]
 );
 
-const SearchResults = ilha.render(() => (
-  <p>Results for: {query()}</p>
-));
+const SearchResults = ilha(() => <p>Results for: {query()}</p>);
 ```
 
 When the user types, `query` updates and `SearchResults` re-renders automatically — no wiring between islands needed.
@@ -103,7 +104,7 @@ import ilha, { signal, computed } from "ilha";
 const base = signal(1);
 const doubled = computed(() => base() * 2);
 
-const Island = ilha.render(() => <p>{doubled()}</p>);
+const Island = ilha(() => <p>{doubled()}</p>);
 ```
 
 ### Read-only
@@ -147,12 +148,12 @@ import ilha, { context } from "ilha";
 const cartCount = context("cart.count", 0);
 
 const CartButton = ilha
-  .on("button@click", () => cartCount(cartCount() + 1)) // [!code highlight]
-  .render(() => <button>Add to cart</button>);
+  .action("addToCart", () => cartCount((count) => count + 1)) // [!code highlight]
+  .render(({ action }) => (
+    <button onclick={action.addToCart}>Add to cart</button>
+  ));
 
-const CartBadge = ilha
-  // [!code highlight]
-  .render(() => <span>{cartCount()}</span>);
+const CartBadge = ilha(() => <span>{cartCount()}</span>); // [!code highlight]
 ```
 
 ### Using context in `bind:` bindings
@@ -164,13 +165,11 @@ import ilha, { context } from "ilha";
 
 const query = context("search.query", "");
 
-const SearchInput = ilha.render(
+const SearchInput = ilha(
   () => <input type="search" bind:value={query} />, // [!code highlight]
 );
 
-const SearchResults = ilha.render(() => (
-  <p>Results for: {query()}</p>
-));
+const SearchResults = ilha(() => <p>Results for: {query()}</p>);
 ```
 
 ### Initializing with a type

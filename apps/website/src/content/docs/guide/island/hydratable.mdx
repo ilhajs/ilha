@@ -2,7 +2,7 @@
 title: .hydratable()
 description: Render islands wrapped in hydration containers with serialized props and optional state snapshots.
 sidebar:
-  order: 211
+  order: 212
 ---
 
 Renders the island wrapped in a hydration container. The output includes everything `ilha.mount()` needs to activate the island on the client — the rendered HTML, serialized props, and optionally a state snapshot — all embedded as data attributes on a wrapper element.
@@ -134,7 +134,7 @@ The wrapper element tag defaults to `"div"`. Change it when the surrounding HTML
 ```tsx twoslash
 import ilha from "ilha";
 
-const Item = ilha.render(() => <li>item</li>);
+const Item = ilha(() => <li>item</li>);
 
 await Item.hydratable({}, { name: "item", as: "li" });
 // → '<li data-ilha="item">…</li>'
@@ -203,14 +203,13 @@ import ilha, { mount } from "ilha";
 
 const Counter = ilha
   .state("count", 0)
-  .on("button@click", ({ state }) =>
-    state.count(state.count() + 1),
-  )
-  .render(({ state }) => (
-    <div>
-      <p>Count: {state.count()}</p>
-      <button>Increment</button>
-    </div>
+  .action("increment", (_, { state }) => {
+    state.count((count) => count + 1);
+  })
+  .render(({ state, action }) => (
+    <button onclick={action.increment}>
+      Count: {state.count()}
+    </button>
   ));
 
 // Server — render with snapshot

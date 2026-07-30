@@ -9,6 +9,8 @@ import { example } from "./input.examples";
 
 Declares the island's external props and their types. Two forms are supported: a type-only generic for when you just need TypeScript inference, and a [Standard Schema](https://standardschema.dev/)-compatible validator (Zod, Valibot, ArkType, etc.) for runtime validation too.
 
+Use `ilha<Props>(({ input }) => JSX)` when typed props are the only capability you need. Expand to `.input<Props>().render(...)` when you add defaults, runtime validation, or other builder capabilities.
+
 ## Basic usage
 
 **Type-only** — TypeScript inference, no runtime validation:
@@ -24,8 +26,8 @@ const Greeting = ilha
   .input({ name: "World" })
   .render(({ input }) => <p>Hello, {input.name}!</p>);
 
-Greeting(); // → <p>Hello, World!</p>
-Greeting({ name: "ilha" }); // → <p>Hello, ilha!</p>
+Greeting.toString(); // → <p>Hello, World!</p>
+Greeting.toString({ name: "ilha" }); // → <p>Hello, ilha!</p>
 ```
 
 ```tsx twoslash
@@ -52,9 +54,9 @@ Greeting.toString(); // → <p>Hello, World!</p>
 
 ## Why use `.input()`
 
-Without `.input()`, any props passed to an island are untyped and unvalidated. Adding a type or schema gives you:
+Without `.input<T>()` or the `ilha<T>()` shorthand, props are untyped and unvalidated. Adding a type or schema gives you:
 
-- Full TypeScript inference for `input` inside [`.state()`](/guide/island/state), [`.render()`](/guide/island/render), [`.on()`](/guide/island/on), [`.effect()`](/guide/island/effect), and every other builder method.
+- Full TypeScript inference for `input` inside [`.state()`](/guide/island/state), [`.render()`](/guide/island/render), [`.on()`](/guide/island/action#use-on-for-advanced-listeners), [`.effect()`](/guide/island/effect), and every other builder method.
 - Runtime validation and coercion on every call, including during SSR and hydration (schema form only).
 - Default values handled by the schema itself, so the island works without props (schema form only).
 

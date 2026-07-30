@@ -7,7 +7,7 @@ sidebar:
 
 import { example } from "./derived.examples";
 
-Now that you can mutate state with `.on()`, derived properties let you compute
+Now that an action updates the counter state, derived properties let you compute
 values from that state automatically — recalculating only when their dependencies
 change. Use `.derived()` to keep complex logic out of your templates and make
 components easier to reason about.
@@ -16,7 +16,7 @@ components easier to reason about.
 .derived("name", ({ state }) => /* computed value */)
 ```
 
-The callback receives the component context, just like `.on()`. The result is
+The callback receives `state`, `input`, and a lifecycle `signal`. The result is
 available in `.render()` via `derived.name()` — the same call syntax as state.
 
 You can also write `derived.name(value)` for optimistic UI; the next time the

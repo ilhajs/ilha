@@ -128,15 +128,15 @@ const styles = css`
 
 const Card = ilha
   .state("expanded", false)
-  .on("button@click", ({ state }) =>
-    state.expanded(!state.expanded()),
+  .action("toggleExpanded", (_, { state }) =>
+    state.expanded((expanded) => !expanded),
   )
   .css(styles)
-  .render(({ state }) => (
+  .render(({ state, action }) => (
     <div class="card">
       <p class="card-title">Title</p>
       {state.expanded() ? <p class="card-body">Content</p> : ""}
-      <button>
+      <button onclick={action.toggleExpanded}>
         {state.expanded() ? "Collapse" : "Expand"}
       </button>
     </div>

@@ -197,6 +197,24 @@ export const load = loader(
 );
 ```
 
+Use `InferLoader` to derive an island’s input from its loader instead of repeating the return shape:
+
+```tsx
+import { loader, type InferLoader } from "@ilha/router";
+import ilha from "ilha";
+
+export const load = loader(async ({ params, signal }) => {
+  const user = await fetchUser(params.id, { signal });
+  return { user };
+});
+
+export default ilha<InferLoader<typeof load>>(({ input }) => (
+  <h1>{input.user.name}</h1>
+));
+```
+
+`InferLoader<typeof load>` awaits asynchronous loaders and preserves the exact returned fields. Prefer it whenever one loader defines the page input. Use an explicit merged type when layout loaders or other sources add fields that are not present in that loader’s return value.
+
 The loader receives a `LoaderContext`:
 
 ```ts
@@ -284,11 +302,12 @@ Prefetched entries are single-use and expire after ~30 seconds. If the navigatio
 
 Reactive — `true` while a client navigation (loader fetch + view swap) is in flight. Read it inside any island render to drive a progress bar or spinner. Also available as `useRoute().navigating`.
 
-```ts
+```tsx
 import { navigating } from "@ilha/router";
+import ilha from "ilha";
 
-const Spinner = ilha.render(() =>
-  navigating() ? html`<div class="bar"></div>` : "",
+const Spinner = ilha(() =>
+  navigating() ? <div class="bar" /> : null,
 );
 ```
 
@@ -336,7 +355,7 @@ Returns reactive accessors for the current route state as a convenience object:
 import ilha from "ilha";
 import { useRoute } from "@ilha/router";
 
-const MyPage = ilha.render(() => {
+const MyPage = ilha(() => {
   const { path, params, search, hash } = useRoute();
   return <p>User: {params().id}</p>;
 });
@@ -530,18 +549,20 @@ A `+layout.tsx` wraps every page in its directory and all subdirectories. Layout
 ```tsx
 // src/pages/+layout.tsx
 import { defineLayout } from "@ilha/router";
-import ilha, { html } from "ilha";
+import ilha from "ilha";
 
 export default defineLayout((Children) =>
-  ilha.render(
-    () => html`
+  ilha(() => (
+    <>
       <nav>
         <a href="/">Home</a>
         <a href="/about">About</a>
       </nav>
-      <main>${Children}</main>
-    `,
-  ),
+      <main>
+        <Children />
+      </main>
+    </>
+  )),
 );
 ```
 
@@ -551,19 +572,17 @@ Export a `load` function from any page file. The pages plugin detects it automat
 
 ```tsx
 // src/pages/user/[id].tsx
-import { loader } from "@ilha/router";
+import { loader, type InferLoader } from "@ilha/router";
 import ilha from "ilha";
 
-type User = { name: string };
-
-export const load = loader(async ({ params }) => {
-  const user = await fetchUser(params.id);
+export const load = loader(async ({ params, signal }) => {
+  const user = await fetchUser(params.id, { signal });
   return { user };
 });
 
-export default ilha
-  .input<{ user: User }>()
-  .render(({ input }) => <h1>{input.user.name}</h1>);
+export default ilha<InferLoader<typeof load>>(({ input }) => (
+  <h1>{input.user.name}</h1>
+));
 ```
 
 ### Client loaders — `clientLoad`
@@ -572,23 +591,23 @@ Export a `clientLoad` function to run a loader **in the browser** on client navi
 
 ```tsx
 // src/pages/dashboard.tsx
-import { loader } from "@ilha/router";
+import { loader, type InferLoader } from "@ilha/router";
 import ilha from "ilha";
 
 export const clientLoad = loader(async ({ signal }) => {
   const stats = await fetch("/api/stats", { signal }).then(
-    (r) => r.json(),
+    (response): Promise<Stats> => response.json(),
   );
   return { stats };
 });
 
-export default ilha
-  .input<{ stats: Stats }>()
-  .render(({ input }) => <Dashboard stats={input.stats} />);
+export default ilha<InferLoader<typeof clientLoad>>(
+  ({ input }) => <Dashboard stats={input.stats} />,
+);
 ```
 
 - `clientLoad` is **bundled into the client** — never put secrets, database clients, or server-only imports in it. Keep those in `load`, which stays server-only.
-- A page can export **both**: `load` runs during SSR (first paint), `clientLoad` runs on client navigations instead of the endpoint fetch. Make them return the same shape.
+- A page can export **both**: `load` runs during SSR (first paint), `clientLoad` runs on client navigations instead of the endpoint fetch. Make them return the same shape, then infer the page input from either loader.
 - Layout `clientLoad`s compose with the page's — the page wins on key collision, mirroring server loaders.
 - With SSR + hydration, a `clientLoad`-only page is server-rendered without its data; the router runs `clientLoad` right after hydration and re-renders the route with the loaded props.
 - `clientLoad` receives a synthetic `Request` — rely on `url`, `params`, and `signal`, not cookies or headers.
@@ -605,7 +624,7 @@ import type { ErrorHandler } from "@ilha/router";
 import ilha from "ilha";
 
 export default ((err, route) =>
-  ilha.render(() => (
+  ilha(() => (
     <div class="error">
       <h1>{err.status ?? 500}</h1>
       <p>{err.message}</p>

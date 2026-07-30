@@ -2,7 +2,7 @@
 title: .css()
 description: Attach scoped styles to an island using CSS @scope rules that stay local and do not leak.
 sidebar:
-  order: 209
+  order: 210
 ---
 
 import { example } from "./css.examples";
@@ -18,8 +18,8 @@ The preview runs the same `.css` tagged-template form as in the snippet below; s
 ```tsx twoslash
 import ilha from "ilha";
 
+// [!code highlight:9]
 const Card = ilha.css`
-    // [!code highlight:9]
     .card__title {
         font-weight: 700;
     }

@@ -6,6 +6,7 @@ import ilha, { html, raw } from "./index";
 import * as jsxDevRuntime from "./jsx-dev-runtime";
 import { jsx, jsxs } from "./jsx-runtime";
 import * as jsxRuntime from "./jsx-runtime";
+import type { JSX as IlhaJSX } from "./jsx-types";
 
 function normalizeHtml(s: string | { value: string }): string {
   const str = typeof s === "object" ? s.value : s;
@@ -22,6 +23,87 @@ function makeEl(inner = ""): Element {
 function cleanup(el: Element): void {
   document.body.removeChild(el);
 }
+
+function typecheckIntrinsicElements(): void {
+  const value = ilha.signal("");
+  <input
+    accept="image/*"
+    checked
+    disabled
+    form="upload-form"
+    list="file-types"
+    style={{ backgroundColor: "red", opacity: 0.5 }}
+    aria-label="Upload"
+    data-testid="file"
+    bind:value={value}
+    oninput:abortable={(event) => {
+      const input: HTMLInputElement = event.currentTarget;
+      void input.value;
+    }}
+  />;
+  <a href="/guide" target="_blank" rel="noopener">
+    Guide
+  </a>;
+  const trustedAttribute = raw("data:image/svg+xml,<svg></svg>");
+  <img src={trustedAttribute} alt={raw("Trusted icon")} />;
+  <div class={raw("trusted-class")} style={raw("color:red")} />;
+  <a href={raw("/trusted")} title={raw("Trusted link")}>
+    Trusted
+  </a>;
+  <svg>
+    <use href={raw("#trusted")} xlinkHref={raw("#trusted")} />
+  </svg>;
+  <textarea cols={40} rows={5} />;
+  <slot name="toolbar" />;
+  <button popoverTarget="menu" popoverTargetAction="toggle" />;
+  <svg viewBox="0 0 24 24" fill="none">
+    <a href="/icon">
+      <circle cx={12} cy={12} r={10} strokeWidth={2} />
+      <linearGradient gradientUnits="userSpaceOnUse" xlinkHref="#base" />
+      <feGaussianBlur stdDeviation={2} />
+    </a>
+  </svg>;
+  <ilha-widget
+    customValue={{ enabled: true }}
+    onvalue-change={(event) => {
+      const customEvent: Event = event;
+      void customEvent;
+    }}
+  />;
+
+  // @ts-expect-error href is not an input property
+  <input href="/wrong" />;
+  // @ts-expect-error checked is not an anchor property
+  <a checked>Wrong</a>;
+  // @ts-expect-error misspelled standard properties should not be accepted
+  <button disabeld>Wrong</button>;
+  // @ts-expect-error bind values must be signal accessors
+  <input bind:value="not-a-signal" />;
+  // @ts-expect-error bindings are element-specific
+  <div bind:checked={ilha.signal(false)} />;
+  // @ts-expect-error checked bindings require boolean signals
+  <input bind:checked={ilha.signal("yes")} />;
+  // @ts-expect-error date bindings require Date signals
+  <input bind:valueAsDate={ilha.signal(1)} />;
+  // @ts-expect-error element refs require Element signals
+  <div bind:this={ilha.signal("element")} />;
+  // @ts-expect-error element refs must accept the actual element type
+  <input bind:this={ilha.signal<HTMLVideoElement | null>(null)} />;
+  // @ts-expect-error binding names are checked
+  <input bind:vale={value} />;
+  const invalidAria: IlhaJSX.IntrinsicElements["button"] = {
+    // @ts-expect-error ARIA attribute names are checked in props objects
+    "aria-labl": "Wrong",
+  };
+  void invalidAria;
+  // TypeScript permits unknown hyphenated names in JSX syntax, but known ARIA names still complete.
+  <button aria-labl="Wrong">Wrong</button>;
+  // @ts-expect-error style property names are checked
+  <div style={{ backgrounColor: "red" }} />;
+  // @ts-expect-error unknown standard element names should not be accepted
+  <definitelynotanelement />;
+}
+void typecheckIntrinsicElements;
 
 describe("ilha JSX runtime", () => {
   it("subpath runtime exports JSX helpers", () => {
@@ -302,6 +384,64 @@ describe("ilha JSX runtime", () => {
     expect(result.value).toBe("<div><span>safe</span></div>");
   });
 
+  it("mounts a directly constructed JSX island with its own reactive lifecycle", () => {
+    const count = ilha.signal(0);
+    let renders = 0;
+    const Counter = ilha(() => {
+      renders++;
+      return (
+        <div>
+          <input type="number" bind:value={count} />
+          <button onclick={() => count((value) => value + 1)}>{count()}</button>
+        </div>
+      );
+    });
+
+    const el = makeEl();
+    const unmount = Counter.mount(el);
+    expect((el.querySelector("input") as HTMLInputElement).value).toBe("0");
+    expect(el.querySelector("button")!.textContent).toBe("0");
+
+    (el.querySelector("button") as HTMLButtonElement).click();
+    expect(count()).toBe(1);
+    expect((el.querySelector("input") as HTMLInputElement).value).toBe("1");
+    expect(el.querySelector("button")!.textContent).toBe("1");
+
+    const rendersBeforeUnmount = renders;
+    unmount();
+    count(2);
+    expect(renders).toBe(rendersBeforeUnmount);
+    cleanup(el);
+  });
+
+  it("composes a directly constructed island as an independent child slot", () => {
+    const count = ilha.signal(0);
+    let parentRenders = 0;
+    const Child = ilha(() => (
+      <button onclick={() => count((value) => value + 1)}>{count()}</button>
+    ));
+    const Parent = ilha(() => {
+      parentRenders++;
+      return (
+        <section>
+          <Child />
+        </section>
+      );
+    });
+
+    expect(Parent.toString()).toContain("data-ilha-slot=");
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+    const rendersAfterMount = parentRenders;
+    (el.querySelector("button") as HTMLButtonElement).click();
+
+    expect(el.querySelector("button")!.textContent).toBe("1");
+    expect(parentRenders).toBe(rendersAfterMount);
+    unmount();
+    cleanup(el);
+  });
+
   it("renders non-JSX ilha island as child of JSX component", () => {
     const Child = ilha.render(() => html` <span>child</span> `);
     const Parent = ilha.render(() => (
@@ -465,6 +605,274 @@ describe("ilha JSX runtime", () => {
     cleanup(el);
   });
 
+  it("wires lowercase JSX event props and keeps the latest handler across re-renders", () => {
+    const seen: number[] = [];
+    const Counter = ilha.state("count", 0).render(({ state }) => {
+      const renderedCount = state.count();
+      return (
+        <div>
+          <p>{renderedCount}</p>
+          <button
+            onclick={() => {
+              seen.push(renderedCount);
+              state.count(renderedCount + 1);
+            }}
+          >
+            Increment
+          </button>
+        </div>
+      );
+    });
+
+    const el = makeEl();
+    const unmount = Counter.mount(el);
+    const button = el.querySelector("button") as HTMLButtonElement;
+
+    expect(button.getAttribute("onclick")).toBeNull();
+    button.click();
+    button.click();
+
+    expect(seen).toEqual([0, 1]);
+    expect(el.querySelector("p")?.textContent).toBe("2");
+
+    unmount();
+    button.click();
+    expect(seen).toEqual([0, 1]);
+    cleanup(el);
+  });
+
+  it("wires events from plain function components through the containing island", () => {
+    const value = ilha.signal("bar");
+    const Test = () => (
+      <>
+        <p>{value()}</p>
+        <button onclick={() => value("baz")}>Change</button>
+      </>
+    );
+    const Parent = ilha.render(() => <Test />);
+
+    const standalone = <Test />;
+    expect(standalone.value).not.toContain("data-ilha-on");
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+    const button = el.querySelector("button") as HTMLButtonElement;
+
+    button.click();
+    expect(el.querySelector("p")?.textContent).toBe("baz");
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("keeps parent and child island event handlers isolated", () => {
+    const fired: string[] = [];
+    const Child = ilha.render(() => (
+      <button class="child" onclick={() => fired.push("child")}>
+        Child
+      </button>
+    ));
+    const Parent = ilha.render(() => (
+      <section>
+        <button class="parent" onclick={() => fired.push("parent")}>
+          Parent
+        </button>
+        <Child />
+      </section>
+    ));
+
+    const el = makeEl();
+    const unmount = Parent.mount(el);
+
+    (el.querySelector(".child") as HTMLButtonElement).click();
+    expect(fired).toEqual(["child"]);
+    (el.querySelector(".parent") as HTMLButtonElement).click();
+    expect(fired).toEqual(["child", "parent"]);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("supports hyphenated custom-element event names", () => {
+    let received: Event | undefined;
+    const Island = ilha.render(() => (
+      <ilha-widget onvalue-change={(event) => (received = event)} />
+    ));
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const event = new CustomEvent("value-change", { bubbles: true });
+    el.querySelector("ilha-widget")!.dispatchEvent(event);
+
+    expect(received).toBe(event);
+    unmount();
+    cleanup(el);
+  });
+
+  it("supports one native event modifier and passes a lifecycle signal", () => {
+    const order: string[] = [];
+    const abortSignals: AbortSignal[] = [];
+    let onceCalls = 0;
+    let passivePrevented = true;
+    const Island = ilha.state("onceCalls", 0).render(({ state }) => (
+      <section onclick:capture={() => order.push("capture")}>
+        <button class="bubble" onclick={() => order.push("bubble")}>
+          Bubble
+        </button>
+        <button
+          class="once"
+          onclick:once={() => {
+            onceCalls++;
+            state.onceCalls((count) => count + 1);
+          }}
+        >
+          Once: {state.onceCalls()}
+        </button>
+        <div
+          class="passive"
+          onwheel:passive={(event) => {
+            event.preventDefault();
+            passivePrevented = event.defaultPrevented;
+          }}
+        />
+        <input
+          oninput:abortable={(_, { signal }) => {
+            abortSignals.push(signal);
+          }}
+        />
+      </section>
+    ));
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    (el.querySelector(".bubble") as HTMLButtonElement).click();
+    expect(order).toEqual(["capture", "bubble"]);
+
+    const once = el.querySelector(".once") as HTMLButtonElement;
+    once.click();
+    once.click();
+    expect(onceCalls).toBe(1);
+
+    el.querySelector(".passive")!.dispatchEvent(
+      new WheelEvent("wheel", { bubbles: true, cancelable: true }),
+    );
+    expect(passivePrevented).toBe(false);
+
+    const input = el.querySelector("input")!;
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    expect(abortSignals).toHaveLength(2);
+    expect(abortSignals[0]!.aborted).toBe(true);
+    expect(abortSignals[1]!.aborted).toBe(false);
+
+    unmount();
+    expect(abortSignals[1]!.aborted).toBe(true);
+    cleanup(el);
+  });
+
+  it("stops native handlers when asynchronous unmount starts", async () => {
+    let releaseLeave!: () => void;
+    let calls = 0;
+    let handlerSignal!: AbortSignal;
+    const Island = ilha
+      .transition({
+        leave: () =>
+          new Promise<void>((resolve) => {
+            releaseLeave = resolve;
+          }),
+      })
+      .render(() => (
+        <button
+          onclick={(_, { signal }) => {
+            calls++;
+            handlerSignal = signal;
+          }}
+        >
+          Run
+        </button>
+      ));
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const button = el.querySelector("button")!;
+    button.click();
+    const pendingUnmount = unmount();
+
+    expect(handlerSignal.aborted).toBe(true);
+    button.click();
+    expect(calls).toBe(1);
+
+    releaseLeave();
+    await pendingUnmount;
+    cleanup(el);
+  });
+
+  it("supports multiple JSX events on one element", () => {
+    const fired: string[] = [];
+    const Island = ilha.render(() => (
+      <button onclick={() => fired.push("click")} onfocus={() => fired.push("focus")}>
+        Events
+      </button>
+    ));
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const button = el.querySelector("button") as HTMLButtonElement;
+
+    button.focus();
+    button.click();
+    expect(fired).toEqual(["focus", "click"]);
+
+    unmount();
+    cleanup(el);
+  });
+
+  it("supports JSX handlers on forms, inputs, checkboxes, radios, and selects", () => {
+    const fired: string[] = [];
+    const record = (name: string) => (event: Event) => {
+      fired.push(`${name}:${(event.currentTarget as Element).id || "form"}`);
+      if (event.type === "submit") event.preventDefault();
+    };
+    const Island = ilha.render(() => (
+      <form onsubmit={record("submit")}>
+        <input id="text" onchange={record("change")} onselect={record("select")} />
+        <input id="checkbox" type="checkbox" onchange={record("change")} />
+        <input id="radio" type="radio" onchange={record("change")} />
+        <select id="select" onchange={record("change")}>
+          <option>A</option>
+        </select>
+      </form>
+    ));
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const dispatch = (selector: string, type: string, cancelable = false) => {
+      const event = new Event(type, { bubbles: true, cancelable });
+      el.querySelector(selector)!.dispatchEvent(event);
+      return event;
+    };
+
+    dispatch("#text", "change");
+    dispatch("#text", "select");
+    dispatch("#checkbox", "change");
+    dispatch("#radio", "change");
+    dispatch("#select", "change");
+    const submit = dispatch("form", "submit", true);
+
+    expect(fired).toEqual([
+      "change:text",
+      "select:text",
+      "change:checkbox",
+      "change:radio",
+      "change:select",
+      "submit:form",
+    ]);
+    expect(submit.defaultPrevented).toBe(true);
+
+    unmount();
+    cleanup(el);
+  });
+
   it("supports bind:value in JSX", () => {
     const Name = ilha.state("name", "Ada").render(({ state }) => (
       <div>
@@ -613,7 +1021,7 @@ describe("ilha JSX runtime", () => {
     const List = ilha.state("users", ["Ada"]).render(({ state }) => (
       <div>
         {state.users().map((u) => (
-          <input data-u bind:value={u} />
+          <input data-u bind:value={u as any} />
         ))}
         <span data-out>{state.users()[0]}</span>
       </div>
@@ -845,13 +1253,22 @@ describe("ilha JSX runtime", () => {
     expect((<p>{true}</p>).value).toBe("<p></p>");
   });
 
+  it("accepts raw HTML values in string attributes", () => {
+    expect((<img src={raw("data:image/svg+xml,<svg></svg>")} alt="icon" />).value).toBe(
+      '<img src="data:image/svg+xml,<svg></svg>" alt="icon">',
+    );
+    expect((<div class={raw("trusted&class")} style={raw("color:red")}></div>).value).toBe(
+      '<div class="trusted&class" style="color:red"></div>',
+    );
+  });
+
   it("renders void elements without closing tag", () => {
     expect((<br />).value).toBe("<br>");
     expect((<img src="x.png" alt="x" />).value).not.toContain("</img>");
   });
 
   it("drops event handler attributes from spreads (onX)", () => {
-    const evil = { id: "ok", onload: "alert(1)" };
+    const evil = { id: "ok", onload: "alert(1)" } as Record<string, unknown>;
     expect((<div {...evil} />).value).not.toContain("onload");
     expect((<div {...evil} />).value).toContain('id="ok"');
   });
@@ -880,7 +1297,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("bind: with non-signal value is rejected", () => {
-    const result = (<input bind:value={{ not: "a signal" }} />).value;
+    const result = (<input bind:value={{ not: "a signal" } as any} />).value;
     expect(result).not.toContain("[object Object]");
     expect(result).toBe("<input>");
   });
@@ -901,7 +1318,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("style property name with invalid characters is dropped", () => {
-    const result = (<div style={{ ["color; x:y"]: "red" }} />).value;
+    const result = (<div style={{ ["color; x:y"]: "red" } as any} />).value;
     expect(result).not.toContain("color; x:y");
   });
 
@@ -939,6 +1356,12 @@ describe("ilha JSX runtime", () => {
     expect((<a href="   javascript:alert(1)">x</a>).value).not.toContain("javascript:");
   });
 
+  it("blocks unsafe URLs through camelCase JSX aliases", () => {
+    expect((<button formAction="javascript:alert(1)">Save</button>).value).toBe(
+      "<button>Save</button>",
+    );
+  });
+
   it("blocks newline-prefixed javascript: href", () => {
     expect((<a href={"\njavascript:alert(1)"}>x</a>).value).not.toContain("javascript:");
   });
@@ -958,9 +1381,40 @@ describe("ilha JSX runtime", () => {
   });
 
   it("drops srcdoc attributes entirely", () => {
-    const out = (<iframe srcdoc="<script>alert(1)</script>" />).value;
-    expect(out).toBe("<iframe></iframe>");
-    expect(out).not.toContain("srcdoc");
+    const lowercase = (<iframe srcdoc="<script>alert(1)</script>" />).value;
+    const camelCase = (<iframe srcDoc="<script>alert(1)</script>" />).value;
+    expect(lowercase).toBe("<iframe></iframe>");
+    expect(camelCase).toBe("<iframe></iframe>");
+    expect(lowercase).not.toContain("srcdoc");
+    expect(camelCase).not.toContain("srcDoc");
+  });
+
+  it("serializes ARIA and enumerated boolean values as strings", () => {
+    const result = (
+      <div aria-expanded={true} aria-hidden={false} draggable={false} spellCheck={true} />
+    ).value;
+
+    expect(result).toContain('aria-expanded="true"');
+    expect(result).toContain('aria-hidden="false"');
+    expect(result).toContain('draggable="false"');
+    expect(result).toContain('spellCheck="true"');
+  });
+
+  it("normalizes camelCase SVG presentation attributes", () => {
+    const result = (
+      <svg viewBox="0 0 24 24">
+        <linearGradient gradientUnits="userSpaceOnUse" xlinkHref="#base" />
+        <circle cx={12} fillOpacity={0.5} strokeWidth={2} strokeLinecap="round" />
+      </svg>
+    ).value;
+
+    expect(result).toContain('viewBox="0 0 24 24"');
+    expect(result).toContain('gradientUnits="userSpaceOnUse"');
+    expect(result).toContain('xlink:href="#base"');
+    expect(result).toContain('fill-opacity="0.5"');
+    expect(result).toContain('stroke-width="2"');
+    expect(result).toContain('stroke-linecap="round"');
+    expect(result).not.toContain("strokeWidth");
   });
 
   it("className as array joins truthy entries", () => {
@@ -1178,7 +1632,7 @@ describe("ilha JSX runtime", () => {
     console.warn = (msg: string) => warnings.push(msg);
 
     try {
-      const Island = ilha.render(() => <input bind:foobar={ilha.signal("x")} />);
+      const Island = ilha.render(() => <input {...({ "bind:foobar": ilha.signal("x") } as any)} />);
       Island();
 
       expect(warnings.some((w) => w.includes("Unknown") || w.includes("foobar"))).toBe(true);
