@@ -19,7 +19,6 @@ import {
 import { highlightLandingCode } from "../lib/landing-highlight";
 import { playgroundUrl } from "../lib/playground";
 import { ClipboardText } from "areia";
-import { Toaster } from "areia/sonner";
 import { config } from "virtual:nimbus/config";
 import "../styles/landing.css";
 
@@ -36,7 +35,6 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
 <BaseLayout title={config.title} description={META_DESCRIPTION}>
   <div class="landing-page bg-background text-foreground flex min-h-screen flex-col">
     <Header showSidebar={false} />
-    <Toaster client:idle />
 
     <main id="main-content" class="flex-1">
       <section class="landing-hero border-border border-b">
@@ -207,7 +205,7 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
             </div>
             <div class="min-w-0">
               <UsefulExtrasSnippets
-                client:visible
+                client:load
                 routingHtml={routingHtml}
                 storeHtml={storeHtml}
                 astroHtml={astroHtml}
@@ -228,7 +226,7 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
             </p>
           </div>
           <div class="landing-panel">
-            <ProjectCreatorForm client:visible />
+            <ProjectCreatorForm client:load />
           </div>
         </div>
       </section>

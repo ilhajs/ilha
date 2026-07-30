@@ -20,14 +20,22 @@ const Button = ({ label }: { label: string }) => html`<button class="btn">${labe
 describe("@ilha/astro integration", () => {
   it("registers the ilha renderer via astro:config:setup", () => {
     let registered: unknown;
+    let viteConfig: unknown;
     const integration = ilhaIntegration();
     expect(integration.name).toBe("@ilha/astro");
     integration.hooks["astro:config:setup"]?.({
       addRenderer: (r: unknown) => {
         registered = r;
       },
+      updateConfig: (config: { vite?: unknown }) => {
+        viteConfig = config.vite;
+      },
     } as never);
     expect(registered).toEqual(getRenderer());
+    expect(viteConfig).toMatchObject({
+      resolve: { dedupe: ["ilha"] },
+      optimizeDeps: { exclude: ["ilha"] },
+    });
   });
 
   it("points the renderer at the client/server entrypoints", () => {

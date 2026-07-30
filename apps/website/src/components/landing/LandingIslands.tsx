@@ -1,5 +1,4 @@
 import { Button, Input, LinkButton, Radio, Switch, Tabs } from "areia";
-import { toast } from "areia/sonner";
 import ilha, { raw } from "ilha";
 
 import { URLS } from "@/lib/landing-const";
@@ -9,6 +8,12 @@ const TEMPLATES = [
   { value: "nitro", label: "Nitro", icon: "/nitro.svg", sandbox: true },
   { value: "hono", label: "Hono", icon: "/hono.svg", sandbox: true },
   { value: "elysia", label: "Elysia", icon: "/elysia.svg", sandbox: false },
+] as const;
+
+const LIBRARY_TABS = [
+  { value: "routing", label: "@ilha/router" },
+  { value: "store", label: "@ilha/store" },
+  { value: "astro", label: "@ilha/astro" },
 ] as const;
 
 export const ProjectCreatorForm = ilha
@@ -26,34 +31,43 @@ export const ProjectCreatorForm = ilha
   .derived("hasSandbox", ({ state }) => {
     return TEMPLATES.find((template) => template.value === state.template())?.sandbox ?? true;
   })
-  .on("[data-action=copyCommand]@click", async ({ derived }) => {
-    await navigator.clipboard.writeText(derived.createCommand()!);
-    toast.success("Command copied");
+  .action("copyCommand", async (event: MouseEvent, { derived }) => {
+    try {
+      await navigator.clipboard.writeText(derived.createCommand()!);
+    } catch {}
+    const el = (event.currentTarget as HTMLElement | null)?.querySelector("span");
+    if (el) {
+      const original = el.textContent;
+      el.textContent = "Copied!";
+      setTimeout(() => {
+        el.textContent = original;
+      }, 2000);
+    }
   })
-  .on("#project-name@input", ({ state, event }) => {
-    state.name((event.target as HTMLInputElement).value);
+  .effect(({ derived, host }) => {
+    const commandSpan = host.querySelector<HTMLElement>("[data-copy-command] span");
+    if (commandSpan && commandSpan.textContent !== "Copied!") {
+      commandSpan.textContent = derived.createCommand()!;
+    }
+
+    const sandboxLink = host.querySelector<HTMLAnchorElement>("[data-sandbox-link]");
+    if (sandboxLink) {
+      if (derived.hasSandbox()) {
+        sandboxLink.href = derived.sandboxUrl()!;
+        sandboxLink.classList.remove("hidden");
+      } else {
+        sandboxLink.classList.add("hidden");
+      }
+    }
   })
-  .on("input[name=template]@change", ({ state, event }) => {
-    state.template((event.target as HTMLInputElement).value);
-  })
-  .on("input[name=useBun]@change", ({ state, event }) => {
-    state.useBun((event.target as HTMLInputElement).checked);
-  })
-  .effect(({ state, host }) => {
-    const root = host.querySelector<HTMLElement>('[data-slot="switch"][data-name="useBun"]');
-    if (!root) return;
-    root.dispatchEvent(
-      new CustomEvent("switch:set", { detail: { checked: state.useBun() }, bubbles: false }),
-    );
-  })
-  .render(({ state, derived }) => (
+  .render(({ state, derived, action }) => (
     <div class="flex flex-col gap-4">
       <Input
         id="project-name"
         label="Project name"
         name="name"
         placeholder="my-app"
-        value={state.name()}
+        bind:value={state.name}
       />
       <Radio.Group
         legend="Pick a template"
@@ -73,38 +87,33 @@ export const ProjectCreatorForm = ilha
             value={template.value}
             name="template"
             appearance="card"
-            checked={state.template() === template.value}
+            bind:group={state.template}
           />
         ))}
       </Radio.Group>
-      <Switch
-        label="Use Bun"
-        name="useBun"
-        checked={state.useBun()}
-        onCheckedChange={(checked) => state.useBun(checked)}
-      />
+      <Switch label="Use Bun" name="useBun" bind:checked={state.useBun} />
       <div class="grid min-w-0 gap-2 sm:flex sm:items-center">
         <Button
           variant="outline"
           class="w-full min-w-0 flex-1 justify-start overflow-hidden text-left"
-          data-action="copyCommand"
+          data-copy-command
+          onclick={action.copyCommand}
         >
           <img src="/copy.svg" class="size-5 shrink-0" alt="" />
           <span class="block truncate">{derived.createCommand()}</span>
         </Button>
-        {derived.hasSandbox() ? (
-          <LinkButton
-            href={derived.sandboxUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            variant="primary"
-            external
-            class="w-full justify-center sm:w-auto sm:justify-center"
-          >
-            <img src="/stackblitz.svg" class="size-4" alt="" />
-            <span>Open Sandbox</span>
-          </LinkButton>
-        ) : null}
+        <LinkButton
+          href={derived.sandboxUrl()}
+          target="_blank"
+          rel="noopener noreferrer"
+          variant="primary"
+          external
+          class={`w-full justify-center sm:w-auto sm:justify-center ${derived.hasSandbox() ? "" : "hidden"}`}
+          data-sandbox-link
+        >
+          <img src="/stackblitz.svg" class="size-4" alt="" />
+          <span>Open Sandbox</span>
+        </LinkButton>
       </div>
     </div>
   ));
@@ -116,22 +125,45 @@ export const UsefulExtrasSnippets = ilha
     astroHtml: "",
   })
   .state("tab", "routing")
-  .render(({ state, input }) => (
+  .action("selectTab", (value: string, { state }) => {
+    state.tab(value);
+  })
+  .effect(({ state, host }) => {
+    const panels = host.querySelectorAll<HTMLElement>("[data-panel]");
+    for (const panel of panels) {
+      if (panel.dataset.panel === state.tab()) {
+        panel.classList.remove("hidden");
+      } else {
+        panel.classList.add("hidden");
+      }
+    }
+  })
+  .render(({ state, input, action }) => (
     <div class="flex w-full flex-col gap-2">
-      <Tabs variant="segmented" size="sm" class="relative w-full" bind:group={state.tab}>
-        <Tabs.List>
-          <Tabs.Trigger value="routing">@ilha/router</Tabs.Trigger>
-          <Tabs.Trigger value="store">@ilha/store</Tabs.Trigger>
-          <Tabs.Trigger value="astro">@ilha/astro</Tabs.Trigger>
-        </Tabs.List>
-      </Tabs>
-      <div class={`text-xs leading-relaxed${state.tab() === "routing" ? "" : " hidden"}`}>
+      <Tabs
+        variant="segmented"
+        class="relative w-full"
+        activationMode="auto"
+        bind:group={state.tab}
+        onValueChange={action.selectTab}
+        tabs={[...LIBRARY_TABS]}
+      />
+      <div
+        data-panel="routing"
+        class={`text-xs leading-relaxed${state.tab() === "routing" ? "" : " hidden"}`}
+      >
         {raw(input.routingHtml)}
       </div>
-      <div class={`text-xs leading-relaxed${state.tab() === "store" ? "" : " hidden"}`}>
+      <div
+        data-panel="store"
+        class={`text-xs leading-relaxed${state.tab() === "store" ? "" : " hidden"}`}
+      >
         {raw(input.storeHtml)}
       </div>
-      <div class={`text-xs leading-relaxed${state.tab() === "astro" ? "" : " hidden"}`}>
+      <div
+        data-panel="astro"
+        class={`text-xs leading-relaxed${state.tab() === "astro" ? "" : " hidden"}`}
+      >
         {raw(input.astroHtml)}
       </div>
     </div>
