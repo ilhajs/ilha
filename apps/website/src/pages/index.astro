@@ -22,7 +22,7 @@ import { ClipboardText } from "areia";
 import { config } from "virtual:nimbus/config";
 import "../styles/landing.css";
 
-const NITRO_SANDBOX = `${URLS.SANDBOX.replace("{template}", "nitro")}?file=src%2Fpages%2Findex.tsx`;
+const NITRO_SANDBOX = `${URLS.SANDBOX.replace("{template}", "nitro-ssr")}?file=src%2Fpages%2Findex.tsx`;
 const PLAYGROUND_URL = playgroundUrl(PREVIEW_CODE);
 
 const [routingHtml, storeHtml, astroHtml] = await Promise.all([
@@ -73,7 +73,7 @@ const [routingHtml, storeHtml, astroHtml] = await Promise.all([
               <div class="landing-install">
                 <ClipboardText
                   client:idle
-                  text="npx giget@latest gh:ilhajs/ilha/templates/vite my-app"
+                  text="npx giget@latest gh:ilhajs/ilha/templates/vite-spa my-app"
                   tooltip
                   class="w-full min-w-0 text-left"
                 />

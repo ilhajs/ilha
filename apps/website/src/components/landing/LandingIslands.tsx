@@ -4,10 +4,9 @@ import ilha, { raw } from "ilha";
 import { URLS } from "@/lib/landing-const";
 
 const TEMPLATES = [
-  { value: "vite", label: "Vite", icon: "/vite.svg", sandbox: true },
-  { value: "nitro", label: "Nitro", icon: "/nitro.svg", sandbox: true },
-  { value: "hono", label: "Hono", icon: "/hono.svg", sandbox: true },
-  { value: "elysia", label: "Elysia", icon: "/elysia.svg", sandbox: false },
+  { value: "vite-spa", label: "Vite SPA", icon: "/vite.svg", sandbox: true },
+  { value: "nitro-ssr", label: "Nitro SSR", icon: "/nitro.svg", sandbox: true },
+  { value: "nitro-hono-spa", label: "Nitro + Hono SPA", icon: "/hono.svg", sandbox: true },
 ] as const;
 
 const LIBRARY_TABS = [
@@ -18,7 +17,7 @@ const LIBRARY_TABS = [
 
 export const ProjectCreatorForm = ilha
   .state("name", "")
-  .state("template", "vite")
+  .state("template", "vite-spa")
   .state("useBun", false)
   .derived("createCommand", ({ state }) => {
     const packageManager = state.useBun() ? "bunx" : "npx";
@@ -74,7 +73,7 @@ export const ProjectCreatorForm = ilha
         name="template"
         appearance="card"
         orientation="horizontal"
-        class="[&>div]:lg:grid-cols-4"
+        class="[&>div]:lg:grid-cols-3"
       >
         {TEMPLATES.map((template) => (
           <Radio.Item
