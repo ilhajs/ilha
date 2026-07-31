@@ -3308,6 +3308,53 @@ describe("child islands (render-time composition)", () => {
       unmount();
       cleanup(el);
     });
+
+    it("does not mount a sibling positional slot into a nested island's same-id slot", () => {
+      // Layout-shaped tree: keyed page hosts nested positional children (p:0…),
+      // then a sibling island also at p:0 (Toaster). Mounting the parent must
+      // not adopt the nested page slot for the sibling — document-order
+      // querySelectorAll would otherwise pick the page Checkbox first.
+      const Nested = ilha
+        .input<{ label: string }>()
+        .render(({ input }) => html`<span data-nested>${input.label}</span>`);
+      const Page = ilha
+        .input<{ items: string[] }>()
+        .render(
+          ({ input }) =>
+            html`<div>
+              ${input.items.map(
+                (label) => html`<div data-key="${label}">${Nested({ label })}</div>`,
+              )}
+            </div>`,
+        );
+      const Sibling = ilha.render(() => html`<aside data-sibling>toaster</aside>`);
+      const Layout = ilha.render(
+        () => html`<section>
+          <main>${Page.key("page")({ items: ["a", "b"] })}</main>
+          ${Sibling}
+        </section>`,
+      );
+
+      const el = makeEl();
+      const unmount = Layout.mount(el);
+
+      const pageSlot = el.querySelector("[data-ilha-slot='k:page']")!;
+      const nestedSlots = [...pageSlot.querySelectorAll("[data-ilha-slot]")];
+      expect(nestedSlots.map((n) => n.getAttribute("data-ilha-slot"))).toEqual(["p:0", "p:1"]);
+      expect(nestedSlots.map((n) => n.querySelector("[data-nested]")?.textContent)).toEqual([
+        "a",
+        "b",
+      ]);
+
+      const siblingHosts = [...el.querySelectorAll("[data-ilha-slot='p:0']")];
+      expect(siblingHosts).toHaveLength(2);
+      const layoutSibling = siblingHosts.find((n) => !pageSlot.contains(n))!;
+      expect(layoutSibling.querySelector("[data-sibling]")?.textContent).toBe("toaster");
+      expect(pageSlot.contains(layoutSibling.querySelector("[data-sibling]")!)).toBe(false);
+
+      unmount();
+      cleanup(el);
+    });
   });
 
   describe("conditional rendering", () => {

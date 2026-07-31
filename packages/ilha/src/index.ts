@@ -3778,13 +3778,16 @@ class IlhaBuilder<
         entry.el.remove();
       }
 
-      // Returns true if `candidate` is a slot owned by this host, i.e. walking
-      // up does not cross a [data-ilha] child-island boundary before reaching
-      // host.
+      // Returns true if `candidate` is a direct slot of this host — walking up
+      // must not cross another island boundary (`data-ilha` or a parent
+      // `data-ilha-slot`) before reaching host. Nested positional ids like
+      // `p:0` are only unique within one island's render; without treating
+      // ancestor slot hosts as boundaries, a layout sibling (e.g. Toaster at
+      // `p:0`) would steal a page-nested Checkbox slot with the same id.
       function slotBelongsToHost(candidate: Element): boolean {
-        let el: Element | null = candidate;
+        let el: Element | null = candidate.parentElement;
         while (el && el !== host) {
-          if (el.hasAttribute("data-ilha")) return false;
+          if (el.hasAttribute(SLOT_ATTR) || el.hasAttribute("data-ilha")) return false;
           el = el.parentElement;
         }
         return el === host;
