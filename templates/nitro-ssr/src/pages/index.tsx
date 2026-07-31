@@ -70,19 +70,19 @@ export default ilha
                       label={todo.text}
                       bind:checked={todos.bind((s) => s.items[index]?.completed ?? false)}
                     />
-                    <button onclick={() => todos.deleteItem(index)}>Delete</button>
+                    <Button onclick={() => todos.deleteItem(index)}>Delete</Button>
                   </div>
                 ))
                 .else(<p>No todos.</p>)}
             </div>
-            <button
+            <Button
               onclick={async () => {
                 const foo = await fetch("/api/foo").then((r) => r.text());
                 return toast.success(foo);
               }}
             >
               Get foo
-            </button>
+            </Button>
           </LayerCard.Content>
         </LayerCard>
       </div>
