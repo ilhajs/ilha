@@ -68,6 +68,15 @@
  * hover target sits near the right edge).
  */
 @media (max-width: 40rem) {
+  /* Restore horizontal scroll on mobile since popups are fixed and don't need visible overflow */
+  .nb-code-figure.twoslash {
+    overflow: hidden !important;
+  }
+  .nb-code-figure.twoslash > pre.astro-code {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+  }
+
   .nb-code-figure.twoslash .twoslash-popup-container {
     position: fixed;
     left: 0.75rem;
