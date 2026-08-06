@@ -2022,28 +2022,43 @@ function runBrandedQuery(
     (value: DerivedValue<unknown>): void;
   },
 ): void {
+  const writeEnv = (next: DerivedValue<unknown>) => {
+    if (abortSignal.aborted) return;
+    const prevSub = setActiveSub(undefined);
+    env(next);
+    setActiveSub(prevSub);
+  };
   const run = queryCall[ILHA_QUERY_RUN];
-  if (typeof run !== "function") return;
-  run.call(queryCall, abortSignal, {
-    onResult: (value) => {
-      if (abortSignal.aborted) return;
-      const prevSub = setActiveSub(undefined);
-      env({ loading: false, value, error: undefined });
-      setActiveSub(prevSub);
-    },
-    onError: (err) => {
-      if (abortSignal.aborted) return;
-      const prevSub = setActiveSub(undefined);
-      env({ loading: false, value: undefined, error: err });
-      setActiveSub(prevSub);
-    },
-    onFetchStart: () => {
-      const prevSub = setActiveSub(undefined);
-      const prevVal = env();
-      env({ loading: true, value: prevVal.value, error: undefined });
-      setActiveSub(prevSub);
-    },
-  });
+  if (typeof run !== "function") {
+    writeEnv({
+      loading: false,
+      value: undefined,
+      error: new Error("[@ilha] branded query is missing a callable runner"),
+    });
+    return;
+  }
+  try {
+    run.call(queryCall, abortSignal, {
+      onResult: (value) => {
+        writeEnv({ loading: false, value, error: undefined });
+      },
+      onError: (err) => {
+        writeEnv({ loading: false, value: undefined, error: err });
+      },
+      onFetchStart: () => {
+        const prevSub = setActiveSub(undefined);
+        const prevVal = env();
+        env({ loading: true, value: prevVal.value, error: undefined });
+        setActiveSub(prevSub);
+      },
+    });
+  } catch (err) {
+    writeEnv({
+      loading: false,
+      value: undefined,
+      error: err instanceof Error ? err : new Error(String(err)),
+    });
+  }
 }
 
 function createDerivedProxy<
@@ -2086,6 +2101,9 @@ function createDerivedProxy<
         const ac = new AbortController();
         const captureSlot: { queryCall?: QueryCallLike } = {};
         const stack = queryCaptureStack();
+        // Match the reactive path: drop any stale global pending sentinel
+        // before invoking so a plain return cannot be misread as a query.
+        (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
         stack.push(captureSlot);
         try {
           const result = entry.fn({ state, input, signal: ac.signal });
@@ -2208,9 +2226,24 @@ function createDerivedProxy<
         env({ loading: true, value: prevVal.value, error: undefined });
         setActiveSub(prevSub);
 
+        // Keep the capture-slot snapshot for hosts that attach during the
+        // sync preamble; after `await`, `return query()` resolves to the
+        // branded call itself — detect that here too.
         (result as Promise<unknown>)
           .then((value) => {
             if (currentAc.signal.aborted) return;
+            if (isQueryCall(value)) {
+              runBrandedQuery(value, currentAc.signal, env);
+              return;
+            }
+            const latePending = (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] as
+              | QueryCallLike
+              | undefined;
+            (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
+            if (latePending) {
+              runBrandedQuery(latePending, currentAc.signal, env);
+              return;
+            }
             env({ loading: false, value, error: undefined });
           })
           .catch((err: unknown) => {

@@ -140,16 +140,15 @@ export class QueryCache {
 
   /**
    * Removes every entry whose serialised key equals or extends the serialised
-   * prefix. An empty prefix (`[]`) matches every JSON-array key — prefer
-   * {@link clear} for a full wipe.
-   *
-   * Uses string-prefix matching on `JSON.stringify` output (no per-key parse).
+   * prefix. Uses string-prefix matching on `JSON.stringify` output (no
+   * per-key parse). An empty prefix (`[]`) only matches the exact empty-key
+   * entry — use {@link clear} for a full wipe.
    */
   invalidatePrefix(prefix: unknown[]): void {
     const serialized = this.key(prefix);
     // '[1,"x"]' → '[1,"x"' ; exact key or longer keys that continue with ',' / ']'
     const stem = serialized.slice(0, -1);
-    for (const k of [...this.#entries.keys()]) {
+    for (const k of this.#entries.keys()) {
       if (
         k === serialized ||
         (k.startsWith(stem) && (k[stem.length] === "," || k[stem.length] === "]"))
@@ -202,14 +201,20 @@ function cancelGcTimer(entry: QueryCacheEntryLike | undefined): void {
   }
 }
 
-function attachQuerySubscriber(call: QueryCallLike, cacheKey: string, signal: AbortSignal): void {
+function attachQuerySubscriber(
+  entry: QueryCacheEntryLike,
+  call: QueryCallLike,
+  cacheKey: string,
+  signal: AbortSignal,
+): void {
   const onAbort = () => {
-    const e = call.cache.get(cacheKey);
-    if (!e) return;
-    e.subscribers -= 1;
-    if (e.subscribers <= 0 && e.gcTimer == null) {
-      e.gcTimer = setTimeout(() => call.cache.delete(cacheKey), call.gcTime);
-    }
+    entry.subscribers -= 1;
+    if (entry.subscribers > 0 || entry.gcTimer != null) return;
+    // Only arm GC when this entry is still the live cache value for the key.
+    if (call.cache.get(cacheKey) !== entry) return;
+    entry.gcTimer = setTimeout(() => {
+      if (call.cache.get(cacheKey) === entry) call.cache.delete(cacheKey);
+    }, call.gcTime);
   };
   signal.addEventListener("abort", onAbort, { once: true });
 }
@@ -242,7 +247,7 @@ export function executeQueryCall(
   ) {
     cancelGcTimer(entry);
     entry.subscribers += 1;
-    attachQuerySubscriber(call, cacheKey, signal);
+    attachQuerySubscriber(entry, call, cacheKey, signal);
     onResult(entry.value);
     return;
   }
@@ -252,7 +257,7 @@ export function executeQueryCall(
   if (entry?.promise) {
     cancelGcTimer(entry);
     entry.subscribers += 1;
-    attachQuerySubscriber(call, cacheKey, signal);
+    attachQuerySubscriber(entry, call, cacheKey, signal);
     onFetchStart();
     entry.promise
       .then((val) => {
@@ -264,41 +269,56 @@ export function executeQueryCall(
     return;
   }
 
-  // New fetch
+  // New fetch — reuse the existing entry object when present so abort handlers
+  // that closed over it stay correct; insert only when the key is vacant.
   cancelGcTimer(entry);
   onFetchStart();
-  const promise = call.fn();
-  const next: QueryCacheEntryLike = {
-    promise,
-    value: entry?.value,
-    error: undefined,
-    settledAt: entry?.settledAt ?? 0,
-    subscribers: (entry?.subscribers ?? 0) + 1,
-    gcTimer: undefined,
-  };
-  call.cache.set(cacheKey, next);
-  attachQuerySubscriber(call, cacheKey, signal);
+
+  let promise: Promise<unknown>;
+  try {
+    promise = Promise.resolve(call.fn());
+  } catch (err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    if (entry) {
+      entry.promise = undefined;
+      entry.error = e;
+    }
+    onError(e);
+    return;
+  }
+
+  let live = entry;
+  if (live) {
+    live.promise = promise;
+    live.error = undefined;
+    live.subscribers += 1;
+    live.gcTimer = undefined;
+  } else {
+    live = {
+      promise,
+      value: undefined,
+      error: undefined,
+      settledAt: 0,
+      subscribers: 1,
+      gcTimer: undefined,
+    };
+    call.cache.set(cacheKey, live);
+  }
+  attachQuerySubscriber(live, call, cacheKey, signal);
 
   promise
     .then((value) => {
-      // Mutate in place so concurrent .then handlers cannot spread a stale copy.
-      const cur = call.cache.get(cacheKey);
-      if (cur) {
-        cur.promise = undefined;
-        cur.value = value;
-        cur.error = undefined;
-        cur.settledAt = Date.now();
-      }
+      live.promise = undefined;
+      live.value = value;
+      live.error = undefined;
+      live.settledAt = Date.now();
       if (signal.aborted) return;
       onResult(value);
     })
     .catch((err: unknown) => {
       const e = err instanceof Error ? err : new Error(String(err));
-      const cur = call.cache.get(cacheKey);
-      if (cur) {
-        cur.promise = undefined;
-        cur.error = e;
-      }
+      live.promise = undefined;
+      live.error = e;
       if (signal.aborted) return;
       onError(e);
     });

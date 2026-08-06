@@ -107,16 +107,17 @@ type User = { name: string };
 
 const UserCard = ilha
   .state("userId", 1)
-  .derived("user", async ({ state, signal }) =>
-    query({
-      key: ["user", state.userId()],
+  .derived("user", async ({ state, signal }) => {
+    const userId = state.userId();
+    return query({
+      key: ["user", userId],
       fn: () =>
-        fetch(`/api/users/${state.userId()}`, { signal }).then(
+        fetch(`/api/users/${userId}`, { signal }).then(
           (r) => r.json() as Promise<User>,
         ),
       staleTime: 30_000,
-    }),
-  )
+    });
+  })
   .render(({ derived }) => {
     if (derived.user.loading) return <p>Loading…</p>;
     if (derived.user.error)

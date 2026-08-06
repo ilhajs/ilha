@@ -809,19 +809,39 @@ function buildStore<
 
       if (queryCall) {
         const run = queryCall[ILHA_QUERY_RUN];
-        if (typeof run === "function") {
+        if (typeof run !== "function") {
+          untrackRun(() =>
+            env({
+              loading: false,
+              value: undefined,
+              error: new Error("[@ilha/store] branded query is missing a callable runner"),
+            }),
+          );
+          return;
+        }
+        try {
           run.call(queryCall, currentAc.signal, {
             onResult: (value: unknown) => {
-              if (!currentAc.signal.aborted) env({ loading: false, value, error: undefined });
+              if (currentAc.signal.aborted) return;
+              untrackRun(() => env({ loading: false, value, error: undefined }));
             },
             onError: (err: Error) => {
-              if (!currentAc.signal.aborted) env({ loading: false, value: undefined, error: err });
+              if (currentAc.signal.aborted) return;
+              untrackRun(() => env({ loading: false, value: undefined, error: err }));
             },
             onFetchStart: () => {
               const prevVal = untrackRun(() => env().value);
               untrackRun(() => env({ loading: true, value: prevVal, error: undefined }));
             },
           });
+        } catch (err) {
+          untrackRun(() =>
+            env({
+              loading: false,
+              value: undefined,
+              error: err instanceof Error ? err : new Error(String(err)),
+            }),
+          );
         }
         return;
       }
@@ -1016,11 +1036,14 @@ export function persist<TState extends object>(
   const serialize = options.serialize ?? (JSON.stringify as (state: TState) => string);
   const deserialize =
     options.deserialize ??
-    ((raw: string) => {
+    ((raw: string): Partial<TState> | null => {
       try {
         return JSON.parse(raw) as Partial<TState>;
-      } catch {
-        return null as unknown as Partial<TState>;
+      } catch (err) {
+        if (typeof process !== "undefined" && process.env?.NODE_ENV !== "production") {
+          console.warn(`[@ilha/store] persist("${key}"): ignored malformed JSON payload`, err);
+        }
+        return null;
       }
     });
 

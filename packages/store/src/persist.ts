@@ -447,6 +447,24 @@ export function readQuery<TState extends object>(
   return parseWithEntries(initial, buildEntries(initial, params), toSearchParams(source));
 }
 
+/** Clone object/array defaults so parse/hydrate never share mutable instances. */
+function cloneDefaultValue(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (typeof structuredClone === "function") {
+    try {
+      return structuredClone(value);
+    } catch {
+      // fall through
+    }
+  }
+  if (Array.isArray(value)) return value.map((item) => cloneDefaultValue(item));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = cloneDefaultValue(v);
+  }
+  return out;
+}
+
 function parseWithEntries<TState extends object>(
   initial: TState,
   entries: Entry[],
@@ -456,13 +474,13 @@ function parseWithEntries<TState extends object>(
   for (const e of entries) {
     const raw = sp.get(e.param);
     if (raw == null) {
-      out[e.key] = (initial as Record<string, unknown>)[e.key];
+      out[e.key] = cloneDefaultValue((initial as Record<string, unknown>)[e.key]);
       continue;
     }
     try {
       out[e.key] = e.deserialize ? e.deserialize(raw) : raw;
     } catch {
-      out[e.key] = (initial as Record<string, unknown>)[e.key];
+      out[e.key] = cloneDefaultValue((initial as Record<string, unknown>)[e.key]);
     }
   }
   return out as TState;
@@ -588,7 +606,9 @@ export function storeHref<TState extends object>(
   base?: string | URL,
 ): string {
   const initial = store.getInitialState();
-  const entries = buildEntries(initial, options.params);
+  // Match readQuery: every initial key is owned; `params` only codecs/renames.
+  const params = expandParamsForDefaults(initial, options.params);
+  const entries = buildEntries(initial, params);
   const state = { ...store.getState(), ...patch } as Record<string, unknown>;
   return hrefFromEntries(entries, state, options.omitDefaults !== false, base);
 }
@@ -778,7 +798,7 @@ export function persistQuery<TState extends object>(
     for (const e of entries) {
       const raw = sp.get(e.param);
       rawByKey.set(e.key, raw);
-      let next = initial[e.key];
+      let next = cloneDefaultValue(initial[e.key]);
       if (raw != null) {
         try {
           next = e.deserialize ? e.deserialize(raw) : raw;
@@ -789,7 +809,7 @@ export function persistQuery<TState extends object>(
               err,
             );
           }
-          next = initial[e.key];
+          next = cloneDefaultValue(initial[e.key]);
         }
       }
       patch[e.key] = next;

@@ -130,7 +130,6 @@
   line-height: inherit !important;
   white-space: pre-wrap !important;
   overflow-wrap: anywhere;
-  word-break: break-word;
   tab-size: 2;
 }
 
@@ -169,7 +168,6 @@
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .nb-code-figure.twoslash .twoslash-popup-docs p {
@@ -215,7 +213,6 @@
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 /* Inline error/tag rows inside the code block — stay within the scroller */
@@ -227,7 +224,6 @@
   min-width: 0 !important;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 /* Completions list — contain width inside the figure scroller */
