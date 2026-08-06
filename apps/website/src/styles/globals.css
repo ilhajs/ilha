@@ -339,6 +339,7 @@ pre.astro-code span {
 .nb-code-figure {
   position: relative;
   margin: 1rem 0;
+  max-width: 100%;
   border: 1px solid var(--nb-border);
   border-radius: 0.5rem;
   background-color: var(--nb-card);
@@ -349,6 +350,7 @@ pre.astro-code span {
   border: 0;
   border-radius: 0;
   background-color: transparent;
+  max-width: 100%;
 }
 .nb-code-title {
   display: flex;
@@ -412,70 +414,92 @@ pre.astro-code span {
   display: none;
 }
 
-/* Block-level lines so tints + gutters paint across the full row. */
-pre.astro-code code {
+/* Block-level lines so tints + gutters paint across the full row.
+   Scope to the direct `pre > code` child only — Twoslash hover cards nest
+   their own `pre/code/.line` trees and must not inherit this flex layout.
+   Shiki may omit text newlines between `.line` spans, so each line is a
+   flex item with a real min-height (empty lines would otherwise collapse). */
+pre.astro-code > code {
   display: flex;
   flex-direction: column;
   width: fit-content;
   min-width: 100%;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: pre;
+  tab-size: 2;
 }
-pre.astro-code .line {
+pre.astro-code > code > .line {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  flex: 0 0 auto;
   padding-inline: 1rem;
+  min-height: calc(1em * 1.625);
+  line-height: 1.625;
+  white-space: pre;
+}
+/* Keep blank lines visible even when the span has no text node. */
+pre.astro-code > code > .line:empty::after {
+  content: "";
+  display: inline-block;
+  width: 0;
 }
 
 /* Highlighted lines (`{1,3-5}` meta or `// [!code highlight]`). */
-pre.astro-code .line.highlighted {
+pre.astro-code > code > .line.highlighted {
   background: color-mix(in oklch, var(--nb-info) 12%, transparent);
   box-shadow: inset 2px 0 0 var(--nb-info);
 }
 
 /* Diff lines (`// [!code ++]` / `// [!code --]`). */
-pre.astro-code .line.diff {
+pre.astro-code > code > .line.diff {
   position: relative;
 }
-pre.astro-code .line.diff.add {
+pre.astro-code > code > .line.diff.add {
   background: color-mix(in oklch, var(--nb-success) 10%, transparent);
   box-shadow: inset 2px 0 0 var(--nb-success);
 }
-pre.astro-code .line.diff.remove {
+pre.astro-code > code > .line.diff.remove {
   background: color-mix(in oklch, var(--nb-danger) 10%, transparent);
   box-shadow: inset 2px 0 0 var(--nb-danger);
 }
-pre.astro-code .line.diff.add::before,
-pre.astro-code .line.diff.remove::before {
+pre.astro-code > code > .line.diff.add::before,
+pre.astro-code > code > .line.diff.remove::before {
   position: absolute;
   left: 0.25rem;
   color: var(--nb-muted-foreground);
   font-weight: 600;
 }
-pre.astro-code .line.diff.add::before {
+pre.astro-code > code > .line.diff.add::before {
   content: "+";
   color: var(--nb-success);
 }
-pre.astro-code .line.diff.remove::before {
+pre.astro-code > code > .line.diff.remove::before {
   content: "−";
   color: var(--nb-danger);
 }
 
 /* Focus mode — dim non-focused lines; clears on hover. */
-pre.astro-code.has-focused .line:not(.focused) {
+pre.astro-code.has-focused > code > .line:not(.focused) {
   opacity: 0.45;
   filter: blur(0.25px);
   transition:
     opacity 0.2s ease,
     filter 0.2s ease;
 }
-pre.astro-code.has-focused:hover .line:not(.focused) {
+pre.astro-code.has-focused:hover > code > .line:not(.focused) {
   opacity: 1;
   filter: none;
 }
 
 /* Error / warning lines — use muted tokens for theme-tuned tints. */
-pre.astro-code .line.highlighted.error {
+pre.astro-code > code > .line.highlighted.error {
   background: var(--nb-danger-muted);
   box-shadow: inset 2px 0 0 var(--nb-danger);
 }
-pre.astro-code .line.highlighted.warning {
+pre.astro-code > code > .line.highlighted.warning {
   background: var(--nb-warning-muted);
   box-shadow: inset 2px 0 0 var(--nb-warning);
 }

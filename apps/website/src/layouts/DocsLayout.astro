@@ -270,6 +270,7 @@ const hasPagination = Astro.slots.has("pagination");
   )}
 
   <script>
+    import "@/lib/twoslash.client";
     import { mount, lockScroll, unlockScroll } from "@cloudflare/nimbus-docs/client";
 
     const CLOSE_DURATION_MS = 250;

@@ -19,10 +19,12 @@ Island [`.state()`](/guide/island/state) is **local** to one component. Use `@il
 
 ## Import paths
 
-| Import path        | Use it for                                                                                                                 |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `@ilha/store`      | `store`, store types, subscriptions, `select`, `bind`, `persist`, `dehydrate`/`hydrate`, `shallowEqual`, and `effectScope` |
-| `@ilha/store/form` | Form extraction, validation, issue-to-error mapping, `preventDefault` for `.on()` handlers                                 |
+| Import path           | Use it for                                                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `@ilha/store`         | `store`, store types, subscriptions, `select`, `bind`, `persist`, `dehydrate`/`hydrate`, `shallowEqual`, and `effectScope` |
+| `@ilha/store/persist` | `persist`, `persistQuery`, `querySpec`, `codec`, `readQuery`, and URL/localStorage persistence helpers                     |
+| `@ilha/store/query`   | `query`, `QueryCache`, and `defaultQueryCache` — data-fetching cache for async `.derived()`                                |
+| `@ilha/store/form`    | Form extraction, validation, issue-to-error mapping, `preventDefault` for `.on()` handlers                                 |
 
 ## Quick start
 
@@ -140,6 +142,8 @@ userStore.user.error; // Error | undefined on rejection
 ```
 
 Re-running (when `id` changes) keeps the previous `.value` visible while `.loading` is `true`.
+
+For cache, dedup, and cross-store sharing of the same fetch, wrap the work in [`query()`](#query--data-fetching-cache) from `@ilha/store/query`.
 
 Sync deriveds are evaluated once eagerly at `.build()` (to detect promise-returning functions); async deriveds start their first run at `.build()` too. Keep derived functions cheap and side-effect-free — don't assume they only run when read.
 
@@ -350,10 +354,11 @@ Keeps a store in sync with `localStorage` (or any `getItem`/`setItem` backend):
 2. **Writes through** on every commit.
 3. **Cross-tab sync**: mirrors writes from other tabs via `storage` events (default `localStorage` backend only; disable with `crossTab: false`).
 
-Returns an unsubscribe. No-op on the server.
+Returns an unsubscribe. No-op on the server. Import from `@ilha/store` or `@ilha/store/persist`.
 
 ```ts
 import { store, persist } from "@ilha/store";
+// or: import { persist } from "@ilha/store/persist";
 
 const cartStore = store({ items: [] as string[] }).build();
 persist(cartStore, "cart");
@@ -370,14 +375,14 @@ Call the returned unsubscribe before `store.dispose()` for per-island stores.
 
 ## URL persistence — `persistQuery(store, options?)`
 
-`persist`'s sibling for the query string, from the `@ilha/store/query` entry point. Instead of one serialized blob, each state key gets **its own search param** (`?q=boots&page=2`) — shareable, reload-safe, back/forward-friendly. Prior art: [nuqs](https://nuqs.dev) for React.
+`persist`'s sibling for the query string, from the `@ilha/store/persist` entry point. Instead of one serialized blob, each state key gets **its own search param** (`?q=boots&page=2`) — shareable, reload-safe, back/forward-friendly. Prior art: [nuqs](https://nuqs.dev) for React.
 
 The canonical use case is a filter bar. UI state that drives data loading (search text, sort, page) belongs in the URL, because `@ilha/router` loaders re-run on every navigation and read `ctx.url.searchParams`. The cycle is **one-way**: store → URL → loader → render. The store is the _write_ path for the controls; the loader stays the _read_ path for data — on the server and the client. Because same-island navigations [update the mounted island in place](/guide/libraries/router#loaders) (no remount), the bound input keeps focus, caret, and scroll while the loader-driven parts of the page refresh.
 
 ```ts
 import { z } from "zod";
 import { store } from "@ilha/store";
-import { persistQuery } from "@ilha/store/query";
+import { persistQuery } from "@ilha/store/persist";
 
 export const filters = store(
   z.object({
@@ -419,6 +424,52 @@ Returns an unsubscribe (flushes any pending debounced write). No-op on the serve
 | `navigate`     | auto-detect    | Injected URL writer; without `@ilha/router` installed, falls back to the History API with a dev warning  |
 
 Values serialize with `String()` by default; deserialization hands the raw string to `setState`, so schema stores coerce it (`z.coerce.number()`). For arrays, dates, etc., give the key a `{ serialize, deserialize }` codec in `params`.
+
+**Rule of thumb:** if the data is addressable by URL and should survive reload/back-forward, use `persist` / `persistQuery` (`@ilha/store/persist`) plus a loader. If the data is cross-island shared state with no URL semantics, use [`query()`](#query--data-fetching-cache) inside a `.derived()`.
+
+## `query()` — data-fetching cache
+
+`@ilha/store/query` adds cache, deduplication, cross-store sharing, and invalidation for async `.derived()` fetches — on both store builders and island [`.derived()`](/guide/island/derived#cache-fetches-with-ilhastorequery). The host envelope is unchanged.
+
+```ts
+import ilha from "ilha";
+import { query } from "@ilha/store/query";
+
+const UserCard = ilha
+  .state("id", 1)
+  .derived("user", async ({ state, signal }) =>
+    query({
+      key: ["user", state.id()],
+      fn: () => fetchUser(state.id(), { signal }),
+      staleTime: 30_000,
+    }),
+  )
+  .render(
+    ({ derived }) =>
+      /* use derived.user.loading / derived.user() */ null,
+  );
+```
+
+Read the reactive inputs that should re-fetch **before** building `key` (for example `state.id()` or `ctx.get().id`). `query()` itself does no tracking. Capture the derived `signal` in `fn`'s closure — `query()` does not thread the signal in.
+
+| Option      | Default             | Description                                                        |
+| ----------- | ------------------- | ------------------------------------------------------------------ |
+| `key`       | required            | Serialisable array identifying the query                           |
+| `fn`        | required            | `() => Promise<T>` — perform the fetch                             |
+| `staleTime` | `0`                 | Freshness window (ms); within it, re-runs return the cached value  |
+| `gcTime`    | `300_000`           | How long to retain an entry after its last subscriber drops        |
+| `cache`     | `defaultQueryCache` | Explicit `QueryCache` instance (e.g. per-request isolation on SSR) |
+
+`QueryCache` exposes `invalidate(keyParts)`, `invalidatePrefix(prefix)`, `clear()`, and `size` so you can drop entries, wipe a cache for request isolation, and observe occupancy. Prefer primitive key segments only. `store.dispose()` aborts in-flight runs and decrements subscribers — GC uses the same `AbortSignal` the store already produces.
+
+Fetch failures land in the derived's `.error` envelope. They do **not** route through `.onError()` (same as plain-Promise async deriveds). `dehydrate()` / `hydrate()` transfer raw state only — never `QueryCache` entries.
+
+<Aside type="caution" title="SSR and module-level stores">
+Do not build a `query()`-backed derived keyed on request-scoped data inside a module-level singleton store on the server. Async deriveds start their first run at `.build()`, and `defaultQueryCache` is a module singleton — the first request's result would leak into later requests.
+
+For request-scoped data, prefer `@ilha/router` loaders and feed results into the store via `hydrate()` on the client. `query()` fits client-only stores (create after mount, dispose on unmount), or module singletons whose key comes from client-only reactive state. Pass a fresh `QueryCache` via `query({ cache })` when you need request-isolated server caching.
+
+</Aside>
 
 ## SSR — `dehydrate()` / `hydrate()`
 

@@ -1,101 +1,240 @@
 /* Twoslash popovers over Nimbus dual-theme code blocks. */
 
 /*
- * Clip chain (both must be visible or absolute popups stay trapped):
- *   .nb-code-figure { overflow: hidden }
- *   pre.astro-code { overflow-x: auto } → also forces overflow-y to auto
- * Twoslash class lands on the figure; popups live under pre > code > .line.
+ * Containment vs popups:
+ *   `overflow-x: auto` + `overflow-y: visible` is not possible in CSS — the
+ *   non-visible axis forces the other to compute to `auto`, which clips
+ *   absolutely positioned hover cards. Setting both axes to `visible` lets
+ *   wide `width: fit-content` code expand the page horizontally.
+ *
+ * Fix: keep figure/pre scroll-contained; cards are `position: fixed` and
+ * anchored to the hovered token via `--twoslash-left/top` (see
+ * `twoslash.client.ts`).
  */
-.nb-code-figure.twoslash,
+
+.nb-code-figure.twoslash {
+  max-width: 100%;
+  overflow: hidden;
+}
+
 .nb-code-figure.twoslash > pre.astro-code {
-  overflow: visible !important;
-}
-
-/* Lift the whole hovered line above later lines (same stacking context). */
-.nb-code-figure.twoslash pre.astro-code .line:has(.twoslash-hover:hover),
-.nb-code-figure.twoslash pre.astro-code .line:has(.twoslash-hover:focus-within),
-.nb-code-figure.twoslash pre.astro-code .line:has(.twoslash-query-persisted) {
-  position: relative;
-  z-index: 70;
-}
-
-.nb-code-figure.twoslash .twoslash-hover {
-  position: relative;
-}
-
-/*
- * Desktop: flip above the token (style-rich defaults to translateY under it).
- * Cap size + wrap so long IlhaBuilder generics do not grow the page.
- */
-.nb-code-figure.twoslash .twoslash-popup-container {
-  z-index: 70;
-  left: 0;
-  right: auto;
-  box-sizing: border-box;
-  width: max-content;
-  max-width: min(28rem, calc(100vw - 2rem));
-  max-height: min(40vh, 18rem);
-  overflow: auto;
-  overscroll-behavior: contain;
+  max-width: 100%;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
-  transform: translateY(calc(-100% - 0.45em));
 }
 
-.nb-code-figure.twoslash .twoslash-popup-code,
-.nb-code-figure.twoslash .twoslash-popup-docs,
-.nb-code-figure.twoslash .twoslash-popup-error {
-  max-width: 100%;
-}
-
-.nb-code-figure.twoslash .twoslash-popup-code,
-.nb-code-figure.twoslash .twoslash-popup-code pre,
-.nb-code-figure.twoslash .twoslash-popup-code code {
-  white-space: pre-wrap !important;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  max-width: 100%;
-}
-
-.nb-code-figure.twoslash .twoslash-popup-arrow {
-  top: auto;
-  bottom: -4px;
-  transform: rotate(135deg);
-}
-
-/*
- * Narrow viewports: dock as a bottom sheet so left-edge-of-token positioning
- * cannot push past the screen (absolute + max-width still overflows when the
- * hover target sits near the right edge).
- */
-@media (max-width: 40rem) {
-  /* Restore horizontal scroll on mobile since popups are fixed and don't need visible overflow */
-  .nb-code-figure.twoslash {
-    overflow: hidden !important;
-  }
-  .nb-code-figure.twoslash > pre.astro-code {
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-  }
-
-  .nb-code-figure.twoslash .twoslash-popup-container {
-    position: fixed;
-    left: 0.75rem;
-    right: 0.75rem;
-    bottom: 0.75rem;
-    top: auto;
-    width: auto;
-    max-width: none;
-    max-height: min(45vh, 16rem);
-    transform: none;
-  }
-
-  .nb-code-figure.twoslash .twoslash-popup-arrow {
-    display: none;
-  }
-}
-
-[data-mode="dark"] .twoslash-popup-container {
+/* Theme tokens for style-rich popups */
+.nb-code-figure.twoslash {
   --twoslash-popup-bg: var(--nb-card, var(--nb-background));
   --twoslash-popup-color: var(--nb-foreground);
   --twoslash-border-color: var(--nb-border);
+  --twoslash-popup-shadow: 0 10px 40px color-mix(in oklch, var(--nb-foreground) 12%, transparent);
+  --twoslash-docs-color: var(--nb-muted-foreground);
+  --twoslash-docs-font: var(--nb-font-sans, system-ui, sans-serif);
+  --twoslash-code-font: var(--nb-font-mono, ui-monospace, monospace);
+  --twoslash-code-font-size: 0.8125rem;
+  --twoslash-underline-color: color-mix(in oklch, var(--nb-foreground) 45%, transparent);
+}
+
+[data-mode="dark"] .nb-code-figure.twoslash {
+  --twoslash-popup-shadow: 0 12px 48px rgb(0 0 0 / 0.45);
+}
+
+/* Hover underline stays subtle until the block is interactive */
+.nb-code-figure.twoslash .twoslash-hover {
+  position: relative;
+  border-bottom-color: transparent;
+}
+
+.nb-code-figure.twoslash:hover .twoslash-hover {
+  border-bottom-color: var(--twoslash-underline-color);
+}
+
+/*
+ * Fixed card next to the token. Coordinates come from JS
+ * (`--twoslash-left`, `--twoslash-top` in viewport px).
+ */
+.nb-code-figure.twoslash .twoslash-popup-container {
+  position: fixed !important;
+  left: var(--twoslash-left, 0px) !important;
+  top: var(--twoslash-top, 0px) !important;
+  right: auto !important;
+  bottom: auto !important;
+  z-index: 80;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  max-width: min(28rem, calc(100vw - 1rem));
+  max-height: min(50vh, 20rem);
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  transform: none !important;
+  border-radius: 0.5rem;
+  border: 1px solid var(--twoslash-border-color);
+  background: var(--twoslash-popup-bg);
+  color: var(--twoslash-popup-color);
+  box-shadow: var(--twoslash-popup-shadow);
+  text-align: left;
+}
+
+/* Hide the CSS arrow — placement flips above/below in JS. */
+.nb-code-figure.twoslash .twoslash-popup-arrow {
+  display: none;
+}
+
+/* ---- Popup body: type signature ---- */
+.nb-code-figure.twoslash .twoslash-popup-code,
+.nb-code-figure.twoslash .twoslash-popup-docs,
+.nb-code-figure.twoslash .twoslash-popup-error {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.nb-code-figure.twoslash .twoslash-popup-code {
+  padding: 0.5rem 0.625rem !important;
+  font-family: var(--twoslash-code-font);
+  font-size: var(--twoslash-code-font-size);
+  line-height: 1.5;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+/*
+ * Reset nested Shiki trees inside the type card.
+ * Without this, site-wide `pre.astro-code > code` / `.line` rules and default
+ * pre chrome make the signature look like a broken mini code block.
+ */
+.nb-code-figure.twoslash .twoslash-popup-code pre,
+.nb-code-figure.twoslash .twoslash-popup-code code {
+  display: block !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100%;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  line-height: inherit !important;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+
+.nb-code-figure.twoslash .twoslash-popup-code .line {
+  display: block !important;
+  width: auto !important;
+  min-height: 1.5em !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 1.5 !important;
+  white-space: pre-wrap !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.nb-code-figure.twoslash .twoslash-popup-code .line:empty::after {
+  content: "";
+  display: inline-block;
+}
+
+/* Dual-theme token colors inside the sheet (class tokens + inline vars). */
+.nb-code-figure.twoslash .twoslash-popup-code span {
+  color: var(--shiki-light, inherit);
+}
+[data-mode="dark"] .nb-code-figure.twoslash .twoslash-popup-code span {
+  color: var(--shiki-dark, inherit);
+}
+
+/* ---- Popup body: JSDoc / errors ---- */
+.nb-code-figure.twoslash .twoslash-popup-docs {
+  padding: 0.5rem 0.625rem !important;
+  border-top: 1px solid var(--twoslash-border-color);
+  color: var(--twoslash-docs-color);
+  font-family: var(--twoslash-docs-font);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.nb-code-figure.twoslash .twoslash-popup-docs p {
+  margin: 0.35em 0;
+}
+.nb-code-figure.twoslash .twoslash-popup-docs p:first-child {
+  margin-top: 0;
+}
+.nb-code-figure.twoslash .twoslash-popup-docs p:last-child {
+  margin-bottom: 0;
+}
+
+.nb-code-figure.twoslash .twoslash-popup-docs code {
+  font-family: var(--twoslash-code-font);
+  font-size: 0.9em;
+  padding: 0.05em 0.3em;
+  border-radius: 0.25rem;
+  border: 1px solid var(--twoslash-border-color);
+  background: color-mix(in oklch, var(--nb-muted, var(--nb-foreground)) 12%, transparent);
+  white-space: break-spaces;
+  overflow-wrap: anywhere;
+}
+
+.nb-code-figure.twoslash .twoslash-popup-docs-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  min-width: 0;
+}
+
+.nb-code-figure.twoslash .twoslash-popup-docs-tag-name {
+  font-family: var(--twoslash-code-font);
+  font-weight: 600;
+  color: var(--nb-foreground);
+}
+
+.nb-code-figure.twoslash .twoslash-popup-error {
+  padding: 0.5rem 0.625rem !important;
+  color: var(--twoslash-error-color, var(--nb-danger));
+  font-family: var(--twoslash-docs-font);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Inline error/tag rows inside the code block — stay within the scroller */
+.nb-code-figure.twoslash .twoslash-error-line,
+.nb-code-figure.twoslash .twoslash-tag-line {
+  box-sizing: border-box;
+  max-width: 100%;
+  width: 100% !important;
+  min-width: 0 !important;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Completions list — contain width inside the figure scroller */
+.nb-code-figure.twoslash .twoslash-completion-list {
+  max-width: min(16rem, 70vw);
+  box-sizing: border-box;
+}
+
+/* Query / persisted cards use the same fixed anchoring. */
+.nb-code-figure.twoslash .twoslash-query-line .twoslash-popup-container,
+.nb-code-figure.twoslash .twoslash-query-persisted .twoslash-popup-container {
+  position: fixed !important;
+  transform: none !important;
 }

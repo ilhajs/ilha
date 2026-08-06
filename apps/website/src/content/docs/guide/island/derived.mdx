@@ -95,6 +95,39 @@ const UserCard = ilha
 
 On first render, `loading` is `true` and `derived.user()` is `undefined` until the promise resolves.
 
+## Cache fetches with `@ilha/store/query`
+
+Return [`query()`](/guide/libraries/store#query--data-fetching-cache) from island `.derived()` when you want cache, in-flight dedup, stale-while-revalidate, and invalidation across mounts. The island envelope stays the same — `loading` / `value` / `error`.
+
+```tsx
+import ilha from "ilha";
+import { query } from "@ilha/store/query";
+
+type User = { name: string };
+
+const UserCard = ilha
+  .state("userId", 1)
+  .derived("user", async ({ state, signal }) => {
+    const userId = state.userId();
+    return query({
+      key: ["user", userId],
+      fn: () =>
+        fetch(`/api/users/${userId}`, { signal }).then(
+          (r) => r.json() as Promise<User>,
+        ),
+      staleTime: 30_000,
+    });
+  })
+  .render(({ derived }) => {
+    if (derived.user.loading) return <p>Loading…</p>;
+    if (derived.user.error)
+      return <p>Error: {derived.user.error.message}</p>;
+    return <p>{derived.user()?.name}</p>;
+  });
+```
+
+Read reactive inputs (`state.userId()`) before building `key`. Capture the derived `signal` in `fn` so a re-run aborts the in-flight fetch. Full options, `invalidate` / `invalidatePrefix`, and SSR caveats live on [`@ilha/store`](/guide/libraries/store#query--data-fetching-cache).
+
 ## Reactive dependencies
 
 The derived function re-runs whenever any signal it reads changes. Dependencies are tracked automatically — you do not need to declare them manually.

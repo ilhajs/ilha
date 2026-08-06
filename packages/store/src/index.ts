@@ -249,7 +249,7 @@ function createDerivedAccessor<T>(read: () => DerivedValue<T>): DerivedAccessor<
 // `prev` — i.e. committing this patch would be a no-op.
 function isNoopPatch<T extends object>(prev: T, patch: Partial<T>): boolean {
   for (const key in patch) {
-    if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
+    if (!Object.hasOwn(patch, key)) continue;
     if (!Object.is((prev as Record<string, unknown>)[key], patch[key])) return false;
   }
   return true;
@@ -412,6 +412,32 @@ export class StoreBuilder<
     return buildStore<TState, D, A>(this._cfg);
   }
 }
+
+// ---------------------------------------------------------------------------
+// query() integration — duck-typed via Symbol.for("ilha.store.query")
+// Zero import of @ilha/store/query; unused stores pay nothing.
+// Execution lives on the branded call (ILHA_QUERY_RUN) when query() is loaded.
+// ---------------------------------------------------------------------------
+
+type QueryRunCallbacks = {
+  onResult: (value: unknown) => void;
+  onError: (err: Error) => void;
+  onFetchStart: () => void;
+};
+
+type QueryCallLike = {
+  key: unknown[];
+  fn: () => Promise<unknown>;
+  staleTime: number;
+  gcTime: number;
+  cache: {
+    key(parts: unknown[]): string;
+    get(cacheKey: string): unknown;
+    set(cacheKey: string, entry: unknown): void;
+    delete(cacheKey: string): void;
+  };
+  [run: symbol]: (signal: AbortSignal, cbs: QueryRunCallbacks) => void;
+};
 
 // ---------------------------------------------------------------------------
 // build()
@@ -673,6 +699,20 @@ function buildStore<
   // API (addEventListener, throwIfAborted, …) without crashing.
   const NO_SIGNAL = new AbortController().signal;
   const derivedAccessors = new Map<string, DerivedAccessor<unknown>>();
+  // Duck-typed @ilha/store/query detection (Symbol.for — no hard dependency).
+  const ILHA_QUERY = Symbol.for("ilha.store.query");
+  const ILHA_QUERY_RUN = Symbol.for("ilha.store.query.run");
+  const ILHA_QUERY_PENDING = Symbol.for("ilha.store.query.pending");
+  const ILHA_QUERY_STACK = Symbol.for("ilha.store.query.stack");
+  const queryCaptureStack = (): { queryCall?: QueryCallLike }[] => {
+    const g = globalThis as Record<symbol, unknown>;
+    let stack = g[ILHA_QUERY_STACK] as { queryCall?: QueryCallLike }[] | undefined;
+    if (!stack) {
+      stack = [];
+      g[ILHA_QUERY_STACK] = stack;
+    }
+    return stack;
+  };
   for (const { key, fn } of cfg.deriveds) {
     // Heuristic: native async functions are known up front. Sync functions that
     // happen to return a Promise are detected at first run and upgraded.
@@ -682,17 +722,30 @@ function buildStore<
     if (!looksAsync) {
       // Try the fast sync path: a plain computed. If the first evaluation
       // returns a Promise, fall through to the async path instead.
-      const probe = computed(() => fn({ get: () => stateSignal(), signal: NO_SIGNAL }));
+      const probe = computed(() => {
+        const slot: { queryCall?: QueryCallLike } = {};
+        const stack = queryCaptureStack();
+        stack.push(slot);
+        try {
+          return fn({ get: () => stateSignal(), signal: NO_SIGNAL });
+        } finally {
+          stack.pop();
+        }
+      });
       let firstVal: unknown;
       let isPromise = false;
       try {
         firstVal = probe();
-        isPromise = firstVal instanceof Promise;
+        isPromise =
+          firstVal instanceof Promise ||
+          (firstVal !== null && typeof firstVal === "object" && ILHA_QUERY in (firstVal as object));
       } catch {
         // Throwing sync derived — surface the error via the async path so it
         // lands in `.error` rather than crashing build().
         isPromise = true;
       }
+      // Clear any legacy pending sentinel so it cannot leak into a later run.
+      (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
       if (!isPromise) {
         derivedAccessors.set(
           key,
@@ -722,9 +775,14 @@ function buildStore<
       const currentAc = ac;
 
       let result: unknown;
+      const captureSlot: { queryCall?: QueryCallLike } = {};
+      const stack = queryCaptureStack();
+      (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
+      stack.push(captureSlot);
       try {
         result = fn({ get: () => stateSignal(), signal: currentAc.signal });
       } catch (err) {
+        (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
         untrackRun(() =>
           env({
             loading: false,
@@ -732,6 +790,59 @@ function buildStore<
             error: err instanceof Error ? err : new Error(String(err)),
           }),
         );
+        return;
+      } finally {
+        stack.pop();
+      }
+
+      const pendingQuery = (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] as
+        | QueryCallLike
+        | undefined;
+      (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
+
+      const queryCall =
+        captureSlot.queryCall ??
+        pendingQuery ??
+        (result !== null && typeof result === "object" && ILHA_QUERY in (result as object)
+          ? (result as QueryCallLike)
+          : undefined);
+
+      if (queryCall) {
+        const run = queryCall[ILHA_QUERY_RUN];
+        if (typeof run !== "function") {
+          untrackRun(() =>
+            env({
+              loading: false,
+              value: undefined,
+              error: new Error("[@ilha/store] branded query is missing a callable runner"),
+            }),
+          );
+          return;
+        }
+        try {
+          run.call(queryCall, currentAc.signal, {
+            onResult: (value: unknown) => {
+              if (currentAc.signal.aborted) return;
+              untrackRun(() => env({ loading: false, value, error: undefined }));
+            },
+            onError: (err: Error) => {
+              if (currentAc.signal.aborted) return;
+              untrackRun(() => env({ loading: false, value: undefined, error: err }));
+            },
+            onFetchStart: () => {
+              const prevVal = untrackRun(() => env().value);
+              untrackRun(() => env({ loading: true, value: prevVal, error: undefined }));
+            },
+          });
+        } catch (err) {
+          untrackRun(() =>
+            env({
+              loading: false,
+              value: undefined,
+              error: err instanceof Error ? err : new Error(String(err)),
+            }),
+          );
+        }
         return;
       }
 
@@ -923,7 +1034,18 @@ export function persist<TState extends object>(
   if (typeof window === "undefined") return () => {};
   const storage = options.storage ?? window.localStorage;
   const serialize = options.serialize ?? (JSON.stringify as (state: TState) => string);
-  const deserialize = options.deserialize ?? ((raw: string) => JSON.parse(raw) as Partial<TState>);
+  const deserialize =
+    options.deserialize ??
+    ((raw: string): Partial<TState> | null => {
+      try {
+        return JSON.parse(raw) as Partial<TState>;
+      } catch (err) {
+        if (typeof process !== "undefined" && process.env?.NODE_ENV !== "production") {
+          console.warn(`[@ilha/store] persist("${key}"): ignored malformed JSON payload`, err);
+        }
+        return null;
+      }
+    });
 
   const applyRaw = (raw: string | null) => {
     if (raw == null) return;
@@ -996,7 +1118,7 @@ function exceedsMaxDepth(value: unknown, depth: number): boolean {
     return false;
   }
   for (const key in value as Record<string, unknown>) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    if (!Object.hasOwn(value, key)) continue;
     if (exceedsMaxDepth((value as Record<string, unknown>)[key], depth + 1)) return true;
   }
   return false;

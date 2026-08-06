@@ -1380,18 +1380,25 @@ describe("persist()", () => {
   });
 
   it("ignores corrupt payloads without crashing", () => {
-    const errSpy = mock();
+    // Default deserialize swallows JSON.parse failures and returns null so a
+    // bad payload never reaches setState (no throw, state stays initial).
+    // Development may warn; console.error must not fire.
+    const errSpy = mock(() => {});
+    const warnSpy = mock(() => {});
     const origError = console.error;
+    const origWarn = console.warn;
     console.error = errSpy;
+    console.warn = warnSpy;
     try {
       window.localStorage.setItem("p4", "{not json");
       const s = store({ count: 3 }).build();
       const stop = persist(s, "p4");
-      expect(s.count()).toBe(3); // untouched
-      expect(errSpy).toHaveBeenCalled();
+      expect(s.count()).toBe(3);
+      expect(errSpy).not.toHaveBeenCalled();
       stop();
     } finally {
       console.error = origError;
+      console.warn = origWarn;
     }
   });
 
