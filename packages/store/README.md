@@ -392,7 +392,7 @@ Call the returned unsubscribe before `store.dispose()` for per-island stores.
 
 ## URL persistence — `persistQuery` / `querySpec` / `codec`
 
-`persist`'s sibling for the query string ([nuqs](https://nuqs.dev)-style), from the `@ilha/store/query` entry point. Each state key maps to **its own search param** (`?q=boots&page=2`) — shareable, reload-safe, back/forward-friendly. Writes go through `@ilha/router`'s `navigate()` (auto-detected, or injected via `options.navigate`) so loaders re-run; the URL seeds the store on init (schema-coerced/validated, invalid params degrade to defaults); back/forward syncs back into the store without echo loops. With `omitDefaults` (default), default-valued params are dropped from the URL.
+`persist`'s sibling for the query string ([nuqs](https://nuqs.dev)-style), from the `@ilha/store/persist` entry point. Each state key maps to **its own search param** (`?q=boots&page=2`) — shareable, reload-safe, back/forward-friendly. Writes go through `@ilha/router`'s `navigate()` (auto-detected, or injected via `options.navigate`) so loaders re-run; the URL seeds the store on init (schema-coerced/validated, invalid params degrade to defaults); back/forward syncs back into the store without echo loops. With `omitDefaults` (default), default-valued params are dropped from the URL.
 
 ### First-paint read path (loader vs store)
 
@@ -411,7 +411,7 @@ Define codecs **once**; reuse in the loader and on the client:
 ```ts
 import { z } from "zod";
 import { store } from "@ilha/store";
-import { codec, querySpec } from "@ilha/store/query";
+import { codec, querySpec } from "@ilha/store/persist";
 
 const FilterSchema = z.object({
   column: z.string(),
@@ -472,7 +472,7 @@ Call from island `onMount` and return the unsubscribe as cleanup — do **not** 
 `persistQuery` preserves foreign params; app code that builds `URLSearchParams` from only `page`/`sort` will drop `q`/`f`. Use:
 
 ```ts
-import { withQuery, storeHref } from "@ilha/store/query";
+import { withQuery, storeHref } from "@ilha/store/persist";
 
 withQuery("/list?q=boots&tab=all", { page: 2 }); // → keeps q + tab
 storeHref(filters, { page: 2 }, spec.persistOptions);
@@ -480,6 +480,34 @@ spec.href({ page: 2 }); // owned keys from defaults + patch
 ```
 
 Returns an unsubscribe (flushes any pending debounced write). No-op on the server — loaders should use `spec.parse(url)` / `readQuery(store, url)`. See the [store guide](https://ilhajs.dev/guide/libraries/store) for the full filter-bar walkthrough.
+
+## `query()` — data-fetching cache (`@ilha/store/query`)
+
+Cache, dedup, and invalidate async `.derived()` fetches across stores:
+
+```ts
+import { store } from "@ilha/store";
+import { query, defaultQueryCache } from "@ilha/store/query";
+
+const userStore = store({ id: 1 })
+  .derived("user", async (ctx) =>
+    query({
+      key: ["user", ctx.get().id],
+      fn: () => fetchUser(ctx.get().id, { signal: ctx.signal }),
+      staleTime: 30_000,
+    }),
+  )
+  .build();
+
+defaultQueryCache.invalidate(["user", 1]);
+// Or drop a whole prefix / wipe for SSR request isolation:
+// defaultQueryCache.invalidatePrefix(["user"]);
+// defaultQueryCache.clear();
+```
+
+`QueryCache` also exposes `size` and `clear()` for occupancy checks and teardown. Prefer primitive key segments only — objects and `NaN`/`Infinity` do not survive JSON identity stably.
+
+**SSR caution:** do not key a module-singleton `query()` derived on request-scoped data — `.build()` starts the fetch eagerly and `defaultQueryCache` is shared. Prefer loaders + `hydrate()` for request data, or pass a fresh `QueryCache` via `query({ cache })`.
 
 ## SSR — `dehydrate()` / `hydrate()`
 

@@ -1380,19 +1380,13 @@ describe("persist()", () => {
   });
 
   it("ignores corrupt payloads without crashing", () => {
-    const errSpy = mock();
-    const origError = console.error;
-    console.error = errSpy;
-    try {
-      window.localStorage.setItem("p4", "{not json");
-      const s = store({ count: 3 }).build();
-      const stop = persist(s, "p4");
-      expect(s.count()).toBe(3); // untouched
-      expect(errSpy).toHaveBeenCalled();
-      stop();
-    } finally {
-      console.error = origError;
-    }
+    // Default deserialize swallows JSON.parse failures and returns null so a
+    // bad payload never reaches setState (no throw, state stays initial).
+    window.localStorage.setItem("p4", "{not json");
+    const s = store({ count: 3 }).build();
+    const stop = persist(s, "p4");
+    expect(s.count()).toBe(3);
+    stop();
   });
 
   it("schema stores reject invalid persisted payloads via validation", () => {

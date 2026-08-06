@@ -1972,6 +1972,80 @@ export type IslandDerived<TDerivedMap extends Record<string, unknown>> = {
   readonly [K in keyof TDerivedMap]: DerivedAccessor<TDerivedMap[K]>;
 };
 
+// Duck-typed @ilha/store/query detection (Symbol.for — no hard dependency).
+// query() attaches calls to a capture stack and exposes ILHA_QUERY_RUN.
+const ILHA_QUERY = Symbol.for("ilha.store.query");
+const ILHA_QUERY_RUN = Symbol.for("ilha.store.query.run");
+const ILHA_QUERY_PENDING = Symbol.for("ilha.store.query.pending");
+const ILHA_QUERY_STACK = Symbol.for("ilha.store.query.stack");
+
+type QueryRunCallbacks = {
+  onResult: (value: unknown) => void;
+  onError: (err: Error) => void;
+  onFetchStart: () => void;
+};
+
+type QueryCallLike = {
+  [run: symbol]: (signal: AbortSignal, cbs: QueryRunCallbacks) => void;
+};
+
+function queryCaptureStack(): { queryCall?: QueryCallLike }[] {
+  const g = globalThis as Record<symbol, unknown>;
+  let stack = g[ILHA_QUERY_STACK] as { queryCall?: QueryCallLike }[] | undefined;
+  if (!stack) {
+    stack = [];
+    g[ILHA_QUERY_STACK] = stack;
+  }
+  return stack;
+}
+
+function isQueryCall(value: unknown): value is QueryCallLike {
+  return value !== null && typeof value === "object" && ILHA_QUERY in (value as object);
+}
+
+function resolveQueryCall(
+  result: unknown,
+  captureSlot: { queryCall?: QueryCallLike },
+): QueryCallLike | undefined {
+  const pending = (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] as
+    | QueryCallLike
+    | undefined;
+  (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
+  return captureSlot.queryCall ?? pending ?? (isQueryCall(result) ? result : undefined);
+}
+
+function runBrandedQuery(
+  queryCall: QueryCallLike,
+  abortSignal: AbortSignal,
+  env: {
+    (): DerivedValue<unknown>;
+    (value: DerivedValue<unknown>): void;
+  },
+): void {
+  const run = queryCall[ILHA_QUERY_RUN];
+  if (typeof run !== "function") return;
+  run.call(queryCall, abortSignal, {
+    onResult: (value) => {
+      if (abortSignal.aborted) return;
+      const prevSub = setActiveSub(undefined);
+      env({ loading: false, value, error: undefined });
+      setActiveSub(prevSub);
+    },
+    onError: (err) => {
+      if (abortSignal.aborted) return;
+      const prevSub = setActiveSub(undefined);
+      env({ loading: false, value: undefined, error: err });
+      setActiveSub(prevSub);
+    },
+    onFetchStart: () => {
+      const prevSub = setActiveSub(undefined);
+      const prevVal = env();
+      env({ loading: true, value: prevVal.value, error: undefined });
+      setActiveSub(prevSub);
+    },
+  });
+}
+
 function createDerivedProxy<
   TInput,
   TStateMap extends Record<string, unknown>,
@@ -2010,9 +2084,15 @@ function createDerivedProxy<
         entry.fn.constructor.name === "AsyncGeneratorFunction";
       if (!looksAsync) {
         const ac = new AbortController();
+        const captureSlot: { queryCall?: QueryCallLike } = {};
+        const stack = queryCaptureStack();
+        stack.push(captureSlot);
         try {
           const result = entry.fn({ state, input, signal: ac.signal });
-          if (!(result instanceof Promise)) {
+          const queryCall = resolveQueryCall(result, captureSlot);
+          if (queryCall) {
+            initialEnvelope = { loading: true, value: undefined, error: undefined };
+          } else if (!(result instanceof Promise)) {
             initialEnvelope = { loading: false, value: result as unknown, error: undefined };
           } else {
             // Sync function that returns a Promise — treat as async
@@ -2020,12 +2100,14 @@ function createDerivedProxy<
             result.catch(() => {});
           }
         } catch (err) {
+          (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
           initialEnvelope = {
             loading: false,
             value: undefined,
             error: err instanceof Error ? err : new Error(String(err)),
           };
         } finally {
+          stack.pop();
           ac.abort();
         }
       } else {
@@ -2075,9 +2157,14 @@ function createDerivedProxy<
         const currentAc = ac;
 
         let result: unknown;
+        const captureSlot: { queryCall?: QueryCallLike } = {};
+        const stack = queryCaptureStack();
+        (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
+        stack.push(captureSlot);
         try {
           result = entry.fn({ state, input, signal: currentAc.signal });
         } catch (err) {
+          (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
           if (skipFirst) {
             skipFirst = false;
             return;
@@ -2090,13 +2177,22 @@ function createDerivedProxy<
           });
           setActiveSub(prevSub);
           return;
+        } finally {
+          stack.pop();
         }
+
+        const queryCall = resolveQueryCall(result, captureSlot);
 
         if (skipFirst) {
           skipFirst = false;
           if (result instanceof Promise) {
             (result as Promise<unknown>).catch(() => {});
           }
+          return;
+        }
+
+        if (queryCall) {
+          runBrandedQuery(queryCall, currentAc.signal, env);
           return;
         }
 

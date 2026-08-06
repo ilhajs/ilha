@@ -153,9 +153,14 @@
    already carry their own colors via inline styles. */
 .docs-content .nb-code-figure {
   margin: 1.5rem 0;
+  max-width: 100%;
 }
 
-.docs-content pre.astro-code code {
+.docs-content pre.astro-code {
+  max-width: 100%;
+}
+
+.docs-content pre.astro-code > code {
   direction: ltr;
   unicode-bidi: isolate;
   background: none;
