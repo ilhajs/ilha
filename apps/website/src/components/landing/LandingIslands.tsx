@@ -5,8 +5,8 @@ import { URLS } from "@/lib/landing-const";
 
 const TEMPLATES = [
   { value: "vite-spa", label: "Vite SPA", icon: "/vite.svg", sandbox: true },
+  { value: "nitro-orpc-spa", label: "Nitro + oRPC SPA", icon: "/orpc.svg", sandbox: true },
   { value: "nitro-ssr", label: "Nitro SSR", icon: "/nitro.svg", sandbox: true },
-  { value: "nitro-hono-spa", label: "Nitro + Hono SPA", icon: "/hono.svg", sandbox: true },
 ] as const;
 
 const LIBRARY_TABS = [
