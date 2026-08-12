@@ -1,12 +1,11 @@
 import { createORPCClient, onError } from "@orpc/client";
-import type { JsonifiedClient } from "@orpc/openapi";
-import { OpenAPILink } from "@orpc/openapi/fetch";
+import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";
 
-import { router } from "../rpc";
+import type { router } from "../rpc";
 
-const link = new OpenAPILink(router, {
-  origin: window.location.origin,
+const link = new RPCLink({
+  origin: typeof window === "undefined" ? undefined : window.location.origin,
   interceptors: [
     onError((error) => {
       console.error(error);
@@ -14,4 +13,4 @@ const link = new OpenAPILink(router, {
   ],
 });
 
-export const client: JsonifiedClient<RouterClient<typeof router>> = createORPCClient(link);
+export const client: RouterClient<typeof router> = createORPCClient(link);

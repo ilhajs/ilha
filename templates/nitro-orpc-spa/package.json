@@ -8,9 +8,8 @@
   },
   "dependencies": {
     "@ilha/router": "^0.8.12",
-    "@orpc/client": "^2.0.0-beta.26",
-    "@orpc/openapi": "^2.0.0-beta.26",
-    "@orpc/server": "^2.0.0-beta.26",
+    "@orpc/client": "2.0.0-beta.26",
+    "@orpc/server": "2.0.0-beta.26",
     "areia": "^0.2.3",
     "ilha": "^0.10.2",
     "quando": "^0.1.6",

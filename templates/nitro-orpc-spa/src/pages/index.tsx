@@ -16,6 +16,7 @@ export default ilha
   .input<InferLoader<typeof clientLoad>>()
   .state("draft", "")
   .state("tasks", ({ tasks }) => tasks ?? [])
+  .state("previousPending", ({ tasks }) => tasks?.filter((task) => !task.completed).length ?? 0)
   .derived("pending", ({ state }) => state.tasks().filter((t) => !t.completed))
   .action("addItem", (event: SubmitEvent, { state }) => {
     event.preventDefault();
@@ -27,9 +28,11 @@ export default ilha
   .action("deleteItem", (id: string, { state }) => {
     state.tasks(state.tasks().filter((t) => t.id !== id));
   })
-  .effect(({ derived }) => {
+  .effect(({ state, derived }) => {
     const pendingCount = (derived.pending() ?? []).length;
-    if (pendingCount !== 0) return;
+    const previousPending = state.previousPending();
+    state.previousPending(pendingCount);
+    if (previousPending === 0 || pendingCount !== 0) return;
     toast.success("No tasks left!");
   })
   .render(({ state, derived, action }) => {
