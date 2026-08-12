@@ -1,5 +1,5 @@
 {
-  "name": "@ilha/template-nitro-hono-spa",
+  "name": "@ilha/template-nitro-orpc-spa",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -8,18 +8,18 @@
   },
   "dependencies": {
     "@ilha/router": "^0.8.12",
-    "@ilha/store": "^0.7.10",
+    "@orpc/client": "2.0.0-beta.26",
+    "@orpc/server": "2.0.0-beta.26",
     "areia": "^0.2.3",
-    "hono": "^4.12.32",
     "ilha": "^0.10.2",
     "quando": "^0.1.6",
-    "sonner": "^2.0.7"
+    "sonner": "^2.0.8"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "nitro": "^3.0.260610-beta",
     "tailwindcss": "^4.3.3",
-    "typescript": "^6.0.3",
-    "vite": "^8.2.0"
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
   }
 }

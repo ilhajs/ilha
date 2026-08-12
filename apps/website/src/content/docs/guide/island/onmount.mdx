@@ -34,7 +34,7 @@ const Island = ilha
   .render(() => <div>hello</div>);
 ```
 
-The cleanup function is called when `unmount()` is invoked, just before the island tears down its listeners and effects.
+`unmount()` detaches the island's listeners before it calls the cleanup function returned by `.onMount()`.
 
 ## Mount context
 

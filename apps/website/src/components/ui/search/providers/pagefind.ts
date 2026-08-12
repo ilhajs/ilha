@@ -68,15 +68,13 @@ export const provider: SearchProvider = {
       defaultFilters ? { filters: defaultFilters } : undefined,
     );
     const results = await Promise.all(search.results.slice(0, 10).map((result) => result.data()));
-    return results.map(
-      (result): SearchResult => ({
-        title: result.meta?.title ?? "Untitled",
-        url: result.url,
-        snippet: result.excerpt,
-        subResults: result.sub_results
-          ?.filter((sub): sub is Required<PagefindSubResult> => Boolean(sub.title && sub.url))
-          .map((sub) => ({ title: sub.title, url: sub.url })),
-      }),
-    );
+    return results.map((result): SearchResult => ({
+      title: result.meta?.title ?? "Untitled",
+      url: result.url,
+      snippet: result.excerpt,
+      subResults: result.sub_results
+        ?.filter((sub): sub is Required<PagefindSubResult> => Boolean(sub.title && sub.url))
+        .map((sub) => ({ title: sub.title, url: sub.url })),
+    }));
   },
 };

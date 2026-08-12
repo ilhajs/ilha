@@ -715,9 +715,11 @@ describe("query() inside island .derived()", () => {
       .render(
         ({ derived, action }) =>
           html`<button type="button" onclick=${action.bump}>
-            ${derived.user.loading
-              ? `L:${derived.user()?.name ?? "-"}`
-              : `R:${derived.user()?.name}`}
+            ${
+              derived.user.loading
+                ? `L:${derived.user()?.name ?? "-"}`
+                : `R:${derived.user()?.name}`
+            }
           </button>`,
       );
 

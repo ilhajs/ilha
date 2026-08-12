@@ -47,7 +47,7 @@ Scaffold a project in seconds with one of the official starters:
 | ------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | [Vite SPA](https://github.com/ilhajs/ilha/tree/main/templates/vite-spa)               | `npx giget@latest gh:ilhajs/ilha/templates/vite-spa`       | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite-spa)       |
 | [Nitro SSR](https://github.com/ilhajs/ilha/tree/main/templates/nitro-ssr)             | `npx giget@latest gh:ilhajs/ilha/templates/nitro-ssr`      | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro-ssr)      |
-| [Nitro + Hono SPA](https://github.com/ilhajs/ilha/tree/main/templates/nitro-hono-spa) | `npx giget@latest gh:ilhajs/ilha/templates/nitro-hono-spa` | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro-hono-spa) |
+| [Nitro + oRPC SPA](https://github.com/ilhajs/ilha/tree/main/templates/nitro-orpc-spa) | `npx giget@latest gh:ilhajs/ilha/templates/nitro-orpc-spa` | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro-orpc-spa) |
 
 ---
 
@@ -68,13 +68,12 @@ import ilha, { html, mount } from "ilha";
 
 const Counter = ilha
   .state("count", 0)
-  .on("[data-action=increase]@click", ({ state }) => state.count(state.count() + 1))
-  .on("[data-action=decrease]@click", ({ state }) => state.count(state.count() - 1))
+  .action("changeCountBy", (change: number, { state }) => state.count(state.count() + change))
   .render(
-    ({ state }) => html`
+    ({ state, action }) => html`
       <p>Count: ${state.count()}</p>
-      <button data-action="increase">Increase</button>
-      <button data-action="decrease">Decrease</button>
+      <button onclick=${() => action.changeCountBy(1)}>Increase</button>
+      <button onclick=${() => action.changeCountBy(-1)}>Decrease</button>
     `,
   );
 

@@ -1,6 +1,6 @@
 import { head } from "@ilha/router";
 import { LayerCard, LinkButton } from "areia";
-import ilha, { raw } from "ilha";
+import ilha from "ilha";
 import { each } from "quando";
 
 const LINK_ICON =
@@ -36,7 +36,7 @@ export default ilha(() => {
         {each(LEARN_ITEMS).as((item) => (
           <LinkButton
             href={item.href}
-            icon={<img src={raw(item.icon)} alt={item.title} class="size-6" />}
+            icon={<img src={item.icon} alt="" class="size-6" />}
             class="w-full"
             external
           >

@@ -1,6 +1,6 @@
-# Ilha + Hono
+# Ilha + Nitro + oRPC
 
-A minimal Ilha app with [Hono](https://hono.dev) on Node.js. Pages live in `src/pages/` and hydrate on the client via `@ilha/router`.
+A minimal Ilha app with [Nitro](https://nitro.build) on Node.js. Pages live in `src/pages/` and hydrate on the client via `@ilha/router`.
 
 ## Requirements
 
@@ -30,7 +30,7 @@ Open [http://localhost:3000](http://localhost:3000).
 src/
   pages/       # File-based routes (+layout, index, learn, …)
   client.ts    # Client entry — mounts islands
-  server.tsx   # Hono server — static assets + SPA shell
+  server.ts   # Nitro server with oRPC — static assets + SPA shell
   app.css      # Tailwind + Areia styles
 ```
 

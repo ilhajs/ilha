@@ -7,7 +7,7 @@ sidebar:
 
 import { example } from "./input.examples";
 
-Declares the island's external props and their types. Two forms are supported: a type-only generic for when you just need TypeScript inference, and a [Standard Schema](https://standardschema.dev/)-compatible validator (Zod, Valibot, ArkType, etc.) for runtime validation too.
+Declare the island's external props and their types. Use a type-only generic for TypeScript inference or a [Standard Schema](https://standardschema.dev/)-compatible validator for runtime validation and coercion.
 
 Use `ilha<Props>(({ input }) => JSX)` when typed props are the only capability you need. Expand to `.input<Props>().render(...)` when you add defaults, runtime validation, or other builder capabilities.
 
