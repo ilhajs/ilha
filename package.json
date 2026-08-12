@@ -6,21 +6,23 @@
   ],
   "scripts": {
     "build": "bun run --filter ilha build && bun run --filter './packages/*' build",
-    "cleanup": "bun run --parallel --filter '*' cleanup && rimraf node_modules bun.lock",
-    "lint": "oxlint",
+    "build:website": "bun run --filter website build",
+    "cleanup": "bun run --parallel --filter '*' cleanup && rimraf node_modules",
     "fmt": "oxfmt",
+    "lint": "oxlint",
+    "lint:docs": "bun run --filter website lint:docs",
     "prepare": "husky",
-    "test": "bun run --parallel --filter './packages/*' test"
+    "test": "bun run --parallel --filter './packages/*' test",
+    "typecheck:website": "bun run --filter website typecheck"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "^20.10.6",
+    "@happy-dom/global-registrator": "^20.11.2",
     "@types/bun": "^1.3.14",
     "husky": "^9.1.7",
-    "oxfmt": "^0.57.0",
-    "oxlint": "^1.72.0",
-    "puppeteer": "^25.4.0",
+    "oxfmt": "^0.63.0",
+    "oxlint": "^1.78.0",
     "rimraf": "^6.1.3",
-    "tsdown": "^0.22.3",
-    "typescript": "^6.0.3"
+    "tsdown": "^0.22.14",
+    "typescript": "^7.0.2"
   }
 }

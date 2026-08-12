@@ -53,6 +53,7 @@
   },
   "scripts": {
     "build": "tsc && tsdown",
+    "cleanup": "rimraf dist node_modules",
     "test": "bun test"
   },
   "dependencies": {

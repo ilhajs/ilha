@@ -28,7 +28,7 @@
 - `packages/ilha/src/index.ts` — entire core implementation; keep it single-file.
 - `packages/ilha/src/jsx-runtime.ts` — JSX factory; do not merge with `index.ts`.
 - `packages/router/` and `packages/store/` follow the same single-entrypoint pattern with their own `tsdown.config.ts` and `package.json`.
-- `templates/` — official starters (vite-spa, nitro-ssr, nitro-hono-spa). Keep them minimal and copy-pasteable; do not add build-time complexity.
+- `templates/` — official starters (vite-spa, nitro-ssr, nitro-orpc-spa). Keep them minimal and copy-pasteable; do not add build-time complexity.
 - `apps/website/src/content/docs/` — all MDX documentation lives here (Nimbus/Astro content collections). Directory structure maps to URLs.
 
 ## Island API conventions

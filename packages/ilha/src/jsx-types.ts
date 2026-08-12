@@ -42,13 +42,15 @@ export namespace JSX {
   };
 
   type StyleProps = {
-    [K in keyof CSSStyleDeclaration as K extends string
-      ? K extends "cssText" | "cssFloat" | "length" | "parentRule"
-        ? never
-        : CSSStyleDeclaration[K] extends string
-          ? K
-          : never
-      : never]?: string | number | null;
+    [
+      K in keyof CSSStyleDeclaration as K extends string
+        ? K extends "cssText" | "cssFloat" | "length" | "parentRule"
+          ? never
+          : CSSStyleDeclaration[K] extends string
+            ? K
+            : never
+        : never
+    ]?: string | number | null;
   } & {
     float?: string | number | null;
   } & {
@@ -626,19 +628,17 @@ export namespace JSX {
   };
 
   type SvgOnlyIntrinsicElements = {
-    [K in Exclude<
-      keyof SVGElementTagNameMap,
-      keyof HTMLElementTagNameMap
-    >]: WithRawHtmlAttributeValues<
+    [
+      K in Exclude<keyof SVGElementTagNameMap, keyof HTMLElementTagNameMap>
+    ]: WithRawHtmlAttributeValues<
       HTMLAttributes<SVGElementTagNameMap[K]> & SVGPresentationAttributes
     >;
   };
 
   type SvgOverlapAttributes = {
-    [K in Extract<
-      keyof SVGElementTagNameMap,
-      keyof HTMLElementTagNameMap
-    >]: WithRawHtmlAttributeValues<SVGPresentationAttributes>;
+    [
+      K in Extract<keyof SVGElementTagNameMap, keyof HTMLElementTagNameMap>
+    ]: WithRawHtmlAttributeValues<SVGPresentationAttributes>;
   };
 
   type CustomEventAttributes<T extends globalThis.Element> = {

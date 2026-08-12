@@ -78,8 +78,8 @@ function distance(a: string, b: string): number {
   if (a === b) return 0;
   if (!a.length) return b.length;
   if (!b.length) return a.length;
-  const v0 = new Array<number>(b.length + 1);
-  const v1 = new Array<number>(b.length + 1);
+  const v0 = Array.from({ length: b.length + 1 }, () => 0);
+  const v1 = Array.from({ length: b.length + 1 }, () => 0);
   for (let i = 0; i <= b.length; i++) v0[i] = i;
   for (let i = 0; i < a.length; i++) {
     v1[0] = i + 1;

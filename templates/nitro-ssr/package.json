@@ -13,14 +13,14 @@
     "@ilha/store": "^0.7.10",
     "areia": "^0.2.3",
     "ilha": "^0.10.2",
-    "nitro": "^3.0.260610-beta",
     "quando": "^0.1.6",
-    "sonner": "^2.0.7"
+    "sonner": "^2.0.8"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "nitro": "^3.0.260610-beta",
     "tailwindcss": "^4.3.3",
-    "typescript": "^6.0.3",
-    "vite": "^8.2.0"
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
   }
 }
