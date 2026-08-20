@@ -8,5 +8,5 @@
     "rootDir": "src",
     "types": ["@types/bun"]
   },
-  "include": ["src/index.ts", "src/server.ts", "src/client.ts"]
+  "include": ["src/index.ts", "src/server.ts", "src/client.ts", "src/virtual.d.ts"]
 }

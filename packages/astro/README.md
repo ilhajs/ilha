@@ -24,6 +24,16 @@ export default defineConfig({
 });
 ```
 
+When you use multiple JSX frameworks, restrict each integration to its own files:
+
+```ts
+export default defineConfig({
+  integrations: [ilha({ include: ["**/ilha/**"] })],
+});
+```
+
+You can also pass `exclude` globs. Files outside the filter remain available to other Astro JSX renderers.
+
 Then use any Ilha island as an Astro component, with a [client directive](https://docs.astro.build/en/reference/directives-reference/#client-directives) to control hydration:
 
 ```astro

@@ -1,9 +1,13 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
+
+mock.module("virtual:@ilha/astro/options", () => ({
+  default: (id: string) => id.includes("/ilha/"),
+}));
 
 import ilha, { __ilhaJsxSlot, html } from "ilha";
 
 import hydrate from "./client";
-import ilhaIntegration, { getRenderer } from "./index";
+import ilhaIntegration, { getRenderer, getViteConfig } from "./index";
 import renderer from "./server";
 
 const Counter = ilha
@@ -38,6 +42,20 @@ describe("@ilha/astro integration", () => {
     });
   });
 
+  it("passes include/exclude patterns to the renderer filter", () => {
+    const plugin = getViteConfig({ include: ["**/ilha/**"], exclude: ["**/*.test.tsx"] })
+      .plugins[0];
+    const id = plugin.resolveId("virtual:@ilha/astro/options");
+    expect(id).toBe("\0virtual:@ilha/astro/options");
+    const module = plugin.load(id!);
+    const filter = new Function(module!.replace("export default", "return"))() as (
+      id: string,
+    ) => boolean;
+    expect(filter("/src/ilha/counter.tsx")).toBe(true);
+    expect(filter("/src/ilha/counter.test.tsx")).toBe(false);
+    expect(filter("/src/solid/counter.tsx")).toBe(false);
+  });
+
   it("points the renderer at the client/server entrypoints", () => {
     const r = getRenderer();
     expect(r.clientEntrypoint).toBe("@ilha/astro/client.js");
@@ -51,6 +69,15 @@ describe("@ilha/astro server renderer", () => {
     expect(await renderer.check(() => {}, {}, {})).toBe(false);
     expect(await renderer.check({}, {}, {})).toBe(false);
     expect(await renderer.check(null, {}, {})).toBe(false);
+  });
+
+  it("check() ignores components outside the configured paths", async () => {
+    expect(
+      await renderer.check(Counter, {}, {}, { componentUrl: "/src/solid/counter.tsx" } as never),
+    ).toBe(false);
+    expect(
+      await renderer.check(Counter, {}, {}, { componentUrl: "/src/ilha/counter.tsx" } as never),
+    ).toBe(true);
   });
 
   it("renderToStaticMarkup() returns the SSR-wrapped island markup", async () => {

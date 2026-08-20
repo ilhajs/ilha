@@ -6,6 +6,14 @@ import ilha, { raw } from "ilha";
 const ISLAND = Symbol.for("ilha.island");
 const RAW = Symbol.for("ilha.raw");
 
+let componentFilter: Promise<(id: string) => boolean> | undefined;
+
+function getComponentFilter() {
+  return (componentFilter ??= import("virtual:@ilha/astro/options")
+    .then(({ default: filter }) => filter)
+    .catch(() => () => true));
+}
+
 interface HydratableIsland {
   name?: string;
   hydratable(
@@ -159,7 +167,9 @@ async function check(
   Component: unknown,
   props: Record<string, unknown>,
   slots: Record<string, string>,
+  metadata?: AstroComponentMetadata,
 ): Promise<boolean> {
+  if (metadata?.componentUrl && !(await getComponentFilter())(metadata.componentUrl)) return false;
   if (isIsland(Component)) return true;
   if (typeof Component !== "function") return false;
   try {
