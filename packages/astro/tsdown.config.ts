@@ -5,5 +5,5 @@ export default defineConfig({
   platform: "neutral",
   dts: false,
   minify: false,
-  external: ["ilha", "astro"],
+  external: ["ilha", "astro", "virtual:@ilha/astro/options"],
 });
