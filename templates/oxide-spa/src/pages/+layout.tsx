@@ -5,7 +5,7 @@ import ilha from "ilha";
 
 export default defineLayout((Children) =>
   ilha(({ input }) => {
-    head({ titleTemplate: (title) => `${title} · Ilha + Nitro + oRPC` });
+    head({ titleTemplate: (title) => `${title} · Ilha + Oxide` });
     return (
       <div class="mt-2 flex flex-col gap-2">
         <nav class="container mx-auto flex max-w-xl items-center gap-2">

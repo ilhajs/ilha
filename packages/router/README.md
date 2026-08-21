@@ -36,18 +36,19 @@ router()
 import { router } from "@ilha/router";
 import { homePage, aboutPage, userPage, notFound } from "./pages";
 
-export default defineEventHandler((event) => {
-  const html = router()
-    .route("/", homePage)
-    .route("/about", aboutPage)
-    .route("/user/:id", userPage)
-    .route("/**", notFound)
-    .render(event.node.req.url ?? "/");
-
-  return new Response(`<!doctype html><html><body>${html}</body></html>`, {
-    headers: { "content-type": "text/html" },
-  });
-});
+export default {
+  fetch(request: Request) {
+    const html = router()
+      .route("/", homePage)
+      .route("/about", aboutPage)
+      .route("/user/:id", userPage)
+      .route("/**", notFound)
+      .render(request.url);
+    return new Response(`<!doctype html><html><body>${html}</body></html>`, {
+      headers: { "content-type": "text/html" },
+    });
+  },
+};
 ```
 
 ### SSR + Client Hydration (recommended)
@@ -57,12 +58,14 @@ export default defineEventHandler((event) => {
 import { pageRouter, registry } from "ilha:pages/server";
 import "ilha:loaders"; // ← wire server-only loaders
 
-export default defineEventHandler(async (event) => {
-  const html = await pageRouter.renderHydratable(event.node.req.url ?? "/", registry);
-  return new Response(`<!doctype html><html><body>${html}</body></html>`, {
-    headers: { "content-type": "text/html" },
-  });
-});
+export default {
+  async fetch(request: Request) {
+    const html = await pageRouter.renderHydratable(request.url, registry);
+    return new Response(`<!doctype html><html><body>${html}</body></html>`, {
+      headers: { "content-type": "text/html" },
+    });
+  },
+};
 ```
 
 ```ts

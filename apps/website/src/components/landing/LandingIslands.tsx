@@ -33,7 +33,8 @@ export const ProjectCreatorForm = ilha
     try {
       await navigator.clipboard.writeText(derived.createCommand()!);
     } catch {
-      // Clipboard can be denied without a user gesture; nothing to surface.
+      // Clipboard can be denied without a user gesture; leave the label as-is.
+      return;
     }
     const el = (event.currentTarget as HTMLElement | null)?.querySelector("span");
     if (el) {

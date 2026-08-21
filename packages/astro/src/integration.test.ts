@@ -115,11 +115,30 @@ export default defineConfig({
 let fixtureDir = "";
 let buildsDone = false;
 
-function freshDist() {
+function build(cmd: string): void {
+  try {
+    execSync(cmd, {
+      cwd: ROOT,
+      stdio: "pipe",
+      // Slow under a fully-parallel CI load; a finite budget keeps a hung
+      // build from blocking the suite forever and is well above any real run.
+      timeout: 180_000,
+    });
+  } catch (error: any) {
+    // execSync hides stdout/stderr unless we graft them onto the error, which
+    // is exactly what makes a failed build debuggable in CI.
+    error.message += `\n--- stdout ---\n${(error.stdout ?? "").toString()}--- stderr ---\n${(error.stderr ?? "").toString()}`;
+    throw error;
+  }
+}
+
+function freshDist(): void {
   if (buildsDone) return;
+  build("bun run --filter ilha build");
+  build("bun run --filter @ilha/astro build");
+  // Flag completion only after both builds succeeded so a failed first build
+  // re-runs both on a retry rather than skipping the never-completed work.
   buildsDone = true;
-  execSync("bun run --filter ilha build", { cwd: ROOT, stdio: "pipe" });
-  execSync("bun run --filter @ilha/astro build", { cwd: ROOT, stdio: "pipe" });
 }
 
 function setupFixture() {
@@ -154,10 +173,16 @@ function setupFixture() {
 function runBuild(ilhaFirst: boolean, include: boolean): string {
   writeFileSync(join(fixtureDir, "astro.config.mjs"), astroConfig(ilhaFirst, include));
   rmSync(join(fixtureDir, "dist"), { recursive: true, force: true });
-  execFileSync("node", [ASTRO_BIN, "build"], {
-    cwd: fixtureDir,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  try {
+    execFileSync("node", [ASTRO_BIN, "build"], {
+      cwd: fixtureDir,
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 180_000,
+    });
+  } catch (error: any) {
+    error.message += `\n--- stdout ---\n${(error.stdout ?? "").toString()}--- stderr ---\n${(error.stderr ?? "").toString()}`;
+    throw error;
+  }
   return readFileSync(join(fixtureDir, "dist", "index.html"), "utf8");
 }
 
@@ -188,10 +213,14 @@ function islands(rawHtml: string): IslandInfo[] {
   return out;
 }
 
-beforeAll(() => {
+beforeAll(async () => {
+  // Building `ilha` + `@ilha/astro` under a fully-parallel CI test load can
+  // take much longer than Bun's default 5s hook budget; without a larger
+  // timeout Bun kills the dangling build process and freshDist fails with a
+  // bare "Command failed" instead of a build error.
   freshDist();
   setupFixture();
-});
+}, 180_000);
 
 afterAll(() => {
   if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true });

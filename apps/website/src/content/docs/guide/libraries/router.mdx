@@ -70,18 +70,20 @@ return new Response(
 import { pageRouter, registry } from "ilha:pages/server";
 import "ilha:loaders"; // wires server-only loaders onto pageRouter
 
-export default defineEventHandler(async (event) => {
-  const html = await pageRouter.renderHydratable(
-    event.node.req.url ?? "/",
-    registry,
-  );
-  return new Response(
-    `<!doctype html><html><body>${html}</body></html>`,
-    {
-      headers: { "content-type": "text/html" },
-    },
-  );
-});
+export default {
+  async fetch(request: Request) {
+    const html = await pageRouter.renderHydratable(
+      request.url,
+      registry,
+    );
+    return new Response(
+      `<!doctype html><html><body>${html}</body></html>`,
+      {
+        headers: { "content-type": "text/html" },
+      },
+    );
+  },
+};
 ```
 
 ```ts

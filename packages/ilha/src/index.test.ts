@@ -9886,6 +9886,9 @@ describe("Astro renderer tagging", () => {
   });
 
   it("leaves islands untagged when no Astro integration is present", () => {
+    // Explicitly clear the marker so prior suite state (or an earlier test's
+    // global write) cannot restore the Astro renderer and flake this assertion.
+    (globalThis as Record<symbol, unknown>)[ASTRO_RENDERER_GLOBAL] = undefined;
     const Island = ilha
       .input<{ label: string }>()
       .render(({ input }) => html`<button>${input.label}</button>`);
