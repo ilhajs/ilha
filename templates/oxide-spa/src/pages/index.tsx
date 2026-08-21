@@ -59,7 +59,7 @@ export default ilha
                   <Checkbox
                     label={task.text}
                     checked={task.completed}
-                    onchange={() => action.toggleItem(task.id)}
+                    onCheckedChange={() => action.toggleItem(task.id)}
                   />
                   <Button onclick={() => action.deleteItem(task.id)}>Delete</Button>
                 </div>

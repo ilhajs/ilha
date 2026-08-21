@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@ilha/router": "^0.8.13",
-    "areia": "^0.2.3",
+    "areia": "^0.2.4",
     "ilha": "^0.10.3",
     "quando": "^0.1.6",
     "sonner": "^2.0.8",
