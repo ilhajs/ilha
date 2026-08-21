@@ -162,6 +162,15 @@ Event handlers work only while an island renders and mounts the template. Ilha r
 
 Functions never become inline HTML attributes during SSR. Ilha emits inert markup and attaches each function with `addEventListener` during mount.
 
+Keep the function as an event-attribute interpolation. You can compose an attribute-only nested template when the attribute is conditional:
+
+```ts
+const events = enabled ? html` onclick=${handler}` : "";
+html`<button class="save" ${events}>Save</button>`;
+```
+
+Ilha cannot register handlers hidden inside serialized attribute objects or `raw()` strings. Those paths produce plain markup. For broader composition, use [`.on()`](/guide/island/action#use-on-for-advanced-listeners) with a stable selector.
+
 Use [`bind:*`](/guide/island/render#template-bindings) for signal synchronization. Use [`.on()`](/guide/island/action#use-on-for-advanced-listeners) for selectors, host listeners, its full handler context, or combined modifiers.
 
 ## List rendering

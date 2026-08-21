@@ -46,11 +46,11 @@ declare namespace StandardSchemaV1 {
 declare const __ILHA_DEV__: boolean | undefined;
 
 const __DEV__ =
-  typeof __ILHA_DEV__ !== "undefined"
-    ? __ILHA_DEV__
-    : typeof process !== "undefined"
-      ? process.env?.["NODE_ENV"] !== "production"
-      : true;
+  typeof __ILHA_DEV__ === "undefined"
+    ? typeof process === "undefined"
+      ? true
+      : process.env?.["NODE_ENV"] !== "production"
+    : __ILHA_DEV__;
 
 function warn(msg: string): void {
   if (__DEV__) console.warn(`[ilha] ${msg}`);
@@ -850,6 +850,15 @@ const RAW = Symbol.for("ilha.raw");
 const SIGNAL_ACCESSOR = Symbol.for("ilha.signalAccessor");
 const ISLAND = Symbol.for("ilha.island");
 const ISLAND_CALL = Symbol.for("ilha.islandCall");
+
+// Optional Astro renderer routing. @ilha/astro records its renderer name on
+// this global when loaded; island construction reads it and, if present, tags
+// the island with Astro's `astro:renderer` symbol so Astro routes the island to
+// ilha's renderer regardless of the integration's position in `astro.config`.
+// Astro otherwise picks the FIRST renderer whose `check()` accepts a component,
+// and a permissive check (Solid's accepts any function whose output stringifies)
+// registered first will claim ilha islands and render them as escaped raw HTML.
+const ASTRO_RENDERER_GLOBAL = Symbol.for("ilha.astroRenderer");
 /** @internal Internal hook used by a parent's mountSlots to mount a child island and
  * retain a handle to push updated props into it on subsequent parent
  * re-renders. Not part of the public surface. */
@@ -1053,7 +1062,9 @@ function emitIslandSlot({
   // Assign id: user key wins; otherwise use positional index. Keys are
   // prefixed to avoid collision with positional ids in the same render.
   let id: string;
-  if (key !== undefined) {
+  if (key === undefined) {
+    id = ctx ? `p:${ctx.positional++}` : "p:0";
+  } else {
     id = `k:${key}`;
     if (ctx && __DEV__ && ctx.slots.has(id)) {
       warn(
@@ -1061,8 +1072,6 @@ function emitIslandSlot({
           `single render will collide. Each .key() call must be unique.`,
       );
     }
-  } else {
-    id = ctx ? `p:${ctx.positional++}` : "p:0";
   }
 
   if (ctx) ctx.slots.set(id, { island, props });
@@ -1568,7 +1577,9 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
     // specs right before it so they land inside the current open tag.
     if (pendingBindSpecs !== "" || pendingEventSpecs !== "") {
       const { index: gtIdx, quote } = findTagCloseIndex(chunk, pendingQuote);
-      if (gtIdx !== -1) {
+      if (gtIdx === -1) {
+        pendingQuote = quote;
+      } else {
         // Drop a self-closing `/` (plus surrounding whitespace) so sentinels
         // become the final attributes on void elements.
         const head = chunk.slice(0, gtIdx).replace(/\s*\/\s*$/, "");
@@ -1578,8 +1589,6 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
         pendingBindSpecs = "";
         pendingEventSpecs = "";
         pendingQuote = null;
-      } else {
-        pendingQuote = quote;
       }
     }
 
@@ -1590,10 +1599,17 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
 
     const value = values[i];
     const eventMatch = chunk.match(EVENT_PREFIX_RE);
+    const eventMatchStart = eventMatch ? chunk.length - eventMatch[0]!.length : -1;
+    // An attribute-only nested template (html` onclick=${handler}`) has no
+    // opening tag of its own. Register it so the returned sentinel can be
+    // composed into an outer tag instead of invoking/serializing the function.
+    const eventAttributeFragment =
+      eventMatch !== null && chunk.slice(0, eventMatchStart).trim() === "";
 
     if (
       eventMatch &&
-      isEventAttributePosition(result + chunk, result.length + chunk.length - eventMatch[0]!.length)
+      (eventAttributeFragment ||
+        isEventAttributePosition(result + chunk, result.length + eventMatchStart))
     ) {
       const eventName = eventMatch[1]!;
       const rawModifier = eventMatch[2];
@@ -1601,8 +1617,7 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
         ? (rawModifier as NativeEventModifier)
         : undefined;
       const openQuote = (eventMatch[3] ?? null) as '"' | "'" | null;
-      const matchStart = chunk.length - eventMatch[0]!.length;
-      const cleanPrefix = chunk.slice(0, matchStart).replace(/\s+$/, "");
+      const cleanPrefix = chunk.slice(0, eventMatchStart).replace(/\s+$/, "");
 
       // Event functions are runtime-only. Never call or serialize them into an
       // inline on* attribute, even when the template is rendered standalone.
@@ -2097,7 +2112,9 @@ function createDerivedProxy<
       const looksAsync =
         entry.fn.constructor.name === "AsyncFunction" ||
         entry.fn.constructor.name === "AsyncGeneratorFunction";
-      if (!looksAsync) {
+      if (looksAsync) {
+        initialEnvelope = { loading: true, value: undefined, error: undefined };
+      } else {
         const ac = new AbortController();
         const captureSlot: { queryCall?: QueryCallLike } = {};
         const stack = queryCaptureStack();
@@ -2110,12 +2127,12 @@ function createDerivedProxy<
           const queryCall = resolveQueryCall(result, captureSlot);
           if (queryCall) {
             initialEnvelope = { loading: true, value: undefined, error: undefined };
-          } else if (!(result instanceof Promise)) {
-            initialEnvelope = { loading: false, value: result as unknown, error: undefined };
-          } else {
+          } else if (result instanceof Promise) {
             // Sync function that returns a Promise — treat as async
             initialEnvelope = { loading: true, value: undefined, error: undefined };
             result.catch(() => {});
+          } else {
+            initialEnvelope = { loading: false, value: result as unknown, error: undefined };
           }
         } catch (err) {
           (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
@@ -2128,8 +2145,6 @@ function createDerivedProxy<
           stack.pop();
           ac.abort();
         }
-      } else {
-        initialEnvelope = { loading: true, value: undefined, error: undefined };
       }
     }
 
@@ -2500,7 +2515,11 @@ function applyJsxEvents({
   return () => cleanups.forEach((cleanup) => cleanup());
 }
 
-function applyTemplateBindings(host: Element, binds: BindRecord[]): () => void {
+function applyTemplateBindings(
+  host: Element,
+  binds: BindRecord[],
+  phase: "all" | "reflect" | "listen" = "all",
+): () => void {
   if (binds.length === 0) return () => {};
 
   const cleanups: Array<() => void> = [];
@@ -2546,22 +2565,26 @@ function applyTemplateBindings(host: Element, binds: BindRecord[]): () => void {
       if (spec.kind === "this") {
         // Ref binding: write the element into the signal on attach,
         // null it on cleanup. No event listener.
-        (accessor as (v: unknown) => void)(el);
-        cleanups.push(() => (accessor as (v: unknown) => void)(null));
+        if (phase !== "listen") {
+          (accessor as (v: unknown) => void)(el);
+          cleanups.push(() => (accessor as (v: unknown) => void)(null));
+        }
         continue;
       }
 
-      // Reflect current signal value into the DOM property. The morph
-      // already syncs attributes, but for properties that diverge from
-      // attributes (input.value after user typing, details.open after
-      // click, checkbox.checked) we need to write the property here.
-      try {
-        write(el, accessor());
-      } catch (err) {
-        if (__DEV__) console.error(`[ilha] bind:${spec.kind} write failed:`, err);
+      if (phase !== "listen") {
+        // Reflect current signal value into the DOM property. The morph
+        // already syncs attributes, but for properties that diverge from
+        // attributes (input.value after user typing, details.open after
+        // click, checkbox.checked) we need to write the property here.
+        try {
+          write(el, accessor());
+        } catch (err) {
+          if (__DEV__) console.error(`[ilha] bind:${spec.kind} write failed:`, err);
+        }
       }
 
-      if (event === null) continue;
+      if (phase === "reflect" || event === null) continue;
 
       const listener = () => {
         const raw = read(el);
@@ -2794,6 +2817,8 @@ export type OnMountContext<
   input: TInput;
   host: Element;
   hydrated: boolean;
+  /** AbortSignal that aborts when the island unmounts. */
+  signal: AbortSignal;
 };
 
 export type HandlerContext<
@@ -3313,7 +3338,7 @@ class IlhaBuilder<
       as: slotAs,
     } = this._cfg;
 
-    const stylePrefix = cssSource != null ? buildScopedStyle(cssSource) : "";
+    const stylePrefix = cssSource == null ? "" : buildScopedStyle(cssSource);
     const configuredSlotTag = slotAs ?? "div";
 
     function resolveInput(props?: Partial<TInput>): TInput {
@@ -3475,12 +3500,21 @@ class IlhaBuilder<
       // Child islands inlined via emitIslandSlot → island.toString() must not run onMount (DOM islands).
       if (currentRenderCtx()) return;
       const host = createSsrOnMountHost();
+      const controller = new AbortController();
       const ssrCleanups: Array<() => void> = [];
       for (const entry of onMounts) {
         const prevSub = setActiveSub(undefined);
         let userCleanup!: void | (() => void);
         try {
-          userCleanup = entry.fn({ state, derived, action, input, host, hydrated: false });
+          userCleanup = entry.fn({
+            state,
+            derived,
+            action,
+            input,
+            host,
+            hydrated: false,
+            signal: controller.signal,
+          });
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
           if (onErrors.length === 0) {
@@ -3499,6 +3533,7 @@ class IlhaBuilder<
         }
         if (typeof userCleanup === "function") ssrCleanups.push(userCleanup);
       }
+      controller.abort();
       for (const teardown of ssrCleanups.reverse()) {
         try {
           teardown();
@@ -4174,7 +4209,15 @@ class IlhaBuilder<
           const prevSub = setActiveSub(undefined);
           let userCleanup!: (() => void) | void;
           try {
-            userCleanup = entry.fn({ state, derived, action, input, host, hydrated });
+            userCleanup = entry.fn({
+              state,
+              derived,
+              action,
+              input,
+              host,
+              hydrated,
+              signal: unmountController.signal,
+            });
           } catch (err) {
             reportError(err, "mount");
           } finally {
@@ -4214,7 +4257,12 @@ class IlhaBuilder<
         host.innerHTML = stylePrefix + initial.html;
       }
 
-      let stopBindings = applyTemplateBindings(host, initial.binds);
+      // Reflect properties and bind:this before onMount, but attach native
+      // bind listeners afterward. Component controllers commonly register
+      // their own listeners in onMount; letting those run first preserves the
+      // distinction between a user change and the reactive sync it triggers.
+      const stopInitialBindingReflection = applyTemplateBindings(host, initial.binds, "reflect");
+      let stopBindings = stopInitialBindingReflection;
       cleanups.push(() => stopBindings());
       let stopJsxEvents = applyJsxEvents({
         host,
@@ -4234,6 +4282,12 @@ class IlhaBuilder<
       if (!hydrated && onMounts.length > 0) {
         invokeOnMounts();
       }
+
+      const stopInitialBindingListeners = applyTemplateBindings(host, initial.binds, "listen");
+      stopBindings = () => {
+        stopInitialBindingListeners();
+        stopInitialBindingReflection();
+      };
 
       for (const entry of effects) {
         let userCleanup: (() => void) | void;
@@ -4634,6 +4688,20 @@ class IlhaBuilder<
     };
 
     (island as unknown as Record<symbol, boolean>)[ISLAND] = true;
+
+    // Astro renderer routing: when @ilha/astro is loaded it registers its
+    // renderer name on ASTRO_RENDERER_GLOBAL, so tag this island with Astro's
+    // `astro:renderer` symbol. This makes Astro route the island to ilha's
+    // renderer regardless of the integration's position in `astro.config`, and
+    // prevents a permissive renderer (e.g. Solid) registered first from
+    // claiming it. No tag is applied when no Astro integration is present.
+    const astroRendererName = (globalThis as unknown as Record<symbol, unknown>)[
+      ASTRO_RENDERER_GLOBAL
+    ];
+    if (typeof astroRendererName === "string") {
+      (island as unknown as Record<symbol, unknown>)[Symbol.for("astro:renderer")] =
+        astroRendererName;
+    }
 
     // Custom-element wrapper: makes the island consumable from plain HTML or
     // any other framework without touching ilha's mount API. Observed

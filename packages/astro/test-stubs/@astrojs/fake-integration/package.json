@@ -1,0 +1,10 @@
+{
+  "name": "@astrojs/fake-integration",
+  "version": "0.0.0-test-stub",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./server.js": "./server.js",
+    "./client.js": "./client.js"
+  }
+}

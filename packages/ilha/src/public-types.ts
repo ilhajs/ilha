@@ -76,6 +76,10 @@ export const TypeCheckedIsland = ilha
     void count;
     void pending;
   })
+  .onMount(({ signal }) => {
+    const abortSignal: AbortSignal = signal;
+    void abortSignal.aborted;
+  })
   .render(({ input, state, derived, action }) => {
     const name: string = input.name;
     const count: number = state.count();

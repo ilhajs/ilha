@@ -7,7 +7,7 @@ export const URLS = {
 } as const;
 
 export const META_DESCRIPTION =
-  "Build typed interactive UI that renders to plain HTML and hydrates only where it needs to move. No compiler or virtual DOM.";
+  "Build fast, interactive websites with JavaScript only where you need it. Ilha works with your existing stack and keeps every page lightweight.";
 
 export const COUNTER_CODE = `import ilha, { mount } from "ilha";
 
@@ -199,44 +199,44 @@ export default ilha
 export const PRIMARY_ILHA_CARDS = [
   {
     id: "syntax",
-    label: "Syntax",
-    title: "Read the feature from top to bottom.",
+    label: "Easy to follow",
+    title: "Keep each interaction in one clear place.",
     description:
-      "Typed state, derived values, actions, and markup stay in one builder chain. The interaction is local, portable, and easy to delete.",
-    points: ["Lowercase native events", "Typed reusable actions", "No app shell required"],
+      "The data, user actions, and HTML for a feature stay together. You can understand it at a glance, move it between pages, or remove it cleanly.",
+    points: ["Familiar event handling", "Type-safe actions", "No app shell required"],
     file: "signup.tsx",
     code: COUNTER_CODE,
   },
   {
     id: "signals",
-    label: "Signals",
-    title: "Signals are functions, not ceremony.",
+    label: "Efficient updates",
+    title: "Update only what changed.",
     description:
-      "Read a signal by calling it. Write a value or pass an updater. Async derived work cancels when its dependencies change.",
-    points: ["Functional setters", "Abortable async work", "No app-wide render loop"],
+      "Signals connect your data directly to the page. When something changes, Ilha updates the affected element instead of redrawing the whole interface.",
+    points: ["Simple state updates", "Stale requests cancel automatically", "No page-wide redraws"],
     file: "signals.tsx",
     code: SIGNALS_CODE,
   },
   {
     id: "rendering",
-    label: "Rendering",
-    title: "Render each island the way the page needs.",
+    label: "Flexible delivery",
+    title: "Send useful content before JavaScript loads.",
     description:
-      "Call .toString() for synchronous HTML, await the island for async SSR, or emit hydratable markup with explicit state snapshots.",
-    points: ["Synchronous HTML", "Awaited server rendering", "Independent hydration"],
+      "Render HTML on your server for a fast first view, then activate only the components people can interact with. Each island works independently.",
+    points: ["Fast server-rendered HTML", "Async data support", "Independent interactivity"],
     file: "product-card.tsx",
     code: RENDERING_CODE,
   },
 ] as const;
 
 export const USEFUL_EXTRAS_CARD = {
-  label: "Libraries",
-  title: "Grow the stack only when the product asks.",
+  label: "Add what you need",
+  title: "Start small. Expand when your product grows.",
   description:
-    "Start with a single import. Add file-based routes or signal-based shared stores when navigation or shared state shows up — not before.",
+    "Begin with one lightweight package. Add routing, shared data, or Astro support only when your website needs it.",
   points: [
-    "File-based routes and dynamic pages",
-    "Shared cart and session state",
-    "Astro islands with client directives",
+    "Pages and dynamic routes",
+    "Shared data for carts and sessions",
+    "First-class Astro integration",
   ],
 } as const;

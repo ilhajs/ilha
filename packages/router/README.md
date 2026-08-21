@@ -53,7 +53,7 @@ export default defineEventHandler((event) => {
 ### SSR + Client Hydration (recommended)
 
 ```ts
-// routes/[...].ts — Nitro handler (SSR/prerender)
+// routes/[...].ts — Oxide handler (SSR/prerender)
 import { pageRouter, registry } from "ilha:pages/server";
 import "ilha:loaders"; // ← wire server-only loaders
 
@@ -154,7 +154,7 @@ Returns a `RouterBuilder`.
 
 #### `.route(pattern, island, loader?)`
 
-Registers a route. Patterns are matched in **declaration order** — first match wins. Uses [rou3](https://github.com/h3js/rou3) for matching, the same engine as Nitro.
+Registers a route. Patterns are matched in **declaration order** — first match wins. Uses [rou3](https://github.com/h3js/rou3) for matching.
 
 The optional `loader` is a data-fetching function that runs before the page renders. Its return value is passed as input props to the island. The loader runs **wherever the router runs**: during SSR it executes on the server; when the route was registered in the browser (a plain SPA, hash mode, `file://`), client navigations execute it locally — no server or `/__ilha/loader` endpoint needed. Routes marked via `.markLoader()` (the SSR-split pages build) still fetch from the endpoint.
 
@@ -1013,7 +1013,7 @@ The plugin exposes separate server and client virtual modules. **Always use the 
 
 | Module              | Exports                  | Use for                                |
 | ------------------- | ------------------------ | -------------------------------------- |
-| `ilha:pages/server` | `pageRouter`, `registry` | SSR, prerender, Nitro handlers         |
+| `ilha:pages/server` | `pageRouter`, `registry` | SSR, prerender, server handlers        |
 | `ilha:pages/client` | `pageRouter`, `registry` | Browser hydration entry                |
 | `ilha:loaders`      | —                        | Server-only side-effect: wires loaders |
 
@@ -1099,7 +1099,7 @@ Or use the one-liner: `pageRouter.hydrate(registry)`.
 
 On the **server**, loaders run inside `.renderHydratable()` / `.renderResponse()`. Their return value is serialized into `data-ilha-props` on the island element so the client can rehydrate without re-fetching.
 
-On the **client**, navigations resolve loader data before mounting the next island. Routes with a loader registered in the browser — a manual `.route(path, island, loader)` or an FS-routing `clientLoad` export — run that loader locally, with no network round-trip. Routes with only a server loader (`markLoader()` / a `load` export) fetch from the `/__ilha/loader` endpoint, served automatically by the Vite plugin (dev) and the Nitro adapter (production).
+On the **client**, navigations resolve loader data before mounting the next island. Routes with a loader registered in the browser — a manual `.route(path, island, loader)` or an FS-routing `clientLoad` export — run that loader locally, with no network round-trip. Routes with only a server loader (`markLoader()` / a `load` export) fetch from the `/__ilha/loader` endpoint, served automatically by the Vite plugin (dev) and the server adapter (production).
 
 ```
 server                         client (navigation)

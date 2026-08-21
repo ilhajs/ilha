@@ -34,6 +34,8 @@ export default defineConfig({
 
 You can also pass `exclude` globs. Files outside the filter remain available to other Astro JSX renderers.
 
+Other JSX renderers (e.g. `@astrojs/solid-js`) can appear before or after `@ilha/astro` — Ilha islands are tagged with Astro's `astro:renderer` symbol, so Astro routes them to Ilha's renderer regardless of integration order.
+
 Then use any Ilha island as an Astro component, with a [client directive](https://docs.astro.build/en/reference/directives-reference/#client-directives) to control hydration:
 
 ```astro
