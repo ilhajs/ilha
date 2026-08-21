@@ -973,6 +973,29 @@ describe("Island mount", () => {
       cleanup(el);
     });
 
+    it("attaches selector listeners when matching elements appear after a morph", () => {
+      let show!: (value: boolean) => void;
+      let calls = 0;
+      const Island = ilha
+        .state("show", false)
+        .on("[data-dynamic]@click", () => {
+          calls++;
+        })
+        .render(({ state }) => {
+          show = state.show;
+          return state.show() ? `<button data-dynamic>Run</button>` : `<p>Hidden</p>`;
+        });
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      show(true);
+      (el.querySelector("[data-dynamic]") as HTMLButtonElement).click();
+
+      expect(calls).toBe(1);
+      unmount();
+      cleanup(el);
+    });
+
     it("combined @event on root element (no selector prefix)", () => {
       const calls: number[] = [];
       const Island = ilha
@@ -4533,6 +4556,25 @@ describe("html`` event handlers", () => {
     cleanup(el);
   });
 
+  it("composes native event attributes from nested templates", () => {
+    let calls = 0;
+    const onClick = () => calls++;
+    const Island = ilha.render(() => {
+      const eventAttribute = onClick ? html` onclick=${onClick}` : "";
+      return html`<button class="composed" ${eventAttribute}>Run</button>`;
+    });
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    const button = el.querySelector("button") as HTMLButtonElement;
+    button.click();
+
+    expect(calls).toBe(1);
+    expect(button.hasAttribute("onclick")).toBe(false);
+    unmount();
+    cleanup(el);
+  });
+
   it("recognizes event attributes after quoted angle brackets", () => {
     let calls = 0;
     const Island = ilha.render(
@@ -5074,6 +5116,48 @@ describe("bind: template syntax", () => {
       cb.checked = true;
       cb.dispatchEvent(new Event("change"));
       expect(el.querySelector("p")!.textContent).toBe("true");
+      unmount();
+      cleanup(el);
+    });
+
+    it("lets component controllers observe user changes before bind effects sync", () => {
+      let checked!: SignalAccessor<boolean>;
+      let controllerChecked = false;
+      let applying = false;
+      let semanticCalls = 0;
+
+      const Island = ilha
+        .state("checked", false)
+        .onMount(({ host }) => {
+          const input = host.querySelector<HTMLInputElement>("[data-cb]")!;
+          const onChange = () => {
+            if (controllerChecked === input.checked) return;
+            controllerChecked = input.checked;
+            if (!applying) semanticCalls++;
+          };
+          input.addEventListener("change", onChange);
+          return () => input.removeEventListener("change", onChange);
+        })
+        .effect(({ state }) => {
+          const checked = state.checked();
+          if (controllerChecked === checked) return;
+          applying = true;
+          controllerChecked = checked;
+          applying = false;
+        })
+        .render(({ state }) => {
+          checked = state.checked;
+          return html`<input type="checkbox" data-cb bind:checked=${state.checked} />`;
+        });
+
+      const el = makeEl();
+      const unmount = Island.mount(el);
+      const input = el.querySelector<HTMLInputElement>("[data-cb]")!;
+      input.checked = true;
+      input.dispatchEvent(new Event("change"));
+
+      expect(checked()).toBe(true);
+      expect(semanticCalls).toBe(1);
       unmount();
       cleanup(el);
     });
@@ -6250,6 +6334,23 @@ describe(".onMount", () => {
     expect(capturedCount!).toBe(5);
     expect(capturedLabel!).toBe("hello");
     unmount();
+    cleanup(el);
+  });
+
+  it("aborts the mount signal on unmount", () => {
+    let signal!: AbortSignal;
+
+    const Island = ilha
+      .onMount((ctx) => {
+        signal = ctx.signal;
+      })
+      .render(() => `<p>hi</p>`);
+
+    const el = makeEl();
+    const unmount = Island.mount(el);
+    expect(signal.aborted).toBe(false);
+    unmount();
+    expect(signal.aborted).toBe(true);
     cleanup(el);
   });
 
@@ -9763,5 +9864,34 @@ describe("slot props attr omits children and functions", () => {
     expect(props).toEqual({ page: 3 });
     expect(props.children).toBeUndefined();
     expect(props.setPage).toBeUndefined();
+  });
+});
+
+describe("Astro renderer tagging", () => {
+  const ASTRO_RENDERER_GLOBAL = Symbol.for("ilha.astroRenderer");
+  const ASTRO_RENDERER_TAG = Symbol.for("astro:renderer");
+  const prev = (globalThis as Record<symbol, unknown>)[ASTRO_RENDERER_GLOBAL];
+
+  afterEach(() => {
+    if (prev === undefined) delete (globalThis as Record<symbol, unknown>)[ASTRO_RENDERER_GLOBAL];
+    else (globalThis as Record<symbol, unknown>)[ASTRO_RENDERER_GLOBAL] = prev;
+  });
+
+  it("tags islands with @ilha/astro's renderer name when the integration is loaded", () => {
+    (globalThis as Record<symbol, unknown>)[ASTRO_RENDERER_GLOBAL] = "@ilha/astro";
+    const Island = ilha
+      .input<{ label: string }>()
+      .render(({ input }) => html`<button>${input.label}</button>`);
+    expect((Island as unknown as Record<symbol, unknown>)[ASTRO_RENDERER_TAG]).toBe("@ilha/astro");
+  });
+
+  it("leaves islands untagged when no Astro integration is present", () => {
+    // Explicitly clear the marker so prior suite state (or an earlier test's
+    // global write) cannot restore the Astro renderer and flake this assertion.
+    (globalThis as Record<symbol, unknown>)[ASTRO_RENDERER_GLOBAL] = undefined;
+    const Island = ilha
+      .input<{ label: string }>()
+      .render(({ input }) => html`<button>${input.label}</button>`);
+    expect((Island as unknown as Record<symbol, unknown>)[ASTRO_RENDERER_TAG]).toBeUndefined();
   });
 });

@@ -1,25 +1,26 @@
 {
-  "name": "@ilha/template-nitro-orpc-spa",
+  "name": "@ilha/template-oxide-spa",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node dist/server.js"
   },
   "dependencies": {
-    "@ilha/router": "^0.8.12",
-    "@orpc/client": "2.0.0-beta.26",
-    "@orpc/server": "2.0.0-beta.26",
+    "@ilha/router": "^0.8.13",
     "areia": "^0.2.3",
-    "ilha": "^0.10.2",
+    "ilha": "^0.10.3",
     "quando": "^0.1.6",
-    "sonner": "^2.0.8"
+    "sonner": "^2.0.8",
+    "tacho": "^0.4.2"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
-    "nitro": "^3.0.260610-beta",
+    "@types/node": "^24",
+    "oxidejs": "^0.1.7",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1"
+    "vite": "^8.2.2"
   }
 }

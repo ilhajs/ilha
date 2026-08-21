@@ -1,0 +1,10 @@
+{
+  "name": "fake-js",
+  "version": "0.0.0-test-stub",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./jsx-runtime": "./jsx-runtime.js",
+    "./jsx-dev-runtime": "./jsx-runtime.js"
+  }
+}

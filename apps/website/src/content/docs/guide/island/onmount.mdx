@@ -36,6 +36,20 @@ const Island = ilha
 
 `unmount()` detaches the island's listeners before it calls the cleanup function returned by `.onMount()`.
 
+For abortable APIs, pass the mount signal instead of returning manual cleanup:
+
+```tsx twoslash
+import ilha from "ilha";
+
+const Island = ilha
+  .onMount(({ signal }) => {
+    fetch("/api/items", { signal });
+  })
+  .render(() => <div>hello</div>);
+```
+
+The signal aborts when the island unmounts.
+
 ## Mount context
 
 The function receives an `OnMountContext`:
@@ -48,6 +62,7 @@ The function receives an `OnMountContext`:
   input: TInput; // resolved input props
   host: Element; // island root element
   hydrated: boolean; // true when mounted over SSR content
+  signal: AbortSignal; // aborts when the island unmounts
 }
 ```
 

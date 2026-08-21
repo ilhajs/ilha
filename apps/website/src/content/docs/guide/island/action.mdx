@@ -178,6 +178,8 @@ const Registration = ilha
 
 The `.on()` handler receives `state`, `derived`, `action`, `input`, `host`, `target`, `event`, and `signal`. Synchronous signal writes are batched, listeners clean up on unmount, and thrown errors route through [`.onError()`](/guide/island/onerror).
 
+Ilha resolves selectors again after each morph. Use `.on()` when template composition prevents a direct native event interpolation or when matching elements appear conditionally.
+
 ## Reactive action state
 
 Every action exposes three read-only reactive properties:

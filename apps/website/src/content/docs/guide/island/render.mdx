@@ -620,6 +620,22 @@ The warning is suppressed in production.
 
 **Areia** in nested child islands: use `bind:checked={state.flag}` on `&lt;Switch /&gt;` and `bind:group={state.tab}` on `&lt;Tabs />` (recent **areia** mounts `Switch.Root` / `Tabs.Root` when bind props are present). Controlled `checked` + `onCheckedChange` or `value` + `onValueChange` still work.
 
+### Bind contracts for component authors
+
+A custom component must relay `bind:*` props to its controller. Ilha only wires bindings placed directly on native elements rendered by that island.
+
+Keep these paths separate:
+
+- User input writes the bound signal once and calls the semantic callback once.
+- A programmatic signal write updates the controller without calling the semantic callback.
+- A controlled prop update changes the controller without masquerading as user input.
+
+On initial mount, Ilha reflects bound properties before `.onMount()`, then attaches native bind listeners afterward. Controller listeners registered in `.onMount()` therefore observe user input before the bind write triggers reactive synchronization.
+
+Register component operations with `.action()`. Use direct lowercase event props or a morph-safe [`.on()` selector](/guide/island/action#use-on-for-advanced-listeners) to call them.
+
+Do not pass function handlers through attribute serializers or `raw()`. Those paths produce markup, not live event registrations.
+
 ### Radio and checkbox groups
 
 ```tsx twoslash

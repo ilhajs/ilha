@@ -66,22 +66,24 @@ return new Response(
 ### SSR + hydration (recommended)
 
 ```ts
-// server entry — SSR / Nitro
+// server entry — SSR / Oxide
 import { pageRouter, registry } from "ilha:pages/server";
 import "ilha:loaders"; // wires server-only loaders onto pageRouter
 
-export default defineEventHandler(async (event) => {
-  const html = await pageRouter.renderHydratable(
-    event.node.req.url ?? "/",
-    registry,
-  );
-  return new Response(
-    `<!doctype html><html><body>${html}</body></html>`,
-    {
-      headers: { "content-type": "text/html" },
-    },
-  );
-});
+export default {
+  async fetch(request: Request) {
+    const html = await pageRouter.renderHydratable(
+      request.url,
+      registry,
+    );
+    return new Response(
+      `<!doctype html><html><body>${html}</body></html>`,
+      {
+        headers: { "content-type": "text/html" },
+      },
+    );
+  },
+};
 ```
 
 ```ts
@@ -108,7 +110,7 @@ pageRouter.hydrate(registry);
 
 ### `.route(pattern, island, loader?)`
 
-Registers a route. Uses [rou3](https://github.com/h3js/rou3) for matching — the same engine as Nitro. First match wins.
+Registers a route. Uses [rou3](https://github.com/h3js/rou3) for matching. First match wins.
 
 | Pattern         | Matches             | `routeParams()`                   |
 | --------------- | ------------------- | --------------------------------- |
@@ -638,7 +640,7 @@ Use the **explicit** `/server` or `/client` suffix — they resolve to different
 
 | Module              | Exports                  | Use for                                |
 | ------------------- | ------------------------ | -------------------------------------- |
-| `ilha:pages/server` | `pageRouter`, `registry` | SSR, prerender, Nitro handlers         |
+| `ilha:pages/server` | `pageRouter`, `registry` | SSR, prerender, server handlers        |
 | `ilha:pages/client` | `pageRouter`, `registry` | Browser hydration entry                |
 | `ilha:loaders`      | —                        | Server-only side-effect: wires loaders |
 

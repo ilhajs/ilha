@@ -17,7 +17,7 @@
 - **SSR + hydration** — render on the server, restore state on the client with zero flicker
 - **File-system routing** — optional Vite plugin for automatic, convention-based routing
 - **Shared global state** — `@ilha/store` for cross-island state on the same signal engine as the core
-- **Backend agnostic** — integrates with any backend; first-class Nitro and Hono support
+- **Backend agnostic** — integrates with any backend; first-class Oxide and Hono support
 - **Prompt-sized source** — small enough to fit the entire codebase into an AI context window
 - **Type-safe by default** — first-class TypeScript support throughout
 
@@ -43,11 +43,10 @@ bun add ilha
 
 Scaffold a project in seconds with one of the official starters:
 
-| Template                                                                              | Command                                                    | Sandbox                                                                              |
-| ------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| [Vite SPA](https://github.com/ilhajs/ilha/tree/main/templates/vite-spa)               | `npx giget@latest gh:ilhajs/ilha/templates/vite-spa`       | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite-spa)       |
-| [Nitro SSR](https://github.com/ilhajs/ilha/tree/main/templates/nitro-ssr)             | `npx giget@latest gh:ilhajs/ilha/templates/nitro-ssr`      | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro-ssr)      |
-| [Nitro + oRPC SPA](https://github.com/ilhajs/ilha/tree/main/templates/nitro-orpc-spa) | `npx giget@latest gh:ilhajs/ilha/templates/nitro-orpc-spa` | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/nitro-orpc-spa) |
+| Template                                                                  | Command                                               | Sandbox                                                                         |
+| ------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------- |
+| [Vite SPA](https://github.com/ilhajs/ilha/tree/main/templates/vite-spa)   | `npx giget@latest gh:ilhajs/ilha/templates/vite-spa`  | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite-spa)  |
+| [Oxide SPA](https://github.com/ilhajs/ilha/tree/main/templates/oxide-spa) | `npx giget@latest gh:ilhajs/ilha/templates/oxide-spa` | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/oxide-spa) |
 
 ---
 

@@ -34,6 +34,9 @@ jobs:
       - name: Build packages
         run: bun run build
 
+      - name: Build templates
+        run: bun run --filter './templates/*' build
+
       - name: Test
         run: bun run test
 

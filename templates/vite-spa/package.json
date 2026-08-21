@@ -9,16 +9,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ilha/router": "^0.8.12",
-    "@ilha/store": "^0.7.10",
+    "@ilha/router": "^0.8.13",
+    "@ilha/store": "^0.7.11",
     "areia": "^0.2.3",
-    "ilha": "^0.10.2",
+    "ilha": "^0.10.3",
     "quando": "^0.1.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1"
+    "vite": "^8.2.2"
   }
 }

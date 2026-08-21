@@ -5,8 +5,7 @@ import { URLS } from "@/lib/landing-const";
 
 const TEMPLATES = [
   { value: "vite-spa", label: "Vite SPA", icon: "/vite.svg", sandbox: true },
-  { value: "nitro-orpc-spa", label: "Nitro + oRPC SPA", icon: "/orpc.svg", sandbox: true },
-  { value: "nitro-ssr", label: "Nitro SSR", icon: "/nitro.svg", sandbox: true },
+  { value: "oxide-spa", label: "Oxide SPA", icon: "/oxide.svg", sandbox: true },
 ] as const;
 
 const LIBRARY_TABS = [
@@ -33,7 +32,10 @@ export const ProjectCreatorForm = ilha
   .action("copyCommand", async (event: MouseEvent, { derived }) => {
     try {
       await navigator.clipboard.writeText(derived.createCommand()!);
-    } catch {}
+    } catch {
+      // Clipboard can be denied without a user gesture; leave the label as-is.
+      return;
+    }
     const el = (event.currentTarget as HTMLElement | null)?.querySelector("span");
     if (el) {
       const original = el.textContent;
@@ -73,7 +75,7 @@ export const ProjectCreatorForm = ilha
         name="template"
         appearance="card"
         orientation="horizontal"
-        class="[&>div]:lg:grid-cols-3"
+        class="[&>div]:lg:grid-cols-2"
       >
         {TEMPLATES.map((template) => (
           <Radio.Item

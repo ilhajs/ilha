@@ -66,7 +66,7 @@ export interface IlhaHandlerOptions {
    *
    * @example
    * head: {
-   *   title: "Ilha + Nitro",
+   *   title: "Ilha + Oxide",
    *   script: [{ children: themeScript }],
    * }
    */
@@ -140,7 +140,7 @@ export class IlhaHandler {
     const routeHead = head?.headTags ? `\n  ${head.headTags}` : "";
     const htmlAttrsStr = head?.htmlAttrs ?? "";
     const langFromHead = htmlAttrsStr.match(/\blang="([^"]*)"/)?.[1];
-    const langAttr = langFromHead != null ? langFromHead : this.lang;
+    const langAttr = langFromHead == null ? this.lang : langFromHead;
     const htmlAttrsWithoutLang = htmlAttrsStr.replace(/\s*lang="[^"]*"/, "");
     return `<!doctype html>
 <html lang="${langAttr}"${htmlAttrsWithoutLang}>
@@ -173,7 +173,16 @@ export class IlhaHandler {
   }
 
   private async handleInner(request: Request): Promise<Response> {
-    const url = new URL(request.url);
+    let url: URL;
+    try {
+      url = new URL(request.url);
+    } catch {
+      // Malformed request target — a client error, not a server failure.
+      return new Response("Bad Request", {
+        status: 400,
+        headers: { "content-type": "text/plain;charset=utf-8" },
+      });
+    }
 
     // Client-side navigation fetches loader data from this endpoint (see
     // `fetchLoaderData`). It must return JSON — without this branch the request

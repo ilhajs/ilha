@@ -1,5 +1,5 @@
 {
-  "extends": "nitro/tsconfig",
+  "extends": "oxidejs/tsconfig",
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "ilha",

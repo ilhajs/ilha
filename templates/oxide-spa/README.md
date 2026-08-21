@@ -1,6 +1,6 @@
-# Ilha + Nitro + oRPC
+# Ilha + Oxide
 
-A minimal Ilha app with [Nitro](https://nitro.build) on Node.js. Pages live in `src/pages/` and hydrate on the client via `@ilha/router`.
+A minimal Ilha app with [Oxide](https://oxide.build) for server-side rendering. Pages live in `src/pages/` and hydrate on the client via `@ilha/router`. Server actions use [Tacho](https://oxide.build) for typed RPC.
 
 ## Requirements
 
@@ -30,7 +30,8 @@ Open [http://localhost:3000](http://localhost:3000).
 src/
   pages/       # File-based routes (+layout, index, learn, …)
   client.ts    # Client entry — mounts islands
-  server.ts   # Nitro server with oRPC — static assets + SPA shell
+  server.ts    # Oxide server — static assets + SPA shell
+  lib/         # Tacho server actions (tasks.server.tsx)
   app.css      # Tailwind + Areia styles
 ```
 
