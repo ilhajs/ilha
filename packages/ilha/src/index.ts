@@ -317,13 +317,21 @@ function isStableInlineSlotMount({
  */
 function slotPropsForAttr(
   props: Record<string, unknown> | undefined,
+  captureActions = false,
 ): Record<string, unknown> | undefined {
   if (props === undefined) return undefined;
   let out: Record<string, unknown> | undefined;
   for (const key of Object.keys(props)) {
     if (key === "children") continue;
     const value = props[key];
-    if (typeof value === "function" || typeof value === "symbol") continue;
+    if (typeof value === "function") {
+      const action = captureActions
+        ? captureHandlerActions(value as NativeEventHandler)
+        : undefined;
+      if (action) (out ??= {})[key] = { __ilha: "action", ...action };
+      continue;
+    }
+    if (typeof value === "symbol") continue;
     const encoded = encodeSlotPropValue(value);
     if (encoded === undefined && value !== undefined && value !== null) continue;
     (out ??= {})[key] = encoded as unknown;
@@ -864,6 +872,7 @@ const ASTRO_RENDERER_GLOBAL = Symbol.for("ilha.astroRenderer");
  * re-renders. Not part of the public surface. */
 export const ISLAND_MOUNT_INTERNAL = Symbol.for("ilha.islandMountInternal");
 const ISLAND_SLOT_TAG = Symbol.for("ilha.islandSlotTag");
+const ISLAND_CLIENT_REF = Symbol.for("ilha.clientRef");
 
 /** @internal Live mount handles keyed by host element. Lets @ilha/router adopt
  * islands hydrated by `ilha.mount()` (whose handles it never saw) and push new
@@ -877,6 +886,26 @@ export const ISLAND_MOUNT_HANDLES: WeakMap<
   }
 > = new WeakMap();
 
+/** @internal Sync re-render of an island from a state snapshot. Attached by
+ * render(); used by server-frame endpoints to produce HTML for streamed
+ * updates without a live mount. Not part of the public surface. */
+const ISLAND_RENDER_STATE = Symbol.for("ilha.renderState");
+
+/** Hydration-manifest entry: an action key, optionally with the static
+ * `[handler, ...args]` payload captured at render time. */
+type EventManifestEntry = string | { k: string; a: unknown[] };
+
+/** @internal Async SSR render that records the event→action manifest into the
+ * provided map. Used by emitIslandSlot so nested server islands ship their
+ * interactive surface alongside their inlined HTML. */
+const ISLAND_SSR_MANIFEST = Symbol.for("ilha.ssrManifest");
+
+function manifestTemplatePrefix(manifest: Map<string, EventManifestEntry>): string {
+  if (manifest.size === 0) return "";
+  const json = escapeHtml(JSON.stringify(Object.fromEntries(manifest)));
+  return `<template ${ACTIONS_ATTR}='${json}'></template>`;
+}
+
 const SLOT_ATTR = "data-ilha-slot";
 /** Marks a slot host whose child island is mid leave-transition: it has been
  * unmounted (and its slot id stripped) but stays connected so the leave
@@ -884,8 +913,14 @@ const SLOT_ATTR = "data-ilha-slot";
  * or mutating them. */
 const LEAVING_ATTR = "data-ilha-leaving";
 const PROPS_ATTR = "data-ilha-props";
+const CLIENT_REF_ATTR = "data-ilha-client-ref";
 const STATE_ATTR = "data-ilha-state";
 const CSS_ATTR = "data-ilha-css";
+/** Hydration manifest mapping `${type}:${index}` event-sentinel pairs to the
+ * action keys that own them. Emitted by hydratable(); lets server-owned
+ * islands (whose render fn never ships to the client) reconnect their
+ * interactive surface. */
+const ACTIONS_ATTR = "data-ilha-actions";
 
 // ---------------------------------------------
 // CSS scoping
@@ -963,6 +998,10 @@ interface IslandRenderCtx {
   // lifecycle. Plain function components execute inside this same context,
   // so their handlers are collected and disposed with the parent island.
   events: JsxEventRecord[];
+  // True when this render collects the hydration manifest (hydratable /
+  // frame rendering). Only then are forwarding closures capture-invoked —
+  // client renders never execute handlers at registration time.
+  manifest?: boolean;
 }
 
 type BindKind =
@@ -995,6 +1034,52 @@ interface JsxEventRecord {
   type: string;
   handler: NativeEventHandler;
   modifier?: NativeEventModifier;
+  /** Action call captured at render time from a forwarding closure
+   * (`onclick={() => action.remove(id)}`). Serialized into the hydration
+   * manifest so server-owned islands replay it over RPC. */
+  capture?: { k: string; a: unknown[] };
+}
+
+/** Marks SSR action stubs so event registration never capture-invokes them
+ * (invoking the real action body during render would run its side effects). */
+const SSR_ACTION_STUB = Symbol.for("ilha.ssrActionStub");
+
+// Synchronous render ⇒ a simple stack scopes capture-recording to exactly one
+// handler invocation.
+const captureStack: Array<Array<{ k: string; a: unknown[] }>> = [];
+
+/**
+ * Invoke a forwarding closure once against sentinel arguments so any
+ * `action.x(...)` call inside it is RECORDED, not executed. Returns the first
+ * recorded call, or undefined when the closure throws or calls no action.
+ *
+ * ponytail: the closure body really executes once per manifest render (SSR
+ * and every frame) — only the action call is intercepted. Handlers must be
+ * pure "call one action" thunks; side effects before/around the action call
+ * run server-side on every frame. Upgrade path: static-scan the closure
+ * instead of invoking it.
+ */
+function captureHandlerActions(
+  handler: NativeEventHandler,
+): { k: string; a: unknown[] } | undefined {
+  const frame: Array<{ k: string; a: unknown[] }> = [];
+  captureStack.push(frame);
+  try {
+    const sentinelEvent = {
+      preventDefault: () => {},
+      stopPropagation: () => {},
+      stopImmediatePropagation: () => {},
+      persist: () => {},
+    } as unknown as Event;
+    const sentinelContext: NativeEventContext = { signal: new AbortController().signal };
+    const result = handler(sentinelEvent as Event, sentinelContext);
+    void Promise.resolve(result).catch(() => {});
+  } catch {
+    // Closure has logic that doesn't hold under sentinel args — no record.
+  } finally {
+    captureStack.pop();
+  }
+  return frame[0];
 }
 
 // Shared across duplicate ilha copies in one realm (app + component library).
@@ -1008,7 +1093,11 @@ function renderCtxStack(): IslandRenderCtx[] {
   return (g[RENDER_CTX_STACK] ??= []);
 }
 
-function pushRenderCtx(liveHost?: Element, asyncChildren?: boolean): IslandRenderCtx {
+function pushRenderCtx(
+  liveHost?: Element,
+  asyncChildren?: boolean,
+  manifest?: boolean,
+): IslandRenderCtx {
   const ctx: IslandRenderCtx = {
     slots: new Map(),
     positional: 0,
@@ -1016,6 +1105,7 @@ function pushRenderCtx(liveHost?: Element, asyncChildren?: boolean): IslandRende
     pending: asyncChildren ? new Map() : undefined,
     binds: [],
     events: [],
+    manifest,
   };
   renderCtxStack().push(ctx);
   return ctx;
@@ -1078,8 +1168,14 @@ function emitIslandSlot({
 
   const slotTag = getIslandSlotTag(island);
 
-  const attrProps = slotPropsForAttr(props);
-  const propsAttr = attrProps ? ` ${PROPS_ATTR}='${escapeHtml(JSON.stringify(attrProps))}'` : "";
+  const clientRef = (island as unknown as Record<symbol, unknown>)[ISLAND_CLIENT_REF];
+  const attrProps = slotPropsForAttr(
+    props,
+    typeof clientRef === "string" && ctx?.manifest === true,
+  );
+  const propsAttr =
+    (attrProps ? ` ${PROPS_ATTR}='${escapeHtml(JSON.stringify(attrProps))}'` : "") +
+    (typeof clientRef === "string" ? ` ${CLIENT_REF_ATTR}="${escapeHtml(clientRef)}"` : "");
 
   // Client re-render path: emit an EMPTY stub. Post-morph, mountSlots rehomes
   // the preserved live slot element (with all its mounted children, listeners,
@@ -1101,11 +1197,28 @@ function emitIslandSlot({
   if (ctx?.pending) {
     popRenderCtx();
     try {
-      const result = island(props as Record<string, unknown>);
+      // Prefer the manifest-recording path so nested server islands ship
+      // their event→action manifest alongside the inlined HTML.
+      const manifest: Map<string, EventManifestEntry> = new Map();
+      const ssrWithManifest = (island as unknown as Record<symbol, unknown>)[
+        ISLAND_SSR_MANIFEST
+      ] as
+        | ((
+            props?: Record<string, unknown>,
+            out?: Map<string, EventManifestEntry>,
+          ) => string | Promise<string>)
+        | undefined;
+      const result = ssrWithManifest
+        ? ssrWithManifest(props as Record<string, unknown>, manifest)
+        : island(props as Record<string, unknown>);
+      const prefix = (): string => manifestTemplatePrefix(manifest);
 
       if (result instanceof Promise) {
         // Store the pending render for later resolution by renderWithCtx.
-        ctx.pending.set(id, result.then(String));
+        ctx.pending.set(
+          id,
+          result.then(String).then((html) => prefix() + html),
+        );
         // Emit a stub containing a unique comment marker; resolveAsyncChildren
         // replaces the marker with the resolved inner HTML. Escaped
         // interpolations can never produce the marker text (it contains `<`).
@@ -1118,7 +1231,7 @@ function emitIslandSlot({
       }
 
       // Child rendered synchronously — inline its HTML as usual.
-      return wrapIslandSlotHtml({ tag: slotTag, id, propsAttr, inner: String(result) });
+      return wrapIslandSlotHtml({ tag: slotTag, id, propsAttr, inner: prefix() + String(result) });
     } finally {
       renderCtxStack().push(ctx);
     }
@@ -1618,9 +1731,16 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
         : undefined;
       const openQuote = (eventMatch[3] ?? null) as '"' | "'" | null;
       const cleanPrefix = chunk.slice(0, eventMatchStart).replace(/\s+$/, "");
-
       // Event functions are runtime-only. Never call or serialize them into an
       // inline on* attribute, even when the template is rendered standalone.
+      // Forwarding closures (`onclick={() => action.remove(id)}`) are invoked
+      // once against sentinel args so the action call is recorded for the
+      // hydration manifest; direct action references are matched by identity.
+      const isActionStub = typeof value === "function" && SSR_ACTION_STUB in (value as object);
+      const capture =
+        ctx?.manifest && typeof value === "function" && !isActionStub
+          ? captureHandlerActions(value as NativeEventHandler)
+          : undefined;
       result += cleanPrefix;
       if (ctx && typeof value === "function") {
         const index = ctx.events.length;
@@ -1632,7 +1752,12 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
             );
           }
         } else {
-          ctx.events.push({ type: eventName, handler: value as NativeEventHandler, modifier });
+          ctx.events.push({
+            type: eventName,
+            handler: value as NativeEventHandler,
+            modifier,
+            capture,
+          });
           pendingEventSpecs += (pendingEventSpecs ? "," : "") + `${eventName}:${index}`;
         }
       } else if (__DEV__ && typeof value !== "function") {
@@ -2892,6 +3017,25 @@ interface StateEntry<TInput> {
   init: StateInit<TInput, unknown>;
 }
 
+/** A state key fed by a generator (`.stream()`). The runtime iterates the
+ * generator and writes each yielded value into the state signal. During SSR
+ * only the first value is pulled so it can render inline; on the client the
+ * generator is consumed continuously. */
+interface StreamEntry<TInput> {
+  key: string;
+  fn: StreamFn<TInput>;
+}
+
+export type StreamFnContext<TInput> = {
+  input: TInput;
+  /** Aborts when the island unmounts. Pass through to fetch/SSE layers. */
+  signal: AbortSignal;
+};
+
+export type StreamFn<TInput, V = unknown> = (
+  ctx: StreamFnContext<TInput>,
+) => AsyncGenerator<V> | Generator<V>;
+
 interface ActionEntry<
   TInput,
   TStateMap extends Record<string, unknown>,
@@ -3012,7 +3156,7 @@ interface EffectEntry<
 // Derived errors are intentionally NOT reported here: they are surfaced as
 // first-class state via derived.x.error(). Malformed SSR snapshots are not
 // reported either — they degrade gracefully (see safeParseSnapshot).
-export type ErrorSource = "on" | "effect" | "mount" | "transition" | "action";
+export type ErrorSource = "on" | "effect" | "mount" | "transition" | "action" | "stream";
 
 // Global error handlers, invoked when an island reports an error and has no
 // local .onError() handler registered. Lets apps install a single app-wide
@@ -3105,6 +3249,7 @@ interface BuilderConfig<
   /** Shallow defaults merged before props (POJO `.input({ ... })` only). */
   defaultInput: Record<string, unknown> | null;
   states: StateEntry<TInput>[];
+  streams: StreamEntry<TInput>[];
   deriveds: DerivedEntry<TInput, TStateMap>[];
   actions: ActionEntry<TInput, TStateMap, TDerivedMap>[];
   ons: OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>[];
@@ -3174,6 +3319,7 @@ class IlhaBuilder<
       schema,
       defaultInput,
       states: [],
+      streams: [],
       deriveds: [],
       actions: [],
       ons: [],
@@ -3202,6 +3348,34 @@ class IlhaBuilder<
     return new IlhaBuilder({
       ...cfg,
       states: [...cfg.states, { key, init: init as StateInit<TInput, unknown> }],
+    } as unknown as BuilderConfig<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TActionMap>);
+  }
+
+  stream<K extends string, V>(
+    key: K,
+    fn: StreamFn<TInput, V>,
+  ): IlhaBuilder<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TActionMap> {
+    const cfg = this._cfg;
+    if (__DEV__ && key.trim() === "") warn("stream(): key must not be empty.");
+    if (__DEV__ && cfg.states.some((entry) => entry.key === key)) {
+      warn(`stream(): duplicate key "${key}" — a state with this key already exists.`);
+    }
+    if (__DEV__ && cfg.streams.some((entry) => entry.key === key)) {
+      warn(`stream(): duplicate key "${key}". The later declaration replaces the public accessor.`);
+    }
+    // A streamed key IS a state key (same accessor surface, snapshot support);
+    // it just starts undefined and is fed by the generator instead of a
+    // static init. Declaring both keeps buildSignalState/snapshot untouched.
+    const states = cfg.states.some((entry) => entry.key === key)
+      ? cfg.states
+      : [...cfg.states, { key, init: undefined as StateInit<TInput, unknown> }];
+    return new IlhaBuilder({
+      ...cfg,
+      states,
+      streams: [
+        ...cfg.streams.filter((entry) => entry.key !== key),
+        { key, fn: fn as StreamFn<TInput> },
+      ],
     } as unknown as BuilderConfig<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TActionMap>);
   }
 
@@ -3327,6 +3501,7 @@ class IlhaBuilder<
       schema,
       defaultInput,
       states,
+      streams,
       deriveds,
       actions,
       ons,
@@ -3369,22 +3544,26 @@ class IlhaBuilder<
       render: () => string | RawHtml;
       liveHost?: Element;
       asyncChildren?: false;
+      manifest?: boolean;
     }): RenderOut;
     function renderWithCtx(options: {
       render: () => string | RawHtml;
       liveHost?: Element;
       asyncChildren: true;
+      manifest?: boolean;
     }): Promise<RenderOut>;
     function renderWithCtx({
       render,
       liveHost,
       asyncChildren,
+      manifest,
     }: {
       render: () => string | RawHtml;
       liveHost?: Element;
       asyncChildren?: boolean;
+      manifest?: boolean;
     }): RenderOut | Promise<RenderOut> {
-      const ctx = pushRenderCtx(liveHost, asyncChildren);
+      const ctx = pushRenderCtx(liveHost, asyncChildren, manifest);
       try {
         const html = unwrapHtml(render());
         // slots/binds are fully populated synchronously by render(); capture them
@@ -3447,11 +3626,28 @@ class IlhaBuilder<
       return state as IslandState<TStateMap>;
     }
 
-    function buildSsrActions(): IslandActions<TActionMap> {
+    function buildSsrActions(): {
+      action: IslandActions<TActionMap>;
+      /** SSR action stub keyed by function identity — event handlers that are
+       * action accessors are matched back to their action key for the
+       * hydration manifest. */
+      lookup: Map<Function, string>;
+    } {
       const out: Record<string, unknown> = {};
+      const lookup = new Map<Function, string>();
       for (const entry of actions) {
         let warned = false;
-        const invoke = () => {
+        const invoke = (...callArgs: unknown[]) => {
+          // Inside a capture frame (event-handler registration), record the
+          // call instead of warning — this is how forwarding closures
+          // (`() => action.remove(id)`) declare their payload.
+          const frame = captureStack[captureStack.length - 1];
+          if (frame) {
+            if (!frame.some((r) => r.k === entry.key)) {
+              frame.push({ k: entry.key, a: callArgs });
+            }
+            return;
+          }
           if (__DEV__ && !warned) {
             warned = true;
             warn(
@@ -3459,14 +3655,16 @@ class IlhaBuilder<
             );
           }
         };
+        (invoke as unknown as Record<symbol, unknown>)[SSR_ACTION_STUB] = true;
         Object.defineProperties(invoke, {
           pending: { get: () => false, enumerable: true },
           data: { get: () => undefined, enumerable: true },
           error: { get: () => undefined, enumerable: true },
         });
         out[entry.key] = invoke;
+        lookup.set(invoke, entry.key);
       }
-      return out as IslandActions<TActionMap>;
+      return { action: out as IslandActions<TActionMap>, lookup };
     }
 
     /** Detached host for SSR setup hooks; must not be `{}` (Areia/components call host.matches). */
@@ -3546,91 +3744,165 @@ class IlhaBuilder<
       }
     }
 
-    function renderToString(props?: Partial<TInput>, sync = false): string | Promise<string> {
+    function renderToString(
+      props?: Partial<TInput>,
+      sync = false,
+      streamOut?: Record<string, unknown>,
+      eventsOut?: Map<string, string | { k: string; a: unknown[] }>,
+      stateOverride?: Record<string, unknown>,
+      forceAsyncChildren = false,
+    ): string | Promise<string> {
       const input = resolveInput(props);
-      const state = buildSignalState(input);
-      const action = buildSsrActions();
+      const state = buildSignalState(input, stateOverride);
+      const { action, lookup: actionLookup } = buildSsrActions();
 
-      const results = deriveds.map((entry) => {
-        const prevSub = setActiveSub(undefined);
-        try {
-          return {
-            key: entry.key,
-            result: entry.fn({
-              state: state as never,
-              input,
-              signal: new AbortController().signal,
-            }),
-          };
-        } catch (err) {
-          return { key: entry.key, result: Promise.reject(err) };
-        } finally {
-          setActiveSub(prevSub);
-        }
-      });
+      // Record which event sentinels belong to named actions so hydratable()
+      // can ship a manifest for server-owned islands.
+      const recordEventsManifest = (events: JsxEventRecord[]): void => {
+        if (!eventsOut || events.length === 0) return;
+        events.forEach((record, index) => {
+          if (record.capture) {
+            eventsOut.set(`${record.type}:${index}`, record.capture);
+            return;
+          }
+          const key = actionLookup.get(record.handler);
+          if (key) eventsOut.set(`${record.type}:${index}`, key);
+        });
+      };
 
-      const hasAsync = results.some((r) => r.result instanceof Promise);
-
-      if (!hasAsync || sync) {
-        const envelopes: Record<string, DerivedValue<unknown>> = {};
-        for (const r of results) {
-          if (r.result instanceof Promise) {
-            envelopes[r.key] = { loading: true, value: undefined, error: undefined };
-          } else {
-            envelopes[r.key] = { loading: false, value: r.result as unknown, error: undefined };
+      // Stream first-pull (SSR only, async path): consume the generator's
+      // first value so it renders inline instead of as a loading placeholder.
+      // The generator instance is discarded — the client resumes its own via
+      // the same call site. Sync mode (island.toString / nested inline slots)
+      // cannot await, so streamed keys render their initial value there and
+      // hydrate through the parent's async pass. Pulled values are recorded
+      // into `streamOut` when provided so hydratable() can snapshot what was
+      // actually rendered instead of the static init.
+      const pullStreamInitials = async (streamOut?: Record<string, unknown>): Promise<void> => {
+        for (const entry of streams) {
+          const controller = new AbortController();
+          try {
+            const gen = await entry.fn({ input, signal: controller.signal });
+            const first = await gen.next();
+            controller.abort();
+            if (first.done) continue;
+            if (streamOut) streamOut[entry.key] = first.value;
+            const prevSub = setActiveSub(undefined);
+            try {
+              const setter = (state as Record<string, ((v: unknown) => void) | undefined>)[
+                entry.key
+              ];
+              setter?.(first.value);
+            } finally {
+              setActiveSub(prevSub);
+            }
+          } catch {
+            // A stream that fails during SSR degrades to the initial value;
+            // the client resume surfaces errors through reportError.
           }
         }
-        const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
-        if (!currentRenderCtx()) runOnMountForRender({ input, state, derived, action });
-        const prevSub = setActiveSub(undefined);
-        try {
-          const { html } = renderWithCtx({
-            render: () => fn({ state, derived, action, input }),
-          });
-          return stylePrefix + html;
-        } finally {
-          setActiveSub(prevSub);
-        }
-      }
+      };
 
-      return Promise.all(
-        results.map(async (r) => {
+      const computeDerivedResults = () =>
+        deriveds.map((entry) => {
+          const prevSub = setActiveSub(undefined);
           try {
             return {
-              key: r.key,
-              envelope: {
-                loading: false,
-                value: await Promise.resolve(r.result),
-                error: undefined,
-              } satisfies DerivedValue<unknown>,
+              key: entry.key,
+              result: entry.fn({
+                state: state as never,
+                input,
+                signal: new AbortController().signal,
+              }),
             };
           } catch (err) {
-            return {
-              key: r.key,
-              envelope: {
-                loading: false,
-                value: undefined,
-                error: err instanceof Error ? err : new Error(String(err)),
-              } satisfies DerivedValue<unknown>,
-            };
+            return { key: entry.key, result: Promise.reject(err) };
+          } finally {
+            setActiveSub(prevSub);
           }
-        }),
-      ).then(async (resolved) => {
-        const envelopes: Record<string, DerivedValue<unknown>> = {};
-        for (const r of resolved) envelopes[r.key] = r.envelope;
-        const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
-        if (!currentRenderCtx()) runOnMountForRender({ input, state, derived, action });
-        const prevSub = setActiveSub(undefined);
-        try {
-          const { html } = await renderWithCtx({
-            render: () => fn({ state, derived, action, input }),
-            asyncChildren: true,
-          });
-          return stylePrefix + html;
-        } finally {
-          setActiveSub(prevSub);
+        });
+
+      // Async mode with streams: seed streamed state BEFORE deriveds run so
+      // downstream deriveds and the render fn see real values. forceAsync
+      // (hydratable) opts in even without own streams so nested streamed
+      // children are awaited instead of sync-inlined with empty state.
+      if (!sync && (streams.length > 0 || forceAsyncChildren)) {
+        return pullStreamInitials(streamOut).then(() => renderToStringTail());
+      }
+      return renderToStringTail();
+
+      function renderToStringTail(): string | Promise<string> {
+        const results = computeDerivedResults();
+
+        // forceAsyncChildren (hydratable) opts into the async pass even with
+        // no own async work so nested streamed children are awaited.
+        const hasAsync = forceAsyncChildren || results.some((r) => r.result instanceof Promise);
+
+        if (!hasAsync || sync) {
+          const envelopes: Record<string, DerivedValue<unknown>> = {};
+          for (const r of results) {
+            if (r.result instanceof Promise) {
+              envelopes[r.key] = { loading: true, value: undefined, error: undefined };
+            } else {
+              envelopes[r.key] = { loading: false, value: r.result as unknown, error: undefined };
+            }
+          }
+          const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
+          if (!currentRenderCtx()) runOnMountForRender({ input, state, derived, action });
+          const prevSub = setActiveSub(undefined);
+          try {
+            const { html, events } = renderWithCtx({
+              render: () => fn({ state, derived, action, input }),
+              manifest: eventsOut !== undefined,
+            });
+            recordEventsManifest(events);
+            return stylePrefix + html;
+          } finally {
+            setActiveSub(prevSub);
+          }
         }
-      });
+
+        return Promise.all(
+          results.map(async (r) => {
+            try {
+              return {
+                key: r.key,
+                envelope: {
+                  loading: false,
+                  value: await Promise.resolve(r.result),
+                  error: undefined,
+                } satisfies DerivedValue<unknown>,
+              };
+            } catch (err) {
+              return {
+                key: r.key,
+                envelope: {
+                  loading: false,
+                  value: undefined,
+                  error: err instanceof Error ? err : new Error(String(err)),
+                } satisfies DerivedValue<unknown>,
+              };
+            }
+          }),
+        ).then(async (resolved) => {
+          const envelopes: Record<string, DerivedValue<unknown>> = {};
+          for (const r of resolved) envelopes[r.key] = r.envelope;
+          const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
+          if (!currentRenderCtx()) runOnMountForRender({ input, state, derived, action });
+          const prevSub = setActiveSub(undefined);
+          try {
+            const { html, events } = await renderWithCtx({
+              render: () => fn({ state, derived, action, input }),
+              asyncChildren: true,
+              manifest: eventsOut !== undefined,
+            });
+            recordEventsManifest(events);
+            return stylePrefix + html;
+          } finally {
+            setActiveSub(prevSub);
+          }
+        });
+      }
     }
 
     type MountHandle = {
@@ -3715,7 +3987,9 @@ class IlhaBuilder<
 
       const stateSnapshot = snapshotRaw
         ? (Object.fromEntries(
-            Object.entries(snapshotRaw).filter(([k]) => k !== "_derived" && k !== "_skipOnMount"),
+            Object.entries(snapshotRaw).filter(
+              ([k]) => k !== "_derived" && k !== "_skipOnMount" && k !== "_streams",
+            ),
           ) as Record<string, unknown>)
         : undefined;
 
@@ -4338,6 +4612,45 @@ class IlhaBuilder<
       stopDerived = setupDerived();
       cleanups.push(stopDerived);
 
+      // Resume streams. On a hydrated mount the snapshot has already seeded
+      // each streamed key with the SSR value; the generator continues from
+      // live. A repeated equal first push is absorbed by signal equality.
+      for (const entry of streams) {
+        let streamAborted = false;
+        const streamController = new AbortController();
+        const runStream = async (): Promise<void> => {
+          try {
+            const gen = await entry.fn({ input, signal: streamController.signal });
+            while (!streamAborted && !streamController.signal.aborted) {
+              const { done, value } = await gen.next();
+              if (streamAborted || streamController.signal.aborted || done) break;
+              const prevSub = setActiveSub(undefined);
+              try {
+                const setter = (state as Record<string, ((v: unknown) => void) | undefined>)[
+                  entry.key
+                ];
+                setter?.(value);
+              } finally {
+                setActiveSub(prevSub);
+              }
+            }
+          } catch (err) {
+            if (
+              !streamAborted &&
+              !streamController.signal.aborted &&
+              (err as { name?: string })?.name !== "AbortError"
+            ) {
+              reportError(err, "stream");
+            }
+          }
+        };
+        void runStream();
+        cleanups.push(() => {
+          streamAborted = true;
+          streamController.abort();
+        });
+      }
+
       let initialized = false;
       // Track the rendered HTML from the initial sync render so the first
       // effect pass can detect whether state writes during onMount or
@@ -4667,6 +4980,32 @@ class IlhaBuilder<
 
     (island as unknown as Record<symbol, unknown>)[ISLAND_SLOT_TAG] = configuredSlotTag;
 
+    // Internal: re-render streamed proxy islands entirely on the server.
+    // Client snapshots are never accepted as authoritative state. Optional
+    // props come from the frame handler after running the page's `load`.
+    (island as unknown as Record<symbol, unknown>)[ISLAND_RENDER_STATE] = async (
+      props?: Record<string, unknown>,
+    ): Promise<string> => {
+      const manifest: Map<string, EventManifestEntry> = new Map();
+      const html = await renderToString(
+        (props ?? undefined) as Partial<TInput> | undefined,
+        false,
+        undefined,
+        manifest,
+        undefined,
+        true,
+      );
+      return manifestTemplatePrefix(manifest) + html;
+    };
+
+    // Internal: async SSR that records the event→action manifest for nested
+    // server islands (emitIslandSlot hoists it into the slot markup).
+    (island as unknown as Record<symbol, unknown>)[ISLAND_SSR_MANIFEST] = (
+      props?: Partial<TInput>,
+      eventsOut?: Map<string, EventManifestEntry>,
+    ): string | Promise<string> =>
+      renderToString(props, false, undefined, eventsOut, undefined, true);
+
     // Create a keyed invocation for stable slot identity across re-renders
     // (useful in reorderable lists). Returns a callable that, when given
     // optional props, produces an IslandCall that interpolateValue recognises.
@@ -4819,7 +5158,18 @@ class IlhaBuilder<
       const tag = assertValidSlotTagName(rawTag);
 
       const resolvedProps = props ?? {};
-      const inner = await renderToString(resolvedProps);
+      // Stream values recorded during the render pass — the snapshot must
+      // carry what SSR actually rendered, not the static init (undefined).
+      const streamValues: Record<string, unknown> = {};
+      const eventsManifest = new Map<string, string | { k: string; a: unknown[] }>();
+      const inner = await renderToString(
+        resolvedProps,
+        false,
+        streamValues,
+        eventsManifest,
+        undefined,
+        true,
+      );
       const encodedProps = escapeHtml(JSON.stringify(resolvedProps));
 
       let stateAttr = "";
@@ -4836,9 +5186,10 @@ class IlhaBuilder<
 
         if (doState) {
           for (const entry of states) {
-            snapshotData[entry.key] = (
-              plainState[entry.key as keyof typeof plainState] as () => unknown
-            )();
+            snapshotData[entry.key] =
+              entry.key in streamValues
+                ? streamValues[entry.key]
+                : (plainState[entry.key as keyof typeof plainState] as () => unknown)();
           }
         }
 
@@ -4887,6 +5238,12 @@ class IlhaBuilder<
 
         if (doSkipOnMount) snapshotData["_skipOnMount"] = true;
 
+        // Mark stream-fed keys so hydration consumers (mount diagnostics,
+        // proxy manifests) can tell live state from static state.
+        if (streams.length > 0) {
+          snapshotData["_streams"] = Object.fromEntries(streams.map((entry) => [entry.key, true]));
+        }
+
         if (__DEV__) {
           const lossy = findNonJsonSafeValue({ value: snapshotData, path: "snapshot" });
           if (lossy) {
@@ -4901,7 +5258,12 @@ class IlhaBuilder<
         stateAttr = ` ${STATE_ATTR}='${escapeHtml(JSON.stringify(snapshotData))}'`;
       }
 
-      return `<${tag} data-ilha="${escapeHtml(name)}" ${PROPS_ATTR}='${encodedProps}'${stateAttr}>${inner}</${tag}>`;
+      let actionsAttr = "";
+      if (eventsManifest.size > 0) {
+        actionsAttr = ` ${ACTIONS_ATTR}='${escapeHtml(JSON.stringify(Object.fromEntries(eventsManifest)))}'`;
+      }
+
+      return `<${tag} data-ilha="${escapeHtml(name)}" ${PROPS_ATTR}='${encodedProps}'${stateAttr}${actionsAttr}>${inner}</${tag}>`;
     };
 
     return island;
@@ -5006,6 +5368,7 @@ const EMPTY_CFG: BuilderConfig<
   schema: null,
   defaultInput: null,
   states: [],
+  streams: [],
   deriveds: [],
   actions: [],
   ons: [],
@@ -5073,8 +5436,13 @@ export function __ilhaJsxEvent({
 }): number | undefined {
   const ctx = currentRenderCtx();
   if (!ctx) return undefined;
+  // Forwarding closures get capture-invoked so `action.x(...)` calls inside
+  // them are recorded for the hydration manifest. Direct SSR action stubs are
+  // matched by identity in recordEventsManifest — never invoked.
+  const isActionStub = SSR_ACTION_STUB in (handler as object);
+  const capture = ctx.manifest && !isActionStub ? captureHandlerActions(handler) : undefined;
   const index = ctx.events.length;
-  ctx.events.push({ type, handler, modifier });
+  ctx.events.push({ type, handler, modifier, capture });
   return index;
 }
 
@@ -5089,6 +5457,28 @@ export function __ilhaJsxSlot({
   key: string | undefined;
 }): RawHtml {
   return ilhaRaw(emitIslandSlot({ island: island as AnyIsland, props, key }));
+}
+
+/**
+ * Morph an element's children toward `html`, patching in place: surviving
+ * elements keep their identity, listeners, and focus (see the morph engine).
+ * Falls back to an innerHTML write when the root tags don't match.
+ */
+export function morph(host: Element, html: string): void {
+  if (typeof document === "undefined") return;
+  const openTag = host.localName ?? "div";
+  const tpl = document.createElement("template");
+  tpl.innerHTML = `<${openTag}>${html}</${openTag}>`;
+  const next = tpl.content.firstElementChild;
+  if (!next || next.localName !== host.localName) {
+    host.innerHTML = html;
+    return;
+  }
+  try {
+    morphInner(host, next);
+  } catch {
+    host.innerHTML = html;
+  }
 }
 
 export const html = ilhaHtml;

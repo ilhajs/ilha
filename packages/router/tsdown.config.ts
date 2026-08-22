@@ -1,7 +1,15 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/ssr.ts", "src/vite.ts", "src/rspack.ts", "src/rolldown.ts"],
+  entry: [
+    "src/index.ts",
+    "src/vite.ts",
+    "src/rspack.ts",
+    "src/rolldown.ts",
+    "src/ssr.ts",
+    "src/server-island.ts",
+    "src/server-island-registry.ts",
+  ],
   platform: "neutral",
   dts: false,
   minify: false,

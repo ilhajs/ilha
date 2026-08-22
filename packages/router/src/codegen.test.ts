@@ -1528,3 +1528,91 @@ describe("codegen — server/client split", () => {
     expect(loaders).not.toContain("pages.client");
   });
 });
+
+// ─────────────────────────────────────────────
+// codegen — server pages (.server.tsx)
+// ─────────────────────────────────────────────
+
+describe("codegen — server pages", () => {
+  let pagesDir: string;
+  let outDir: string;
+  let root: string;
+
+  beforeEach(async () => {
+    root = await makeDir("root");
+    pagesDir = join(root, "src/pages");
+    outDir = join(root, "src/generated");
+    await mkdir(pagesDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await removeDir(root);
+  });
+
+  async function runCodegen() {
+    await generate(pagesDir, outDir);
+    return {
+      client: await readFile(resolveGeneratedPaths(outDir).clientFile, "utf8"),
+      server: await readFile(resolveGeneratedPaths(outDir).serverFile, "utf8"),
+    };
+  }
+
+  it("maps index.server.tsx → / and emits a proxy import in the client graph", async () => {
+    await writePage(
+      pagesDir,
+      "index.server.tsx",
+      `export default ilha.render(() => "<p>server</p>");`,
+    );
+    const { client, server } = await runCodegen();
+    expect(server).toContain(`route("/"`);
+    // Proxy virtual spec rides the base64url-encoded absolute path.
+    expect(client).toMatch(
+      /import \{ default as _page0 \} from "(\\0|\\u0000)ilha:server-island:[A-Za-z0-9_-]+";/,
+    );
+    expect(client).toContain(`route("/"`);
+    expect(client).not.toContain('?client");');
+  });
+
+  it("maps about.server.tsx → /about", async () => {
+    await writePage(pagesDir, "about.server.tsx", `export default ilha;`);
+    const { client } = await runCodegen();
+    expect(client).toContain(`route("/about"`);
+  });
+
+  it("allows clientLoad on server pages (runs over RPC at hydration)", async () => {
+    await writePage(
+      pagesDir,
+      "index.server.tsx",
+      `export const clientLoad = async () => ({});\nexport default ilha;`,
+    );
+    const { client } = await runCodegen();
+    expect(client).toContain(`route("/"`);
+  });
+
+  it("allows load on server pages", async () => {
+    await writePage(
+      pagesDir,
+      "index.server.tsx",
+      `export const load = async () => ({});\nexport default ilha;`,
+    );
+    const { client, server } = await runCodegen();
+    expect(client).toContain(`route("/"`);
+    expect(server).toContain(".route(");
+  });
+
+  it("loader.client under `load` wires .clientLoader, not .markLoader", async () => {
+    await writePage(
+      pagesDir,
+      "about.ts",
+      `export const load = loader.client(async () => ({}));\nexport default ilha;`,
+    );
+    const { client, server } = await runCodegen();
+    expect(client).toContain('.clientLoader("/about"');
+    expect(server).not.toContain('.markLoader("/about"');
+  });
+
+  it("rejects server pages without a default island export", async () => {
+    await writePage(pagesDir, "index.server.tsx", `export const helper = 1;`);
+    await expect(runCodegen()).rejects.toThrow(/no default island export/);
+  });
+});

@@ -9895,3 +9895,239 @@ describe("Astro renderer tagging", () => {
     expect((Island as unknown as Record<symbol, unknown>)[ASTRO_RENDERER_TAG]).toBeUndefined();
   });
 });
+
+// ---------------------------------------------
+// .stream() — generator-fed state
+// ---------------------------------------------
+
+describe(".stream()", () => {
+  it("SSR pulls the first value and renders it inline", async () => {
+    async function* ticks(): AsyncGenerator<number> {
+      yield 1;
+      yield 2;
+    }
+    const Island = ilha
+      .stream("count", () => ticks())
+      .render(({ state }) => html`<p>count=${state.count()}</p>`);
+
+    const out = await Island();
+    expect(out).toContain("count=1");
+  });
+
+  it("SSR snapshot carries the pulled stream value, not the init", async () => {
+    async function* ticks(): AsyncGenerator<string> {
+      yield "live";
+    }
+    const Island = ilha
+      .stream("label", () => ticks())
+      .render(({ state }) => html`<p>${state.label()}</p>`);
+
+    const out = await Island.hydratable({}, { name: "StreamSnap", snapshot: true });
+    expect(out).toContain("data-ilha-state=");
+    const attr = out.match(/data-ilha-state='([^']*)'/)![1]!;
+    const snap = JSON.parse(attr.replaceAll("&quot;", '"').replaceAll("&#39;", "'"));
+    expect(snap.label).toBe("live");
+    expect(snap._streams).toEqual({ label: true });
+  });
+
+  it("sync toString() renders without pulling (initial value)", () => {
+    let pulled = false;
+    async function* ticks(): AsyncGenerator<number> {
+      pulled = true;
+      yield 1;
+    }
+    const Island = ilha
+      .stream("count", () => ticks())
+      .render(({ state }) => html`<p>count=${state.count() ?? "none"}</p>`);
+
+    const out = Island.toString();
+    expect(pulled).toBe(false);
+    expect(out).toContain("count=none");
+  });
+
+  it("client mount resumes the stream and renders pushed values", async () => {
+    let push: ((v: number) => void) | undefined;
+    async function* ticks(): AsyncGenerator<number> {
+      yield 0;
+      for (;;) {
+        const value = await new Promise<number>((resolve) => (push = resolve));
+        yield value;
+      }
+    }
+    const Island = ilha
+      .stream("count", () => ticks())
+      .render(({ state }) => html`<p>count=${state.count()}</p>`);
+
+    const host = makeEl();
+    const unmount = Island.mount(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(host.textContent).toContain("count=0");
+
+    push!(7);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(host.textContent).toContain("count=7");
+    unmount();
+  });
+
+  it("hydrated mount seeds from the snapshot and continues with live values", async () => {
+    let push: ((v: number) => void) | undefined;
+    async function* ticks(): AsyncGenerator<number> {
+      // First value mirrors what SSR rendered; subsequent pushes are live.
+      yield 5;
+      for (;;) {
+        const value = await new Promise<number>((resolve) => (push = resolve));
+        yield value;
+      }
+    }
+    const Island = ilha
+      .stream("count", () => ticks())
+      .render(({ state }) => html`<p>count=${state.count()}</p>`);
+
+    const ssr = await Island.hydratable({}, { name: "StreamHyd", snapshot: true });
+    const holder = makeEl(ssr);
+    const host = holder.firstElementChild!;
+    const unmount = Island.mount(host);
+    expect(host.textContent).toContain("count=5");
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    push!(9);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(host.textContent).toContain("count=9");
+    unmount();
+  });
+
+  it("unmount aborts the stream signal", async () => {
+    const signals: AbortSignal[] = [];
+    async function* ticks({ signal }: { signal: AbortSignal }): AsyncGenerator<number> {
+      signals.push(signal);
+      yield 1;
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        if (signal.aborted) return;
+        yield 2;
+      }
+    }
+    const Island = ilha
+      .stream("count", (ctx) => ticks(ctx))
+      .render(({ state }) => html`<p>count=${state.count()}</p>`);
+
+    const host = makeEl();
+    const unmount = Island.mount(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(signals.length).toBe(1);
+    expect(signals[0]!.aborted).toBe(false);
+    unmount();
+    expect(signals[0]!.aborted).toBe(true);
+  });
+
+  it("stream errors surface through onError with the stream source", async () => {
+    const seen: Array<{ source: string; message: string }> = [];
+    async function* boom(): AsyncGenerator<number> {
+      yield 1;
+      throw new Error("stream exploded");
+    }
+    const Island = ilha
+      .stream("count", () => boom())
+      .onError(({ error, source }) => {
+        seen.push({ source, message: error.message });
+      })
+      .render(({ state }) => html`<p>count=${state.count()}</p>`);
+
+    const host = makeEl();
+    const unmount = Island.mount(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(seen).toEqual([{ source: "stream", message: "stream exploded" }]);
+    unmount();
+  });
+
+  it("composes with state and derived downstream of streamed keys", async () => {
+    async function* ticks(): AsyncGenerator<number[]> {
+      yield [1, 2];
+      yield [1, 2, 3];
+    }
+    const Island = ilha
+      .stream("items", () => ticks())
+      .derived("total", ({ state }) => (state.items() ?? []).length)
+      .render(({ derived }) => html`<p>total=${derived.total()}</p>`);
+
+    const out = await Island();
+    expect(out).toContain("total=2");
+  });
+});
+
+describe("streamed child inside a sync parent (hydratable)", () => {
+  it("awaits the child's first stream value instead of sync-inlining empty state", async () => {
+    async function* ticks(): AsyncGenerator<string> {
+      yield "from-server";
+    }
+    const Child = ilha
+      .stream("label", () => ticks())
+      .render(({ state }) => html`<p>child=${state.label()}</p>`);
+    const Parent = ilha.render(() => html`<section>${Child}</section>`);
+
+    const out = await Parent.hydratable({}, { name: "StreamParent" });
+    expect(out).toContain("child=from-server");
+  });
+});
+
+// ---------------------------------------------
+// capture-invoked forwarding closures
+// ---------------------------------------------
+
+describe("forwarding closure event handlers", () => {
+  it("records action calls from closures into the hydration manifest", async () => {
+    const Island = ilha
+      .input<{ ids: string[] }>()
+      .action("remove", (id: string) => id)
+      .render(
+        ({ input, action }) =>
+          html`${input.ids.map(
+            (id) => html`<button onclick=${() => action.remove(id)}>${id}</button>`,
+          )}`,
+      );
+
+    const out = await Island.hydratable({ ids: ["a", "b"] }, { name: "Closure" });
+    expect(out).toContain("data-ilha-actions");
+    expect(out).toContain("{&quot;k&quot;:&quot;remove&quot;,&quot;a&quot;:[&quot;a&quot;]}");
+    expect(out).toContain("{&quot;k&quot;:&quot;remove&quot;,&quot;a&quot;:[&quot;b&quot;]}");
+  });
+
+  it("records action callbacks passed to client-referenced child islands", async () => {
+    const Child = ilha
+      .input<{ onChange?: () => void }>()
+      .render(() => html`<button>child</button>`);
+    (Child as unknown as Record<symbol, unknown>)[Symbol.for("ilha.clientRef")] = "child-ref";
+    const Parent = ilha
+      .action("toggle", (id: string) => id)
+      .render(({ action }) => html`${Child({ onChange: () => action.toggle("task-1") })}`);
+
+    const out = await Parent.hydratable({}, { name: "Parent" });
+    expect(out).toContain('data-ilha-client-ref="child-ref"');
+    expect(out).toContain(
+      "{&quot;__ilha&quot;:&quot;action&quot;,&quot;k&quot;:&quot;toggle&quot;,&quot;a&quot;:[&quot;task-1&quot;]}",
+    );
+  });
+
+  it("does not execute closures during client renders (no manifest collection)", () => {
+    let executed = 0;
+    const Island = ilha
+      .action("ping", () => {})
+      .render(({ action }) => {
+        void action;
+        return html`<button
+          onclick=${() => {
+            executed++;
+          }}
+        >
+          go
+        </button>`;
+      });
+
+    const host = makeEl();
+    const unmount = Island.mount(host);
+    expect(executed).toBe(0);
+    host.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(executed).toBe(1);
+    unmount();
+  });
+});

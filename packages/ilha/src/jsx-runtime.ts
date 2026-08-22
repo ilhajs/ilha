@@ -193,6 +193,9 @@ function pushJsxAttr({
     if (typeof value !== "function" || !eventMatch) return;
     const eventName = eventMatch[1]!;
     const modifier = eventMatch[2] as NativeEventModifier | undefined;
+    // Forwarding closures (`onclick={() => action.remove(id)}`) are
+    // capture-invoked by the core runtime; direct action references are
+    // matched by identity. Either way the hydration manifest lands.
     const index = __ilhaJsxEvent({
       type: eventName,
       handler: value as NativeEventHandler,

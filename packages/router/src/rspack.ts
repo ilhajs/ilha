@@ -8,3 +8,5 @@ import { ilhaPages, type IlhaPagesOptions } from "./plugin";
 export function pages(options: IlhaPagesOptions = {}) {
   return ilhaPages.rspack(options);
 }
+
+export default pages;

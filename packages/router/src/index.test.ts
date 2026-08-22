@@ -1660,6 +1660,20 @@ describe("renderResponse()", () => {
     }
   });
 
+  it("does not expose state or derived snapshots by default", async () => {
+    const Secret = ilha
+      .state("token", "server-secret")
+      .derived("private", () => "derived-secret")
+      .render(() => "<p>safe</p>");
+    const res = await router().route("/", Secret).renderResponse("/", { Secret });
+    expect(res.kind).toBe("html");
+    if (res.kind === "html") {
+      expect(res.html).not.toContain("data-ilha-state");
+      expect(res.html).not.toContain("server-secret");
+      expect(res.html).not.toContain("derived-secret");
+    }
+  });
+
   it("returns { kind: 'redirect' } when loader calls redirect()", async () => {
     const load = loader(async () => {
       redirect("/signin", 307);

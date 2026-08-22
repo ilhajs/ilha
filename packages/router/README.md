@@ -157,7 +157,7 @@ Returns a `RouterBuilder`.
 
 #### `.route(pattern, island, loader?)`
 
-Registers a route. Patterns are matched in **declaration order** — first match wins. Uses [rou3](https://github.com/h3js/rou3) for matching.
+Registers a route. Patterns support `:param` segments and a trailing `/**:name` catch-all; static segments take priority over params, which take priority over the catch-all — regardless of registration order.
 
 The optional `loader` is a data-fetching function that runs before the page renders. Its return value is passed as input props to the island. The loader runs **wherever the router runs**: during SSR it executes on the server; when the route was registered in the browser (a plain SPA, hash mode, `file://`), client navigations execute it locally — no server or `/__ilha/loader` endpoint needed. Routes marked via `.markLoader()` (the SSR-split pages build) still fetch from the endpoint.
 

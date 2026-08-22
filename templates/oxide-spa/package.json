@@ -8,17 +8,17 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@ilha/router": "^0.8.13",
+    "@ilha/router": "workspace:*",
     "areia": "^0.2.4",
-    "ilha": "^0.10.3",
+    "ilha": "workspace:*",
     "quando": "^0.1.6",
     "sonner": "^2.0.8",
-    "tacho": "^0.4.2"
+    "tacho": "^0.4.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24",
-    "oxidejs": "^0.1.7",
+    "oxidejs": "^0.2.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"

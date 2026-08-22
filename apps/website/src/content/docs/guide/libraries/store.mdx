@@ -24,7 +24,7 @@ Island [`.state()`](/guide/island/state) is **local** to one component. Use `@il
 | `@ilha/store`         | `store`, store types, subscriptions, `select`, `bind`, `persist`, `dehydrate`/`hydrate`, `shallowEqual`, and `effectScope` |
 | `@ilha/store/persist` | `persist`, `persistQuery`, `querySpec`, `codec`, `readQuery`, and URL/localStorage persistence helpers                     |
 | `@ilha/store/query`   | `query`, `QueryCache`, and `defaultQueryCache` — data-fetching cache for async `.derived()`                                |
-| `@ilha/store/form`    | Form extraction, validation, issue-to-error mapping, `preventDefault` for `.on()` handlers                                 |
+| `@ilha/store/form`    | Form extraction, validation, issue-to-error mapping                                                                        |
 
 ## Quick start
 
@@ -509,7 +509,6 @@ import {
   validateWithSchema,
   validateWithSchemaAsync,
   issuesToErrors,
-  preventDefault,
 } from "@ilha/store/form";
 ```
 
@@ -538,22 +537,6 @@ issuesToErrors([
 // → { email: ["Required"], "user.email": ["Invalid"] }
 ```
 
-### `preventDefault(fn)`
-
-Wraps an ilha `.on()` handler so `event.preventDefault()` runs first, then your callback receives the same context (`event`, `state`, `target`, …).
-
-```ts
-ilha.on(
-  "form@submit",
-  preventDefault(({ event }) => {
-    const data = extractFormData(
-      event.target as HTMLFormElement,
-    );
-    // ...
-  }),
-);
-```
-
 ### Full example — contact form
 
 ```tsx
@@ -562,7 +545,6 @@ import {
   extractFormData,
   validateWithSchema,
   issuesToErrors,
-  preventDefault,
 } from "@ilha/store/form";
 import type { FormErrors } from "@ilha/store/form";
 import ilha from "ilha";
@@ -589,10 +571,7 @@ const formStore = store({ errors: {} as FormErrors })
 const errors = formStore.errors; // state accessor — reactive
 
 export default ilha
-  .on(
-    "form@submit",
-    preventDefault(({ event }) => formStore.submit(event)),
-  )
+  .action("submit", ({ event }) => formStore.submit(event))
   .render(() => (
     <form>
       <input name="name" />
