@@ -11,7 +11,7 @@
   "dependencies": {
     "@ilha/router": "^0.9.0",
     "@ilha/store": "^0.7.12",
-    "areia": "^0.2.4",
+    "areia": "^0.2.5",
     "ilha": "^0.11.0",
     "quando": "^0.1.6"
   },

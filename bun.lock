@@ -23,7 +23,7 @@
         "@fontsource-variable/geist-mono": "^5.3.0",
         "@iconify-json/ph": "^1.2.2",
         "@ilha/astro": "^0.1.8",
-        "areia": "^0.2.4",
+        "areia": "^0.2.5",
         "astro": "^7.2.1",
         "astro-icon": "^1.1.5",
         "astro-og-canvas": "^0.13.0",
@@ -106,7 +106,7 @@
       "name": "@ilha/template-oxide-spa",
       "dependencies": {
         "@ilha/router": "^0.9.0",
-        "areia": "^0.2.4",
+        "areia": "^0.2.5",
         "ilha": "^0.11.0",
         "quando": "^0.1.6",
         "sonner": "^2.0.8",
@@ -127,7 +127,7 @@
       "dependencies": {
         "@ilha/router": "^0.9.0",
         "@ilha/store": "^0.7.12",
-        "areia": "^0.2.4",
+        "areia": "^0.2.5",
         "ilha": "^0.11.0",
         "quando": "^0.1.6",
       },
@@ -732,7 +732,7 @@
 
     "anymatch": ["anymatch@3.1.3", "", { "dependencies": { "normalize-path": "^3.0.0", "picomatch": "^2.0.4" } }, "sha512-KMReFUr0B4t+D+OBkjR3KYqvocp2XaSzO55UcB6mgQMd3KbcE+mWTyvVV7D/zsdEbNnV6acZUutkiHQXvTr1Rw=="],
 
-    "areia": ["areia@0.2.4", "", { "dependencies": { "@areia/slots": "0.2.0", "alien-signals": "3.2.1", "clsx": "2.1.1", "date-fns": "4.4.0", "tailwind-merge": "3.6.0" }, "peerDependencies": { "ilha": "0.10.3", "sonner": "^2.0.7", "tailwindcss": ">=4.0.0" }, "optionalPeers": ["tailwindcss"] }, "sha512-v1tzeUm0b/lVj3r2gn185mS4luJz2IaTVMPT7OjCYf6NMqMVeCga9Ye6C1cQzVqugmrc7kok4KmquLdaD/9hmw=="],
+    "areia": ["areia@0.2.5", "", { "dependencies": { "@areia/slots": "0.2.0", "alien-signals": "3.2.1", "clsx": "2.1.1", "date-fns": "4.4.0", "tailwind-merge": "3.6.0" }, "peerDependencies": { "ilha": "0.11.0", "sonner": "^2.0.7", "tailwindcss": ">=4.0.0" }, "optionalPeers": ["tailwindcss"] }, "sha512-4mUmvOejL6OW3iF769CoMnLYYk9fXrGhSrK4ITCZHIKyHhh6+3bwYQ1SmClMMLOY5kKZVtwO0oPFDqY+jEIk7g=="],
 
     "arg": ["arg@5.0.2", "", {}, "sha512-PYjyFOLKQ9y57JvQ6QLo8dAgNqswh8M1RMJYdQduT6xbWSgK36P/Z/v+p888pM69jMMfS8Xd8F6I1kQ/I9HUGg=="],
 
