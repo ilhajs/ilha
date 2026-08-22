@@ -153,10 +153,9 @@ export function scanServerIslands(source: string): ServerModuleScan {
   // these bindings are importable, so splitServerImports may route them.
   for (const match of source.matchAll(/export\s*\{([^}]*)\}/g)) {
     for (const part of match[1]!.split(",")) {
-      const name = part
-        .trim()
-        .split(/\s+as\s+/)[0]
-        ?.trim();
+      // The public (importable) name sits after "as" when aliased.
+      const parts2 = part.trim().split(/\s+as\s+/);
+      const name = (parts2.length === 2 ? parts2[1] : parts2[0])?.trim();
       if (name && /^[A-Za-z_$][\w$]*$/.test(name) && !exports.includes(name)) exports.push(name);
     }
   }

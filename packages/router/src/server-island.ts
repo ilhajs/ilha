@@ -40,7 +40,7 @@ export interface ServerIslandWiring {
   frame?: () => unknown;
   /** RPC transport for the module's `loader.client` export — invoked once
    * when the view hydrates. Side-effect loader on server pages. */
-  clientLoad?: () => unknown;
+  clientLoader?: () => unknown;
   /** Client-capable islands nested in the server render, keyed by opaque ref. */
   children?: Record<string, unknown>;
 }
@@ -275,8 +275,8 @@ function hydrateServerIsland(
   // `loader.client` on server pages: execute once when the view hydrates.
   // Side-effect loader over RPC — head, analytics. Its return value cannot
   // flow back into server-rendered island markup (the render fn never ships).
-  if (wiring.clientLoad) {
-    void Promise.resolve(wiring.clientLoad()).catch((err) => {
+  if (wiring.clientLoader) {
+    void Promise.resolve(wiring.clientLoader()).catch((err) => {
       if (!controller.signal.aborted) {
         console.error(`[ilha-router] client loader failed for "${id}":`, err);
       }

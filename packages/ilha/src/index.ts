@@ -5184,6 +5184,12 @@ class IlhaBuilder<
         const snapshotData: Record<string, unknown> = {};
         const input = resolveInput(resolvedProps);
         const plainState = buildPlainState(input);
+        // Stream-fed keys override their plain accessors so deriveds compute
+        // from what SSR actually rendered, not the static init.
+        const stateForDerived: Record<string, unknown> = { ...plainState };
+        for (const [k, v] of Object.entries(streamValues)) {
+          stateForDerived[k] = () => v;
+        }
 
         if (doState) {
           for (const entry of states) {
@@ -5203,7 +5209,7 @@ class IlhaBuilder<
             let threw = false;
             try {
               resultPromise = entry.fn({
-                state: plainState as never,
+                state: stateForDerived as never,
                 input,
                 signal: new AbortController().signal,
               });
