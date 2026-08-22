@@ -1,6 +1,6 @@
 {
   "name": "@ilha/router",
-  "version": "0.8.13",
+  "version": "0.9.0",
   "description": "A tiny SPA router for Ilha",
   "keywords": [
     "frontend",
@@ -39,9 +39,17 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./server-island": {
+      "types": "./dist/server-island.d.ts",
+      "import": "./dist/server-island.js"
+    },
     "./ssr": {
       "types": "./dist/ssr.d.ts",
       "import": "./dist/ssr.js"
+    },
+    "./server-island-registry": {
+      "types": "./dist/server-island-registry.d.ts",
+      "import": "./dist/server-island-registry.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
@@ -65,14 +73,13 @@
     "test": "bun test"
   },
   "dependencies": {
-    "rou3": "0.9.1",
     "unplugin": "3.3.0"
   },
   "devDependencies": {
-    "ilha": "0.10.3",
-    "vite": "^8.2.0"
+    "ilha": "0.11.0",
+    "vite": "^8.2.2"
   },
   "peerDependencies": {
-    "ilha": ">=0.10.3"
+    "ilha": ">=0.11.0"
   }
 }

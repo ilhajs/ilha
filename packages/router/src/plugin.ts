@@ -1,11 +1,27 @@
-import { existsSync, readFileSync, watch } from "node:fs";
+import { existsSync, readFileSync, statSync, watch } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
 import { createUnplugin } from "unplugin";
 import type { UnpluginFactory } from "unplugin";
 
-import { generate, resolveGeneratedPaths } from "./codegen";
+import { fileToPattern, generate, resolveGeneratedPaths, SERVER_PAGE_RE } from "./codegen";
 import type { PagesMode } from "./codegen";
+import { runWithIslandRequest } from "./request-scope";
+import {
+  FrameError,
+  getFrameGuard,
+  renderServerIsland,
+  setFrameGuard,
+} from "./server-island-registry";
+import {
+  generateServerIslandModule,
+  loadServerModuleScan,
+  SERVER_ISLAND_PREFIX,
+  serverIslandPublicId,
+  serverIslandVirtualSpec,
+  splitServerImports,
+} from "./server-islands";
+import type { ServerModuleScan } from "./server-islands";
 
 export const VIRTUAL_PAGES_SERVER = "ilha:pages/server";
 export const VIRTUAL_PAGES_CLIENT = "ilha:pages/client";
@@ -22,8 +38,39 @@ export const RESOLVED_VIRTUAL_IDS = [
 /** Query suffix used on page/layout imports in the client file. */
 export const CLIENT_QUERY = "?client";
 
-/** Query suffix that re-exports a page/layout's `clientLoad` for the browser bundle. */
+/** Query suffix that re-exports a page/layout's `load` (loader.client) for the browser bundle. */
 export const CLIENT_LOADER_QUERY = "?client-loader";
+
+function decodeServerIslandId(id: string): string | null {
+  if (!id.startsWith(SERVER_ISLAND_PREFIX)) return null;
+  try {
+    return Buffer.from(id.slice(SERVER_ISLAND_PREFIX.length), "base64url").toString();
+  } catch {
+    return null;
+  }
+}
+
+const SERVER_FILE_RE = /\.server\.(ts|tsx|js|jsx)$/;
+/** Cheap prefilter — most modules never mention a server import. Extension
+ * optional: aliases like `$lib/tasks.server` resolve to `.server.tsx` later. */
+const SERVER_SPEC_HINT_RE = /["'][^"']*\.server(\.[cm]?[jt]sx?)?["']/;
+
+/** mtime-keyed scan cache so repeated transforms don't re-read/re-parse. */
+const scanCache = new Map<string, { mtimeMs: number; scan: ServerModuleScan }>();
+
+function scanFor(path: string): ServerModuleScan | null {
+  try {
+    const mtimeMs = statSync(path).mtimeMs;
+    const cached = scanCache.get(path);
+    if (cached && cached.mtimeMs === mtimeMs) return cached.scan;
+    const scan = loadServerModuleScan(path);
+    if (scan.islands.length === 0) return null;
+    scanCache.set(path, { mtimeMs, scan });
+    return scan;
+  } catch {
+    return null;
+  }
+}
 
 /** Read & parse a package.json, returning null on any error. */
 function readJson(path: string): Record<string, unknown> | null {
@@ -92,6 +139,14 @@ export interface IlhaPagesOptions {
    * Default: `true`.
    */
   interceptLinks?: boolean;
+  /**
+   * Guard consulted on every `/__ilha/frame` request before a render runs.
+   * Return a `Response` to reject; return nothing to allow. Island state is
+   * world-readable through frames unless gated — install a session check here
+   * when islands serve private data. Production equivalents register via
+   * `setFrameGuard()` from `@ilha/router/server-island-registry`.
+   */
+  frameGuard?: (request: Request) => Response | void | Promise<Response | void>;
   /**
    * Fail codegen on duplicate route patterns / registry name collisions
    * instead of warning. Recommended for CI/production builds. Default: `false`.
@@ -219,7 +274,8 @@ export function loadPagesModule(state: PagesPluginState, id: string) {
 
   if (id.endsWith(CLIENT_LOADER_QUERY)) {
     const bare = id.slice(0, -CLIENT_LOADER_QUERY.length);
-    return `export { clientLoad } from ${JSON.stringify(bare)};`;
+    // Client loaders are declared as `export const load = loader.client(…)`.
+    return `export { load } from ${JSON.stringify(bare)};`;
   }
 
   if (id.endsWith(CLIENT_QUERY)) {
@@ -279,6 +335,7 @@ export function setupRspackPagesWatcher(
 
 const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {}) => {
   const state = createPagesPluginState(options);
+  const serverIslands = new Map<string, { file: string; name: string }>();
 
   return {
     name: "ilha:pages",
@@ -294,10 +351,22 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
     },
 
     resolveId(id, importer) {
+      if (id.startsWith(SERVER_ISLAND_PREFIX)) return id;
       return resolvePagesId(state, id, importer);
     },
 
     load(id) {
+      const islandFile = decodeServerIslandId(id);
+      if (islandFile !== null) {
+        const scan = loadServerModuleScan(islandFile);
+        for (const island of scan.islands) {
+          serverIslands.set(serverIslandPublicId(islandFile, island.name), {
+            file: islandFile,
+            name: island.name,
+          });
+        }
+        return generateServerIslandModule(islandFile, scan);
+      }
       return loadPagesModule(state, id);
     },
 
@@ -331,12 +400,14 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
                 ...new Set([
                   ...(Array.isArray(existingNoExternal)
                     ? existingNoExternal
-                    : existingNoExternal != null
-                      ? [existingNoExternal]
-                      : []),
+                    : existingNoExternal == null
+                      ? []
+                      : [existingNoExternal]),
                   ...singletonPeers,
                 ]),
               ];
+        // Server pages self-register their `load` + pattern from their own
+        // module graph copy, so no extra build input is needed here.
         return {
           resolve: {
             dedupe: [...new Set([...(userConfig.resolve?.dedupe ?? []), ...singletonPeers])],
@@ -367,8 +438,216 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
         state.setPaths(config.root);
       },
 
+      async transform(code, id, opts) {
+        const file = id.replace(/\?.*$/, "");
+        const serverFile = SERVER_FILE_RE.test(file);
+        if ((opts as { ssr?: boolean } | undefined)?.ssr) {
+          if (!serverFile) return null;
+          // Earlier JSX transforms may already have erased `<Checkbox>` tags.
+          // Always scan the source file, not the transformed hook input.
+          const scan = scanFor(file);
+          const lines: string[] = [];
+          // Stamp client refs so hydration can find the client-side children.
+          for (const ref of scan?.clientRefs ?? []) {
+            lines.push(
+              `if (${ref.local}?.[Symbol.for("ilha.island")]) ${ref.local}[Symbol.for("ilha.clientRef")] = ${JSON.stringify(ref.id)};`,
+            );
+          }
+          // Self-register island renderers for the production frame endpoint
+          // (see `@ilha/router/frame`). The self-import is a live binding —
+          // bundlers dedupe it to the same module — so this also covers
+          // default-export islands. Skipped for client stubs (browser graph).
+          if (scan && scan.islands.length > 0 && !code.startsWith("// oxidejs:client-stub")) {
+            lines.unshift(`import * as __ilhaSelf from ${JSON.stringify(file)};`);
+            lines.unshift(
+              `import { registerServerIsland } from "@ilha/router/server-island-registry";`,
+            );
+            for (const island of scan.islands) {
+              const id2 = serverIslandPublicId(file, island.name);
+              // Server pages carry their `load` + route pattern so frame
+              // handlers can run the loader with matched params.
+              const isServerPage =
+                SERVER_PAGE_RE.test(file) &&
+                state.isUnderPagesDir(file) &&
+                scan.exports.includes("load")
+                  ? `, { load: __ilhaSelf.load, pattern: ${JSON.stringify(fileToPattern(state.pagesDir, file))} }`
+                  : "";
+              lines.push(
+                `registerServerIsland(${JSON.stringify(id2)}, () => __ilhaSelf[${JSON.stringify(island.name)}]?.[Symbol.for("ilha.renderState")]${isServerPage});`,
+              );
+            }
+          }
+          if (lines.length === 0) return null;
+          return `${code}\n${lines.join("\n")}`;
+        }
+        if (id.startsWith("\0") || id.includes("node_modules")) return null;
+        if (serverFile) return null;
+        if (!SERVER_SPEC_HINT_RE.test(code)) return null;
+
+        const SPEC_RE = /(?:^|\n)\s*import\s+(?:type\s+)?[^'"\n]+?\s*from\s*["']([^"']+)["']/g;
+        const specs = new Set<string>();
+        for (const match of code.matchAll(SPEC_RE)) specs.add(match[1]!);
+        if (specs.size === 0) return null;
+
+        const scanned = new Map<
+          string,
+          { file: string; islands: Set<string>; hasDefault: boolean }
+        >();
+        for (const spec of specs) {
+          let file: string | undefined;
+          try {
+            const resolved = await this.resolve?.(spec, id);
+            file = (resolved as { path?: string } | undefined)?.path ?? resolved?.id;
+          } catch {
+            file = undefined;
+          }
+          if (!file && spec.startsWith("/")) file = spec;
+          if (!file || !SERVER_FILE_RE.test(file.replace(/\?.*$/, ""))) continue;
+          const scan = scanFor(file);
+          if (!scan) continue;
+          scanned.set(spec, {
+            file,
+            islands: new Set(scan.islands.filter((i) => i.name !== "default").map((i) => i.name)),
+            hasDefault: scan.islands.some((i) => i.name === "default"),
+          });
+        }
+        if (scanned.size === 0) return null;
+
+        return splitServerImports(code, {
+          islandNamesFor: (spec) => {
+            const entry = scanned.get(spec);
+            return entry ? { islands: entry.islands, hasDefault: entry.hasDefault } : null;
+          },
+          virtualSpecFor: (spec) => serverIslandVirtualSpec(scanned.get(spec)!.file),
+        });
+      },
+
       configureServer(server) {
         server.watcher.add(state.pagesDir);
+        if (options.frameGuard) setFrameGuard(options.frameGuard);
+
+        // Server-island frame endpoint: re-renders a proxy island from a
+        // state snapshot. Reads through the module graph on every call, so
+        // edits to .server files apply without restart. Production serves
+        // the same contract in production via `@ilha/router/frame` middleware.
+        server.middlewares.use(async (req, res, next) => {
+          if ((req.url ?? "").split("?")[0] !== "/__ilha/frame") return next();
+          if (req.method !== "POST") {
+            res.statusCode = 405;
+            res.end();
+            return;
+          }
+          if (!(req.headers["content-type"] ?? "").startsWith("application/json")) {
+            res.statusCode = 415;
+            res.end();
+            return;
+          }
+          // Guard hook (see IlhaPagesOptions.frameGuard): island state is
+          // world-readable through frames unless gated.
+          try {
+            const guardHeaders = new Headers();
+            for (const name of ["cookie", "authorization", "x-forwarded-for"]) {
+              const v = req.headers[name];
+              if (typeof v === "string") guardHeaders.set(name, v);
+            }
+            const denied = await getFrameGuard()?.(
+              new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, {
+                method: req.method,
+                headers: guardHeaders,
+              }),
+            );
+            if (denied) {
+              res.statusCode = denied.status;
+              res.setHeader("cache-control", "no-store");
+              res.end();
+              return;
+            }
+          } catch {
+            res.statusCode = 403;
+            res.end();
+            return;
+          }
+          const origin = req.headers.origin;
+          const host = req.headers.host;
+          if (origin && origin !== `http://${host}` && origin !== `https://${host}`) {
+            res.statusCode = 403;
+            res.end();
+            return;
+          }
+          const chunks: Buffer[] = [];
+          let size = 0;
+          for await (const chunk of req) {
+            size += (chunk as Buffer).length;
+            if (size > 16 * 1024) {
+              res.statusCode = 413;
+              res.end();
+              return;
+            }
+            chunks.push(chunk as Buffer);
+          }
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+              id?: string;
+              path?: string;
+            };
+            const target = serverIslands.get(body.id ?? "");
+            if (!target) throw new Error("unknown island");
+            // Route context for server pages: render at the client's current
+            // path when provided (path-only, no foreign origin).
+            let framePath = "/__ilha/frame";
+            if (
+              typeof body.path === "string" &&
+              body.path.startsWith("/") &&
+              !body.path.includes("//") &&
+              body.path.length <= 2048
+            ) {
+              framePath = body.path;
+            }
+            // Server pages run `load` via pageRouter — make sure the generated
+            // server module (which registers the loader runner) is loaded.
+            await server.ssrLoadModule(VIRTUAL_PAGES_SERVER);
+            const mod = (await server.ssrLoadModule(target.file)) as Record<string, unknown>;
+            const island = mod[target.name] as
+              | Record<symbol, ((s?: Record<string, unknown>) => string) | undefined>
+              | undefined;
+            const render = island?.[Symbol.for("ilha.renderState")];
+            if (typeof render !== "function") throw new Error("unknown island");
+            // Synthesize a Request for the render scope: same URL as the
+            // page, forwarding identity headers (cookie, auth, UA).
+            const headers = new Headers();
+            for (const name of ["cookie", "authorization", "user-agent", "x-forwarded-for"]) {
+              const value = req.headers[name];
+              if (typeof value === "string") headers.set(name, value);
+            }
+            const requestOrigin = `http://${req.headers.host ?? "localhost"}`;
+            const request = new Request(new URL(framePath, requestOrigin), {
+              method: "POST",
+              headers,
+            });
+            const html = await renderServerIsland(body.id ?? "", request, (r, fn) =>
+              runWithIslandRequest(r, fn),
+            );
+            res.setHeader("cache-control", "no-store");
+            res.setHeader("content-type", "application/json;charset=utf-8");
+            res.end(JSON.stringify({ html: String(html) }));
+          } catch (err) {
+            if (err instanceof FrameError && err.redirect) {
+              res.statusCode = err.status;
+              res.setHeader("cache-control", "no-store");
+              res.setHeader("content-type", "application/json;charset=utf-8");
+              res.end(JSON.stringify({ redirect: err.redirect }));
+              return;
+            }
+            const status = err instanceof FrameError ? err.status : 400;
+            if (!(err instanceof FrameError) || err.status >= 500) {
+              console.error("[ilha-router] frame render failed:", err);
+            }
+            res.statusCode = status;
+            res.setHeader("cache-control", "no-store");
+            res.setHeader("content-type", "application/json;charset=utf-8");
+            res.end(JSON.stringify({ error: "frame failed" }));
+          }
+        });
 
         const structuralInvalidate = createStructuralInvalidate(state, async () => {
           for (const id of RESOLVED_VIRTUAL_IDS) {
@@ -384,6 +663,24 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
 
         server.watcher.on("change", async (file: string) => {
           if (state.shouldRegenOnChange(file)) await structuralInvalidate(file);
+          // Server-module edits change island wiring — drop the scan cache,
+          // invalidate every proxy virtual module, and reload.
+          if (!SERVER_FILE_RE.test(file.replace(/\?.*$/, ""))) return;
+          scanCache.delete(file);
+          const graph = server.moduleGraph as unknown as {
+            forEachModule?: (fn: (mod: { id: string }) => void) => void;
+          };
+          let touched = false;
+          graph.forEachModule?.((mod) => {
+            if (mod.id.startsWith(SERVER_ISLAND_PREFIX)) {
+              const m = server.moduleGraph.getModuleById(mod.id);
+              if (m) {
+                server.moduleGraph.invalidateModule(m);
+                touched = true;
+              }
+            }
+          });
+          if (touched) server.hot.send({ type: "full-reload" });
         });
       },
     },

@@ -157,10 +157,10 @@ describe("pages — ?client virtual module", () => {
     expect(escape).toBeUndefined();
   });
 
-  it("load(?client-loader) emits `export { clientLoad }` from the bare path", () => {
+  it("load(?client-loader) re-exports `load` from the bare path", () => {
     const p = plugin();
     const result = p.load("/proj/src/pages/index.ts?client-loader");
-    expect(result).toMatch(/export\s*\{\s*clientLoad\s*\}/);
+    expect(result).toMatch(/export\s*\{\s*load\s*\}/);
     expect(result).toContain(`"/proj/src/pages/index.ts"`);
     expect(result).not.toContain("default");
   });

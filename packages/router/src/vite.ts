@@ -10,3 +10,5 @@ import { ilhaPages, type IlhaPagesOptions } from "./plugin";
 export function pages(options: IlhaPagesOptions = {}): Plugin {
   return ilhaPages.vite(options) as Plugin;
 }
+
+export default pages;

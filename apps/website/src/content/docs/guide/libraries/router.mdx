@@ -15,12 +15,15 @@ Every route is an ilha island. The router matches URLs, runs loaders, and mounts
 
 ## Import paths
 
-| Import path             | Use it for                                                                        |
-| ----------------------- | --------------------------------------------------------------------------------- |
-| `@ilha/router`          | Runtime router, loaders, navigation helpers, route context, and built-in islands. |
-| `@ilha/router/vite`     | Vite file-system routing plugin.                                                  |
-| `@ilha/router/rspack`   | Rspack file-system routing plugin.                                                |
-| `@ilha/router/rolldown` | Rolldown file-system routing plugin.                                              |
+| Import path                           | Use it for                                                                           |
+| ------------------------------------- | ------------------------------------------------------------------------------------ |
+| `@ilha/router`                        | Runtime router, loaders, navigation helpers, route context, and built-in islands.    |
+| `@ilha/router/vite`                   | Vite file-system routing plugin.                                                     |
+| `@ilha/router/rspack`                 | Rspack file-system routing plugin.                                                   |
+| `@ilha/router/rolldown`               | Rolldown file-system routing plugin.                                                 |
+| `@ilha/router/server-island`          | Client proxy factory for server-defined islands (used by generated code).            |
+| `@ilha/router/ssr`                    | Production SSR endpoints middleware — `POST /__ilha/frame` and `GET /__ilha/loader`. |
+| `@ilha/router/server-island-registry` | `setFrameGuard()` — gate frame requests.                                             |
 
 ## Quick start
 
@@ -110,7 +113,7 @@ pageRouter.hydrate(registry);
 
 ### `.route(pattern, island, loader?)`
 
-Registers a route. Uses [rou3](https://github.com/h3js/rou3) for matching. First match wins.
+Registers a route. Patterns support `:param` segments and a trailing `/**:name` catch-all; static segments take priority over params, which take priority over the catch-all — regardless of registration order.
 
 | Pattern         | Matches             | `routeParams()`                   |
 | --------------- | ------------------- | --------------------------------- |
@@ -232,7 +235,7 @@ On the server, loaders run inside `.renderHydratable()`. You can also call **`.r
 
 A loader runs **wherever the router runs**. When the route was registered in the browser — a plain SPA via `.route(pattern, island, loader)`, hash mode, Electron, `file://` — client navigations execute the loader locally: no server or loader endpoint needed. Routes that only _mark_ a server loader (the SSR-split pages build) fetch from the `/__ilha/loader` endpoint instead. Locally-executed loaders receive a synthetic `Request` (no cookies or server context) — rely on `url`, `params`, and `signal`; `redirect()`s are checked against the same cross-origin policy as on the server.
 
-**`.clientLoader(pattern, loader)`** attaches a loader that runs in the browser on client navigations, instead of the endpoint fetch. The FS-routing codegen uses it for `clientLoad` exports; manual routers can call it directly. When a route has both, the client loader wins on client navigations and the server loader runs during SSR.
+**`.clientLoader(pattern, loader)`** attaches a loader that runs in the browser on client navigations, instead of the endpoint fetch. The FS-routing codegen uses it for `loader.client` exports; manual routers can call it directly. When both a server and a client loader exist, the client loader wins on client navigations and the server loader runs during SSR.
 
 With `router({ loaderTimeout })`, the loader is raced against its abort signal — even a loader that ignores `ctx.signal` is cut off when the timeout elapses (or the incoming request aborts) and surfaces as a `504` loader error. Pass `ctx.signal` to your fetches anyway so the underlying work is actually cancelled, not just abandoned.
 
@@ -428,7 +431,7 @@ Vite 8+ may use Rolldown under the hood; use `@ilha/router/vite` in `vite.config
 ```ts
 // vite.config.ts
 import { defineConfig } from "vite";
-import { pages } from "@ilha/router/vite";
+import pages from "@ilha/router/vite";
 
 export default defineConfig({
   plugins: [pages()],
@@ -440,7 +443,7 @@ export default defineConfig({
 ```ts
 // rspack.config.ts
 import { rspack } from "@rspack/core";
-import { pages } from "@ilha/router/rspack";
+import pages from "@ilha/router/rspack";
 
 export default {
   plugins: [
@@ -497,7 +500,7 @@ export default {
 
 ```ts
 // tsdown.config.ts
-import { pages } from "@ilha/router/rolldown";
+import pages from "@ilha/router/rolldown";
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
@@ -587,32 +590,45 @@ export default ilha<InferLoader<typeof load>>(({ input }) => (
 ));
 ```
 
-### Client loaders — `clientLoad`
+### Client loaders — `loader.client`
 
-Export a `clientLoad` function to run a loader **in the browser** on client navigations, instead of fetching from the loader endpoint. Use it for data that is fetchable from the client anyway (public APIs, your app's own REST endpoints) — it saves a server round-trip per navigation and works on static hosts with no loader endpoint at all.
+Export `load = loader.client(…)` to run a loader **in the browser** on client navigations, instead of fetching from the loader endpoint. Use it for data that is fetchable from the client anyway (public APIs, your app's own REST endpoints) — it saves a server round-trip per navigation and works on static hosts with no loader endpoint at all.
+
+Two spellings, same behavior:
 
 ```tsx
 // src/pages/dashboard.tsx
 import { loader, type InferLoader } from "@ilha/router";
 import ilha from "ilha";
 
-export const clientLoad = loader(async ({ signal }) => {
+// sugar — a client loader under the server export name:
+export const load = loader.client(async ({ signal }) => {
   const stats = await fetch("/api/stats", { signal }).then(
     (response): Promise<Stats> => response.json(),
   );
   return { stats };
 });
 
-export default ilha<InferLoader<typeof clientLoad>>(
-  ({ input }) => <Dashboard stats={input.stats} />,
-);
+export default ilha<InferLoader<typeof load>>(({ input }) => (
+  <Dashboard stats={input.stats} />
+));
 ```
 
-- `clientLoad` is **bundled into the client** — never put secrets, database clients, or server-only imports in it. Keep those in `load`, which stays server-only.
-- A page can export **both**: `load` runs during SSR (first paint), `clientLoad` runs on client navigations instead of the endpoint fetch. Make them return the same shape, then infer the page input from either loader.
-- Layout `clientLoad`s compose with the page's — the page wins on key collision, mirroring server loaders.
-- With SSR + hydration, a `clientLoad`-only page is server-rendered without its data; the router runs `clientLoad` right after hydration and re-renders the route with the loaded props.
-- `clientLoad` receives a synthetic `Request` — rely on `url`, `params`, and `signal`, not cookies or headers.
+#### The `input.load` envelope
+
+Client-loader results arrive in an envelope shaped like ilha's derived one:
+
+```ts
+input.load; // { loading: boolean, value: T | undefined, error: Error | undefined }
+```
+
+The result also keeps its legacy flat spread into `input`, so existing pages are unaffected. Server `load` data never carries an envelope — it always settles before render, so there is nothing to track.
+
+- Client loaders are **bundled into the client** — never put secrets, database clients, or server-only imports in them. Keep those in `load`, which stays server-only.
+- A page can export **both**: `load` runs during SSR (first paint), the client loader runs on client navigations instead of the endpoint fetch. Make them return the same shape, then infer the page input from either loader.
+- Layout client loaders compose with the page's — the page wins on key collision, mirroring server loaders.
+- With SSR + hydration, a client-loader-only page is server-rendered without its data; the router runs the loader right after hydration and re-renders the route with the loaded props.
+- The loader receives a synthetic `Request` — rely on `url`, `params`, and `signal`, not cookies or headers.
 
 ### Error boundaries
 
@@ -662,6 +678,7 @@ pages({
   outDir: ".ilha", // default
   mode: "spa", // "spa" | "static" (default: "spa")
   interceptLinks: true, // spa only — false = full page loads on <a> clicks
+  frameGuard, // optional (request) => Response | void — gates /__ilha/frame
 });
 ```
 
@@ -670,6 +687,119 @@ pages({
 - **`mode: "static"`** — registry only on the client; no bundled route graph — use `hydrateStatic`.
 
 For advanced use, import `ilhaPages` from any bundler entry and call `.vite()`, `.rspack()`, or `.rolldown()` on the shared factory.
+
+### Server islands — `.server.tsx`
+
+Define islands in `*.server.ts(x)` files. The render function never ships to the browser — the client hydrates a proxy that replays actions over RPC and re-renders through the server:
+
+```tsx
+// src/lib/tasks.server.tsx
+export const TaskList = ilha
+  .stream("items", ({ signal }) => getTasks({ signal }))
+  .action("remove", (id: string) => deleteTask(id))
+  .render(({ state, action }) => (
+    <ul>
+      {each(state.items() ?? []).as((task) => (
+        <li
+          key={task.id}
+          onclick={() => action.remove(task.id)}
+        >
+          {task.text}
+        </li>
+      ))}
+    </ul>
+  ));
+```
+
+Import `<TaskList />` in any page. The plugin scans the module, generates a client proxy, and keeps the render function server-side.
+
+The proxy stays current through **frames**: the client posts to `/__ilha/frame`, and the server re-renders the island from its own state and morphs the HTML into place. In dev the plugin serves the endpoint; in production, wire it into your server's fetch handler. With [oxidejs](https://npmjs.com/package/oxidejs):
+
+```ts
+// vite.config.ts — the middleware serves both SSR endpoints in production:
+// POST /__ilha/frame (server islands) and GET /__ilha/loader (client-
+// navigation data for regular pages). Its route-graph imports are implicit.
+oxide({ middleware: ["@ilha/router/ssr"] });
+```
+
+Render functions read the originating request through `useContext()`:
+
+```ts
+import { useContext } from "@ilha/router";
+
+// inside a .server.tsx render function
+const { request } = useContext();
+```
+
+:::note
+Frame requests are unauthenticated by default — anyone can re-render any server island by id. If an island's state holds private data, gate frames.
+:::
+
+Gate frames in dev through the plugin option, and in production through the shared guard slot:
+
+```ts
+// dev
+pages({
+  frameGuard: (request) => {
+    if (!isSignedIn(request))
+      return new Response("Unauthorized", { status: 401 });
+    // return nothing to allow the frame
+  },
+});
+```
+
+```ts
+// production — call once at server startup
+import { setFrameGuard } from "@ilha/router/server-island-registry";
+
+setFrameGuard((request) => {
+  if (!isSignedIn(request))
+    return new Response("Unauthorized", { status: 401 });
+});
+```
+
+:::note
+Forwarding closures (`onclick={() => action.remove(id)}`) are invoked once per render to capture the action call. Keep them pure: a closure that only calls one action. Side effects around the call run on the server during every frame.
+:::
+
+### Server pages — `foo.server.tsx`
+
+A `.server.tsx` file in the pages directory makes the whole route server-rendered. The page must export a default island. Use the server `load` for data fetching — it runs at frame time with matched route params, and its return value becomes the island's props:
+
+```tsx
+// src/pages/about.server.tsx
+import ilha from "ilha";
+
+export async function load({ params, request }: any) {
+  return { path: new URL(request.url).pathname, id: params.id };
+}
+
+export default ilha.render(({ input }: any) => {
+  return `<section><h1>About ${input.path}</h1></section>`;
+});
+```
+
+The client mounts a proxy island that immediately pulls its HTML from `/__ilha/frame` — with the current path attached, so `load` sees the same params and query on every frame. Loader `redirect()`s are honored: the client navigates to the target. No SSR host entry is needed; this works in a plain oxidejs SPA deployment. Layouts and `+error` boundaries still hydrate client-side around the server island.
+
+`loader.client` also works on server pages — it executes **over RPC when the view hydrates** (the code never ships to the browser). It is a side-effect loader there: set document state, fire analytics. Its return value cannot flow back into server-rendered island markup.
+
+During client navigation to a server page the view host starts empty until the first frame lands — pair it with a pending indicator (see [Transitions](#transitions)).
+
+### Transitions
+
+Three building blocks, from zero-config to custom:
+
+1. **View transitions** — `router({ viewTransitions: true })` wraps every client view swap in `document.startViewTransition()`. Animate with standard CSS `::view-transition-old/new` rules.
+2. **Pending attribute** — `<html data-router-pending>` while any navigation is in flight. Style skeletons against it without touching JS:
+
+   ```css
+   [data-router-pending] [data-router-view] {
+     opacity: 0.4;
+     pointer-events: none;
+   }
+   ```
+
+3. **`navigating()`** — reactive signal for JS-driven UI (progress bars, spinners); see [Navigation helpers](#navigating).
 
 ## Route sorting
 
@@ -709,11 +839,11 @@ import type {
 
 ## Related
 
-| Topic                      | Guide                                                            |
-| -------------------------- | ---------------------------------------------------------------- |
-| Core `ilha` API            | [ilha](/guide/libraries/ilha)                                    |
-| Shared state across routes | [Store](/guide/libraries/store)                                  |
-| Form submit handlers       | [Store — Forms](/guide/libraries/store#forms) (`preventDefault`) |
-| Route context signals      | [Signals](/guide/helpers/signals)                                |
-| Hydratable SSR             | [Hydratable](/guide/island/hydratable)                           |
-| Astro integration          | [Astro](/guide/libraries/astro)                                  |
+| Topic                      | Guide                                         |
+| -------------------------- | --------------------------------------------- |
+| Core `ilha` API            | [ilha](/guide/libraries/ilha)                 |
+| Shared state across routes | [Store](/guide/libraries/store)               |
+| Form submit handlers       | [Store — Forms](/guide/libraries/store#forms) |
+| Route context signals      | [Signals](/guide/helpers/signals)             |
+| Hydratable SSR             | [Hydratable](/guide/island/hydratable)        |
+| Astro integration          | [Astro](/guide/libraries/astro)               |

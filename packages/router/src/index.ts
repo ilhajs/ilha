@@ -1,7 +1,6 @@
 import { context, mount, ISLAND_MOUNT_INTERNAL, ISLAND_MOUNT_HANDLES } from "ilha";
 import type { Island, HydratableOptions } from "ilha";
 import ilha, { html } from "ilha";
-import { createRouter, addRoute, findRoute } from "rou3";
 
 import { getAdapter, getHistoryMode } from "./hash";
 
@@ -104,6 +103,16 @@ export type Loader<T> = (ctx: LoaderContext) => Promise<T> | T;
 export function loader<T>(fn: Loader<T>): Loader<T> {
   return fn;
 }
+
+/**
+ * Declare a loader that runs in the browser when the view hydrates or on
+ * client navigations:(() => head({ title: "About" }));
+ *
+ * Inside `.server.tsx` pages the function executes over RPC when the view
+ * hydrates (its code never ships); it is a side-effect loader there — the
+ * return value cannot flow back into server-rendered island markup.
+ */
+loader.client = <T>(fn: Loader<T>): Loader<T> => fn;
 
 /** Extract the return type of a loader. */
 export type InferLoader<L> = L extends Loader<infer T> ? Awaited<T> : never;
@@ -374,7 +383,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
     ((page as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] as
       | Island<any, any>
       | undefined) ?? page;
-  const childWrapped = leafPage !== page ? (page as Island<any, any>) : null;
+  const childWrapped = leafPage === page ? null : (page as Island<any, any>);
 
   // Key the page slot so its id (k:page) never collides with positional
   // child slots (p:0, p:1, …) inside the page render.
@@ -654,6 +663,7 @@ export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island
         hash: routeHash(),
       };
       const errorIsland = handler({ message: e.message, status: e.status, stack: e.stack }, route);
+      // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink
       host.innerHTML = errorIsland.toString();
       return errorIsland.mount(host, props);
     }
@@ -684,6 +694,7 @@ export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island
         hash: routeHash(),
       };
       const errorIsland = handler({ message: e.message, status: e.status, stack: e.stack }, route);
+      // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink
       host.innerHTML = errorIsland.toString();
       // Error islands don't participate in prop updates — the parent
       // would need to re-navigate to recover from an error state.
@@ -763,7 +774,7 @@ export interface RouterOptions {
 export interface HydratableRenderOptions extends Partial<Omit<HydratableOptions, "name">> {
   /**
    * Base `<head>` data merged before loader and render-time contributions, so
-   * route-level head overrides it. Used by host entries (e.g. `IlhaHandler`)
+   * route-level head overrides it. Used by host entries rendering routes server-side
    * to supply app-wide title/meta/scripts.
    */
   baseHead?: HeadInput;
@@ -818,7 +829,7 @@ export interface RouterBuilder {
   /**
    * Attach a loader that runs **in the browser** on client navigations,
    * instead of fetching from the loader endpoint. Used by the FS-routing
-   * codegen for `clientLoad` exports; also available for manual routers.
+   * codegen for `loader.client` exports; also available for manual routers.
    * When a route has both, the client loader wins on client navigations and
    * the server loader runs during SSR. No-op if the pattern was never
    * registered via `.route()`.
@@ -865,7 +876,7 @@ export interface RouterBuilder {
   ): Promise<RenderResponse>;
   /**
    * Run the loader chain for a given URL without rendering. Backs the
-   * `/__ilha/loader` endpoint that the host server handler (e.g. `IlhaHandler`)
+   * `/__ilha/loader` endpoint that the host server handler
    * serves as JSON for client-side navigation. Returns the raw loader result, a
    * redirect sentinel, or an error sentinel.
    */
@@ -969,7 +980,7 @@ async function withViewSwap<T>(mutate: () => T): Promise<T> {
 
 /**
  * Execute a loader registered in the browser (manual `.route(p, island, loader)`
- * or FS-routing `clientLoad`) and map its result to the loader endpoint's wire
+ * or FS-routing `loader.client`) and map its result to the loader endpoint's wire
  * shape, so all client mount paths handle both sources identically. Loader
  * `head` contributions are dropped, matching the endpoint fetch path.
  */
@@ -978,6 +989,7 @@ async function runLocalLoader(
   matchParams: Record<string, string> | undefined,
   pathWithSearch: string,
   signal?: AbortSignal,
+  isClientLoader = false,
 ): Promise<LoaderFetchResult> {
   const url = new URL(pathWithSearch, location.origin);
   const params = extractParams(matchParams);
@@ -1006,9 +1018,16 @@ async function runLocalLoader(
     return { kind: "redirect", to: safe.to, status: result.status };
   }
   if (result.kind === "data") {
-    return headEntries.length > 0
-      ? { kind: "data", data: result.data, headEntries }
-      : { kind: "data", data: result.data };
+    // Client-loader results carry a settled load envelope (`input.load`),
+    // mirroring ilha's derived envelope shape. Server-loader props keep the
+    // legacy flat spread — they always settle before render.
+    const data = isClientLoader
+      ? {
+          ...result.data,
+          load: { loading: false, value: result.data ?? {}, error: undefined },
+        }
+      : result.data;
+    return headEntries.length > 0 ? { kind: "data", data, headEntries } : { kind: "data", data };
   }
   return result;
 }
@@ -1042,7 +1061,7 @@ async function fetchLoaderData(
   // SSR-split builds strip `loader` from the client route graph (only
   // `hasLoader` survives), so they still fall through to the endpoint fetch.
   const pathOnly = pathWithSearch.split("?")[0] ?? "";
-  const localMatch = findRoute(_rou3, "GET", pathOnly);
+  const localMatch = matchRoute(_routes, pathOnly);
   const localLoader = localMatch?.data?.clientLoader ?? localMatch?.data?.loader;
   if (localLoader) {
     return runLocalLoader(
@@ -1050,6 +1069,7 @@ async function fetchLoaderData(
       localMatch?.params as Record<string, string> | undefined,
       pathWithSearch,
       signal,
+      !!localMatch?.data?.clientLoader,
     );
   }
 
@@ -1087,7 +1107,7 @@ export function prefetch(pathWithSearch: string): void {
   if (existing && Date.now() <= existing.expires) return;
   // Don't prefetch routes that have no loader — nothing to fetch.
   const pathOnly = pathWithSearch.split("?")[0] ?? "";
-  const match = findRoute(_rou3, "GET", pathOnly);
+  const match = matchRoute(_routes, pathOnly);
   if (!match?.data?.hasLoader) return;
   const promise = fetchLoaderData(pathWithSearch).catch((e) => {
     return {
@@ -1150,7 +1170,7 @@ async function updateRouteInPlace(
   signal: AbortSignal,
 ): Promise<"updated" | "remount"> {
   if (!handle.updateProps) return "remount";
-  const clientMatch = findRoute(_rou3, "GET", pathWithSearch.split("?")[0] ?? "");
+  const clientMatch = matchRoute(_routes, pathWithSearch.split("?")[0] ?? "");
   const hasLoader = !!clientMatch?.data?.hasLoader;
   const result: LoaderFetchResult = hasLoader
     ? await fetchLoaderData(pathWithSearch, signal)
@@ -1186,12 +1206,14 @@ async function mountRouteWithHydration(
     if (_notFound) {
       const nf = _notFound;
       return withViewSwap(() => {
+        // pi-lens-ignore: ast-grep:no-inner-html
         host.innerHTML = `<div data-router-view data-router-not-found>${nf.toString()}</div>`;
         const nfHost = host.firstElementChild;
         return { unmount: nfHost ? nf.mount(nfHost) : () => {}, updateProps: null };
       });
     }
     await withViewSwap(() => {
+      // pi-lens-ignore: ast-grep:no-inner-html
       host.innerHTML = `<div data-router-empty></div>`;
     });
     return noopRouteHandle();
@@ -1200,7 +1222,7 @@ async function mountRouteWithHydration(
   // Fetch loader data *only if* the matched route has a loader registered.
   // Routes registered client-side have `loader: undefined` when the Vite
   // plugin emits server-only loader imports behind `import.meta.env.SSR`.
-  const clientMatch = findRoute(_rou3, "GET", pathWithSearch.split("?")[0] ?? "");
+  const clientMatch = matchRoute(_routes, pathWithSearch.split("?")[0] ?? "");
   const hasLoader = !!clientMatch?.data?.hasLoader;
 
   let props: Record<string, unknown> = {};
@@ -1229,12 +1251,14 @@ async function mountRouteWithHydration(
     }
     const escaped = escapeHtml(loaderResult.message);
     await withViewSwap(() => {
+      // pi-lens-ignore: ast-grep:no-inner-html
       host.innerHTML = `<div data-router-view data-router-error="${loaderResult.status}">${escaped}</div>`;
     });
     return noopRouteHandle();
   }
   if (loaderResult.kind === "not-found") {
     await withViewSwap(() => {
+      // pi-lens-ignore: ast-grep:no-inner-html
       host.innerHTML = `<div data-router-empty></div>`;
     });
     return noopRouteHandle();
@@ -1254,6 +1278,7 @@ async function mountRouteWithHydration(
     const html = await withHeadStore(headStore, () => island.toString(props));
     await withViewSwap(() => {
       applyHeadEntriesToDocument(headStore.entries);
+      // pi-lens-ignore: ast-grep:no-inner-html
       host.innerHTML = `<div data-router-view>${html}</div>`;
     });
     return noopRouteHandle();
@@ -1268,6 +1293,7 @@ async function mountRouteWithHydration(
     const html = await withHeadStore(headStore, () => island.toString(props));
     await withViewSwap(() => {
       applyHeadEntriesToDocument(headStore.entries);
+      // pi-lens-ignore: ast-grep:no-inner-html
       host.innerHTML = `<div data-router-view>${html}</div>`;
     });
     return noopRouteHandle();
@@ -1279,6 +1305,7 @@ async function mountRouteWithHydration(
   );
   return withViewSwap(() => {
     applyHeadEntriesToDocument(headStore.entries);
+    // pi-lens-ignore: ast-grep:no-inner-html
     host.innerHTML = `<div data-router-view>${html}</div>`;
     // Mount the island for interactivity, keeping the updateProps handle so
     // later same-island navigations can update in place.
@@ -1304,6 +1331,7 @@ function mountLoaderErrorBoundary(
         hash: routeHash(),
       },
     );
+    // pi-lens-ignore: ast-grep:no-inner-html
     host.innerHTML = `<div data-router-view data-router-error="${status}">${errorIsland.toString()}</div>`;
     const ehHost = host.firstElementChild;
     return ehHost ? errorIsland.mount(ehHost) : () => {};
@@ -1311,6 +1339,7 @@ function mountLoaderErrorBoundary(
     // A throwing boundary must not take down navigation — fall back to the
     // minimal inline error.
     console.error("[ilha-router] error boundary threw while rendering a loader error:", e);
+    // pi-lens-ignore: ast-grep:no-inner-html
     host.innerHTML = `<div data-router-view data-router-error="${status}"></div>`;
     return () => {};
   }
@@ -1441,12 +1470,55 @@ export function invalidate(): Promise<void> {
 function beginNavigation(): () => void {
   if (!isBrowser) return () => {};
   _navigatingSig(_navigatingSig() + 1);
+  // Pending surface for skeletons/transitions: `<html data-router-pending>`
+  // while any navigation is in flight. Style targets:
+  // `[data-router-pending] [data-router-view] { … }`.
+  document.documentElement.setAttribute("data-router-pending", "");
   let done = false;
   return () => {
     if (done) return;
     done = true;
     _navigatingSig(Math.max(0, _navigatingSig() - 1));
+    if (_navigatingSig() === 0) document.documentElement.removeAttribute("data-router-pending");
   };
+}
+
+// ─────────────────────────────────────────────
+// Island request scope (server-owned island renders)
+// ─────────────────────────────────────────────
+
+/**
+ * Context seeded for server-owned island renders. Extensible: future entries
+ * (route params, app middleware values) land here without moving call sites.
+ */
+export interface IslandContext {
+  /**
+   * The `Request` seeding this render, when one exists — page SSR passes the
+   * incoming request; frame renders pass a synthesized POST with forwarded
+   * identity headers (`cookie`, `authorization`, …). Absent in unscoped
+   * renders (plain `toString()` in tests).
+   */
+  request?: Request;
+}
+
+// Shared storage handle — constructed by the node-only request-scope module;
+// this entry only READS it so no `node:async_hooks` import reaches the
+// browser bundle.
+const REQUEST_ALS_KEY = Symbol.for("ilha.requestAls");
+
+/**
+ * The context seeding the current server-island render. Always returns an
+ * object — check `.request` rather than the context itself. Never throws, so
+ * render functions stay safe under plain `toString()` calls and in tests.
+ *
+ * Only meaningful inside `.server.tsx` render functions (page SSR or frame
+ * rendering); client code never has a reason to call it.
+ */
+export function useContext(): IslandContext {
+  const als = (
+    globalThis as unknown as Record<symbol, { getStore?: () => Request | undefined } | undefined>
+  )[REQUEST_ALS_KEY];
+  return { request: als?.getStore?.() };
 }
 
 export function useRoute() {
@@ -1486,22 +1558,118 @@ interface RouteData {
   /** The pattern this route was registered under — exact `isActive()` checks compare against it. */
   pattern: string;
   loader?: Loader<any>;
-  /** Loader that runs in the browser on client navigations (manual SPA builder or FS `clientLoad`). */
+  /** Loader that runs in the browser on client navigations (manual SPA builder or FS `loader.client`). */
   clientLoader?: Loader<any>;
   /** Nearest `+error` boundary — renders loader errors instead of the bare inline error div. */
   errorHandler?: ErrorHandler;
   hasLoader?: boolean;
 }
 
-// Module-level pointers to the most recently constructed router's registry —
-// they back the browser-side module helpers (prefetch/isActive/RouterView and
-// location syncing). Server render methods close over their own instance
-// registry instead; see router().
-let _rou3 = createRouter<RouteData>();
+let _routes = createRouteRegistry();
 
 // ─────────────────────────────────────────────
 // Shared match → params extraction
 // ─────────────────────────────────────────────
+
+/**
+ * Minimal route matcher — replaces rou3. Grammar: static segments, `:param`,
+ * and a trailing `/**` / `/**:name` catch-all (matches zero or more segments).
+ * Priority is registration-order independent: segment kinds compare
+ * left-to-right with static (2) > param (1) > catch-all (0); an exact prefix
+ * (e.g. `/`) outranks a catch-all. Params stay raw — `extractParams` decodes.
+ */
+interface RouteEntry {
+  pattern: string;
+  /** Segment kinds, high to low priority: 2 = static, 1 = param, 0 = catch-all. */
+  kinds: number[];
+  segments: string[];
+  data: RouteData;
+}
+
+type RouteRegistry = RouteEntry[];
+
+function createRouteRegistry(): RouteRegistry {
+  return [];
+}
+
+function parsePattern(pattern: string): { segments: string[]; kinds: number[] } {
+  const segments = pattern.split("/").filter(Boolean);
+  const kinds = segments.map((segment) =>
+    segment.startsWith("*") ? 0 : segment.startsWith(":") ? 1 : 2,
+  );
+  return { segments, kinds };
+}
+
+function addRouteEntry(registry: RouteRegistry, pattern: string, data: RouteData): void {
+  const { segments, kinds } = parsePattern(pattern);
+  // Insert sorted so matching is a simple first-hit walk. Compare kinds
+  // element-wise (higher wins); an entry whose kinds end first — an exact
+  // prefix — outranks longer patterns; ties break on insertion order.
+  let index = 0;
+  while (index < registry.length) {
+    const other = registry[index]!.kinds;
+    let cmp = 0;
+    for (let i = 0; i < Math.min(kinds.length, other.length); i++) {
+      if (kinds[i] !== other[i]) {
+        cmp = kinds[i]! - other[i]!;
+        break;
+      }
+    }
+    if (cmp === 0) cmp = other.length - kinds.length;
+    if (cmp > 0) break;
+    index++;
+  }
+  registry.splice(index, 0, { pattern, segments, kinds, data });
+}
+
+function matchRoute(
+  registry: RouteRegistry,
+  pathname: string,
+): { data: RouteData; params: Record<string, string> } | undefined {
+  const pathSegments = pathname.split("/").filter(Boolean);
+  for (const entry of registry) {
+    const params: Record<string, string> = {};
+    let matched = true;
+    let cursor = 0;
+    for (let i = 0; i < entry.segments.length; i++) {
+      const segment = entry.segments[i]!;
+      const isLast = i === entry.segments.length - 1;
+      if (segment.startsWith("**") && isLast) {
+        // Trailing catch-all consumes the rest — including nothing. Named
+        // (`/**:slug`) captures the raw remainder; `extractParams` decodes it.
+        const name = segment.slice(2).replace(/^:/, "");
+        if (name) params[name] = pathSegments.slice(cursor).join("/");
+        cursor = pathSegments.length;
+        break;
+      }
+      if (segment.startsWith("*")) {
+        // Bare mid-pattern `*` matches exactly one segment — never a catch-all.
+        if (pathSegments[cursor] === undefined) {
+          matched = false;
+          break;
+        }
+        cursor++;
+        continue;
+      }
+      if (segment.startsWith(":")) {
+        const value = pathSegments[cursor];
+        if (value === undefined) {
+          matched = false;
+          break;
+        }
+        params[segment.slice(1)] = value;
+        cursor++;
+      } else if (pathSegments[cursor] === segment) {
+        cursor++;
+      } else {
+        matched = false;
+        break;
+      }
+    }
+    if (matched && cursor === pathSegments.length) return { data: entry.data, params };
+  }
+  return undefined;
+}
 
 function extractParams(matchParams: Record<string, string> | undefined): Record<string, string> {
   const params: Record<string, string> = {};
@@ -1517,10 +1685,10 @@ function extractParams(matchParams: Record<string, string> | undefined): Record<
 // Sync signals from an explicit URL (SSR path)
 // ─────────────────────────────────────────────
 
-function syncRouteFromURL(url: string | URL, rou3: typeof _rou3 = _rou3): void {
+function syncRouteFromURL(url: string | URL, routes: RouteRegistry = _routes): void {
   const parsed = typeof url === "string" ? new URL(url, "http://localhost") : url;
 
-  const match = findRoute(rou3, "GET", parsed.pathname);
+  const match = matchRoute(routes, parsed.pathname);
 
   routePath(parsed.pathname);
   routeParams(extractParams(match?.params as Record<string, string> | undefined));
@@ -1532,7 +1700,7 @@ function syncRouteFromURL(url: string | URL, rou3: typeof _rou3 = _rou3): void {
 /** Client-only fast path — reads directly from the history adapter (location in history mode, hash content in hash mode). */
 function syncRouteFromLocation(): void {
   const loc = getAdapter().readLocation();
-  const match = findRoute(_rou3, "GET", loc.pathname);
+  const match = matchRoute(_routes, loc.pathname);
 
   routePath(loc.pathname);
   routeParams(extractParams(match?.params as Record<string, string> | undefined));
@@ -1693,8 +1861,8 @@ export function navigate(to: string, opts: NavigateOptions = {}): void {
     // Same-island navigations (?page=, filter writes) are a param change, not
     // a page change — keep the scroll position. An explicit hash target still
     // scrolls, and island-changed navigations keep the scroll-to-top behavior.
-    const fromMatch = findRoute(_rou3, "GET", cur.pathname);
-    const destMatch = findRoute(_rou3, "GET", dest.pathname);
+    const fromMatch = matchRoute(_routes, cur.pathname);
+    const destMatch = matchRoute(_routes, dest.pathname);
     const sameIsland =
       fromMatch?.data?.island != null && destMatch?.data?.island === fromMatch.data.island;
     if (!sameIsland || (dest.hash && dest.hash !== "#")) scrollAfterNavigate(dest.hash);
@@ -1884,7 +2052,7 @@ export function isActive(pattern: string, options: IsActiveOptions = {}): boolea
     const base = pattern.endsWith("/") ? pattern.slice(0, -1) : pattern;
     return path === base || path === base + "/" || path.startsWith(base + "/");
   }
-  const match = findRoute(_rou3, "GET", routePath());
+  const match = matchRoute(_routes, routePath());
   if (!match) return false;
   // Compare against the matched route's own pattern — an island registered
   // under several patterns would otherwise only ever report its first one.
@@ -2317,13 +2485,13 @@ export function router(options: RouterOptions = {}): RouterBuilder {
   // (navigate/prefetch/isActive/RouterView) — last constructed router wins
   // there, matching the one-router-per-document reality.
   const records: RouteRecord[] = [];
-  const rou3 = createRouter<RouteData>();
+  const routes = createRouteRegistry();
   const patternToData = new Map<string, RouteData>();
   // Instance-local 404 island — server render paths must not read the
   // module-level `_notFound`, which a later router() call would overwrite.
   const notFound = options.notFound ?? null;
 
-  _rou3 = rou3;
+  _routes = routes;
   _notFound = notFound;
   _allowExternalRedirects = allowExternalRedirects;
   _viewTransitions = options.viewTransitions === true;
@@ -2336,7 +2504,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
       const hasLoader = !!loader;
       const data: RouteData = { island, pattern, loader, hasLoader };
       records.push({ pattern, island, loader, hasLoader });
-      addRoute(rou3, "GET", pattern, data);
+      addRouteEntry(routes, pattern, data);
       patternToData.set(pattern, data);
       return builder;
     },
@@ -2580,6 +2748,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
                 // Contain navigation failures — an unhandled rejection here
                 // would leave a blank view with no diagnostics.
                 console.error("[ilha-router] navigation failed:", e);
+                // pi-lens-ignore: ast-grep:no-inner-html
                 viewHost.innerHTML = `<div data-router-view data-router-error="500"></div>`;
                 return;
               } finally {
@@ -2602,7 +2771,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           if (!island) return;
           const loc = getAdapter().readLocation();
           const pathWithSearch = loc.pathname + loc.search;
-          const clientMatch = findRoute(_rou3, "GET", loc.pathname);
+          const clientMatch = matchRoute(_routes, loc.pathname);
           // A client-side loader can't run during SSR, so its data is missing
           // from the server HTML — replace the SSR DOM with a full client
           // render for the initial route.
@@ -2759,7 +2928,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         // Fetch loader data only if the matched route has a loader registered.
         const adapter = getAdapter();
         const loc = adapter.readLocation();
-        const clientMatch = findRoute(_rou3, "GET", loc.pathname);
+        const clientMatch = matchRoute(_routes, loc.pathname);
         const hasLoader = !!clientMatch?.data?.hasLoader;
         const result: LoaderFetchResult = hasLoader
           ? await fetchLoaderData(loc.pathname + loc.search, signal)
@@ -2785,6 +2954,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           }
           const escaped = escapeHtml(result.message);
           await withViewSwap(() => {
+            // pi-lens-ignore: ast-grep:no-inner-html
             viewHost.innerHTML = `<div data-router-error="${result.status}">${escaped}</div>`;
           });
           return;
@@ -2810,6 +2980,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         const html = await withHeadStore(headStore, () => island.toString(props));
         mountedHandle = await withViewSwap(() => {
           applyHeadEntriesToDocument(headStore.entries);
+          // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink
           viewHost.innerHTML = html;
           return mountIslandWithHandle(island, viewHost, props);
         });
@@ -2890,7 +3061,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
     // ── Server-side — plain SSR ───────────────────────────────────────────────
     render(url: string | URL): string {
       const doRender = () => {
-        syncRouteFromURL(url, rou3);
+        syncRouteFromURL(url, routes);
         return RouterView.toString();
       };
       // Request-scoped route context when ALS is available (sync API — we
@@ -2940,7 +3111,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
     async runLoader(url: string | URL, request?: Request) {
       const parsed = parsedURL(url);
 
-      const match = findRoute(rou3, "GET", parsed.pathname);
+      const match = matchRoute(routes, parsed.pathname);
       if (!match?.data?.island) return { kind: "not-found" as const };
 
       if (!match.data.loader) {
@@ -3021,9 +3192,9 @@ export function router(options: RouterOptions = {}): RouterBuilder {
   ): Promise<RenderResponse> {
     const { baseHead, ...renderOptions } = options;
     const parsed = parsedURL(url);
-    syncRouteFromURL(parsed, rou3);
+    syncRouteFromURL(parsed, routes);
 
-    const match = findRoute(rou3, "GET", parsed.pathname);
+    const match = matchRoute(routes, parsed.pathname);
     const island = match?.data?.island ?? null;
     if (!island) {
       const headStore: HeadStore = { entries: baseHead ? [baseHead] : [] };
@@ -3070,7 +3241,9 @@ export function router(options: RouterOptions = {}): RouterBuilder {
       }
       if (result.kind === "redirect") {
         const safe = resolveRedirectTarget(result.to, parsed, allowExternalRedirects);
-        if (!safe.ok) {
+        if (safe.ok) {
+          return { kind: "redirect", to: safe.to, status: result.status };
+        } else {
           console.warn(
             `[ilha-router] Blocked unsafe redirect target "${result.to}". ` +
               `Set allowExternalRedirects: true to allow cross-origin redirects.`,
@@ -3080,8 +3253,6 @@ export function router(options: RouterOptions = {}): RouterBuilder {
             status: 500,
             message: "Unsafe redirect target",
           };
-        } else {
-          return { kind: "redirect", to: safe.to, status: result.status };
         }
       }
       if (result.kind === "error") {
@@ -3143,14 +3314,33 @@ export function router(options: RouterOptions = {}): RouterBuilder {
 
     // `withHeadStore` stays active until `hydratable()` settles so layout/page
     // `head()` calls inside async SSR (e.g. wrapLayout) still collect.
-    const rendered = await withHeadStore(headStore, () =>
-      island.hydratable(props, {
-        name,
-        as: "div",
-        snapshot: true,
-        ...renderOptions,
-      }),
-    );
+    // The originating Request seeds the island-request scope so `.server.tsx`
+    // render functions can read URL/headers via `useContext()`.
+    const islandAls = (
+      globalThis as unknown as Record<
+        symbol,
+        { run?: <T>(store: Request, fn: () => T) => T } | undefined
+      >
+    )[REQUEST_ALS_KEY];
+    const rendered = await (islandAls?.run && request
+      ? islandAls.run(request, () =>
+          withHeadStore(headStore, () =>
+            island.hydratable(props, {
+              name,
+              as: "div",
+              snapshot: false,
+              ...renderOptions,
+            }),
+          ),
+        )
+      : withHeadStore(headStore, () =>
+          island.hydratable(props, {
+            name,
+            as: "div",
+            snapshot: false,
+            ...renderOptions,
+          }),
+        ));
 
     return {
       kind: "html",

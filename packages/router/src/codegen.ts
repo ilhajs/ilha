@@ -1,6 +1,8 @@
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, relative, dirname, basename, extname } from "node:path";
 
+import { loadServerModuleScan, serverIslandVirtualSpec } from "./server-islands";
+
 function toPosix(p: string): string {
   return p.replace(/\\/g, "/");
 }
@@ -19,10 +21,12 @@ interface PageEntry {
   hasLoader: boolean;
   /** Subset of `layouts` whose modules declare a `load` export. */
   loaderLayouts: string[];
-  /** True if the page module declares a `clientLoad` export (browser-executed loader). */
+  /** True if the page declares a client loader (`export const load = loader.client(…)`). */
   hasClientLoader: boolean;
-  /** Subset of `layouts` whose modules declare a `clientLoad` export. */
+  /** Subset of `layouts` whose modules declare a client loader. */
   clientLoaderLayouts: string[];
+  /** True for `foo.server.tsx` pages — rendered server-side via the frame protocol. */
+  server: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -31,6 +35,9 @@ interface PageEntry {
 
 /** Files that should never be treated as pages even if they match the ts/tsx extension. */
 const EXCLUDED_RE = /\.(test|spec|d)\.(ts|tsx)$/;
+
+/** Server pages: `foo.server.tsx` routes `/foo`, rendered through the frame protocol. */
+export const SERVER_PAGE_RE = /\.server\.(ts|tsx)$/;
 
 // ─────────────────────────────────────────────
 // Codegen — loader export detection
@@ -44,13 +51,15 @@ const EXCLUDED_RE = /\.(test|spec|d)\.(ts|tsx)$/;
  */
 const LOADER_EXPORT_RE = /^\s*export\s+(?:const|let|var|async\s+function|function)\s+load\b/m;
 
-/** Same shape for `clientLoad` — a loader executed in the browser on client navigations. */
-const CLIENT_LOADER_EXPORT_RE =
-  /^\s*export\s+(?:const|let|var|async\s+function|function)\s+clientLoad\b/m;
+/** `export const load = loader.client(…)` — the only client-loader form. */
+
+/** `export const load = loader.client(…)` — client loader under the server name. */
+const LOAD_CLIENT_EXPORT_RE =
+  /(^|\n)\s*export\s+(?:const|let|var)\s+load\b\s*=\s*loader\.client\b/m;
 
 interface LoaderExports {
   load: boolean;
-  clientLoad: boolean;
+  isClientLoader: boolean;
 }
 
 async function detectLoaderExports(file: string): Promise<LoaderExports> {
@@ -59,9 +68,12 @@ async function detectLoaderExports(file: string): Promise<LoaderExports> {
     // Strip single-line comments at the start of lines to avoid matching
     // commented-out loaders. Block comments are rare enough to skip.
     const stripped = src.replace(/^\s*\/\/.*$/gm, "");
+    // `export const load = loader.client(…)` declares a CLIENT loader under
+    // the server export name.
+    const isClientLoader = LOAD_CLIENT_EXPORT_RE.test(stripped);
     return {
-      load: LOADER_EXPORT_RE.test(stripped),
-      clientLoad: CLIENT_LOADER_EXPORT_RE.test(stripped),
+      load: LOADER_EXPORT_RE.test(stripped) && !isClientLoader,
+      isClientLoader,
     };
   } catch (err) {
     // A missing file simply has no loaders; anything else (permissions,
@@ -70,7 +82,7 @@ async function detectLoaderExports(file: string): Promise<LoaderExports> {
     if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
       console.warn(`[ilha-router] failed to read ${file} while detecting loader exports:`, err);
     }
-    return { load: false, clientLoad: false };
+    return { load: false, isClientLoader: false };
   }
 }
 
@@ -90,9 +102,11 @@ function dirToSegment(name: string): string {
   return fileToSegment(name);
 }
 
-function fileToPattern(pagesDir: string, file: string): string {
+export function fileToPattern(pagesDir: string, file: string): string {
   const rel = toPosix(relative(pagesDir, file));
-  const noExt = rel.slice(0, -extname(rel).length);
+  let noExt = rel.slice(0, -extname(rel).length);
+  // `foo.server.tsx` routes the same pattern as a plain page module.
+  if (SERVER_PAGE_RE.test(rel)) noExt = noExt.replace(/\.server$/, "");
   const parts = noExt.split("/");
 
   const segments = [...parts.slice(0, -1).map(dirToSegment), fileToSegment(parts.at(-1)!)];
@@ -213,6 +227,7 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
 
   return Promise.all(
     pages.map(async (file) => {
+      const server = SERVER_PAGE_RE.test(basename(file));
       const pattern = fileToPattern(pagesDir, file);
       const layouts = chainForFile(pagesDir, file, allSet, "+layout");
       const errors = chainForFile(pagesDir, file, allSet, "+error");
@@ -221,7 +236,7 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
         ...layouts.map(getLayoutExports),
       ]);
       const loaderLayouts = layouts.filter((_, i) => layoutExports[i]!.load);
-      const clientLoaderLayouts = layouts.filter((_, i) => layoutExports[i]!.clientLoad);
+      const clientLoaderLayouts = layouts.filter((_, i) => layoutExports[i]!.isClientLoader);
       return {
         file,
         pattern,
@@ -230,8 +245,9 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
         errors,
         hasLoader: pageExports.load,
         loaderLayouts,
-        hasClientLoader: pageExports.clientLoad,
+        hasClientLoader: pageExports.isClientLoader,
         clientLoaderLayouts,
+        server,
       };
     }),
   );
@@ -252,6 +268,25 @@ function validateEntries(entries: PageEntry[], pagesDir: string, strict: boolean
   const problems: string[] = [];
 
   for (const entry of entries) {
+    if (entry.server) {
+      // Structural errors — always fatal, they silently break the route.
+      // `loader.client` IS allowed on server pages: it executes over RPC when
+      // the view hydrates (side-effect loader — head, analytics).
+      try {
+        const scan = loadServerModuleScan(entry.file);
+        if (!scan.islands.some((island) => island.name === "default")) {
+          throw new Error(
+            `[ilha:pages] Server page ${entry.file} has no default island export.\n` +
+              `  A .server page must "export default ilha…" so it can be rendered server-side.`,
+          );
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.includes("[ilha:pages]")) throw err;
+        throw new Error(
+          `[ilha:pages] Server page ${entry.file} could not be scanned for island exports.`,
+        );
+      }
+    }
     const existingPattern = seenPatterns.get(entry.pattern);
     if (existingPattern) {
       problems.push(
@@ -419,6 +454,14 @@ function buildServerFile(entries: PageEntry[], serverFile: string): string {
     `// Import via: import { pageRouter, registry } from "ilha:pages/server";`,
     ``,
     ...imports,
+    // Wire the loader endpoint runner so the production frame middleware can
+    // serve GET /__ilha/loader for regular pages with server loads.
+    ...(entries.some((e) => e.hasLoader || e.loaderLayouts.length > 0)
+      ? [
+          `import { setFrameLoaderRunner } from "@ilha/router/server-island-registry";`,
+          `setFrameLoaderRunner((path) => pageRouter.runLoader(path));`,
+        ]
+      : []),
     ``,
     ...wrappedIslandLines,
     ``,
@@ -448,6 +491,7 @@ function buildClientFile(
   };
   const clientImport = (abs: string) => `${rel(abs)}?client`;
   const clientLoaderImport = (abs: string) => `${rel(abs)}?client-loader`;
+  // The shim re-exports the module's `load` (declared via loader.client).
   let needsComposeLoaders = false;
 
   const imports: string[] = isStatic
@@ -465,6 +509,44 @@ function buildClientFile(
   const routeLines: string[] = [];
 
   for (const [i, entry] of entries.entries()) {
+    if (entry.server) {
+      // Server page — the client graph gets the generated proxy island, which
+      // mounts an empty host and pulls its first frame (server-rendered HTML)
+      // via POST /__ilha/frame with the current path.
+      imports.push(
+        `import { default as _page${i} } from ${JSON.stringify(serverIslandVirtualSpec(entry.file))};`,
+      );
+      // Layouts/errors still hydrate client-side around the server island.
+      for (const [j, l] of entry.layouts.entries())
+        imports.push(
+          `import { default as _layout${i}_${j} } from ${JSON.stringify(clientImport(l))};`,
+        );
+      for (const [j, e] of entry.errors.entries())
+        imports.push(
+          `import { default as _error${i}_${j} } from ${JSON.stringify(clientImport(e))};`,
+        );
+
+      let serverExpr = `_page${i}`;
+      for (let j = entry.errors.length - 1; j >= 0; j--)
+        serverExpr = `wrapError(_error${i}_${j}, ${serverExpr})`;
+      for (let j = entry.layouts.length - 1; j >= 0; j--)
+        serverExpr = `wrapLayout(_layout${i}_${j}, ${serverExpr})`;
+
+      const wrappedServerId = `_wrapped${i}`;
+      wrappedIslandLines.push(`const ${wrappedServerId} = ${serverExpr};`);
+      registryLines.push(
+        `  ${JSON.stringify(entry.name)}: ${wrappedServerId}` + (i < entries.length - 1 ? "," : ""),
+      );
+      if (!isStatic) {
+        routeLines.push(`  .route(${JSON.stringify(entry.pattern)}, ${wrappedServerId})`);
+        if (entry.errors.length > 0) {
+          routeLines.push(
+            `  .errorBoundary(${JSON.stringify(entry.pattern)}, _error${i}_${entry.errors.length - 1})`,
+          );
+        }
+      }
+      continue;
+    }
     imports.push(
       `import { default as _page${i} } from ${JSON.stringify(clientImport(entry.file))};`,
     );
@@ -495,21 +577,21 @@ function buildClientFile(
             : ""),
       );
 
-      // Browser-executed loaders (`clientLoad`) — imported via the
+      // Browser-executed loaders (loader.client) — imported via the
       // ?client-loader shim and attached so client navigations run them
       // locally instead of calling the loader endpoint.
       const clientLoaderIds: string[] = [];
       for (const [j, layout] of entry.clientLoaderLayouts.entries()) {
         const id = `_cl${i}_l${j}`;
         imports.push(
-          `import { clientLoad as ${id} } from ${JSON.stringify(clientLoaderImport(layout))};`,
+          `import { load as ${id} } from ${JSON.stringify(clientLoaderImport(layout))};`,
         );
         clientLoaderIds.push(id);
       }
       if (entry.hasClientLoader) {
         const id = `_cl${i}`;
         imports.push(
-          `import { clientLoad as ${id} } from ${JSON.stringify(clientLoaderImport(entry.file))};`,
+          `import { load as ${id} } from ${JSON.stringify(clientLoaderImport(entry.file))};`,
         );
         clientLoaderIds.push(id);
       }
