@@ -8,9 +8,9 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@ilha/router": "workspace:*",
+    "@ilha/router": "^0.9.0",
     "areia": "^0.2.4",
-    "ilha": "workspace:*",
+    "ilha": "^0.11.0",
     "quando": "^0.1.6",
     "sonner": "^2.0.8",
     "tacho": "^0.4.3"
