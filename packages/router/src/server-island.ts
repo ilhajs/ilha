@@ -139,7 +139,9 @@ function hydrateServerIsland(
     // the attr carries the INITIAL SSR manifest, which goes stale as sentinel
     // indexes shift between renders.
     const raw =
-      host.querySelector(`template[${ACTIONS_ATTR}]`)?.getAttribute(ACTIONS_ATTR) ??
+      Array.from(host.children)
+        .find((c) => c.matches(`template[${ACTIONS_ATTR}]`))
+        ?.getAttribute(ACTIONS_ATTR) ??
       host.getAttribute(ACTIONS_ATTR) ??
       null;
     return raw ? parseSnapshot(raw) : undefined;
@@ -154,7 +156,10 @@ function hydrateServerIsland(
     if (!manifest) return;
     const sentinels = [host, ...Array.from(host.querySelectorAll(`[${EVENT_SENTINEL_ATTR}]`))];
     for (const el of sentinels) {
-      if (!el.hasAttribute(EVENT_SENTINEL_ATTR) || !belongsToHost(host, el)) continue;
+      if (!el.hasAttribute(EVENT_SENTINEL_ATTR)) continue;
+      // The island root itself may carry a sentinel; ownership check only
+      // applies to descendants.
+      if (el !== host && !belongsToHost(host, el)) continue;
       const spec = el.getAttribute(EVENT_SENTINEL_ATTR) ?? "";
       for (const part of spec.split(",")) {
         const sep = part.lastIndexOf(":");
@@ -238,11 +243,20 @@ function hydrateServerIsland(
     void (async () => {
       try {
         const gen = await fn(controller.signal);
-        for (;;) {
-          const { done, value } = await gen.next();
-          if (controller.signal.aborted || done) break;
-          state[key] = value;
-          scheduleRepaint();
+        try {
+          for (;;) {
+            const { done, value } = await gen.next();
+            if (controller.signal.aborted || done) break;
+            state[key] = value;
+            scheduleRepaint();
+          }
+        } catch (err) {
+          if (!controller.signal.aborted && (err as { name?: string })?.name !== "AbortError") {
+            console.error(`[ilha-router] stream "${key}" failed:`, err);
+          }
+        } finally {
+          // Unwind the generator so `finally` blocks in .server modules run.
+          void Promise.resolve(gen.return?.(undefined)).catch(() => {});
         }
       } catch (err) {
         if (!controller.signal.aborted && (err as { name?: string })?.name !== "AbortError") {
@@ -280,6 +294,8 @@ function hydrateServerIsland(
       for (const cleanup of cleanups) cleanup();
       cleanups.length = 0;
     },
+    // Props updates cannot repaint server-rendered markup client-side — the
+    // render function never ships. Content changes arrive via frames instead.
     updateProps: () => {},
   };
 }
@@ -312,10 +328,8 @@ export function __ilhaServerIsland(
   island[ISLAND_SLOT_TAG] = slotTag;
   (island as unknown as Record<string, unknown>).toString = (): string => "";
 
-  // Builder parity for layout composition: wrapLayout calls page.key("page")
-  // to create a stable keyed slot. The returned callable produces the same
-  // IslandCall shape ilha's interpolateValue recognises — rendering stays
-  // server-side via frames.
+  // Builder parity for layout composition: wrapLayout calls page.key("page").
+  // Returns the IslandCall shape ilha's interpolateValue recognises.
   const ISLAND_CALL = Symbol.for("ilha.islandCall");
   (island as unknown as Record<string, unknown>).key = (slotKey: string) => {
     if (typeof slotKey !== "string" || slotKey.trim().length === 0 || slotKey.includes(":")) {

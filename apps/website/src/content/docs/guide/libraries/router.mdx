@@ -235,7 +235,7 @@ On the server, loaders run inside `.renderHydratable()`. You can also call **`.r
 
 A loader runs **wherever the router runs**. When the route was registered in the browser — a plain SPA via `.route(pattern, island, loader)`, hash mode, Electron, `file://` — client navigations execute the loader locally: no server or loader endpoint needed. Routes that only _mark_ a server loader (the SSR-split pages build) fetch from the `/__ilha/loader` endpoint instead. Locally-executed loaders receive a synthetic `Request` (no cookies or server context) — rely on `url`, `params`, and `signal`; `redirect()`s are checked against the same cross-origin policy as on the server.
 
-**`.clientLoader(pattern, loader)`** attaches a loader that runs in the browser on client navigations, instead of the endpoint fetch. The FS-routing codegen uses it for `clientLoad` exports; manual routers can call it directly. When a route has both, the client loader wins on client navigations and the server loader runs during SSR.
+**`.clientLoader(pattern, loader)`** attaches a loader that runs in the browser on client navigations, instead of the endpoint fetch. The FS-routing codegen uses it for `loader.client` exports; manual routers can call it directly. When both a server and a client loader exist, the client loader wins on client navigations and the server loader runs during SSR.
 
 With `router({ loaderTimeout })`, the loader is raced against its abort signal — even a loader that ignores `ctx.signal` is cut off when the timeout elapses (or the incoming request aborts) and surfaces as a `504` loader error. Pass `ctx.signal` to your fetches anyway so the underlying work is actually cancelled, not just abandoned.
 
@@ -590,9 +590,9 @@ export default ilha<InferLoader<typeof load>>(({ input }) => (
 ));
 ```
 
-### Client loaders — `clientLoad` and `loader.client`
+### Client loaders — `loader.client`
 
-Export a `clientLoad` function to run a loader **in the browser** on client navigations, instead of fetching from the loader endpoint. Use it for data that is fetchable from the client anyway (public APIs, your app's own REST endpoints) — it saves a server round-trip per navigation and works on static hosts with no loader endpoint at all.
+Export `load = loader.client(…)` to run a loader **in the browser** on client navigations, instead of fetching from the loader endpoint. Use it for data that is fetchable from the client anyway (public APIs, your app's own REST endpoints) — it saves a server round-trip per navigation and works on static hosts with no loader endpoint at all.
 
 Two spellings, same behavior:
 
@@ -609,14 +609,9 @@ export const load = loader.client(async ({ signal }) => {
   return { stats };
 });
 
-// equivalent legacy form:
-export const clientLoad = loader(async ({ signal }) => {
-  /* … */
-});
-
-export default ilha<InferLoader<typeof clientLoad>>(
-  ({ input }) => <Dashboard stats={input.stats} />,
-);
+export default ilha<InferLoader<typeof load>>(({ input }) => (
+  <Dashboard stats={input.stats} />
+));
 ```
 
 #### The `input.load` envelope
@@ -631,9 +626,9 @@ The result also keeps its legacy flat spread into `input`, so existing pages are
 
 - Client loaders are **bundled into the client** — never put secrets, database clients, or server-only imports in them. Keep those in `load`, which stays server-only.
 - A page can export **both**: `load` runs during SSR (first paint), the client loader runs on client navigations instead of the endpoint fetch. Make them return the same shape, then infer the page input from either loader.
-- Layout `clientLoad`s compose with the page's — the page wins on key collision, mirroring server loaders.
-- With SSR + hydration, a `clientLoad`-only page is server-rendered without its data; the router runs `clientLoad` right after hydration and re-renders the route with the loaded props.
-- `clientLoad` receives a synthetic `Request` — rely on `url`, `params`, and `signal`, not cookies or headers.
+- Layout client loaders compose with the page's — the page wins on key collision, mirroring server loaders.
+- With SSR + hydration, a client-loader-only page is server-rendered without its data; the router runs the loader right after hydration and re-renders the route with the loaded props.
+- The loader receives a synthetic `Request` — rely on `url`, `params`, and `signal`, not cookies or headers.
 
 ### Error boundaries
 

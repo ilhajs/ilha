@@ -3785,6 +3785,7 @@ class IlhaBuilder<
             const gen = await entry.fn({ input, signal: controller.signal });
             const first = await gen.next();
             controller.abort();
+            await gen.return?.(undefined);
             if (first.done) continue;
             if (streamOut) streamOut[entry.key] = first.value;
             const prevSub = setActiveSub(undefined);

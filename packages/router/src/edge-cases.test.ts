@@ -235,7 +235,8 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
   describe("loader error redaction", () => {
     const prevEnv = process.env.NODE_ENV;
     afterEach(() => {
-      process.env.NODE_ENV = prevEnv;
+      if (prevEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevEnv;
     });
 
     it("redacts non-LoaderError messages in production", async () => {

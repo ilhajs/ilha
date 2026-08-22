@@ -38,7 +38,7 @@ export const RESOLVED_VIRTUAL_IDS = [
 /** Query suffix used on page/layout imports in the client file. */
 export const CLIENT_QUERY = "?client";
 
-/** Query suffix that re-exports a page/layout's `clientLoad` for the browser bundle. */
+/** Query suffix that re-exports a page/layout's `load` (loader.client) for the browser bundle. */
 export const CLIENT_LOADER_QUERY = "?client-loader";
 
 function decodeServerIslandId(id: string): string | null {
@@ -274,20 +274,8 @@ export function loadPagesModule(state: PagesPluginState, id: string) {
 
   if (id.endsWith(CLIENT_LOADER_QUERY)) {
     const bare = id.slice(0, -CLIENT_LOADER_QUERY.length);
-    // Normalize the export name: `export const load = loader.client(…)` uses
-    // the server export name for a client loader — re-export it as clientLoad.
-    try {
-      if (
-        /^\s*export\s+(?:const|let|var)\s+load\b\s*=\s*loader\.client\b/m.test(
-          readFileSync(bare, "utf8"),
-        )
-      ) {
-        return `export { load as clientLoad } from ${JSON.stringify(bare)};`;
-      }
-    } catch {
-      // Unreadable source falls through to the legacy export.
-    }
-    return `export { clientLoad } from ${JSON.stringify(bare)};`;
+    // Client loaders are declared as `export const load = loader.client(…)`.
+    return `export { load } from ${JSON.stringify(bare)};`;
   }
 
   if (id.endsWith(CLIENT_QUERY)) {
@@ -557,8 +545,16 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
           // Guard hook (see IlhaPagesOptions.frameGuard): island state is
           // world-readable through frames unless gated.
           try {
+            const guardHeaders = new Headers();
+            for (const name of ["cookie", "authorization", "x-forwarded-for"]) {
+              const v = req.headers[name];
+              if (typeof v === "string") guardHeaders.set(name, v);
+            }
             const denied = await getFrameGuard()?.(
-              new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`),
+              new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, {
+                method: req.method,
+                headers: guardHeaders,
+              }),
             );
             if (denied) {
               res.statusCode = denied.status;

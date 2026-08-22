@@ -3,8 +3,7 @@ import { EventEmitter, on } from "node:events";
 // Island-render scope (page SSR + frames). Oxide's useRequest only exists
 // inside /_action execution, so the stream keeps an aliased import for its
 // live-subscription signal.
-import { useContext } from "@ilha/router";
-import { Button, Checkbox, Input } from "areia";
+import { Button, Checkbox } from "areia";
 import ilha from "ilha";
 import { action, useRequest as useActionRequest, type ActionOptions } from "oxidejs";
 import { each } from "quando";

@@ -21,9 +21,9 @@ interface PageEntry {
   hasLoader: boolean;
   /** Subset of `layouts` whose modules declare a `load` export. */
   loaderLayouts: string[];
-  /** True if the page module declares a `clientLoad` export (browser-executed loader). */
+  /** True if the page declares a client loader (`export const load = loader.client(…)`). */
   hasClientLoader: boolean;
-  /** Subset of `layouts` whose modules declare a `clientLoad` export. */
+  /** Subset of `layouts` whose modules declare a client loader. */
   clientLoaderLayouts: string[];
   /** True for `foo.server.tsx` pages — rendered server-side via the frame protocol. */
   server: boolean;
@@ -51,9 +51,7 @@ export const SERVER_PAGE_RE = /\.server\.(ts|tsx)$/;
  */
 const LOADER_EXPORT_RE = /^\s*export\s+(?:const|let|var|async\s+function|function)\s+load\b/m;
 
-/** Same shape for `clientLoad` — a loader executed in the browser on client navigations. */
-const CLIENT_LOADER_EXPORT_RE =
-  /^\s*export\s+(?:const|let|var|async\s+function|function)\s+clientLoad\b/m;
+/** `export const load = loader.client(…)` — the only client-loader form. */
 
 /** `export const load = loader.client(…)` — client loader under the server name. */
 const LOAD_CLIENT_EXPORT_RE =
@@ -61,9 +59,7 @@ const LOAD_CLIENT_EXPORT_RE =
 
 interface LoaderExports {
   load: boolean;
-  clientLoad: boolean;
-  /** Client loader declared via `export const load = loader.client(…)`. */
-  loadIsClient: boolean;
+  isClientLoader: boolean;
 }
 
 async function detectLoaderExports(file: string): Promise<LoaderExports> {
@@ -73,12 +69,11 @@ async function detectLoaderExports(file: string): Promise<LoaderExports> {
     // commented-out loaders. Block comments are rare enough to skip.
     const stripped = src.replace(/^\s*\/\/.*$/gm, "");
     // `export const load = loader.client(…)` declares a CLIENT loader under
-    // the server export name — sugar for `export const clientLoad`.
-    const loadIsClient = LOAD_CLIENT_EXPORT_RE.test(stripped);
+    // the server export name.
+    const isClientLoader = LOAD_CLIENT_EXPORT_RE.test(stripped);
     return {
-      load: LOADER_EXPORT_RE.test(stripped) && !loadIsClient,
-      clientLoad: CLIENT_LOADER_EXPORT_RE.test(stripped) || loadIsClient,
-      loadIsClient,
+      load: LOADER_EXPORT_RE.test(stripped) && !isClientLoader,
+      isClientLoader,
     };
   } catch (err) {
     // A missing file simply has no loaders; anything else (permissions,
@@ -87,7 +82,7 @@ async function detectLoaderExports(file: string): Promise<LoaderExports> {
     if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
       console.warn(`[ilha-router] failed to read ${file} while detecting loader exports:`, err);
     }
-    return { load: false, clientLoad: false, loadIsClient: false };
+    return { load: false, isClientLoader: false };
   }
 }
 
@@ -241,7 +236,7 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
         ...layouts.map(getLayoutExports),
       ]);
       const loaderLayouts = layouts.filter((_, i) => layoutExports[i]!.load);
-      const clientLoaderLayouts = layouts.filter((_, i) => layoutExports[i]!.clientLoad);
+      const clientLoaderLayouts = layouts.filter((_, i) => layoutExports[i]!.isClientLoader);
       return {
         file,
         pattern,
@@ -250,7 +245,7 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
         errors,
         hasLoader: pageExports.load,
         loaderLayouts,
-        hasClientLoader: pageExports.clientLoad,
+        hasClientLoader: pageExports.isClientLoader,
         clientLoaderLayouts,
         server,
       };
@@ -496,6 +491,7 @@ function buildClientFile(
   };
   const clientImport = (abs: string) => `${rel(abs)}?client`;
   const clientLoaderImport = (abs: string) => `${rel(abs)}?client-loader`;
+  // The shim re-exports the module's `load` (declared via loader.client).
   let needsComposeLoaders = false;
 
   const imports: string[] = isStatic
@@ -581,21 +577,21 @@ function buildClientFile(
             : ""),
       );
 
-      // Browser-executed loaders (`clientLoad`) — imported via the
+      // Browser-executed loaders (loader.client) — imported via the
       // ?client-loader shim and attached so client navigations run them
       // locally instead of calling the loader endpoint.
       const clientLoaderIds: string[] = [];
       for (const [j, layout] of entry.clientLoaderLayouts.entries()) {
         const id = `_cl${i}_l${j}`;
         imports.push(
-          `import { clientLoad as ${id} } from ${JSON.stringify(clientLoaderImport(layout))};`,
+          `import { load as ${id} } from ${JSON.stringify(clientLoaderImport(layout))};`,
         );
         clientLoaderIds.push(id);
       }
       if (entry.hasClientLoader) {
         const id = `_cl${i}`;
         imports.push(
-          `import { clientLoad as ${id} } from ${JSON.stringify(clientLoaderImport(entry.file))};`,
+          `import { load as ${id} } from ${JSON.stringify(clientLoaderImport(entry.file))};`,
         );
         clientLoaderIds.push(id);
       }

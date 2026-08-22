@@ -104,6 +104,9 @@ function extractCallArgs(source: string, openParen: number, limit = 4000): strin
       if (depth === 0) return source.slice(openParen + 1, i);
     }
   }
+  console.warn(
+    "[ilha-router] scanServerIslands: argument list exceeded the scan limit — call skipped.",
+  );
   return null;
 }
 
@@ -132,9 +135,10 @@ function callbackBody(args: string): string {
 
 /** Identifiers in `body` that are members of `candidates`, excluding keywords. */
 function referencedExports(body: string, candidates: Set<string>): string | undefined {
-  const WORD_RE = /[A-Za-z_$][\w$]*/g;
-  for (const match of body.matchAll(WORD_RE)) {
-    if (candidates.has(match[0]!)) return match[0];
+  // Only exported identifiers INVOKED as functions count as transports.
+  const CALL_RE = /([A-Za-z_$][\w$]*)\s*\(/g;
+  for (const match of body.matchAll(CALL_RE)) {
+    if (candidates.has(match[1]!)) return match[1];
   }
   return undefined;
 }
@@ -145,6 +149,17 @@ function referencedExports(body: string, candidates: Set<string>): string | unde
 export function scanServerIslands(source: string): ServerModuleScan {
   const exports: string[] = [];
   for (const match of source.matchAll(EXPORT_RE)) exports.push(match[1]!);
+  // Named export lists (`export { a, b as c }` / `export { x } from "…"`) —
+  // these bindings are importable, so splitServerImports may route them.
+  for (const match of source.matchAll(/export\s*\{([^}]*)\}/g)) {
+    for (const part of match[1]!.split(",")) {
+      const name = part
+        .trim()
+        .split(/\s+as\s+/)[0]
+        ?.trim();
+      if (name && /^[A-Za-z_$][\w$]*$/.test(name) && !exports.includes(name)) exports.push(name);
+    }
+  }
   const candidates = new Set(exports);
 
   const islands: ScannedServerIsland[] = [];
@@ -268,7 +283,7 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
     // `loader.client` on server pages executes over RPC when the view
     // hydrates — the module's code never ships to the browser.
     if (scan.clientLoader) {
-      wiring.push(`clientLoad: () => $$call("load", [])`);
+      wiring.push(`clientLoader: () => $$call("load", [])`);
     }
 
     const call = `__ilhaServerIsland(${JSON.stringify(id)}, ${JSON.stringify(island.as)}, { ${wiring.join(", ")} })`;

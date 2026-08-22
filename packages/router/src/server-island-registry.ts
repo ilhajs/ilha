@@ -172,7 +172,7 @@ export async function renderServerIsland(
         params,
         request,
         url,
-        signal: new AbortController().signal,
+        signal: request.signal,
       });
     } catch (error) {
       const marker = error as { __ilhaRedirect?: boolean; __ilhaLoaderError?: boolean };

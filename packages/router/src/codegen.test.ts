@@ -1079,7 +1079,7 @@ describe("codegen — errorBoundary wiring", () => {
 // codegen — clientLoad (browser-executed loaders)
 // ─────────────────────────────────────────────
 
-describe("codegen — clientLoad detection", () => {
+describe("codegen — client loaders (loader.client)", () => {
   let pagesDir: string;
   let outDir: string;
   let root: string;
@@ -1105,61 +1105,61 @@ describe("codegen — clientLoad detection", () => {
     };
   }
 
-  it("wires a page clientLoad into the client file via ?client-loader", async () => {
+  it("wires a page loader.client into the client file via ?client-loader", async () => {
     await writePage(
       pagesDir,
       "index.ts",
-      `export const clientLoad = async () => ({}); export default null;`,
+      `export const load = loader.client(async () => ({}));\nexport default null;`,
     );
     const { client } = await runCodegen();
     expect(client).toContain("?client-loader");
-    expect(client).toContain(`import { clientLoad as _cl0 }`);
+    expect(client).toContain(`import { load as _cl0 }`);
     expect(client).toContain(`.clientLoader("/", _cl0)`);
   });
 
-  it("does not wire clientLoad into the server file or loaders.ts", async () => {
+  it("does not wire client loaders into the server file or loaders.ts", async () => {
     await writePage(
       pagesDir,
       "index.ts",
-      `export const clientLoad = async () => ({}); export default null;`,
+      `export const load = loader.client(async () => ({}));\nexport default null;`,
     );
     const { server, loaders } = await runCodegen();
-    expect(server).not.toContain("clientLoad");
     expect(server).not.toContain(".markLoader");
-    expect(loaders).not.toContain("clientLoad");
+    expect(server).not.toContain(".markLoader");
+    expect(loaders).not.toContain("loader.client");
   });
 
-  it("composes layout clientLoads before the page clientLoad", async () => {
+  it("composes layout client loaders before the page client loader", async () => {
     await writePage(
       pagesDir,
       "+layout.ts",
-      `export const clientLoad = async () => ({}); export default null;`,
+      `export const load = loader.client(async () => ({}));\nexport default null;`,
     );
     await writePage(
       pagesDir,
       "index.ts",
-      `export const clientLoad = async () => ({}); export default null;`,
+      `export const load = loader.client(async () => ({}));\nexport default null;`,
     );
     const { client } = await runCodegen();
     expect(client).toContain("composeLoaders([_cl0_l0, _cl0])");
     expect(client).toContain(`import { composeLoaders, router,`);
   });
 
-  it("composes root, nested, and page clientLoads for a page under two layouts", async () => {
+  it("composes root, nested, and page client loaders for a page under two layouts", async () => {
     await writePage(
       pagesDir,
       "+layout.ts",
-      `export const clientLoad = async () => ({ root: true }); export default null;`,
+      `export const load = loader.client(async () => ({ root: true }));\nexport default null;`,
     );
     await writePage(
       pagesDir,
       "user/+layout.ts",
-      `export const clientLoad = async () => ({ nested: true }); export default null;`,
+      `export const load = loader.client(async () => ({ nested: true }));\nexport default null;`,
     );
     await writePage(
       pagesDir,
       "user/index.ts",
-      `export const clientLoad = async () => ({ page: true }); export default null;`,
+      `export const load = loader.client(async () => ({ page: true }));\nexport default null;`,
     );
     const { client } = await runCodegen();
     expect(client).toContain(`import { composeLoaders, router,`);
@@ -1168,11 +1168,11 @@ describe("codegen — clientLoad detection", () => {
     expect(userClientLoader).toMatch(/composeLoaders\(\[_cl\d+_l0, _cl\d+_l1, _cl\d+\]\)/);
   });
 
-  it("layout clientLoad + page load only wires layout into clientLoader and page into attachLoader", async () => {
+  it("layout loader.client + page load only wires layout into clientLoader and page into attachLoader", async () => {
     await writePage(
       pagesDir,
       "+layout.ts",
-      `export const clientLoad = async () => ({ fromLayout: true }); export default null;`,
+      `export const load = loader.client(async () => ({ fromLayout: true }));\nexport default null;`,
     );
     await writePage(
       pagesDir,
@@ -1189,24 +1189,11 @@ describe("codegen — clientLoad detection", () => {
     expect(loaders).not.toContain("_p0_l0");
   });
 
-  it("a page with both load and clientLoad gets markLoader and clientLoader on the client", async () => {
-    await writePage(
-      pagesDir,
-      "index.ts",
-      `export const load = async () => ({});\nexport const clientLoad = async () => ({});\nexport default null;`,
-    );
-    const { client, loaders } = await runCodegen();
-    expect(client).toContain(`.markLoader("/")`);
-    expect(client).toContain(`.clientLoader("/", _cl0)`);
-    // server loader is still wired via loaders.ts
-    expect(loaders).toContain("attachLoader");
-  });
-
   it("a clientLoad-only project does not mark loaders on the client route graph", async () => {
     await writePage(
       pagesDir,
       "index.ts",
-      `export const clientLoad = async () => ({}); export default null;`,
+      `export const load = loader.client(async () => ({}));\nexport default null;`,
     );
     const { client } = await runCodegen();
     expect(client).not.toContain(".markLoader");
@@ -1216,7 +1203,7 @@ describe("codegen — clientLoad detection", () => {
     await writePage(
       pagesDir,
       "index.ts",
-      `export const clientLoad = async () => ({}); export default null;`,
+      `export const load = loader.client(async () => ({}));\nexport default null;`,
     );
     const { client } = await runCodegen({ mode: "static" });
     expect(client).not.toContain("clientLoader");

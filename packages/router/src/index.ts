@@ -106,9 +106,7 @@ export function loader<T>(fn: Loader<T>): Loader<T> {
 
 /**
  * Declare a loader that runs in the browser when the view hydrates or on
- * client navigations — sugar for the `clientLoad` export name:
- *
- *   export const load = loader.client(() => head({ title: "About" }));
+ * client navigations:(() => head({ title: "About" }));
  *
  * Inside `.server.tsx` pages the function executes over RPC when the view
  * hydrates (its code never ships); it is a side-effect loader there — the
@@ -831,7 +829,7 @@ export interface RouterBuilder {
   /**
    * Attach a loader that runs **in the browser** on client navigations,
    * instead of fetching from the loader endpoint. Used by the FS-routing
-   * codegen for `clientLoad` exports; also available for manual routers.
+   * codegen for `loader.client` exports; also available for manual routers.
    * When a route has both, the client loader wins on client navigations and
    * the server loader runs during SSR. No-op if the pattern was never
    * registered via `.route()`.
@@ -982,7 +980,7 @@ async function withViewSwap<T>(mutate: () => T): Promise<T> {
 
 /**
  * Execute a loader registered in the browser (manual `.route(p, island, loader)`
- * or FS-routing `clientLoad`) and map its result to the loader endpoint's wire
+ * or FS-routing `loader.client`) and map its result to the loader endpoint's wire
  * shape, so all client mount paths handle both sources identically. Loader
  * `head` contributions are dropped, matching the endpoint fetch path.
  */
@@ -1560,7 +1558,7 @@ interface RouteData {
   /** The pattern this route was registered under — exact `isActive()` checks compare against it. */
   pattern: string;
   loader?: Loader<any>;
-  /** Loader that runs in the browser on client navigations (manual SPA builder or FS `clientLoad`). */
+  /** Loader that runs in the browser on client navigations (manual SPA builder or FS `loader.client`). */
   clientLoader?: Loader<any>;
   /** Nearest `+error` boundary — renders loader errors instead of the bare inline error div. */
   errorHandler?: ErrorHandler;
@@ -1635,13 +1633,23 @@ function matchRoute(
     let cursor = 0;
     for (let i = 0; i < entry.segments.length; i++) {
       const segment = entry.segments[i]!;
-      if (segment.startsWith("*")) {
-        // Catch-all consumes the rest — including nothing. Named (`/**:slug`)
-        // captures the raw remainder; `extractParams` decodes it.
+      const isLast = i === entry.segments.length - 1;
+      if (segment.startsWith("**") && isLast) {
+        // Trailing catch-all consumes the rest — including nothing. Named
+        // (`/**:slug`) captures the raw remainder; `extractParams` decodes it.
         const name = segment.slice(2).replace(/^:/, "");
         if (name) params[name] = pathSegments.slice(cursor).join("/");
         cursor = pathSegments.length;
         break;
+      }
+      if (segment.startsWith("*")) {
+        // Bare mid-pattern `*` matches exactly one segment — never a catch-all.
+        if (pathSegments[cursor] === undefined) {
+          matched = false;
+          break;
+        }
+        cursor++;
+        continue;
       }
       if (segment.startsWith(":")) {
         const value = pathSegments[cursor];

@@ -69,6 +69,8 @@ async function ssr(request: Request): Promise<Response | undefined> {
     }
     const runner = getFrameLoaderRunner();
     if (!runner) return json(404, { kind: "error", status: 404, message: "not found" });
+    const cl = request.headers.get("content-length");
+    if (cl && Number(cl) > MAX_BODY) return json(413, { error: "frame failed" });
     let target = "/";
     try {
       target = new URL(request.url).searchParams.get("path") ?? "/";
@@ -88,7 +90,9 @@ async function ssr(request: Request): Promise<Response | undefined> {
         });
       }
       if (result.kind !== "data") {
-        return json(500, { kind: "error", status: 500, message: "loader failed" });
+        // Preserve runner outcomes (not-found, error) with their status.
+        const status = result.status || 500;
+        return json(status, { kind: result.kind, status, message: result.message });
       }
       return json(200, result);
     } catch (error) {

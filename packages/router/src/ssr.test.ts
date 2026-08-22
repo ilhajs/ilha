@@ -1,4 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+
+afterEach(() => {
+  for (const key of [Symbol.for("ilha.frameGuard"), Symbol.for("ilha.frameLoaderRunner")]) {
+    delete (globalThis as unknown as Record<symbol, unknown>)[key];
+  }
+});
 
 import {
   getServerIslandRenderer,
@@ -35,7 +41,8 @@ describe("@ilha/router/ssr", () => {
     expect((await ok!.json()).data).toEqual({ note: "hi" });
 
     const miss = await handleFrame(new Request("http://localhost/__ilha/loader?path=/nope"));
-    expect(miss?.status).toBe(500);
+    // Runner outcomes forward their original status (not-found → 404).
+    expect(miss?.status).toBe(404);
   });
 
   test("renders a registered island and rejects unknown ids", async () => {
