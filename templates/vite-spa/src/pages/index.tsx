@@ -12,7 +12,7 @@ const DEFAULT_TODOS: Todo[] = [
   { id: "3", text: "Deploy my Ilha app", completed: false },
 ];
 
-export const clientLoad = loader(({ head }) => {
+export const load = loader.client(({ head }) => {
   // TIP: Fetch external resources here and pass them to the page via input.
   head({ title: "Home" });
   return {
@@ -42,7 +42,7 @@ const todos = store({ draft: "", items: [] as Todo[] })
   .build();
 
 export default ilha
-  .input<InferLoader<typeof clientLoad>>()
+  .input<InferLoader<typeof load>>()
   .onMount(({ input }) => {
     todos.items(input.todos);
   })
