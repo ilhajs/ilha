@@ -1402,7 +1402,10 @@ describe("router.runLoader()", () => {
     const load = loader(async () => ({ user: "alice" }));
     const r = router().route("/", HomePage, load);
     const result = await r.runLoader("/");
-    expect(result).toEqual({ kind: "data", data: { user: "alice" } });
+    expect(result).toEqual({
+      kind: "data",
+      data: { load: { loading: false, value: { user: "alice" }, error: undefined } },
+    });
   });
 
   it("runs a composed server loader (root + nested + page) like ilha:loaders attachLoader", async () => {
@@ -1416,7 +1419,13 @@ describe("router.runLoader()", () => {
     const result = await r.runLoader("/user");
     expect(result).toEqual({
       kind: "data",
-      data: { root: true, nested: true, page: true, shared: "page" },
+      data: {
+        load: {
+          loading: false,
+          value: { root: true, nested: true, page: true, shared: "page" },
+          error: undefined,
+        },
+      },
     });
   });
 
@@ -1442,7 +1451,10 @@ describe("router.runLoader()", () => {
     const r = router().route("/user/:id", UserPage, load);
     const result = await r.runLoader("/user/42");
     expect(captured[0]).toEqual({ id: "42" });
-    expect(result).toEqual({ kind: "data", data: { id: "42" } });
+    expect(result).toEqual({
+      kind: "data",
+      data: { load: { loading: false, value: { id: "42" }, error: undefined } },
+    });
   });
 
   it("decodes URL-encoded params before passing to loader", async () => {
@@ -1546,7 +1558,10 @@ describe("router.runLoader()", () => {
     const load = loader(async () => ({ ok: true }));
     const r = router().route("/", HomePage, load);
     const result = await r.runLoader(new URL("http://example.com/"));
-    expect(result).toEqual({ kind: "data", data: { ok: true } });
+    expect(result).toEqual({
+      kind: "data",
+      data: { load: { loading: false, value: { ok: true }, error: undefined } },
+    });
   });
 });
 
@@ -1556,8 +1571,8 @@ describe("router.runLoader()", () => {
 
 describe("renderHydratable() with loader", () => {
   const Greeter = ilha
-    .input(createSchema<{ name?: string }>())
-    .render(({ input }) => `<p>hello ${input.name ?? "stranger"}</p>`);
+    .input<{ load?: { value?: { name?: string } } }>()
+    .render(({ input }) => `<p>hello ${input.load?.value?.name ?? "stranger"}</p>`);
 
   it("feeds loader output into the island as input", async () => {
     const load = loader(async () => ({ name: "world" }));
@@ -1567,8 +1582,8 @@ describe("renderHydratable() with loader", () => {
 
   it("serializes composed attachLoader data on SSR hydratable (mirrors ilha:loaders)", async () => {
     const Page = ilha
-      .input<{ root: boolean; nested: boolean; page: boolean }>()
-      .render(({ input }) => `<p>${String(input.page)}</p>`);
+      .input<{ load: { value: { root: boolean; nested: boolean; page: boolean } } }>()
+      .render(({ input }) => `<p>${String(input.load.value.page)}</p>`);
     const composed = composeLoaders([
       loader(async () => ({ root: true })),
       loader(async () => ({ nested: true })),
@@ -1586,8 +1601,8 @@ describe("renderHydratable() with loader", () => {
 
   it("loader receives params from the matched route", async () => {
     const UserIsland = ilha
-      .input(createSchema<{ id?: string }>())
-      .render(({ input }) => `<p>u:${input.id ?? "?"}</p>`);
+      .input<{ load?: { value?: { id?: string } } }>()
+      .render(({ input }) => `<p>u:${input.load?.value?.id ?? "?"}</p>`);
     const load = loader(async ({ params }) => ({ id: params.id }));
     const html = await router()
       .route("/user/:id", UserIsland, load)
@@ -1648,8 +1663,8 @@ describe("renderHydratable() with loader", () => {
 
 describe("renderResponse()", () => {
   const Greeter = ilha
-    .input(createSchema<{ name?: string }>())
-    .render(({ input }) => `<p>hi ${input.name ?? "anon"}</p>`);
+    .input<{ load?: { value?: { name?: string } } }>()
+    .render(({ input }) => `<p>hi ${input.load?.value?.name ?? "anon"}</p>`);
 
   it("returns { kind: 'html' } for successful renders", async () => {
     const load = loader(async () => ({ name: "bob" }));
@@ -1875,7 +1890,10 @@ describe("route() backward compatibility", () => {
     const a = await r.runLoader("/");
     const b = await r.runLoader("/with-loader");
     expect(a).toEqual({ kind: "data", data: {} });
-    expect(b).toEqual({ kind: "data", data: { x: 1 } });
+    expect(b).toEqual({
+      kind: "data",
+      data: { load: { loading: false, value: { x: 1 }, error: undefined } },
+    });
   });
 });
 
@@ -1913,7 +1931,9 @@ describe("SPA client loaders", () => {
   });
 
   it("runs a .route() loader in the browser and passes its data to the island", async () => {
-    const GreetPage = ilha.render(({ input }: any) => `<p>hello:${input?.name ?? "nobody"}</p>`);
+    const GreetPage = ilha.render(
+      ({ input }: any) => `<p>hello:${input?.load?.value?.name ?? "nobody"}</p>`,
+    );
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -1931,7 +1951,7 @@ describe("SPA client loaders", () => {
   });
 
   it("passes route params to the local loader", async () => {
-    const IdPage = ilha.render(({ input }: any) => `<p>id:${input?.id ?? "?"}</p>`);
+    const IdPage = ilha.render(({ input }: any) => `<p>id:${input?.load?.value?.id ?? "?"}</p>`);
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -1949,7 +1969,7 @@ describe("SPA client loaders", () => {
   });
 
   it(".clientLoader() attaches a browser loader to a registered pattern", async () => {
-    const CPage = ilha.render(({ input }: any) => `<p>c:${input?.v ?? "?"}</p>`);
+    const CPage = ilha.render(({ input }: any) => `<p>c:${input?.load?.value?.v ?? "?"}</p>`);
     unmount = router()
       .route("/", HomePage)
       .route("/c", CPage)
@@ -1964,6 +1984,25 @@ describe("SPA client loaders", () => {
 
     expect(el.innerHTML).toContain("c:local");
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("browser-local regular loaders expose the load envelope too", async () => {
+    const LPage = ilha.render(
+      ({ input }: any) => `<p>L:${input?.load?.value?.fromServer ?? "-"}</p>`,
+    );
+    unmount = router()
+      .route("/", HomePage)
+      .route(
+        "/local",
+        LPage,
+        loader(async () => ({ fromServer: "srv" })),
+      )
+      .mount(el);
+
+    navigate("/local");
+    await flush();
+
+    expect(el.innerHTML).toContain("L:srv");
   });
 
   it(".clientLoader() warns and is a no-op for unregistered patterns", () => {
@@ -1981,7 +2020,7 @@ describe("SPA client loaders", () => {
   it("client loader wins over a server loader on the same route", async () => {
     const serverLoad = mock(async () => ({ v: "server" }));
     const clientLoad = mock(async () => ({ v: "client" }));
-    const VPage = ilha.render(({ input }: any) => `<p>v:${input?.v ?? "?"}</p>`);
+    const VPage = ilha.render(({ input }: any) => `<p>v:${input?.load?.value?.v ?? "?"}</p>`);
     unmount = router()
       .route("/", HomePage)
       .route("/v", VPage, loader(serverLoad))
@@ -2001,7 +2040,7 @@ describe("SPA client loaders", () => {
     const pageLoad = mock(async () => ({ fromPage: "P", shared: "page" }));
     const MergedPage = ilha.render(
       ({ input }: any) =>
-        `<p>L:${input?.fromLayout ?? "-"}|P:${input?.fromPage ?? "-"}|S:${input?.shared ?? "-"}</p>`,
+        `<p>L:${input?.load?.value?.fromLayout ?? "-"}|P:${input?.load?.value?.fromPage ?? "-"}|S:${input?.load?.value?.shared ?? "-"}</p>`,
     );
     const composed = composeLoaders([loader(layoutLoad), loader(pageLoad)]);
     unmount = router()
@@ -2039,7 +2078,7 @@ describe("SPA client loaders", () => {
     });
     const ServerPage = ilha.render(
       ({ input }: any) =>
-        `<p>L:${input?.fromLayout ?? "-"}|P:${input?.fromPage ?? "-"}|S:${input?.shared ?? "-"}</p>`,
+        `<p>L:${input?.load?.value?.fromLayout ?? "-"}|P:${input?.load?.value?.fromPage ?? "-"}|S:${input?.load?.value?.shared ?? "-"}</p>`,
     );
     unmount = router()
       .route("/", HomePage)
@@ -2059,7 +2098,8 @@ describe("SPA client loaders", () => {
   it("layout clientLoad only on route (no page clientLoad) still feeds layout keys", async () => {
     const layoutOnly = mock(async () => ({ fromLayout: "only-layout" }));
     const LayoutOnlyPage = ilha.render(
-      ({ input }: any) => `<p>L:${input?.fromLayout ?? "-"}|P:${input?.fromPage ?? "-"}</p>`,
+      ({ input }: any) =>
+        `<p>L:${input?.load?.value?.fromLayout ?? "-"}|P:${input?.load?.value?.fromPage ?? "-"}</p>`,
     );
     unmount = router()
       .route("/", HomePage)
@@ -2079,7 +2119,8 @@ describe("SPA client loaders", () => {
     const layoutClient = mock(async () => ({ fromLayout: "L" }));
     const pageServer = mock(async () => ({ fromPage: "P" }));
     const MixedPage = ilha.render(
-      ({ input }: any) => `<p>L:${input?.fromLayout ?? "-"}|P:${input?.fromPage ?? "-"}</p>`,
+      ({ input }: any) =>
+        `<p>L:${input?.load?.value?.fromLayout ?? "-"}|P:${input?.load?.value?.fromPage ?? "-"}</p>`,
     );
     unmount = router()
       .route("/", HomePage)
@@ -2198,7 +2239,7 @@ describe("navigation feedback + revalidation", () => {
 
   it("invalidate() re-runs the current route's loader and re-renders", async () => {
     let n = 0;
-    const CountPage = ilha.render(({ input }: any) => `<p>n:${input?.n ?? "?"}</p>`);
+    const CountPage = ilha.render(({ input }: any) => `<p>n:${input?.load?.value?.n ?? "?"}</p>`);
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -3090,7 +3131,8 @@ describe("same-pattern navigation re-runs loaders (SPA / client loader)", () => 
   });
 
   const TablePage = ilha.render(
-    ({ input }: any) => `<p>table:${input?.table ?? "?"}|page:${input?.page ?? "-"}</p>`,
+    ({ input }: any) =>
+      `<p>table:${input?.load?.value?.table ?? "?"}|page:${input?.load?.value?.page ?? "-"}</p>`,
   );
 
   function mountTableRouter(load: ReturnType<typeof mock>) {
@@ -3198,7 +3240,8 @@ describe("same-pattern navigation re-runs loaders (hydrate / server loader)", ()
 
   it("re-fetches loader data from the endpoint on param-only and search-only navigations", async () => {
     const TablePage = ilha.render(
-      ({ input }: any) => `<p>table:${input?.table ?? "?"}|page:${input?.page ?? "-"}</p>`,
+      ({ input }: any) =>
+        `<p>table:${input?.load?.value?.table ?? "?"}|page:${input?.load?.value?.page ?? "-"}</p>`,
     );
     const reg = { home: HomePage, table: TablePage };
 

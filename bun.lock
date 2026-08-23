@@ -71,7 +71,7 @@
     },
     "packages/router": {
       "name": "@ilha/router",
-      "version": "0.9.0",
+      "version": "0.9.1",
       "dependencies": {
         "unplugin": "3.3.0",
       },
@@ -85,15 +85,15 @@
     },
     "packages/store": {
       "name": "@ilha/store",
-      "version": "0.7.12",
+      "version": "0.7.13",
       "devDependencies": {
-        "@ilha/router": "0.9.0",
+        "@ilha/router": "0.9.1",
         "alien-signals": "3.2.1",
         "ilha": "0.11.0",
         "zod": "4.4.3",
       },
       "peerDependencies": {
-        "@ilha/router": ">=0.9.0",
+        "@ilha/router": ">=0.9.1",
         "alien-signals": "^3.2.1",
         "ilha": ">=0.11.0",
       },

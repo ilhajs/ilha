@@ -989,7 +989,6 @@ async function runLocalLoader(
   matchParams: Record<string, string> | undefined,
   pathWithSearch: string,
   signal?: AbortSignal,
-  isClientLoader = false,
 ): Promise<LoaderFetchResult> {
   const url = new URL(pathWithSearch, location.origin);
   const params = extractParams(matchParams);
@@ -1018,15 +1017,7 @@ async function runLocalLoader(
     return { kind: "redirect", to: safe.to, status: result.status };
   }
   if (result.kind === "data") {
-    // Client-loader results carry a settled load envelope (`input.load`),
-    // mirroring ilha's derived envelope shape. Server-loader props keep the
-    // legacy flat spread — they always settle before render.
-    const data = isClientLoader
-      ? {
-          ...result.data,
-          load: { loading: false, value: result.data ?? {}, error: undefined },
-        }
-      : result.data;
+    const data = envelopLoad(result.data);
     return headEntries.length > 0 ? { kind: "data", data, headEntries } : { kind: "data", data };
   }
   return result;
@@ -1069,7 +1060,6 @@ async function fetchLoaderData(
       localMatch?.params as Record<string, string> | undefined,
       pathWithSearch,
       signal,
-      !!localMatch?.data?.clientLoader,
     );
   }
 
@@ -1089,7 +1079,19 @@ async function fetchLoaderData(
       }
       return { kind: "error", status: res.status, message: res.statusText };
     }
-    return (await res.json()) as LoaderFetchResult;
+    const parsed = (await res.json()) as LoaderFetchResult;
+    // Server-loader data reaches the page through the same load envelope as
+    // client loaders.
+    if (
+      parsed.kind === "data" &&
+      !localMatch?.data?.clientLoader &&
+      parsed.data &&
+      typeof parsed.data === "object" &&
+      !("load" in (parsed.data as object))
+    ) {
+      return { ...parsed, data: envelopLoad(parsed.data) };
+    }
+    return parsed;
   } catch (e: any) {
     if (e?.name === "AbortError") throw e;
     return { kind: "error", status: 0, message: e?.message ?? "network error" };
@@ -1566,6 +1568,11 @@ interface RouteData {
 }
 
 let _routes = createRouteRegistry();
+
+/** Wrap loader data in the load envelope (plain, serializable). */
+function envelopLoad(data: unknown): Record<string, unknown> {
+  return { load: { loading: false, value: data ?? {}, error: undefined } };
+}
 
 // ─────────────────────────────────────────────
 // Shared match → params extraction
@@ -2803,7 +2810,10 @@ export function router(options: RouterOptions = {}): RouterBuilder {
             ? await fetchLoaderData(pathWithSearch)
             : { kind: "data", data: {} };
           if (loaderResult.kind === "redirect" || loaderResult.kind === "error") return;
-          const props = loaderResult.kind === "data" ? loaderResult.data : {};
+          const props = (loaderResult.kind === "data" ? loaderResult.data : {}) as Record<
+            string,
+            unknown
+          >;
           const headStore: HeadStore = {
             entries: [...(loaderResult.kind === "data" ? (loaderResult.headEntries ?? []) : [])],
           };
@@ -2959,7 +2969,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           });
           return;
         }
-        const props = result.kind === "data" ? result.data : {};
+        const props = (result.kind === "data" ? result.data : {}) as Record<string, unknown>;
 
         if (sameIsland && mountedHandle?.updateProps) {
           // Loader head entries keep title/meta in sync; skip when empty so a
@@ -3147,11 +3157,16 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           return { ...result, to: safe.to };
         }
         if (result.kind !== "data") return result;
-        if (headStore.entries.length === 0) return result;
+        // Server-loader data uses the same load envelope as client loaders.
+        const enveloped = {
+          ...result,
+          data: { load: { loading: false, value: result.data ?? {}, error: undefined } },
+        };
+        if (headStore.entries.length === 0) return enveloped;
         // `head` (serialized) feeds SSR shells; `headEntries` (raw POJOs) let
         // client navigations apply loader head to the live document.
         return {
-          ...result,
+          ...enveloped,
           head: serializeHead(headStore.entries),
           headEntries: headStore.entries,
         };
@@ -3294,7 +3309,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           head: serializeHead(headStore.entries),
         };
       }
-      props = result.data;
+      props = envelopLoad(result.data);
     }
 
     const reverseRegistry = buildReverseRegistry(registry);

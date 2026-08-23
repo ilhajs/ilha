@@ -44,7 +44,7 @@ const todos = store({ draft: "", items: [] as Todo[] })
 export default ilha
   .input<InferLoader<typeof load>>()
   .onMount(({ input }) => {
-    todos.items(input.todos);
+    todos.items(input.load.value.todos);
   })
   .render(() => {
     return (

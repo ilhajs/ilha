@@ -65,7 +65,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
 
     it("survives layoutUpdateProps in-place update", async () => {
       const Page = ilha.render(
-        ({ input }: any) => `<p data-def>${input?.meta?.default ?? "-"}</p>`,
+        ({ input }: any) => `<p data-def>${input?.load?.value?.meta?.default ?? "-"}</p>`,
       );
       const Wrapped = wrapLayout(
         (children: any) =>
@@ -88,7 +88,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       const hostBefore = el.querySelector("[data-ilha-slot='k:page']")!;
       expect(hostBefore).not.toBeNull();
       expect(JSON.parse(hostBefore.getAttribute("data-ilha-props")!)).toEqual({
-        meta: { default: "'user'", n: 1 },
+        load: { loading: false, value: { meta: { default: "'user'", n: 1 } }, error: undefined },
       });
 
       await invalidate();
@@ -97,7 +97,9 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       const host = el.querySelector("[data-ilha-slot='k:page']")!;
       const raw = host.getAttribute("data-ilha-props")!;
       expect(() => JSON.parse(raw)).not.toThrow();
-      expect(JSON.parse(raw)).toEqual({ meta: { default: "'user'", n: 2 } });
+      expect(JSON.parse(raw)).toEqual({
+        load: { loading: false, value: { meta: { default: "'user'", n: 2 } } },
+      });
 
       // No junk attributes parsed out of the JSON.
       const allowed = new Set(["data-ilha-slot", "data-ilha-props", "data-ilha-state"]);
@@ -114,7 +116,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
 
     it("SSR + hydrate + invalidate keeps props parseable", async () => {
       const Page = ilha.render(
-        ({ input }: any) => `<p data-def>${input?.meta?.default ?? "-"}</p>`,
+        ({ input }: any) => `<p data-def>${input?.load?.value?.meta?.default ?? "-"}</p>`,
       );
       const Wrapped = wrapLayout(
         (children: any) =>
@@ -139,7 +141,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       const host = el.querySelector("[data-ilha-slot='k:page']")!;
       const raw = host.getAttribute("data-ilha-props")!;
       expect(() => JSON.parse(raw)).not.toThrow();
-      expect(JSON.parse(raw).meta.default).toBe("'user'");
+      expect(JSON.parse(raw).load.value.meta.default).toBe("'user'");
       const allowed = new Set(["data-ilha-slot", "data-ilha-props", "data-ilha-state"]);
       for (const { name } of host.attributes) {
         expect(allowed.has(name)).toBe(true);
@@ -525,7 +527,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
   function makeSearchPage() {
     return ilha.render(
       ({ input }: any) =>
-        `<div><input data-q /><ul>${((input?.rows ?? []) as string[])
+        `<div><input data-q /><ul>${((input?.load?.value?.rows ?? []) as string[])
           .map((r) => `<li>${r}</li>`)
           .join("")}</ul></div>`,
     );
@@ -605,7 +607,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
         .effect(() => () => {
           cleanups++;
         })
-        .render(({ input }: any) => `<p>fx:${input?.rows?.[0] ?? "-"}</p>`);
+        .render(({ input }: any) => `<p>fx:${input?.load?.value?.rows?.[0] ?? "-"}</p>`);
       const load = makeSearchLoader();
       unmount = router()
         .route("/", HomePage)

@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 afterEach(() => {
-  for (const key of [Symbol.for("ilha.frameGuard"), Symbol.for("ilha.frameLoaderRunner")]) {
+  for (const key of [
+    Symbol.for("ilha.frameGuard"),
+    Symbol.for("ilha.frameLoaderRunner"),
+    Symbol.for("oxidejs.runWithRequest"),
+  ]) {
     delete (globalThis as unknown as Record<symbol, unknown>)[key];
   }
 });
@@ -54,6 +58,28 @@ describe("@ilha/router/ssr", () => {
     const miss = await handleFrame(post(JSON.stringify({ id: "nope" })));
     expect(miss?.status).toBe(400);
     expect(((await miss!.json()) as { error: string }).error).toBe("frame failed");
+  });
+
+  test("forwards global framework symbols without copying request internals", async () => {
+    const framework = Symbol.for("test.requestContext");
+    const internal = Symbol("internal");
+    let scoped: Request | undefined;
+    (globalThis as unknown as Record<symbol, unknown>)[Symbol.for("oxidejs.runWithRequest")] = (
+      request: Request,
+      fn: () => unknown,
+    ) => {
+      scoped = request;
+      return fn();
+    };
+    registerServerIsland("context-island", () => () => "<p>ok</p>");
+    const request = post(JSON.stringify({ id: "context-island", path: "/tasks" }));
+    (request as unknown as Record<symbol, unknown>)[framework] = { env: true };
+    (request as unknown as Record<symbol, unknown>)[internal] = "private";
+
+    expect((await handleFrame(request))?.status).toBe(200);
+    expect((scoped as unknown as Record<symbol, unknown>)[framework]).toEqual({ env: true });
+    expect((scoped as unknown as Record<symbol, unknown>)[internal]).toBeUndefined();
+    expect(new URL(scoped!.url).pathname).toBe("/tasks");
   });
 
   test("guard can reject a frame request", async () => {

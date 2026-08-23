@@ -151,6 +151,18 @@ async function ssr(request: Request): Promise<Response | undefined> {
       method: "POST",
       headers,
     });
+    // Forward framework request context (symbol-keyed expandos, e.g.
+    // oxidejs's env/fetch-ctx marker) to the scoped request.
+    for (const sym of Object.getOwnPropertySymbols(request)) {
+      if (Symbol.keyFor(sym) === undefined) continue;
+      try {
+        (scoped as unknown as Record<symbol, unknown>)[sym] = (
+          request as unknown as Record<symbol, unknown>
+        )[sym];
+      } catch {
+        // non-writable expando — skip
+      }
+    }
     const html = await renderServerIsland(id, scoped, (scopedRequest, fn) =>
       Promise.resolve(runWithIslandRequest(scopedRequest, fn)),
     );
