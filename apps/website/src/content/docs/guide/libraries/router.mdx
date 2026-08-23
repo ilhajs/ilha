@@ -167,7 +167,7 @@ export const load = loader(async ({ params, signal }) => {
 });
 
 export default ilha<InferLoader<typeof load>>(({ input }) => (
-  <h1>{input.user.name}</h1>
+  <h1>{input.load.value.user.name}</h1>
 ));
 ```
 
@@ -539,7 +539,7 @@ export const load = loader(async ({ params, signal }) => {
 });
 
 export default ilha<InferLoader<typeof load>>(({ input }) => (
-  <h1>{input.user.name}</h1>
+  <h1>{input.load.value.user.name}</h1>
 ));
 ```
 
@@ -563,21 +563,26 @@ export const load = loader.client(async ({ signal }) => {
 });
 
 export default ilha<InferLoader<typeof load>>(({ input }) => (
-  <Dashboard stats={input.stats} />
+  <Dashboard
+    stats={input.load.value.stats}
+    loading={input.load.loading}
+  />
 ));
 ```
 
 #### The `input.load` envelope
 
-Client-loader results are exposed through an envelope shaped like ilha's derived one — call it to read the value, or read `loading`/`value`/`error` directly:
+Client-loader results arrive in an envelope shaped like ilha's derived one:
 
 ```ts
-input.load(); // → { stats } — same as input.load.value
+input.load.value; // → { stats }
 input.load.loading; // false once the loader has settled
 input.load.error; // undefined when no error
 ```
 
-Server `load` data uses the **same envelope** — every loader result, server or client, reads through `input.load`. During server rendering it is a plain object (`input.load.value.stats`); on the client it is a callable accessor (`input.load()`).
+Read it via property access (`input.load.value.stats`). Server `load` data uses the identical shape, so templates work unchanged across both.
+
+Every loader result — server or client — reads through `input.load` with the same shape in all contexts.
 
 - Client loaders are **bundled into the client** — never put secrets, database clients, or server-only imports in them. Keep those in `load`, which stays server-only.
 - A page can export **both**: `load` runs during SSR (first paint), the client loader runs on client navigations instead of the endpoint fetch. Make them return the same shape, then infer the page input from either loader.

@@ -989,7 +989,6 @@ async function runLocalLoader(
   matchParams: Record<string, string> | undefined,
   pathWithSearch: string,
   signal?: AbortSignal,
-  isClientLoader = false,
 ): Promise<LoaderFetchResult> {
   const url = new URL(pathWithSearch, location.origin);
   const params = extractParams(matchParams);
@@ -1018,20 +1017,7 @@ async function runLocalLoader(
     return { kind: "redirect", to: safe.to, status: result.status };
   }
   if (result.kind === "data") {
-    // Client-loader results are exposed ONLY through the load envelope — a
-    // derived-style accessor (`input.load()`) with `loading`/`value`/`error`
-    // properties. Server-loader props keep the flat spread: they always
-    // settle before render, so there is nothing to track.
-    const value = (result.data ?? {}) as Record<string, unknown>;
-    const data = isClientLoader
-      ? {
-          load: Object.assign(() => value, {
-            loading: false,
-            value,
-            error: undefined,
-          }),
-        }
-      : result.data;
+    const data = envelopLoad(result.data);
     return headEntries.length > 0 ? { kind: "data", data, headEntries } : { kind: "data", data };
   }
   return result;
@@ -1074,7 +1060,6 @@ async function fetchLoaderData(
       localMatch?.params as Record<string, string> | undefined,
       pathWithSearch,
       signal,
-      !!localMatch?.data?.clientLoader,
     );
   }
 
@@ -1202,7 +1187,7 @@ async function updateRouteInPlace(
   // ?page=). Only apply when the loader contributed some — an empty apply
   // would sweep managed tags set at mount time.
   if (result.headEntries?.length) applyHeadEntriesToDocument([...result.headEntries]);
-  handle.updateProps(reviveLoadEnvelope(result.data) ?? {});
+  handle.updateProps(result.data);
   return "updated";
 }
 
@@ -1587,20 +1572,6 @@ let _routes = createRouteRegistry();
 /** Wrap loader data in the load envelope (plain, serializable). */
 function envelopLoad(data: unknown): Record<string, unknown> {
   return { load: { loading: false, value: data ?? {}, error: undefined } };
-}
-
-/** Revive a plain load envelope into a derived-style callable accessor. */
-function reviveLoadEnvelope<T extends Record<string, unknown> | undefined>(props: T): T {
-  const load = (props as Record<string, unknown> | undefined)?.load;
-  if (!load || typeof load !== "object" || typeof load === "function") return props;
-  const raw = load as { loading?: boolean; value?: Record<string, unknown>; error?: unknown };
-  const value = raw.value ?? {};
-  const env = Object.assign(() => value, {
-    loading: !!raw.loading,
-    value,
-    error: raw.error,
-  });
-  return { ...(props as Record<string, unknown>), load: env } as unknown as T;
 }
 
 // ─────────────────────────────────────────────
@@ -2839,9 +2810,10 @@ export function router(options: RouterOptions = {}): RouterBuilder {
             ? await fetchLoaderData(pathWithSearch)
             : { kind: "data", data: {} };
           if (loaderResult.kind === "redirect" || loaderResult.kind === "error") return;
-          const props = reviveLoadEnvelope(
-            loaderResult.kind === "data" ? loaderResult.data : {},
-          ) as Record<string, unknown>;
+          const props = (loaderResult.kind === "data" ? loaderResult.data : {}) as Record<
+            string,
+            unknown
+          >;
           const headStore: HeadStore = {
             entries: [...(loaderResult.kind === "data" ? (loaderResult.headEntries ?? []) : [])],
           };
@@ -2997,10 +2969,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           });
           return;
         }
-        const props = reviveLoadEnvelope(result.kind === "data" ? result.data : {}) as Record<
-          string,
-          unknown
-        >;
+        const props = (result.kind === "data" ? result.data : {}) as Record<string, unknown>;
 
         if (sameIsland && mountedHandle?.updateProps) {
           // Loader head entries keep title/meta in sync; skip when empty so a
@@ -3340,7 +3309,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           head: serializeHead(headStore.entries),
         };
       }
-      props = result.data;
+      props = envelopLoad(result.data);
     }
 
     const reverseRegistry = buildReverseRegistry(registry);
