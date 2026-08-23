@@ -105,17 +105,17 @@
     "templates/oxide-spa": {
       "name": "@ilha/template-oxide-spa",
       "dependencies": {
-        "@ilha/router": "^0.9.0",
+        "@ilha/router": "^0.9.1",
         "areia": "^0.2.5",
         "ilha": "^0.11.0",
         "quando": "^0.1.6",
         "sonner": "^2.0.8",
-        "tacho": "^0.4.3",
+        "tacho": "^0.5.0",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.3",
         "@types/node": "^24",
-        "oxidejs": "^0.2.0",
+        "oxidejs": "^0.2.1",
         "tailwindcss": "^4.3.3",
         "typescript": "^7.0.2",
         "vite": "^8.2.2",
@@ -1184,7 +1184,7 @@
 
     "oxfmt": ["oxfmt@0.63.0", "", { "dependencies": { "tinypool": "2.1.0" }, "optionalDependencies": { "@oxfmt/binding-android-arm-eabi": "0.63.0", "@oxfmt/binding-android-arm64": "0.63.0", "@oxfmt/binding-darwin-arm64": "0.63.0", "@oxfmt/binding-darwin-x64": "0.63.0", "@oxfmt/binding-freebsd-x64": "0.63.0", "@oxfmt/binding-linux-arm-gnueabihf": "0.63.0", "@oxfmt/binding-linux-arm-musleabihf": "0.63.0", "@oxfmt/binding-linux-arm64-gnu": "0.63.0", "@oxfmt/binding-linux-arm64-musl": "0.63.0", "@oxfmt/binding-linux-ppc64-gnu": "0.63.0", "@oxfmt/binding-linux-riscv64-gnu": "0.63.0", "@oxfmt/binding-linux-riscv64-musl": "0.63.0", "@oxfmt/binding-linux-s390x-gnu": "0.63.0", "@oxfmt/binding-linux-x64-gnu": "0.63.0", "@oxfmt/binding-linux-x64-musl": "0.63.0", "@oxfmt/binding-openharmony-arm64": "0.63.0", "@oxfmt/binding-win32-arm64-msvc": "0.63.0", "@oxfmt/binding-win32-ia32-msvc": "0.63.0", "@oxfmt/binding-win32-x64-msvc": "0.63.0" }, "peerDependencies": { "svelte": "^5.0.0", "vite-plus": "*" }, "optionalPeers": ["svelte", "vite-plus"], "bin": { "oxfmt": "bin/oxfmt" } }, "sha512-kgdDwv35wvVf6554U2Ab8Jnd0zTM+TsEQWwaB70RAjK3gICFAFGO+2Hd3Be27GMoXj3XRL9IKSNRVl7KBQL6iw=="],
 
-    "oxidejs": ["oxidejs@0.2.0", "", { "dependencies": { "unplugin": "^3.3.0" }, "peerDependencies": { "@rsbuild/core": "*", "crossws": "*", "tacho": "*", "vite": "*" }, "optionalPeers": ["@rsbuild/core", "crossws", "tacho", "vite"] }, "sha512-xvMZUTEQhk0RjuNOazI0HF//1yIwxOkAkezWSVXoMCDe04nvJbVPiQayPxsJGptrZJH+3dDEiXGpAbdjVoqYSw=="],
+    "oxidejs": ["oxidejs@0.2.1", "", { "dependencies": { "unplugin": "^3.3.0" }, "peerDependencies": { "@rsbuild/core": "*", "crossws": "*", "tacho": "*", "vite": "*" }, "optionalPeers": ["@rsbuild/core", "crossws", "tacho", "vite"] }, "sha512-spajyg17mRV4kbI4cNXggnMLUQuiEIa10DT88++ZBdmg2ZYubzEr/W8V6WMj4/zsUoUZIytKEU8aP5MT36rEpw=="],
 
     "oxlint": ["oxlint@1.79.0", "", { "optionalDependencies": { "@oxlint/binding-android-arm-eabi": "1.79.0", "@oxlint/binding-android-arm64": "1.79.0", "@oxlint/binding-darwin-arm64": "1.79.0", "@oxlint/binding-darwin-x64": "1.79.0", "@oxlint/binding-freebsd-x64": "1.79.0", "@oxlint/binding-linux-arm-gnueabihf": "1.79.0", "@oxlint/binding-linux-arm-musleabihf": "1.79.0", "@oxlint/binding-linux-arm64-gnu": "1.79.0", "@oxlint/binding-linux-arm64-musl": "1.79.0", "@oxlint/binding-linux-ppc64-gnu": "1.79.0", "@oxlint/binding-linux-riscv64-gnu": "1.79.0", "@oxlint/binding-linux-riscv64-musl": "1.79.0", "@oxlint/binding-linux-s390x-gnu": "1.79.0", "@oxlint/binding-linux-x64-gnu": "1.79.0", "@oxlint/binding-linux-x64-musl": "1.79.0", "@oxlint/binding-openharmony-arm64": "1.79.0", "@oxlint/binding-win32-arm64-msvc": "1.79.0", "@oxlint/binding-win32-ia32-msvc": "1.79.0", "@oxlint/binding-win32-x64-msvc": "1.79.0" }, "peerDependencies": { "oxlint-tsgolint": ">=7.0.2001", "vite-plus": "*" }, "optionalPeers": ["oxlint-tsgolint", "vite-plus"], "bin": { "oxlint": "bin/oxlint" } }, "sha512-hVJ9hq9m2unPS+Of4eJJgCPdIeCC+3DHEUX3tkmrPJr3OK2hz7PhXwgC+ZP71ZcYu8cCDEtQrqLxWNvxBppBVg=="],
 
@@ -1352,7 +1352,7 @@
 
     "svgo": ["svgo@4.0.2", "", { "dependencies": { "commander": "^11.1.0", "css-select": "^5.1.0", "css-tree": "^3.0.1", "css-what": "^6.1.0", "csso": "^5.0.5", "picocolors": "^1.1.1", "sax": "^1.5.0" }, "bin": "./bin/svgo.js" }, "sha512-ekx94z1rRc5LDi6oSUaeRnYhd0UOJxdtQCL2rF8xpWxD3TPAsISWOrxezqGovqS38GRZOdpDfvQe3ts6F7nsng=="],
 
-    "tacho": ["tacho@0.4.3", "", { "peerDependencies": { "crossws": "^0.4.0" }, "optionalPeers": ["crossws"] }, "sha512-F84d90stYRe2emQyCcE5sHH23llhd/rp7Ah1bK9iyBiWisgll3vygsXvZufZ0RWm/qEU2gB9XTdSVBPkiWMsVw=="],
+    "tacho": ["tacho@0.5.0", "", { "peerDependencies": { "crossws": "^0.4.0" }, "optionalPeers": ["crossws"] }, "sha512-9ZLTysOui6aVKT9RL7KkHZhL8kul1ri9RmHkOcwVBTGWPH3Ya4JUvNekg4pqqhQnoyrXU6HBSvq/eUWA5XBXwA=="],
 
     "tailwind-merge": ["tailwind-merge@3.6.0", "", {}, "sha512-uxL7qAVQriqRQPAyK3pj66VqskWqoZ37PW94jwOTwNfq/z9oyu1V+eqrZqtR2+fCiXdYOZe/Modt8GtvqNzu+w=="],
 
