@@ -17,14 +17,14 @@ describe("scanServerIslands", () => {
   const SOURCE = `
 import { ilha } from "ilha";
 
-export async function* getTasks(_options?: ActionOptions): AsyncGenerator<Task[]> {
+export async function* getTasks() {
   yield [];
 }
 
-export async function toggleTask(id: string): Promise<void> {}
+export async function toggleTask(id: string) {}
 
 export const Tasks = ilha
-  .stream("tasks", ({ signal }) => getTasks({ signal }))
+  .stream("tasks", () => getTasks())
   .action("toggle", (id: string) => toggleTask(id))
   .as("section")
   .render(({ state }) => html\`<p>\${state.tasks()}</p>\`);

@@ -1018,13 +1018,18 @@ async function runLocalLoader(
     return { kind: "redirect", to: safe.to, status: result.status };
   }
   if (result.kind === "data") {
-    // Client-loader results carry a settled load envelope (`input.load`),
-    // mirroring ilha's derived envelope shape. Server-loader props keep the
-    // legacy flat spread — they always settle before render.
+    // Client-loader results are exposed ONLY through the load envelope — a
+    // derived-style accessor (`input.load()`) with `loading`/`value`/`error`
+    // properties. Server-loader props keep the flat spread: they always
+    // settle before render, so there is nothing to track.
+    const value = (result.data ?? {}) as Record<string, unknown>;
     const data = isClientLoader
       ? {
-          ...result.data,
-          load: { loading: false, value: result.data ?? {}, error: undefined },
+          load: Object.assign(() => value, {
+            loading: false,
+            value,
+            error: undefined,
+          }),
         }
       : result.data;
     return headEntries.length > 0 ? { kind: "data", data, headEntries } : { kind: "data", data };
@@ -1089,7 +1094,19 @@ async function fetchLoaderData(
       }
       return { kind: "error", status: res.status, message: res.statusText };
     }
-    return (await res.json()) as LoaderFetchResult;
+    const parsed = (await res.json()) as LoaderFetchResult;
+    // Server-loader data reaches the page through the same load envelope as
+    // client loaders.
+    if (
+      parsed.kind === "data" &&
+      !localMatch?.data?.clientLoader &&
+      parsed.data &&
+      typeof parsed.data === "object" &&
+      !("load" in (parsed.data as object))
+    ) {
+      return { ...parsed, data: envelopLoad(parsed.data) };
+    }
+    return parsed;
   } catch (e: any) {
     if (e?.name === "AbortError") throw e;
     return { kind: "error", status: 0, message: e?.message ?? "network error" };
@@ -1185,7 +1202,7 @@ async function updateRouteInPlace(
   // ?page=). Only apply when the loader contributed some — an empty apply
   // would sweep managed tags set at mount time.
   if (result.headEntries?.length) applyHeadEntriesToDocument([...result.headEntries]);
-  handle.updateProps(result.data);
+  handle.updateProps(reviveLoadEnvelope(result.data) ?? {});
   return "updated";
 }
 
@@ -1566,6 +1583,25 @@ interface RouteData {
 }
 
 let _routes = createRouteRegistry();
+
+/** Wrap loader data in the load envelope (plain, serializable). */
+function envelopLoad(data: unknown): Record<string, unknown> {
+  return { load: { loading: false, value: data ?? {}, error: undefined } };
+}
+
+/** Revive a plain load envelope into a derived-style callable accessor. */
+function reviveLoadEnvelope<T extends Record<string, unknown> | undefined>(props: T): T {
+  const load = (props as Record<string, unknown> | undefined)?.load;
+  if (!load || typeof load !== "object" || typeof load === "function") return props;
+  const raw = load as { loading?: boolean; value?: Record<string, unknown>; error?: unknown };
+  const value = raw.value ?? {};
+  const env = Object.assign(() => value, {
+    loading: !!raw.loading,
+    value,
+    error: raw.error,
+  });
+  return { ...(props as Record<string, unknown>), load: env } as unknown as T;
+}
 
 // ─────────────────────────────────────────────
 // Shared match → params extraction
@@ -2803,7 +2839,9 @@ export function router(options: RouterOptions = {}): RouterBuilder {
             ? await fetchLoaderData(pathWithSearch)
             : { kind: "data", data: {} };
           if (loaderResult.kind === "redirect" || loaderResult.kind === "error") return;
-          const props = loaderResult.kind === "data" ? loaderResult.data : {};
+          const props = reviveLoadEnvelope(
+            loaderResult.kind === "data" ? loaderResult.data : {},
+          ) as Record<string, unknown>;
           const headStore: HeadStore = {
             entries: [...(loaderResult.kind === "data" ? (loaderResult.headEntries ?? []) : [])],
           };
@@ -2959,7 +2997,10 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           });
           return;
         }
-        const props = result.kind === "data" ? result.data : {};
+        const props = reviveLoadEnvelope(result.kind === "data" ? result.data : {}) as Record<
+          string,
+          unknown
+        >;
 
         if (sameIsland && mountedHandle?.updateProps) {
           // Loader head entries keep title/meta in sync; skip when empty so a
@@ -3147,11 +3188,16 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           return { ...result, to: safe.to };
         }
         if (result.kind !== "data") return result;
-        if (headStore.entries.length === 0) return result;
+        // Server-loader data uses the same load envelope as client loaders.
+        const enveloped = {
+          ...result,
+          data: { load: { loading: false, value: result.data ?? {}, error: undefined } },
+        };
+        if (headStore.entries.length === 0) return enveloped;
         // `head` (serialized) feeds SSR shells; `headEntries` (raw POJOs) let
         // client navigations apply loader head to the live document.
         return {
-          ...result,
+          ...enveloped,
           head: serializeHead(headStore.entries),
           headEntries: headStore.entries,
         };

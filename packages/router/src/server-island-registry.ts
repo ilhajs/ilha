@@ -168,12 +168,16 @@ export async function renderServerIsland(
     const params = entry.pattern ? matchPatternParams(entry.pattern, url.pathname) : {};
     if (!params) throw new FrameError(400, "frame failed");
     try {
-      props = await entry.load({
+      const result = await entry.load({
         params,
         request,
         url,
         signal: request.signal,
       });
+      // Same load envelope as client loaders and regular-page loads.
+      props = {
+        load: { loading: false, value: result ?? {}, error: undefined },
+      };
     } catch (error) {
       const marker = error as { __ilhaRedirect?: boolean; __ilhaLoaderError?: boolean };
       if (marker.__ilhaRedirect === true) {

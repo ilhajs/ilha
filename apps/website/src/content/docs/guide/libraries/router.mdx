@@ -48,53 +48,34 @@ router()
 
 ### Server-side rendering
 
-```ts
-import { router } from "@ilha/router";
-import { HomePage, AboutPage, NotFound } from "./pages";
+SSR is built into the SPA router — no separate server entry or render call. Add the SSR middleware and mark what runs on the server:
 
-const html = router()
-  .route("/", HomePage)
-  .route("/about", AboutPage)
-  .route("/**", NotFound)
-  .render(request.url);
+```ts twoslash
+// vite.config.ts
+import pages from "@ilha/router/vite";
+import oxide from "oxidejs/vite";
+import { defineConfig } from "vite";
 
-return new Response(
-  `<!doctype html><html><body>${html}</body></html>`,
-  {
-    headers: { "content-type": "text/html" },
-  },
-);
+export default defineConfig({
+  plugins: [
+    oxide({ middleware: ["@ilha/router/ssr"] }),
+    pages(),
+  ],
+});
 ```
 
-### SSR + hydration (recommended)
+**Selective**: move a component into a `*.server.ts(x)` file, import it, and use it like any other element. Its markup renders on the server and stays live through frames:
 
-```ts
-// server entry — SSR / Oxide
-import { pageRouter, registry } from "ilha:pages/server";
-import "ilha:loaders"; // wires server-only loaders onto pageRouter
+```tsx
+// src/pages/index.tsx
+import { TaskList } from "$lib/tasks.server";
 
-export default {
-  async fetch(request: Request) {
-    const html = await pageRouter.renderHydratable(
-      request.url,
-      registry,
-    );
-    return new Response(
-      `<!doctype html><html><body>${html}</body></html>`,
-      {
-        headers: { "content-type": "text/html" },
-      },
-    );
-  },
-};
+export default ilha.render(() => <TaskList />);
 ```
 
-```ts
-// client entry
-import { pageRouter, registry } from "ilha:pages/client";
+**Whole pages**: rename `src/pages/about.tsx` to `src/pages/about.server.tsx` and the entire route renders server-side.
 
-pageRouter.hydrate(registry);
-```
+Details: [Server islands](#server-islands-servertsx), [Server pages](#server-pages-fooservertsx).
 
 ## The `router()` builder
 
@@ -136,37 +117,9 @@ Mounts the router into a DOM element or CSS selector. Sets up `popstate` listeni
 
 While mounted, the router takes over scroll restoration (`history.scrollRestoration = "manual"`): pushes scroll to the top or to the `#hash` target, and back/forward restores the position saved for that history entry — in both directions. Opt out per navigation with `navigate(to, { scroll: false })`. Positions live in memory only; after a full reload the browser's own restoration takes over.
 
-### `.render(url)` — server only
+### Manual SSR rendering — custom hosts only
 
-Returns a synchronous HTML string for the matched route. When no route matches, renders the `notFound` island if configured, otherwise `<div data-router-empty></div>`.
-
-### `.renderHydratable(url, registry, options?, request?)` — server only
-
-Async variant of `.render()` that outputs HTML with `data-ilha` hydration markers and serialized loader data. Use this in your SSR handler for the full hydration pipeline.
-
-### `.renderResponse(url, registry, options?, request?)` — server only
-
-Structured-envelope variant of `.renderHydratable()` that returns a discriminated union instead of a raw string, letting your server emit proper HTTP status codes:
-
-```ts
-const res = await router()
-  .route("/protected", protectedPage, authLoader)
-  .renderResponse("/protected", registry);
-
-if (res.kind === "redirect")
-  return Response.redirect(res.to, res.status);
-if (res.kind === "error")
-  return new Response(res.html, { status: res.status });
-return new Response(res.html, {
-  headers: { "content-type": "text/html" },
-});
-```
-
-| `kind`       | Fields                      | When                             |
-| ------------ | --------------------------- | -------------------------------- |
-| `"html"`     | `html`, `status?`           | Normal render                    |
-| `"redirect"` | `to`, `status`              | Loader called `redirect()`       |
-| `"error"`    | `status`, `message`, `html` | Loader called `error()` or threw |
+The builder also exposes `render(url)`, `renderHydratable(url, registry, options?, request?)`, and `renderResponse(...)` for hosting setups that render routes in their own fetch handler instead of the built-in middleware. You do not need them for file-system routing with [oxidejs](https://npmjs.com/package/oxidejs) — SSR is already embedded.
 
 ### `.hydrate(registry, options?)` — browser only
 
@@ -231,7 +184,7 @@ The loader receives a `LoaderContext`:
 }
 ```
 
-On the server, loaders run inside `.renderHydratable()`. You can also call **`.runLoader(url, request?)`** on the builder to execute a loader without rendering HTML.
+On the server, loaders run when a route is rendered — at frame time for server pages, and inside the SSR middleware's `/__ilha/loader` endpoint for regular pages. You can also call **`.runLoader(url, request?)`** on the builder to execute a loader without rendering HTML.
 
 A loader runs **wherever the router runs**. When the route was registered in the browser — a plain SPA via `.route(pattern, island, loader)`, hash mode, Electron, `file://` — client navigations execute the loader locally: no server or loader endpoint needed. Routes that only _mark_ a server loader (the SSR-split pages build) fetch from the `/__ilha/loader` endpoint instead. Locally-executed loaders receive a synthetic `Request` (no cookies or server context) — rely on `url`, `params`, and `signal`; `redirect()`s are checked against the same cross-origin policy as on the server.
 
@@ -256,7 +209,7 @@ redirect("/moved", 301); // permanent
 
 ### `error(status, message)`
 
-Throws a loader error sentinel. On the server, use `.renderResponse()` to intercept it and emit a proper HTTP status code.
+Throws a loader error sentinel. On the server, intercept it with `.renderResponse()` (custom hosts) or the SSR middleware, which emits the proper HTTP status code automatically.
 
 ```ts
 error(404, "Not found");
@@ -616,13 +569,15 @@ export default ilha<InferLoader<typeof load>>(({ input }) => (
 
 #### The `input.load` envelope
 
-Client-loader results arrive in an envelope shaped like ilha's derived one:
+Client-loader results are exposed through an envelope shaped like ilha's derived one — call it to read the value, or read `loading`/`value`/`error` directly:
 
 ```ts
-input.load; // { loading: boolean, value: T | undefined, error: Error | undefined }
+input.load(); // → { stats } — same as input.load.value
+input.load.loading; // false once the loader has settled
+input.load.error; // undefined when no error
 ```
 
-The result also keeps its legacy flat spread into `input`, so existing pages are unaffected. Server `load` data never carries an envelope — it always settles before render, so there is nothing to track.
+Server `load` data uses the **same envelope** — every loader result, server or client, reads through `input.load`. During server rendering it is a plain object (`input.load.value.stats`); on the client it is a callable accessor (`input.load()`).
 
 - Client loaders are **bundled into the client** — never put secrets, database clients, or server-only imports in them. Keep those in `load`, which stays server-only.
 - A page can export **both**: `load` runs during SSR (first paint), the client loader runs on client navigations instead of the endpoint fetch. Make them return the same shape, then infer the page input from either loader.
@@ -811,19 +766,19 @@ Routes are sorted automatically — no need to order files manually:
 
 Within the same tier, longer segment counts and alphabetical order act as tiebreakers.
 
-## SSR + hydration flow
+## How SSR reaches the client
 
 ```
 server                              client
 ──────────────────────────────────  ────────────────────────────────────
-renderHydratable(url, registry)     pageRouter.hydrate(registry)
-  → loader runs, props serialized     → prime() — syncs route signals
-  → island.hydratable(props, …)       → mount(registry) — hydrates islands
-  → data-ilha-state snapshot          → mount(target, { hydrate: true })
-  → data-ilha-props on island           → navigation handler activated
+POST /__ilha/frame {id, path}       server-island proxy mounts
+  → loader runs at frame time         → morphs HTML into place
+  → island re-rendered from state     → actions replay over RPC
+GET /__ilha/loader?path=…           regular-page client navigation
+  → loader data as JSON               → next view mounts hydrated
 ```
 
-On navigation, the client fetches `/__ilha/loader?path=…`, receives loader data as JSON, and mounts the next island with hydration markers — no full page reload.
+Server islands and server pages pull their markup through `/__ilha/frame`; regular-page loaders fetch their data from `/__ilha/loader`. Both endpoints are served by the [`"@ilha/router/ssr"` middleware](#server-side-rendering) — no host code required.
 
 ## TypeScript
 

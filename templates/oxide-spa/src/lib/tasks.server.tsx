@@ -1,12 +1,8 @@
-import { EventEmitter, on } from "node:events";
-
-// Island-render scope (page SSR + frames). Oxide's useRequest only exists
-// inside /_action execution, so the stream keeps an aliased import for its
-// live-subscription signal.
 import { Button, Checkbox } from "areia";
 import ilha from "ilha";
-import { action, useRequest as useActionRequest, type ActionOptions } from "oxidejs";
+import { action, useRequest } from "oxidejs";
 import { each } from "quando";
+import { Publisher } from "tacho";
 
 export type Task = {
   id: string;
@@ -19,45 +15,37 @@ const tasks: Task[] = [
   { id: "2", text: "Develop my Ilha app", completed: false },
   { id: "3", text: "Deploy my Ilha app", completed: false },
 ];
-const emitter = new EventEmitter();
+const changes = new Publisher<{ change: Task[] }>();
 
 const snapshot = () => tasks.map((task) => ({ ...task }));
-const notify = () => emitter.emit("change");
+const notify = () => changes.publish("change", snapshot());
 
-export const getTasks = action(async function* (_options?: ActionOptions): AsyncGenerator<Task[]> {
-  // Live change subscription needs a request scope (SSE over /_action).
-  // Island SSR and frame re-renders have none — they pull snapshots only.
-  let changes: AsyncIterableIterator<unknown> | undefined;
-  try {
-    changes = on(emitter, "change", { signal: useActionRequest().signal });
-  } catch {
-    changes = undefined;
-  }
+export const getTasks = action(async function* () {
+  const signal = useRequest().signal;
 
   try {
     yield snapshot();
-    if (!changes) return;
-    for await (const _ of changes) yield snapshot();
+    for await (const tasks of changes.subscribe("change", { signal })) yield tasks;
   } catch (error) {
     if ((error as { name?: string }).name !== "AbortError") throw error;
   }
 });
 
-export const createTask = action(async (text: string): Promise<void> => {
+export const createTask = action(async (text: string) => {
   const trimmed = text.trim();
   if (!trimmed) return;
   tasks.push({ id: crypto.randomUUID(), text: trimmed, completed: false });
   notify();
 });
 
-export const toggleTask = action(async (id: string): Promise<void> => {
+export const toggleTask = action(async (id: string) => {
   const task = tasks.find((task) => task.id === id);
   if (!task) return;
   task.completed = !task.completed;
   notify();
 });
 
-export const deleteTask = action(async (id: string): Promise<void> => {
+export const deleteTask = action(async (id: string) => {
   const index = tasks.findIndex((task) => task.id === id);
   if (index === -1) return;
   tasks.splice(index, 1);
@@ -69,7 +57,7 @@ export const deleteTask = action(async (id: string): Promise<void> => {
 // the client hydrates a proxy that replays actions over RPC and morphs
 // streamed HTML frames into place.
 export const TaskList = ilha
-  .stream("items", ({ signal }) => getTasks({ signal }))
+  .stream("items", () => getTasks())
   .action("toggle", (id: string) => toggleTask(id))
   .action("remove", (id: string) => deleteTask(id))
   .render(({ state, action }) => (
