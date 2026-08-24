@@ -1,5 +1,5 @@
 import { LayerCard, LinkButton } from "areia";
-import ilha, { raw } from "ilha";
+import { ilha, raw } from "ilha";
 import { each } from "quando";
 
 const LINK_ICON =

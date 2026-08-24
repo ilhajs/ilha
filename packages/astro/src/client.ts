@@ -1,4 +1,4 @@
-import ilha, { raw } from "ilha";
+import { ilha, raw } from "ilha";
 
 interface MountableIsland {
   mount(host: Element, props?: Record<string, unknown>): () => void;

@@ -9,7 +9,7 @@ export const URLS = {
 export const META_DESCRIPTION =
   "Build fast, interactive websites with JavaScript only where you need it. Ilha works with your existing stack and keeps every page lightweight.";
 
-export const COUNTER_CODE = `import ilha, { mount } from "ilha";
+export const COUNTER_CODE = `import { ilha, mount } from "ilha";
 
 const Signup = ilha
   .state("email", "")
@@ -39,7 +39,7 @@ const Signup = ilha
 // Hydrate matching server-rendered Signup hosts.
 mount({ Signup });`;
 
-export const SIGNALS_CODE = `import ilha from "ilha";
+export const SIGNALS_CODE = `import { ilha } from "ilha";
 
 const Search = ilha
   .state("query", "")
@@ -119,7 +119,7 @@ export default defineConfig({
   integrations: [ilha()],
 });`;
 
-export const PREVIEW_CODE = `import ilha from "ilha";
+export const PREVIEW_CODE = `import { ilha } from "ilha";
 import { Button, Checkbox, Input, LayerCard } from "areia";
 
 let nextId = 4;

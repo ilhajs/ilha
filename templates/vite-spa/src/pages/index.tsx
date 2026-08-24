@@ -1,7 +1,7 @@
 import { loader, type InferLoader } from "@ilha/router";
 import { store } from "@ilha/store";
 import { Badge, Button, Checkbox, Input, LayerCard } from "areia";
-import ilha from "ilha";
+import { ilha } from "ilha";
 import { each } from "quando";
 
 type Todo = { id: string; text: string; completed: boolean };

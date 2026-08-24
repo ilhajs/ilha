@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 
-import ilha from "ilha";
+import { ilha } from "ilha";
 
 import {
   router,

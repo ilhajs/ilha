@@ -1,6 +1,6 @@
 import { isActive, defineLayout, head } from "@ilha/router";
 import { LinkButton } from "areia";
-import ilha from "ilha";
+import { ilha } from "ilha";
 
 export default defineLayout((Children) =>
   ilha(({ input }) => {

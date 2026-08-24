@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { z } from "zod";
 
-import ilha, { html, raw } from "./index";
+import { ilha, html, raw } from "./index";
 import * as jsxDevRuntime from "./jsx-dev-runtime";
 import { jsx, jsxs } from "./jsx-runtime";
 import * as jsxRuntime from "./jsx-runtime";

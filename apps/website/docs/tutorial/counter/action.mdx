@@ -1,0 +1,30 @@
+---
+title: .action()
+description: Tutorial — define a named counter operation and call it from a native event handler.
+seo:
+  title: Build a counter with .action() - Ilha
+---
+
+import { example } from "./action.examples";
+
+Use `.action()` to define a reusable operation that belongs to the island. Call it from a lowercase native event prop such as `onclick`:
+
+```tsx
+const Counter = ilha
+  .action("increase", (_, { state }) => {
+    state.count((count) => count + 1);
+  })
+  .render(({ action }) => (
+    <button onclick={action.increase}>Increase</button>
+  ));
+```
+
+The action owns the state update. The native handler connects that operation to one rendered element. You can call the same action from another event, effect, or mount hook without duplicating the update logic.
+
+<Preview code={example} size="lg" />
+
+## Similar concepts
+
+- React: event callbacks plus reducer actions
+- Vue: component methods called from `@click`
+- Svelte: functions called from `onclick`

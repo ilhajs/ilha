@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { z } from "zod";
 
-import ilha, { html, mount, raw, signal, type Island } from "./index";
+import { ilha, html, mount, raw, signal, type Island } from "./index";
 import { jsx, jsxs } from "./jsx-runtime";
 
 const RAW = Symbol.for("ilha.raw");

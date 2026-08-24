@@ -27,7 +27,7 @@ const ASTRO_BIN = join(
 );
 
 const JSX_COUNTER = `/** @jsxImportSource ilha */
-import ilha from "ilha";
+import { ilha } from "ilha";
 export const Counter = ilha
   .input<{ start?: number }>({ start: 0 })
   .state("count", (input) => input.start ?? 0)
@@ -41,7 +41,7 @@ export const Counter = ilha
 `;
 
 const HTML_COUNTER = `/** @jsxImportSource ilha */
-import ilha, { html } from "ilha";
+import { ilha, html } from "ilha";
 export const Counter = ilha
   .input<{ start?: number }>({ start: 0 })
   .state("count", (input) => input.start ?? 0)

@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import ilha, { html, ISLAND_MOUNT_HANDLES, mount as ilhaMount, raw } from "ilha";
+import { ilha, html, ISLAND_MOUNT_HANDLES, mount as ilhaMount, raw } from "ilha";
 import { jsx, jsxs } from "ilha/jsx-runtime";
 
 import { generate } from "./codegen";
@@ -18,8 +18,10 @@ import {
   LoaderError,
   loader,
   navigate,
+  Redirect,
   redirect,
   router,
+  serializeHead,
   wrapLayout,
   beforeNavigate,
   afterNavigate,
@@ -227,6 +229,87 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       const r = router().route("/", Page, load);
       const res = await r.runLoader("http://localhost/");
       expect(res).toEqual({ kind: "redirect", to: "/login", status: 307 });
+    });
+  });
+
+  describe("sentinel status validation", () => {
+    it("clamps Redirect to a real 3xx status", () => {
+      expect(new Redirect("/x", 302).status).toBe(302);
+      expect(new Redirect("/x", 301).status).toBe(301);
+      expect(new Redirect("/x", 307).status).toBe(307);
+      expect(new Redirect("/x", 999).status).toBe(302); // invalid → 302
+      expect(new Redirect("/x", 200).status).toBe(302);
+    });
+
+    it("clamps LoaderError to a real 4xx/5xx status", () => {
+      expect(new LoaderError(404, "nope").status).toBe(404);
+      expect(new LoaderError(500, "boom").status).toBe(500);
+      expect(new LoaderError(200, "bad").status).toBe(500); // invalid → 500
+      expect(new LoaderError(0, "zero").status).toBe(500);
+    });
+  });
+
+  describe("head serialization hardening", () => {
+    it("drops event-handler attribute names; keeps safe attrs and URLs", () => {
+      const out = serializeHead([
+        {
+          htmlAttrs: { onload: "alert(1)", "data-x": "ok", lang: "en" },
+          link: [{ rel: "icon", href: "javascript:alert(1)" }],
+        },
+      ]);
+      expect(out.htmlAttrs).not.toContain("onload");
+      expect(out.htmlAttrs).toContain('data-x="ok"');
+      expect(out.htmlAttrs).toContain('lang="en"');
+      expect(out.headTags).not.toContain("javascript:");
+    });
+
+    it("keeps safe link hrefs and drops an unsafe meta-refresh target", () => {
+      const safe = serializeHead([
+        {
+          link: [{ rel: "stylesheet", href: "/app.css" }],
+          meta: [{ "http-equiv": "refresh", content: "0; url=/home" }],
+        },
+      ]);
+      expect(safe.headTags).toContain('/app.css"');
+      expect(safe.headTags).toContain("refresh");
+
+      const unsafe = serializeHead([
+        { meta: [{ "http-equiv": "refresh", content: "0; url=javascript:alert(1)" }] },
+        { link: [{ rel: "stylesheet", href: "//evil.example/app.css" }] },
+        { script: [{ src: "//evil.example/app.js" }] },
+      ]);
+      expect(unsafe.headTags).not.toContain("refresh");
+      expect(unsafe.headTags).not.toContain("evil.example");
+    });
+  });
+
+  describe("request-first SSR API and respond()", () => {
+    it("derives URL from a Request in runLoader", async () => {
+      const load = loader(async ({ url }) => ({ path: url.pathname }));
+      const r = router().route("/user/:id", Page, load);
+      const res = await r.runLoader(new Request("http://localhost/user/42?tab=overview"));
+      expect(res.kind).toBe("data");
+      if (res.kind === "data") {
+        const enveloped = res.data as { load: { value: unknown } };
+        expect(enveloped.load.value).toEqual({ path: "/user/42" });
+      }
+    });
+
+    it("renderResponse accepts a Request as the first argument", async () => {
+      const r = router().route("/about", Page);
+      const res = await r.renderResponse(new Request("http://localhost/about"), { index: Page });
+      expect(res.kind).toBe("html");
+      if (res.kind === "html") expect(res.html).toContain("page");
+    });
+
+    it("respond() returns a Response with security headers", async () => {
+      const r = router().route("/", Page);
+      const res = await r.respond(new Request("http://localhost/"), { index: Page });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/html");
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(res.headers.get("cache-control")).toBe("no-store");
     });
   });
 
@@ -469,7 +552,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       try {
         const pagesDir = join(root, "pages");
         await mkdir(join(pagesDir, "foo"), { recursive: true });
-        const island = `import ilha from "ilha"; export default ilha.render(() => "<p>x</p>");`;
+        const island = `import { ilha } from "ilha"; export default ilha.render(() => "<p>x</p>");`;
         // Both map to "/foo"
         await writeFile(join(pagesDir, "foo.ts"), island);
         await writeFile(join(pagesDir, "foo", "index.ts"), island);

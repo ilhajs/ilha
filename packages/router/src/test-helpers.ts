@@ -2,7 +2,7 @@ import { mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import ilha from "ilha";
+import { ilha } from "ilha";
 
 export async function makeDir(suffix: string): Promise<string> {
   const dir = join(tmpdir(), `ilha-pages-test-${suffix}-${Date.now()}`);

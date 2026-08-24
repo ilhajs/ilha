@@ -1,0 +1,28 @@
+diff --git a/src/markdown/twoslash.ts b/src/markdown/twoslash.ts
+index 98142c16544a61e67ffae021eec32d475f1dab74..96f14498cc2aea561e9f903758f8620ff4541029 100644
+--- a/src/markdown/twoslash.ts
++++ b/src/markdown/twoslash.ts
+@@ -45,7 +45,14 @@ export const blumeTwoslashTransformer = (): ShikiTransformer => {
+     // Match the stock transformer's default: fence snippets are authored
+     // bundler-style (extensionless relative imports, package imports).
+     compilerOptions: {
++      jsx: tsModule.JsxEmit.ReactJSX,
++      jsxImportSource: "ilha",
++      module: tsModule.ModuleKind.ESNext,
+       moduleResolution: tsModule.ModuleResolutionKind.Bundler,
++      target: tsModule.ScriptTarget.ESNext,
++      strict: true,
++      esModuleInterop: true,
++      skipLibCheck: true,
+     },
+     // `require.resolve("typescript")` is the package's main entry,
+     // `lib/typescript.js`; its directory holds the `lib.*.d.ts` default libs.
+@@ -58,5 +65,8 @@ export const blumeTwoslashTransformer = (): ShikiTransformer => {
+     rendererRich()
+   )({
+     explicitTrigger: true,
++    // Documentation snippets are intentionally partial; enhance valid spans
++    // without turning unresolved tutorial placeholders into build failures.
++    throws: false,
+   });
+ };

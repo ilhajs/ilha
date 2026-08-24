@@ -1,0 +1,316 @@
+---
+import PageLayout from "blume/components/layout/PageLayout.astro";
+import Preview from "../src/components/Preview.astro";
+import HeroTechCards from "../src/components/landing/HeroTechCards.astro";
+import { ProjectCreatorForm } from "../src/components/landing/LandingIslands";
+import { Badge } from "../src/ui/badge";
+import { Button } from "../src/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../src/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../src/ui/tabs";
+import {
+  ILHA_ASTRO_CODE,
+  ILHA_ROUTER_CODE,
+  ILHA_STORE_CODE,
+  META_DESCRIPTION,
+  PREVIEW_CODE,
+  PRIMARY_ILHA_CARDS,
+  URLS,
+  USEFUL_EXTRAS_CARD,
+} from "../src/lib/landing-const";
+import { highlight } from "./_home/highlight";
+import { playgroundUrl } from "../src/lib/playground";
+import data from "blume:data";
+import { ClipboardText } from "areia";
+
+const { config } = data;
+import "../src/styles/landing.css";
+
+const OXIDE_SANDBOX = `${URLS.SANDBOX.replace("{template}", "oxide-spa")}?file=src%2Fpages%2Findex.tsx`;
+const PLAYGROUND_URL = playgroundUrl(PREVIEW_CODE);
+const SEO_TITLE = "Ilha - Build fast websites with islands";
+
+const previewHtml = highlight(PREVIEW_CODE, "ts");
+const routingHtml = highlight(ILHA_ROUTER_CODE, "ts");
+const storeHtml = highlight(ILHA_STORE_CODE, "ts");
+const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
+---
+
+<PageLayout
+  site={{ title: config.title, description: META_DESCRIPTION }}
+  logo={config.logo}
+  favicon={config.favicon}
+  appleIcon={config.appleIcon}
+  banner={config.banner}
+  analytics={config.analytics}
+  navigation={data.navigation}
+  page={{ title: SEO_TITLE, description: META_DESCRIPTION, route: "/" }}
+  themeMode={config.theme.mode}
+  fontCssVars={data.fontCssVars}
+  searchEnabled={config.search.enabled}
+  siteUrl={config.site}
+  ogEnabled={config.og.enabled}
+  structuredDataEnabled={config.structuredData}
+  x={config.x}
+>
+  <div class="landing-page bg-background text-foreground flex min-h-screen flex-col">
+    <div id="main-content" class="flex-1">
+      <section class="landing-hero border-border border-b">
+        <div
+          class="landing-shell grid min-w-0 gap-10 py-16 sm:gap-14 sm:py-24 lg:gap-16 lg:py-32"
+        >
+          <div class="landing-hero-copy landing-copy min-w-0 gap-6 sm:gap-7">
+            <div class="grid w-full min-w-0 justify-items-center gap-4 sm:gap-5">
+              <p class="landing-eyebrow">Fast pages. Less JavaScript.</p>
+              <h1 class="landing-display">Build fast websites and full apps, one island at a time.</h1>
+              <p class="landing-lede">
+                Ilha sends ready-to-view HTML first, then adds JavaScript only to the interactive
+                parts. Your pages load quickly, stay lightweight, and work with the stack you
+                already use.
+              </p>
+            </div>
+            <div class="grid w-full min-w-0 max-w-xl justify-items-stretch gap-3.5 sm:justify-items-center">
+              <div class="flex w-full min-w-0 flex-col items-stretch gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-3">
+                <Button
+                  as="a"
+                  href="/guide/getting-started/installation"
+                  class="w-full justify-center sm:w-auto sm:flex-none"
+                >
+                  Get started
+                </Button>
+                <Button
+                  as="a"
+                  href={OXIDE_SANDBOX}
+                  variant="secondary"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="w-full justify-center sm:w-auto sm:flex-none"
+                >
+                  Try it online
+                </Button>
+              </div>
+              <div class="landing-install">
+                <ClipboardText
+                  client:idle
+                  text="npx giget@latest gh:ilhajs/ilha/templates/vite-spa my-app"
+                  tooltip
+                  class="w-full min-w-0 text-left"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="landing-hero-visual w-full min-w-0 max-w-full">
+            <Card class="!pb-0">
+              <CardHeader class="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>playground.ilha.build</CardTitle>
+                  <CardDescription>Run this island in the playground.</CardDescription>
+                </div>
+                <Button
+                  as="a"
+                  href={PLAYGROUND_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="outline"
+                  size="icon"
+                  aria-label="Open playground"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 3h6v6" />
+                    <path d="M10 14 21 3" />
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  </svg>
+                </Button>
+              </CardHeader>
+              <CardContent class="border-t !p-0">
+                <div class="landing-preview-split">
+                  <div class="landing-preview-code font-mono" set:html={previewHtml} />
+                  <div class="landing-preview-run">
+                    <Preview code={PREVIEW_CODE} size="lg" mobilePreview activate="click" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      <section class="border-border border-b">
+        <div class="landing-shell py-8 sm:py-10">
+          <p class="landing-proof m-0 justify-self-center">
+            <Badge variant="secondary">Works with your existing tools</Badge>
+            <Badge variant="secondary">JavaScript only where needed</Badge>
+            <Badge variant="secondary">Type-safe by default</Badge>
+          </p>
+        </div>
+      </section>
+
+      <section class="border-border border-b">
+        <div class="landing-shell grid gap-10 py-16 sm:gap-12 sm:py-20 lg:py-24">
+          <div class="landing-copy">
+            <p class="landing-eyebrow">Why Ilha</p>
+            <h2 class="landing-section-title">Keep most of your page simple. Make only the useful parts interactive.</h2>
+            <p class="landing-lede">
+              Build your page with familiar components. When a search box, form, or menu needs to
+              respond to someone, turn that component into an island. Ilha leaves everything else
+              as lightweight HTML.
+            </p>
+          </div>
+          <HeroTechCards />
+        </div>
+      </section>
+
+      {
+        PRIMARY_ILHA_CARDS.map((tab, index) => {
+          const reverse = index % 2 === 1;
+          return (
+            <section class="border-border border-b">
+              <div class="landing-shell py-16 sm:py-20 lg:py-24">
+                <div
+                  class:list={[
+                    "grid items-center gap-10 lg:grid-cols-2 lg:gap-14 xl:gap-16",
+                    reverse && "lg:[&>*:first-child]:order-2",
+                  ]}
+                >
+                  <div class="grid gap-5">
+                    <p class="landing-eyebrow">{tab.label}</p>
+                    <h2 class="landing-section-title">{tab.title}</h2>
+                    <p class="landing-lede">{tab.description}</p>
+                    <ul class="text-muted-foreground m-0 grid gap-2.5 text-base">
+                      {tab.points.map((point) => (
+                        <li class="flex items-center gap-2.5">
+                          <span class="bg-foreground/55 size-1 shrink-0 rounded-full" />
+                          <span>{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <Card class="min-w-0">
+                    <CardHeader class="flex flex-row items-center justify-between">
+                      <CardTitle>{tab.file}</CardTitle>
+                      <CardDescription>tsx</CardDescription>
+                    </CardHeader>
+                    <CardContent class="font-mono">
+                      <Fragment set:html={highlight(tab.code, "ts")} />
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            </section>
+          );
+        })
+      }
+
+      <section class="border-border border-b">
+        <div class="landing-shell py-16 sm:py-20 lg:py-24">
+          <div class="grid items-center gap-10 lg:grid-cols-2 lg:gap-14 xl:gap-16 lg:[&>*:first-child]:order-2">
+            <div class="grid gap-5">
+              <p class="landing-eyebrow">{USEFUL_EXTRAS_CARD.label}</p>
+              <h2 class="landing-section-title">{USEFUL_EXTRAS_CARD.title}</h2>
+              <p class="landing-lede">{USEFUL_EXTRAS_CARD.description}</p>
+              <ul class="text-muted-foreground m-0 grid gap-2.5 text-base">
+                {
+                  USEFUL_EXTRAS_CARD.points.map((point) => (
+                    <li class="flex items-center gap-2.5">
+                      <span class="bg-foreground/55 size-1 shrink-0 rounded-full" />
+                      <span>{point}</span>
+                    </li>
+                  ))
+                }
+              </ul>
+            </div>
+            <Tabs defaultValue="routing" class="min-w-0">
+              <TabsList>
+                <TabsTrigger value="routing">@ilha/router</TabsTrigger>
+                <TabsTrigger value="store">@ilha/store</TabsTrigger>
+                <TabsTrigger value="astro">@ilha/astro</TabsTrigger>
+              </TabsList>
+              <TabsContent value="routing">
+                <Card><CardContent class="font-mono"><Fragment set:html={routingHtml} /></CardContent></Card>
+              </TabsContent>
+              <TabsContent value="store">
+                <Card><CardContent class="font-mono"><Fragment set:html={storeHtml} /></CardContent></Card>
+              </TabsContent>
+              <TabsContent value="astro">
+                <Card><CardContent class="font-mono"><Fragment set:html={astroHtml} /></CardContent></Card>
+              </TabsContent>
+            </Tabs>
+          </div>
+        </div>
+      </section>
+
+      <section class="border-border border-b">
+        <div class="landing-shell py-16 sm:py-20 lg:py-24">
+          <Card>
+            <CardHeader>
+              <p class="landing-eyebrow">Start your way</p>
+              <CardTitle class="landing-section-title">Add Ilha without rebuilding your stack.</CardTitle>
+              <CardDescription class="landing-lede">
+                Choose a starter for Vite or your server. You get a working, type-safe project with
+                fast server-rendered pages and focused interactivity—without adopting a full
+                application framework.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ProjectCreatorForm client:load />
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <section class="landing-close">
+        <div
+          class="landing-shell flex flex-col items-start justify-between gap-8 py-20 sm:flex-row sm:items-center sm:py-24 lg:py-28"
+        >
+          <div class="grid max-w-xl gap-4">
+            <p class="landing-eyebrow">Ready to build?</p>
+            <h2 class="landing-section-title">Create your first interactive component in five minutes.</h2>
+            <p class="landing-lede">
+              Follow the short guide or build a counter step by step. You will see how Ilha adds
+              interactivity without taking over the rest of your page.
+            </p>
+          </div>
+          <div class="flex w-full shrink-0 flex-col gap-2.5 sm:w-auto sm:flex-row sm:gap-3">
+            <Button
+              as="a"
+              href="/guide/getting-started/introduction"
+              class="w-full sm:w-auto"
+            >
+              Read the quick start
+            </Button>
+            <Button
+              as="a"
+              href="/tutorial/counter/state"
+              variant="secondary"
+              class="w-full sm:w-auto"
+            >
+              Build the counter
+            </Button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer
+      class="border-border text-muted-foreground mt-auto border-t px-5 py-8 text-center text-[0.875rem] leading-relaxed sm:px-6 sm:py-10"
+    >
+      Made with{" "}
+      <a href="https://ilha.build" class="text-foreground hover:underline">Ilha</a>
+      , in Europe ·
+      <a
+        href={URLS.GITHUB}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-foreground hover:underline"
+      >
+        GitHub
+      </a>
+    </footer>
+  </div>
+</PageLayout>

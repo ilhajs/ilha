@@ -1,17 +1,11 @@
-import { Button, Input, LinkButton, Radio, Switch, Tabs } from "areia";
-import ilha, { raw } from "ilha";
+import { Button, Input, LinkButton, Radio, Switch } from "areia";
+import { ilha } from "ilha";
 
 import { URLS } from "@/lib/landing-const";
 
 const TEMPLATES = [
   { value: "vite-spa", label: "Vite SPA", icon: "/vite.svg", sandbox: true },
   { value: "oxide-spa", label: "Oxide SPA", icon: "/oxide.svg", sandbox: true },
-] as const;
-
-const LIBRARY_TABS = [
-  { value: "routing", label: "@ilha/router" },
-  { value: "store", label: "@ilha/store" },
-  { value: "astro", label: "@ilha/astro" },
 ] as const;
 
 export const ProjectCreatorForm = ilha
@@ -115,57 +109,6 @@ export const ProjectCreatorForm = ilha
           <img src="/stackblitz.svg" class="size-4" alt="" />
           <span>Open Sandbox</span>
         </LinkButton>
-      </div>
-    </div>
-  ));
-
-export const UsefulExtrasSnippets = ilha
-  .input<{ routingHtml: string; storeHtml: string; astroHtml: string }>({
-    routingHtml: "",
-    storeHtml: "",
-    astroHtml: "",
-  })
-  .state("tab", "routing")
-  .action("selectTab", (value: string, { state }) => {
-    state.tab(value);
-  })
-  .effect(({ state, host }) => {
-    const panels = host.querySelectorAll<HTMLElement>("[data-panel]");
-    for (const panel of panels) {
-      if (panel.dataset.panel === state.tab()) {
-        panel.classList.remove("hidden");
-      } else {
-        panel.classList.add("hidden");
-      }
-    }
-  })
-  .render(({ state, input, action }) => (
-    <div class="flex w-full flex-col gap-2">
-      <Tabs
-        variant="segmented"
-        class="relative w-full"
-        activationMode="auto"
-        bind:group={state.tab}
-        onValueChange={action.selectTab}
-        tabs={[...LIBRARY_TABS]}
-      />
-      <div
-        data-panel="routing"
-        class={`text-xs leading-relaxed${state.tab() === "routing" ? "" : " hidden"}`}
-      >
-        {raw(input.routingHtml)}
-      </div>
-      <div
-        data-panel="store"
-        class={`text-xs leading-relaxed${state.tab() === "store" ? "" : " hidden"}`}
-      >
-        {raw(input.storeHtml)}
-      </div>
-      <div
-        data-panel="astro"
-        class={`text-xs leading-relaxed${state.tab() === "astro" ? "" : " hidden"}`}
-      >
-        {raw(input.astroHtml)}
       </div>
     </div>
   ));

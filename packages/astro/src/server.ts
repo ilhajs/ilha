@@ -1,5 +1,5 @@
 import type { AstroComponentMetadata, NamedSSRLoadedRendererValue } from "astro";
-import ilha, { raw } from "ilha";
+import { ilha, raw } from "ilha";
 
 // `Symbol.for` resolves to the same symbol across duplicate ilha copies in a
 // realm, so these checks work without importing ilha's internals directly.
@@ -188,7 +188,8 @@ async function renderToStaticMarkup(
   if (isIsland(Component)) {
     // `.hydratable()` embeds serialized props and a state snapshot in
     // `data-ilha-*` attributes, so the client entrypoint hydrates without a
-    // mismatch or re-running `.onMount()` work the SSR pass already did.
+    // mismatch or re-running `.onMount()` for snapshotted islands
+    // (`skipOnMount`). `.onMount()` is client-only — SSR never invokes it.
     const html = await Component.hydratable(await resolveProps(props), {
       name: metadata?.displayName ?? "IlhaIsland",
       snapshot: true,

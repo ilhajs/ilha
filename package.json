@@ -16,6 +16,11 @@
     "test": "bun run --parallel --filter './packages/*' test",
     "typecheck:website": "bun run --filter website typecheck"
   },
+  "dependencies": {
+    "bejamas": "^0.4.0",
+    "rangi": "^2.2.0",
+    "tw-animate-css": "^1.4.0"
+  },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.11.2",
     "@types/bun": "^1.3.14",
@@ -25,5 +30,8 @@
     "rimraf": "^6.1.3",
     "tsdown": "^0.22.14",
     "typescript": "^6.0.3"
+  },
+  "patchedDependencies": {
+    "blume@1.5.3": "patches/blume@1.5.3.patch"
   }
 }

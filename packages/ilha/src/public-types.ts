@@ -1,6 +1,8 @@
-import ilha, {
+import {
+  ilha,
   batch,
   html,
+  type morph,
   signal,
   untrack,
   type NativeEventHandler,
@@ -34,6 +36,9 @@ typeCheckedNullableFunctionSignal(null);
 
 export const TypeCheckedDirectIsland = ilha(() => html`<p>Direct island</p>`);
 export const typeCheckedDirectHtml: string = TypeCheckedDirectIsland.toString();
+// Async SSR form — always a Promise, naming `await island(props)`.
+export const typeCheckedDirectAsyncHtml: Promise<string> = TypeCheckedDirectIsland.toStringAsync();
+void typeCheckedDirectAsyncHtml;
 export const typeCheckedDirectUnmount: () => void = TypeCheckedDirectIsland.mount(
   document.createElement("div"),
 );
@@ -101,3 +106,27 @@ export const typeCheckedBatchReturn: number = batch(() => {
 });
 
 export const typeCheckedUntrackReturn: number = untrack(() => typeCheckedExternalSignal());
+
+// The callable `ilha` export aliases the canonical named exports: ilha.morph
+// exists alongside the named `morph` export (ilha.effect stays named-only
+// because the builder's .effect() method owns that name on `ilha`).
+export const typeCheckedDefaultMorph: typeof morph = ilha.morph;
+const typeCheckedMorphHost = document.createElement("div");
+ilha.morph(typeCheckedMorphHost, "<p>morphed</p>");
+
+// Builder contexts receive the FULL input type — never Partial. Each of these
+// compiles only while `input.name` is `string` (not `string | undefined`).
+export const TypeCheckedFullInputIsland = ilha
+  .input<{ name: string }>()
+  .derived("upper", ({ input }) => {
+    const name: string = input.name;
+    return name.toUpperCase();
+  })
+  .onMount(({ input }) => {
+    const name: string = input.name;
+    void name;
+  })
+  .render(({ input }) => {
+    const name: string = input.name;
+    return html`<p>${name}</p>`;
+  });

@@ -1,0 +1,202 @@
+---
+title: .onError()
+description: Per-island .onError() handlers and app-wide onUncaughtError() for errors from events, effects, actions, mounting, and transitions.
+---
+
+import { example } from "./onerror.examples";
+
+Registers a **per-island** error handler. The runtime routes uncaught errors through a central sink: **local `.onError()` handlers first** (in declaration order), then the app-wide **[`onUncaughtError()`](#global-error-sink--onuncaughterror)** sink if the island has none, then **`console.error`** so nothing is swallowed silently.
+
+Island errors that reach the sink include:
+
+- [`.on()`](/guide/island/action#use-on-for-advanced-listeners) — sync throws and async rejections (except filtered `AbortError`)
+- [`.effect()`](/guide/island/effect) — sync throws from the effect body or its cleanup
+- [`.action()`](/guide/island/action) — sync throws and async rejections, except cancellation
+- [`.onMount()`](/guide/island/onmount) — throws from the mount callback or its returned cleanup
+- [`.transition()`](/guide/island/transition) — throws or rejections from `enter` / `leave`
+
+**Derived** failures are not reported here — they surface on `derived.key.error`. Malformed hydration snapshots degrade gracefully and are not routed to `.onError()`.
+
+## Basic usage
+
+<Preview code={example} size="lg" />
+
+## Catching async rejections
+
+`.onError()` also catches rejections from async `.on()` handlers:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Form = ilha
+  .state("loading", false)
+  .on("form@submit", async ({ state, event, signal }) => {
+    event.preventDefault();
+    state.loading(true);
+    const res = await fetch("/api/submit", {
+      method: "POST",
+      signal,
+    });
+    if (!res.ok) throw new Error("Submit failed");
+    state.loading(false);
+  })
+  // [!code highlight:3]
+  .onError(({ error }) => {
+    alert(error.message);
+  })
+  .render(({ state }) => (
+    <form>
+      <button type="submit" disabled={state.loading()}>
+        {state.loading() ? "Submitting…" : "Submit"}
+      </button>
+    </form>
+  ));
+```
+
+## Error context
+
+The handler receives an `ErrorContext`:
+
+```ts
+{
+  error: Error; // always wrapped to Error if a non-Error was thrown
+  source: "on" | "effect" | "action" | "mount" | "transition";
+  state: IslandState; // reactive state signals
+  derived: IslandDerived; // current derived values
+  action: IslandActions; // callable actions and their reactive status
+  input: TInput; // resolved input props
+  host: Element; // island root element
+}
+```
+
+Use `source` to branch logging or UX:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Island = ilha
+  .on("button@click", () => {
+    throw new Error("click failed");
+  })
+  .onError(({ error, source }) => {
+    const label =
+      source === "on"
+        ? "Handler"
+        : source === "effect"
+          ? "Effect"
+          : source === "mount"
+            ? "Mount"
+            : "Transition";
+    console.error(`${label}:`, error);
+  })
+  .render(() => <button>Go</button>);
+```
+
+## Global error sink — `onUncaughtError()`
+
+Import **`onUncaughtError`** from `ilha` (not chained on the builder). Register it once in your client entry — for example logging, toast, or telemetry — for **any island that has no local `.onError()`**:
+
+```ts
+import { ilha, onUncaughtError } from "ilha";
+
+const off = onUncaughtError((error, source) => {
+  console.error(`[ilha:${source}]`, error);
+});
+
+// later: off() stops delivery
+```
+
+The callback receives `(error, source)` only — not full `ErrorContext` (`state`, `host`, etc.). Use per-island `.onError()` when you need that context.
+
+| Behavior         | Detail                                                                                                                |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Precedence       | Islands with `.onError()` handle errors locally; the global sink is **not** called for those errors.                  |
+| Fallback order   | No local handlers → global sink(s) → `console.error` if no global handler is registered.                              |
+| Multiple globals | Each `onUncaughtError()` registration runs; a throw inside one global handler is logged and does not stop the others. |
+| Unsubscribe      | The returned function removes that handler from the global set.                                                       |
+
+```tsx twoslash
+import { ilha, onUncaughtError } from "ilha";
+
+onUncaughtError((error, source) => {
+  if (source === "on") console.error("[click]", error);
+});
+
+// This island has no .onError() — clicks reach the global sink.
+const Loose = ilha
+  .on("button@click", () => {
+    throw new Error("oops");
+  })
+  .render(() => <button>Go</button>);
+```
+
+## Multiple error handlers
+
+Chain `.onError()` as many times as needed. All handlers run in declaration order. An error thrown inside one `.onError()` handler does not break the others — it is logged to `console.error` and execution continues:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Island = ilha
+  .on("button@click", () => {
+    throw new Error("boom");
+  })
+  .onError(({ error }) => {
+    console.log("first handler", error.message);
+  })
+  .onError(({ error }) => {
+    throw new Error("handler itself failed");
+  })
+  .onError(({ error }) => {
+    console.log("third handler still runs", error.message);
+  })
+  .render(() => <button>Go</button>);
+```
+
+## AbortError is not an error
+
+`AbortError` rejections from `.on()` handlers are **not** routed to `.onError()`. They are the expected outcome of cancellation (via `:abortable` race-cancel or unmount) and would otherwise pollute error tracking:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Search = ilha
+  .state("query", "")
+  .on("input@input:abortable", async ({ event, signal }) => {
+    const q = (event.target as HTMLInputElement).value;
+    await fetch(`/search?q=${q}`, { signal });
+  })
+  .onError(({ error }) => {
+    // This is NOT called for AbortError rejections.
+    console.error(error);
+  })
+  .render(() => <input />);
+```
+
+## Catching effect errors
+
+`.onError()` catches **synchronous** throws from `.effect()` runs. The runtime does not await async work spawned inside an effect, so passing `signal` to `fetch` only cancels the request — it does not prevent unhandled rejections. You must `await` the promise (if the effect callback is async) or attach `.catch()` inside the effect itself, and handle `AbortError` there. Do not rely on `.onError()` to catch rejected promises from async work inside `.effect()`:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Island = ilha
+  .state("count", 0)
+  .effect(({ state }) => {
+    if (state.count() < 0) {
+      throw new Error("count cannot be negative");
+    }
+  })
+  .onError(({ error, source }) => {
+    console.error(`[${source}] ${error.message}`);
+  })
+  .render(({ state }) => <p>{state.count()}</p>);
+```
+
+## Notes
+
+- Fallback order: local `.onError()` → `onUncaughtError()` → `console.error`.
+- `AbortError` rejections from cancelled `.on()` work are always filtered out (not errors).
+- Errors thrown inside `.onError()` or global handlers are logged but do not break other handlers in the same tier.
+- `.onError()` and `onUncaughtError()` run **client-side only** — not during SSR.
+- Rejected promises from fire-and-forget async work inside `.effect()` are not awaited by the runtime; handle them inside the effect (`.catch()` / `await`), not via `.onError()`.

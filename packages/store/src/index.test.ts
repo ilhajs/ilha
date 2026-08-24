@@ -6,7 +6,7 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 
 import { effect } from "alien-signals";
-import ilha, { html } from "ilha";
+import { ilha, html } from "ilha";
 import { z } from "zod";
 
 import { setIn } from "./bind-path";

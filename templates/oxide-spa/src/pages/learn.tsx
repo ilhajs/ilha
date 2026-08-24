@@ -1,6 +1,6 @@
 import { head } from "@ilha/router";
 import { LayerCard, LinkButton } from "areia";
-import ilha from "ilha";
+import { ilha } from "ilha";
 import { each } from "quando";
 
 const LINK_ICON =

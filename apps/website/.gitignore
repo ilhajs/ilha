@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .astro/
+.blume/
 .wrangler/
 
 .env
@@ -19,3 +20,4 @@ pnpm-debug.log*
 .idea/
 .vscode/*
 !.vscode/extensions.json
+.blume-verify/

@@ -11,6 +11,9 @@
  * route pattern so frame handlers can run the loader with matched params.
  */
 
+import { resolveRedirectTarget } from "./index";
+import { matchSegments, parsePattern, safeDecode } from "./route-match";
+
 /** Loader context for server-page `load` — mirrors the router's shape. */
 export interface FrameLoaderContext {
   params: Record<string, string>;
@@ -37,6 +40,8 @@ export type FrameGuard = (request: Request) => Response | void | Promise<Respons
 const REGISTRY_KEY = Symbol.for("ilha.serverIslandRenderers");
 
 function registry(): Map<string, ServerIslandEntry> {
+  // SAFETY: the registry lives on a global symbol so every module copy
+  // (plugin bundle, SSR graph, frame handler) shares one instance.
   const g = globalThis as unknown as Record<symbol, Map<string, ServerIslandEntry> | undefined>;
   let map = g[REGISTRY_KEY];
   if (!map) {
@@ -56,15 +61,112 @@ const GUARD_KEY = Symbol.for("ilha.frameGuard");
  * so apps serving private data should install a session check here.
  */
 export function setFrameGuard(guard: FrameGuard): void {
+  // SAFETY: global symbol slot shared across module copies; undefined means
+  // "no guard registered" and the production handler denies frames.
   const g = globalThis as unknown as Record<symbol, FrameGuard | undefined>;
   g[GUARD_KEY] = guard;
 }
 
 export function getFrameGuard(): FrameGuard | undefined {
+  // SAFETY: mirrors the setter's symbol slot contract.
   return (globalThis as unknown as Record<symbol, FrameGuard | undefined>)[GUARD_KEY];
 }
 
-export type FrameLoaderRunner = (path: string) => Promise<{
+const LOADER_GUARD_KEY = Symbol.for("ilha.loaderGuard");
+
+/**
+ * Install a guard consulted only by `GET /__ilha/loader`. When absent, the
+ * loader endpoint falls back to `getFrameGuard()` for backwards compatibility.
+ * Prefer a dedicated loader guard so gating the loader endpoint is independent
+ * of frame rendering.
+ */
+export function setLoaderGuard(guard: FrameGuard): void {
+  // SAFETY: global symbol slot shared across module copies; undefined means
+  // the loader endpoint falls back to the frame guard.
+  const g = globalThis as unknown as Record<symbol, FrameGuard | undefined>;
+  g[LOADER_GUARD_KEY] = guard;
+}
+
+export function getLoaderGuard(): FrameGuard | undefined {
+  // SAFETY: mirrors the setter's symbol slot contract.
+  return (globalThis as unknown as Record<symbol, FrameGuard | undefined>)[LOADER_GUARD_KEY];
+}
+
+/** Frame-authorization policy, installed via {@link setFrameAuth}. */
+export interface FrameAuthPolicy {
+  /**
+   * Action taken when no frame guard is registered. `"deny"` (default in the
+   * production handler) rejects every `/__ilha/frame` request with 403;
+   * `"open"` preserves the legacy unauthenticated behavior. The dev
+   * middleware stays permissive unless a guard is registered.
+   */
+  defaultAction?: "open" | "deny";
+  /**
+   * Explicit trusted origins (e.g. `"https://app.example.com"`). When set,
+   * origin checks accept only these; otherwise the check compares the `Origin`
+   * header against `https://{host}` / `http://{host}`.
+   */
+  trustedOrigins?: string[];
+  /**
+   * Optional CSRF verifier for the state-changing frame POST. Receives the
+   * original `Request`; returning falsy rejects the request. Use this for
+   * server-to-server frame callers that have no browser `Origin`.
+   */
+  csrf?: (request: Request) => boolean | Promise<boolean>;
+}
+
+const AUTH_KEY = Symbol.for("ilha.frameAuth");
+
+/**
+ * Install the frame-authorization policy consumed by the production
+ * `@ilha/router/ssr` handler. `trustedOrigins` and `csrf` are also applied by
+ * the dev middleware (via `IlhaPagesOptions`).
+ */
+export function setFrameAuth(policy: FrameAuthPolicy): void {
+  // SAFETY: global symbol slot shared across module copies; undefined means
+  // frame-auth defaults apply (deny when no guard is registered).
+  const g = globalThis as unknown as Record<symbol, FrameAuthPolicy | undefined>;
+  g[AUTH_KEY] = policy;
+}
+
+export function getFrameAuth(): FrameAuthPolicy | undefined {
+  // SAFETY: mirrors the setter's symbol slot contract.
+  return (globalThis as unknown as Record<symbol, FrameAuthPolicy | undefined>)[AUTH_KEY];
+}
+
+function normalizeOrigin(value: string): string | null {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Same-origin check for frame/loader requests. Browsers always send `Origin`
+ * on cross-origin and same-origin `POST`; its absence implies a non-browser
+ * caller (allowed — gate those via a guard or `csrf`). When `Origin` is
+ * present it must match the configured trusted origins, else the request's
+ * own `Host`.
+ */
+export function isTrustedOrigin(request: Request, policy: FrameAuthPolicy | undefined): boolean {
+  const originHeader = request.headers.get("origin");
+  if (originHeader === null) return true;
+  const origin = normalizeOrigin(originHeader);
+  if (origin === null) return false;
+  const trusted = policy?.trustedOrigins ?? [];
+  if (trusted.length > 0) {
+    return trusted.some((o) => normalizeOrigin(o) === origin);
+  }
+  const host = request.headers.get("host");
+  if (!host) return false;
+  return origin === `https://${host}` || origin === `http://${host}`;
+}
+
+export type FrameLoaderRunner = (
+  path: string,
+  request?: Request,
+) => Promise<{
   kind: string;
   data?: unknown;
   headEntries?: unknown;
@@ -82,11 +184,14 @@ const LOADER_RUNNER_KEY = Symbol.for("ilha.frameLoaderRunner");
  * redirect/error semantics. Dev and prod handlers share the slot.
  */
 export function setFrameLoaderRunner(runner: FrameLoaderRunner): void {
+  // SAFETY: global symbol slot shared across module copies; the generated
+  // server module installs the runner against pageRouter.runLoader.
   const g = globalThis as unknown as Record<symbol, FrameLoaderRunner | undefined>;
   g[LOADER_RUNNER_KEY] = runner;
 }
 
 export function getFrameLoaderRunner(): FrameLoaderRunner | undefined {
+  // SAFETY: mirrors the setter's symbol slot contract.
   return (globalThis as unknown as Record<symbol, FrameLoaderRunner | undefined>)[
     LOADER_RUNNER_KEY
   ];
@@ -121,27 +226,14 @@ export class FrameError extends Error {
 }
 
 /** Match a route pattern (`/user/:id`, `/docs/**:slug`) against a pathname.
- * Returns raw (still-encoded) params, or null when the path doesn't match.
- * Mirrors the router's matcher semantics in miniature. */
+ * Returns decoded params, or null when the path doesn't match. Shares the
+ * router's matcher semantics via `route-match.ts`. */
 function matchPatternParams(pattern: string, pathname: string): Record<string, string> | null {
-  const patternSegments = pattern.split("/").filter(Boolean);
-  const pathSegments = pathname.split("/").filter(Boolean);
+  const raw = matchSegments(parsePattern(pattern).segments, pathname);
+  if (!raw) return null;
   const params: Record<string, string> = {};
-  let cursor = 0;
-  for (const segment of patternSegments) {
-    if (segment.startsWith("*")) {
-      const name = segment.slice(2).replace(/^:/, "");
-      if (name) params[name] = pathSegments.slice(cursor).join("/");
-      cursor = pathSegments.length;
-      break;
-    }
-    const value = pathSegments[cursor];
-    if (value === undefined) return null;
-    if (segment.startsWith(":")) params[segment.slice(1)] = value;
-    else if (value !== segment) return null;
-    cursor++;
-  }
-  return cursor === pathSegments.length ? params : null;
+  for (const [k, v] of Object.entries(raw)) params[k] = safeDecode(v);
+  return params;
 }
 
 /**
@@ -182,7 +274,13 @@ export async function renderServerIsland(
       const marker = error as { __ilhaRedirect?: boolean; __ilhaLoaderError?: boolean };
       if (marker.__ilhaRedirect === true) {
         const r = error as { to: string; status: number };
-        throw new FrameError(r.status || 302, "frame failed", r.to);
+        // Gate the frame redirect target like the loader path does — only
+        // same-origin targets are allowed (frames have no per-router
+        // `allowExternalRedirects`). Unsafe targets surface as a 500, never
+        // an open redirect to a foreign origin.
+        const safe = resolveRedirectTarget(r.to, url, false);
+        if (!safe.ok) throw new FrameError(500, "unsafe redirect target");
+        throw new FrameError(r.status || 302, "frame failed", safe.to);
       }
       if (marker.__ilhaLoaderError === true) {
         const e = error as { status: number };

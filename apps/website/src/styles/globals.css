@@ -1,21 +1,15 @@
-@import "tailwindcss";
-@plugin "areia";
-
-@custom-variant dark (&:where([data-mode=dark], [data-mode=dark] *));
-
 [component-url],
 [data-ilha] {
-  @apply contents;
+  display: contents;
 }
 
 /* ============================================================
- * Nimbus Theme — THE file you edit to customize your site.
+ * Landing page theme.
  *
  * Architecture:
- *   1. CSS custom properties (--nb-*) define the design tokens
- *   2. `@theme` block exposes them to Tailwind so utilities like
- *      `bg-card`, `text-foreground`, `border-border` work
- *   3. Dark mode uses the `[data-mode="dark"]` attribute
+ *   1. CSS custom properties (--nb-*) define landing-only tokens
+ *   2. Blume and Bejamas provide shared Tailwind utility tokens
+ *   3. Dark mode uses the `[data-theme="dark"]` attribute
  *   4. All colors use oklch for perceptual uniformity
  *
  * Naming convention:
@@ -27,77 +21,6 @@
  * ============================================================ */
 
 /* ---- Light mode (default) ---- */
-:root {
-  color-scheme: light;
-
-  /* Surfaces (paired with foregrounds for contrast) */
-  --nb-background: oklch(0.99 0 0);
-  --nb-foreground: oklch(0.21 0 0);
-
-  --nb-card: oklch(1 0 0);
-  --nb-card-foreground: var(--nb-foreground);
-
-  --nb-muted: oklch(0.967 0 0);
-  --nb-muted-foreground: oklch(0.556 0 0);
-
-  --nb-accent: oklch(0.967 0 0);
-  --nb-accent-foreground: var(--nb-foreground);
-
-  /* Primary action / brand */
-  --nb-primary: oklch(0.145 0 0);
-  --nb-primary-foreground: oklch(0.97 0 0);
-  --nb-primary-hover: oklch(0.371 0 0);
-
-  /* Borders / focus */
-  --nb-border: oklch(0.935 0 0);
-  --nb-border-strong: oklch(0.87 0 0);
-  --nb-selected: oklch(0.89 0 0);
-  --nb-ring: oklch(0.145 0 0 / 0.35);
-
-  /* Status colors — paired (saturated for text/border + muted for bg) */
-  --nb-info: oklch(0.45 0.18 255);
-  --nb-info-foreground: oklch(0.45 0.18 255);
-  --nb-info-muted: oklch(0.965 0.015 255);
-
-  --nb-success: oklch(0.42 0.14 152);
-  --nb-success-foreground: oklch(0.42 0.14 152);
-  --nb-success-muted: oklch(0.965 0.015 152);
-
-  --nb-warning: oklch(0.48 0.15 65);
-  --nb-warning-foreground: oklch(0.48 0.15 65);
-  --nb-warning-muted: oklch(0.97 0.02 70);
-
-  --nb-danger: oklch(0.47 0.18 25);
-  --nb-danger-foreground: oklch(0.47 0.18 25);
-  --nb-danger-muted: oklch(0.965 0.015 25);
-
-  /* Layout */
-  --nb-sidebar-width: 18.75rem;
-  --nb-toc-width: 18rem;
-  --nb-content-max: 43.5rem;
-
-  /* Typography — self-hosted via @fontsource-variable in BaseLayout.astro */
-  --nb-font-sans:
-    "Geist Variable", "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --nb-font-mono:
-    "Geist Mono Variable", "Geist Mono", ui-monospace, "Cascadia Code", "Source Code Pro", Menlo,
-    Consolas, monospace;
-  --nb-h1-size: 2.1875rem;
-  --nb-h1-weight: 600;
-  --nb-h1-tracking: -0.025em;
-  --nb-h2-size: 1.3rem;
-  --nb-h2-weight: 650;
-  --nb-h2-tracking: -0.015em;
-  --nb-h3-size: 1.1rem;
-  --nb-h3-weight: 600;
-  --nb-h3-tracking: -0.01em;
-  --nb-h4-weight: 600;
-
-  /* Shadows */
-  --nb-shadow-sm: 0 1px 2px oklch(0 0 0 / 0.04);
-  --nb-shadow: 0 1px 3px oklch(0 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.04);
-  --nb-shadow-lg: 0 4px 12px oklch(0 0 0 / 0.08), 0 2px 4px oklch(0 0 0 / 0.04);
-}
 
 /* Wider content area on large displays (e.g. MacBook Pro 16″) */
 @media (min-width: 1536px) {
@@ -107,101 +30,11 @@
 }
 
 /* ---- Dark mode ---- */
-[data-mode="dark"] {
-  color-scheme: dark;
-
-  --nb-background: oklch(0.085 0 0);
-  --nb-foreground: oklch(0.97 0 0);
-
-  --nb-card: #0f0f0f;
-  --nb-card-foreground: var(--nb-foreground);
-
-  --nb-muted: #060606;
-  --nb-muted-foreground: oklch(0.556 0 0);
-
-  --nb-accent: oklch(0.269 0 0);
-  --nb-accent-foreground: var(--nb-foreground);
-
-  --nb-primary: oklch(0.9 0 0);
-  --nb-primary-foreground: oklch(0.085 0 0);
-  --nb-primary-hover: oklch(0.7 0 0);
-
-  --nb-border: oklch(0.269 0 0);
-  --nb-border-strong: oklch(0.371 0 0);
-  --nb-selected: oklch(0.371 0 0);
-  --nb-ring: oklch(0.9 0 0 / 0.35);
-
-  --nb-info: oklch(0.75 0.12 255);
-  --nb-info-foreground: oklch(0.75 0.12 255);
-  --nb-info-muted: oklch(0.17 0.03 260);
-
-  --nb-success: oklch(0.72 0.12 150);
-  --nb-success-foreground: oklch(0.72 0.12 150);
-  --nb-success-muted: oklch(0.17 0.025 153);
-
-  --nb-warning: oklch(0.78 0.11 80);
-  --nb-warning-foreground: oklch(0.78 0.11 80);
-  --nb-warning-muted: oklch(0.19 0.03 70);
-
-  --nb-danger: oklch(0.72 0.14 25);
-  --nb-danger-foreground: oklch(0.72 0.14 25);
-  --nb-danger-muted: oklch(0.17 0.03 25);
-
-  --nb-shadow-sm: 0 1px 2px oklch(0 0 0 / 0.2);
-  --nb-shadow: 0 1px 3px oklch(0 0 0 / 0.3), 0 1px 2px oklch(0 0 0 / 0.2);
-  --nb-shadow-lg: 0 4px 12px oklch(0 0 0 / 0.4), 0 2px 4px oklch(0 0 0 / 0.2);
-}
 
 /* ---- Tailwind theme mapping ----
  * These generate Tailwind utility classes:
  *   bg-card, text-foreground, border-border, ring-ring, etc.
  */
-@theme {
-  --color-background: var(--nb-background);
-  --color-foreground: var(--nb-foreground);
-
-  --color-card: var(--nb-card);
-  --color-card-foreground: var(--nb-card-foreground);
-
-  --color-muted: var(--nb-muted);
-  --color-muted-foreground: var(--nb-muted-foreground);
-
-  --color-accent: var(--nb-accent);
-  --color-accent-foreground: var(--nb-accent-foreground);
-
-  --color-primary: var(--nb-primary);
-  --color-primary-foreground: var(--nb-primary-foreground);
-  --color-primary-hover: var(--nb-primary-hover);
-
-  --color-border: var(--nb-border);
-  --color-border-strong: var(--nb-border-strong);
-  --color-selected: var(--nb-selected);
-  --color-ring: var(--nb-ring);
-
-  --color-info: var(--nb-info);
-  --color-info-foreground: var(--nb-info-foreground);
-  --color-info-muted: var(--nb-info-muted);
-
-  --color-success: var(--nb-success);
-  --color-success-foreground: var(--nb-success-foreground);
-  --color-success-muted: var(--nb-success-muted);
-
-  --color-warning: var(--nb-warning);
-  --color-warning-foreground: var(--nb-warning-foreground);
-  --color-warning-muted: var(--nb-warning-muted);
-
-  --color-danger: var(--nb-danger);
-  --color-danger-foreground: var(--nb-danger-foreground);
-  --color-danger-muted: var(--nb-danger-muted);
-
-  --font-sans: var(--nb-font-sans);
-  --font-mono: var(--nb-font-mono);
-
-  --shadow-sm: var(--nb-shadow-sm);
-  --shadow-default: var(--nb-shadow);
-  --shadow-lg: var(--nb-shadow-lg);
-}
-
 /* ---- Minimal overrides the plugin doesn't cover ---- */
 html {
   font-family: var(--nb-font-sans);
@@ -282,11 +115,11 @@ pre.astro-code > code {
   background: transparent;
 }
 
-/* Classed Shiki tokens set --shiki-light/--shiki-dark once in _nimbus/shiki.css. */
+/* Classed Shiki tokens use the active light/dark theme variables. */
 pre.astro-code span {
   color: var(--shiki-light, inherit);
 }
-[data-mode="dark"] pre.astro-code span {
+[data-theme="dark"] pre.astro-code span {
   color: var(--shiki-dark, inherit);
 }
 

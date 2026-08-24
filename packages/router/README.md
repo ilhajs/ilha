@@ -227,7 +227,7 @@ Renders `<div data-router-empty></div>` when no route matches.
 
 ---
 
-#### `.renderHydratable(url, registry, options?, request?)` — server / SSR
+#### `.renderHydratable(urlOrRequest, registry, options?, request?)` — server / SSR
 
 Async variant of `.render()` that outputs HTML with `data-ilha` hydration markers so the client can rehydrate without a full re-render. If a loader is registered for the matched route, it runs first and its return value is serialized into `data-ilha-props`.
 
@@ -235,6 +235,10 @@ Async variant of `.render()` that outputs HTML with `data-ilha` hydration marker
 const html = await router().route("/", HomePage).renderHydratable("/", registry);
 // → '<div data-router-view><div data-ilha="Home">…</div></div>'
 ```
+
+All server render APIs accept a `Request` as the first argument — route, origin, headers, and loader context derive from it, so server handlers can pass the real request directly.
+
+> **Redirects.** For callers using the string API, a loader redirect is encoded as a `<meta http-equiv="refresh">` tag. This is deprecated: it can't set a real HTTP status. Prefer `.renderResponse()` or `.respond()` to emit a proper 302.
 
 If the active island is not found in the registry, falls back to plain SSR and emits a `console.warn`.
 
@@ -246,9 +250,9 @@ If the active island is not found in the registry, falls back to plain SSR and e
 
 ---
 
-#### `.renderResponse(url, registry, options?, request?)` — server / SSR
+#### `.renderResponse(urlOrRequest, registry, options?, request?)` — server / SSR
 
-Structured-envelope variant of `.renderHydratable()`. Returns a `RenderResponse` discriminated union instead of a raw HTML string, so the host server can emit proper HTTP status codes for redirects and loader errors.
+Structured-envelope variant of `.renderHydratable()`. Returns a `RenderResponse` discriminated union instead of a raw HTML string, so the host server can emit proper HTTP status codes for redirects and loader errors. Accepts a `Request` as the first argument.
 
 ```ts
 const res = await router()
@@ -270,11 +274,25 @@ return new Response(res.html, { headers: { "content-type": "text/html" } });
 | `"redirect"` | `to: string`, `status: number`                      | Loader called `redirect()`                 |
 | `"error"`    | `status: number`, `message: string`, `html: string` | Loader called `error()` or threw           |
 
+#### `.respond(urlOrRequest, registry, options?)` — server / SSR
+
+Renders a route to a ready-to-send HTTP `Response`, handling redirects, loader errors, and security headers (`Content-Type`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Cache-Control: no-store`, and an optional CSP nonce). Pass a `shell` to inject the serialized `<head>` into a document shell.
+
+```ts
+const response = await router()
+  .route("/", HomePage)
+  .respond(new Request(request.url), registry, {
+    cspNonce,
+    shell: (head, html) =>
+      `<!doctype html><html lang="en"><head>${head.headTags}</head><body>${html}</body></html>`,
+  });
+```
+
 ---
 
-#### `.runLoader(url, request?)` — server / SSR
+#### `.runLoader(urlOrRequest, request?)` — server / SSR
 
-Runs the loader chain for the matched route without rendering any HTML. Returns a discriminated union result. Used by the `/__ilha/loader` endpoint the Vite plugin exposes for client-side navigation.
+Runs the loader chain for the matched route without rendering any HTML. Returns a discriminated union result. Used by the `/__ilha/loader` endpoint the Vite plugin exposes for client-side navigation — the originating `Request` (cookies, identity, abort signal) is forwarded to the loader through both the endpoint and this method.
 
 ```ts
 const result = await router().route("/user/:id", userPage, userLoader).runLoader("/user/42");
@@ -1102,7 +1120,9 @@ Or use the one-liner: `pageRouter.hydrate(registry)`.
 
 On the **server**, loaders run inside `.renderHydratable()` / `.renderResponse()`. Their return value is serialized into `data-ilha-props` on the island element so the client can rehydrate without re-fetching.
 
-On the **client**, navigations resolve loader data before mounting the next island. Routes with a loader registered in the browser — a manual `.route(path, island, loader)` or an FS-routing `clientLoad` export — run that loader locally, with no network round-trip. Routes with only a server loader (`markLoader()` / a `load` export) fetch from the `/__ilha/loader` endpoint, served automatically by the Vite plugin (dev) and the server adapter (production).
+On the **client**, navigations resolve loader data before mounting the next island. Routes with a loader registered in the browser — a manual `.route(path, island, loader)` or an FS-routing `clientLoad` export — run that loader locally, with no network round-trip. Routes with only a server loader (`markLoader()` / a `load` export) fetch from the `/__ilha/loader` endpoint, served automatically by the Vite plugin (dev) and the server adapter (production). The originating `Request` (cookies, identity, abort signal) is forwarded to the loader and the island-request scope, so `ctx.request` and `useContext().request` behave in client navigations exactly as they do during SSR.
+
+Like `/__ilha/frame`, the loader endpoint is **denied by default** in production when no guard is registered — gate it with `setLoaderGuard()` (or the shared frame guard / `defaultAction: "open"` policy) or client navigations to server-loader routes return 403.
 
 ```
 server                         client (navigation)
