@@ -459,7 +459,9 @@ function buildServerFile(entries: PageEntry[], serverFile: string): string {
     ...(entries.some((e) => e.hasLoader || e.loaderLayouts.length > 0)
       ? [
           `import { setFrameLoaderRunner } from "@ilha/router/server-island-registry";`,
-          `setFrameLoaderRunner((path) => pageRouter.runLoader(path));`,
+          // Forward the originating request so client-navigation loaders keep
+          // cookies/identity and observe the real request's abort signal.
+          `setFrameLoaderRunner((path, request) => pageRouter.runLoader(path, request));`,
         ]
       : []),
     ``,

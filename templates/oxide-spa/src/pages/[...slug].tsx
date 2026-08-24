@@ -1,6 +1,6 @@
 import { useRoute } from "@ilha/router";
 import { LinkButton } from "areia";
-import ilha from "ilha";
+import { ilha } from "ilha";
 
 export default ilha(() => {
   const { path } = useRoute();

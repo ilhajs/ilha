@@ -211,6 +211,8 @@ function shallowEqualInput(a: unknown, b: unknown): boolean {
 // effect (e.g. Parent.onMount wrote new props) and we must reconcile.
 function parseHtmlFragment(html: string): DocumentFragment {
   const tpl = document.createElement("template");
+  // pi-lens-ignore: ast-grep:no-inner-html — parse into a detached <template>
+  // (no script execution, not the live document) to inspect the rendered tree.
   tpl.innerHTML = html;
   return tpl.content;
 }
@@ -2837,6 +2839,12 @@ export interface Island<
   // return type is the SSR string union; interpolation handles the rest.
   (props?: Partial<TInput>): string | Promise<string>;
   toString(props?: Partial<TInput>): string;
+  /**
+   * Async SSR: renders the island and awaits async `.derived()` values before
+   * returning the HTML string. Always returns a Promise — prefer this over
+   * `await island(props)` when you need the async SSR form by name.
+   */
+  toStringAsync(props?: Partial<TInput>): Promise<string>;
   mount(host: Element, props?: Partial<TInput>): () => void;
   hydratable(props: Partial<TInput>, options: HydratableOptions): Promise<string>;
   // Create a keyed invocation for use inside html`` list rendering. The key
@@ -3667,83 +3675,6 @@ class IlhaBuilder<
       return { action: out as IslandActions<TActionMap>, lookup };
     }
 
-    /** Detached host for SSR setup hooks; must not be `{}` (Areia/components call host.matches). */
-    function createSsrOnMountHost(): Element {
-      if (typeof document !== "undefined") return document.createElement("div");
-      const stub: Record<string, unknown> = {
-        matches: () => false,
-        querySelector: () => null,
-        querySelectorAll: () => [],
-        setAttribute: () => {},
-        getAttribute: () => null,
-        removeAttribute: () => {},
-        appendChild: () => stub,
-      };
-      return stub as unknown as Element;
-    }
-
-    /** Run .onMount() before top-level SSR only (seed module/external state from `input`). */
-    function runOnMountForRender({
-      input,
-      state,
-      derived,
-      action,
-    }: {
-      input: TInput;
-      state: IslandState<TStateMap>;
-      derived: RenderContext<TInput, TStateMap, TDerivedMap, TActionMap>["derived"];
-      action: IslandActions<TActionMap>;
-    }): void {
-      if (onMounts.length === 0) return;
-      // Child islands inlined via emitIslandSlot → island.toString() must not run onMount (DOM islands).
-      if (currentRenderCtx()) return;
-      const host = createSsrOnMountHost();
-      const controller = new AbortController();
-      const ssrCleanups: Array<() => void> = [];
-      for (const entry of onMounts) {
-        const prevSub = setActiveSub(undefined);
-        let userCleanup!: void | (() => void);
-        try {
-          userCleanup = entry.fn({
-            state,
-            derived,
-            action,
-            input,
-            host,
-            hydrated: false,
-            signal: controller.signal,
-          });
-        } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          if (onErrors.length === 0) {
-            if (!reportToGlobal(error, "mount")) console.error(error);
-          } else {
-            for (const oe of onErrors) {
-              try {
-                oe.fn({ error, source: "mount", state, derived, action, input, host });
-              } catch (handlerErr) {
-                console.error(handlerErr);
-              }
-            }
-          }
-        } finally {
-          setActiveSub(prevSub);
-        }
-        if (typeof userCleanup === "function") ssrCleanups.push(userCleanup);
-      }
-      controller.abort();
-      for (const teardown of ssrCleanups.reverse()) {
-        try {
-          teardown();
-        } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          if (onErrors.length === 0) {
-            if (!reportToGlobal(error, "mount")) console.error(error);
-          }
-        }
-      }
-    }
-
     function renderToString(
       props?: Partial<TInput>,
       sync = false,
@@ -3849,7 +3780,6 @@ class IlhaBuilder<
             }
           }
           const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
-          if (!currentRenderCtx()) runOnMountForRender({ input, state, derived, action });
           const prevSub = setActiveSub(undefined);
           try {
             const { html, events } = renderWithCtx({
@@ -3889,7 +3819,6 @@ class IlhaBuilder<
           const envelopes: Record<string, DerivedValue<unknown>> = {};
           for (const r of resolved) envelopes[r.key] = r.envelope;
           const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
-          if (!currentRenderCtx()) runOnMountForRender({ input, state, derived, action });
           const prevSub = setActiveSub(undefined);
           try {
             const { html, events } = await renderWithCtx({
@@ -4529,6 +4458,8 @@ class IlhaBuilder<
         liveHost: preserveSSRDom ? host : undefined,
       });
       if (!preserveSSRDom) {
+        // pi-lens-ignore: ast-grep:no-inner-html — host is this island's render
+        // target; the markup is the island's html``/JSX output, escaped by default.
         host.innerHTML = stylePrefix + initial.html;
       }
 
@@ -4833,6 +4764,8 @@ class IlhaBuilder<
           // morphInner itself guards focus/selection against genuine reorders.
           const tpl = document.createElement("template");
           const morphRootTag = host.tagName.toLowerCase();
+          // pi-lens-ignore: ast-grep:no-inner-html — parse into a detached
+          // <template> for structural comparison; morphInner patches the live DOM.
           tpl.innerHTML = `<${morphRootTag}>${html}</${morphRootTag}>`;
           morphInner(host, tpl.content.firstElementChild as Element);
           lastRendered = rendered;
@@ -4967,6 +4900,9 @@ class IlhaBuilder<
     }) as unknown as Island<TInput, TStateMap>;
 
     island.toString = (props?: Partial<TInput>) => renderToString(props, true) as string;
+
+    island.toStringAsync = (props?: Partial<TInput>): Promise<string> =>
+      Promise.resolve(renderToString(props, false));
 
     island.mount = (host: Element, props?: Partial<TInput>): (() => void) =>
       mountIsland(host, props);
@@ -5364,7 +5300,7 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
 }
 
 // ---------------------------------------------
-// Default export
+// Named ilha export
 // ---------------------------------------------
 
 const EMPTY_CFG: BuilderConfig<
@@ -5402,7 +5338,7 @@ const callableRoot = (<TInput extends Record<string, unknown> = RootInput>(
   fn: (ctx: RenderContext<TInput, RootState, RootDerived, RootActions>) => string | RawHtml,
 ): Island<TInput, RootState> => rootBuilder.input<TInput>().render(fn)) as IlhaRoot;
 
-// Keep the default export callable without sacrificing the fluent builder API.
+// Keep `ilha` callable without sacrificing the fluent builder API.
 // Builder methods are installed as own methods so the function retains its
 // normal Function prototype (`call`, `bind`, and friends), while `_cfg` gives
 // those methods the same empty root configuration as `rootBuilder`.
@@ -5425,7 +5361,8 @@ const ilha = Object.assign(callableRoot, {
   signal: ilhaSignal,
   computed: ilhaComputed,
   // NOTE: no `effect` here — the builder's .effect() method owns that name on
-  // the default export. The top-level effect is available as a named import.
+  // `ilha`. The top-level effect is available as a named import.
+  morph,
   batch,
   untrack,
   onUncaughtError,
@@ -5475,15 +5412,20 @@ export function morph(host: Element, html: string): void {
   if (typeof document === "undefined") return;
   const openTag = host.localName ?? "div";
   const tpl = document.createElement("template");
+  // pi-lens-ignore: ast-grep:no-inner-html — parse into a detached <template>
+  // (no script execution, not the live document) before morphing in place.
   tpl.innerHTML = `<${openTag}>${html}</${openTag}>`;
   const next = tpl.content.firstElementChild;
   if (!next || next.localName !== host.localName) {
+    // pi-lens-ignore: ast-grep:no-inner-html — host is this island's render
+    // target; markup is the island's html``/JSX output, escaped by default.
     host.innerHTML = html;
     return;
   }
   try {
     morphInner(host, next);
   } catch {
+    // pi-lens-ignore: ast-grep:no-inner-html — fallback render write to host.
     host.innerHTML = html;
   }
 }
@@ -5497,4 +5439,4 @@ export const context = ilhaContext;
 export { ilhaSignal as signal };
 export { ilhaComputed as computed };
 export { ilhaEffect as effect };
-export default ilha;
+export { ilha };

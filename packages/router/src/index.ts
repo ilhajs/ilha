@@ -1,8 +1,9 @@
 import { context, mount, ISLAND_MOUNT_INTERNAL, ISLAND_MOUNT_HANDLES } from "ilha";
 import type { Island, HydratableOptions } from "ilha";
-import ilha, { html } from "ilha";
+import { ilha, html } from "ilha";
 
 import { getAdapter, getHistoryMode } from "./hash";
+import { matchSegments, parsePattern, safeDecode } from "./route-match";
 
 export { setHistoryMode, getHistoryMode } from "./hash";
 export type { HistoryMode } from "./hash";
@@ -137,13 +138,23 @@ export type MergeLoaders<Ls extends readonly Loader<any>[]> = Ls extends readonl
 // Loader sentinels — redirect / error
 // ─────────────────────────────────────────────
 
+function isValidRedirectStatus(status: number): boolean {
+  return status >= 300 && status <= 399;
+}
+
+function isValidErrorStatus(status: number): boolean {
+  return status >= 400 && status <= 599;
+}
+
 export class Redirect {
   readonly __ilhaRedirect = true as const;
   readonly to: string;
   readonly status: number;
   constructor(to: string, status = 302) {
     this.to = to;
-    this.status = status;
+    // Clamp to a real 3xx so an invalid status can't flow into a host
+    // `Response.redirect()` and throw. Errant codes default to 302.
+    this.status = isValidRedirectStatus(status) ? status : 302;
   }
 }
 
@@ -152,8 +163,10 @@ export class LoaderError {
   readonly status: number;
   readonly message: string;
   constructor(status: number, message: string) {
-    this.status = status;
     this.message = message;
+    // Clamp to a real 4xx/5xx so an invalid status can't reach a Response
+    // constructor. Errant codes default to 500.
+    this.status = isValidErrorStatus(status) ? status : 500;
   }
 }
 
@@ -346,8 +359,13 @@ function layoutHtmlWithEmptyKPage(
   wrappedLayout: Island<any, any>,
   props: Record<string, unknown>,
 ): string {
+  // SAFETY: WRAP_LAYOUT_HANDLER / WRAP_LAYOUT_LEAF symbol brands exist only on
+  // islands returned by wrapLayout(); unwrapped islands lack them and fall
+  // through to the `if (!handler)` and `?? wrappedLayout` fallbacks below.
   const handler = (wrappedLayout as unknown as Record<symbol, LayoutHandler>)[WRAP_LAYOUT_HANDLER];
   if (!handler) return wrappedLayout.toString(props as never);
+  // SAFETY: WRAP_LAYOUT_LEAF is brand-set only on wrapLayout() output; a plain
+  // page island lacks it and the `?? wrappedLayout` fallback keeps it as leaf.
   const leaf =
     ((wrappedLayout as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] as
       | Island<any, any>
@@ -355,9 +373,13 @@ function layoutHtmlWithEmptyKPage(
   const rawKeyed = leaf.key("page");
   // Layouts often pass a subset to `<Children />`; merge full route loader props
   // so slot markers and SSR do not drop page-only keys (e.g. todos + authSession).
+  // SAFETY: shellChild is a callable given the IslandCall symbol brand so the
+  // layout's interpolation treats it as a slot marker — it is never mounted.
   const shellChild = ((partial?: Record<string, unknown>) =>
     rawKeyed({ ...props, ...(partial ?? {}) })) as unknown as Island<any, any>;
   Object.assign(shellChild, { toString: () => "" });
+  // SAFETY: the symbol brand is the runtime marker interpolateValue checks to
+  // treat shellChild as an in-template island slot instead of a plain callable.
   (shellChild as unknown as Record<symbol, boolean>)[ISLAND_CALL] = true;
   return handler(shellChild).toString(props as never);
 }
@@ -379,6 +401,8 @@ async function wrapLayoutSlotMarkup(
 }
 
 export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Island<any, any> {
+  // SAFETY: WRAP_LAYOUT_LEAF brands only nested wrapLayout() output; a plain
+  // page island lacks it and is its own leaf.
   const leafPage: Island<any, any> =
     ((page as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] as
       | Island<any, any>
@@ -389,6 +413,8 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   // child slots (p:0, p:1, …) inside the page render.
   const rawKeyedPage = page.key("page");
   const layoutInputRef: { merged?: Record<string, unknown> } = {};
+  // SAFETY: KeyedPage is a callable branded with the IslandCall symbol so
+  // interpolations treat it as a slot marker; it is never mounted directly.
   const KeyedPage = ((props?: Record<string, unknown>) => {
     const merged = layoutInputRef.merged;
     const slotProps =
@@ -396,10 +422,17 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
     return rawKeyedPage(slotProps as never);
   }) as unknown as Island<any, any>;
   Object.assign(KeyedPage, { toString: page.toString.bind(page) });
+  // SAFETY: the IslandCall symbol brand is checked by interpolateValue to
+  // route KeyedPage through slot emission instead of treating it as SSR HTML.
   (KeyedPage as unknown as Record<symbol, boolean>)[ISLAND_CALL] = true;
   const Wrapped = layout(KeyedPage);
 
+  // SAFETY: Wrapped (island returned by layout) is branded with the leaf and
+  // handler symbols so nested wrapLayout() and layoutHtmlWithEmptyKPage() can
+  // recover the page island and layout callback from any wrapper depth.
   (Wrapped as unknown as Record<symbol, Island<any, any>>)[WRAP_LAYOUT_LEAF] = leafPage;
+  // SAFETY: same symbol-brand contract — the layout callback is recoverable
+  // from the wrapped island for empty-shell SSR composition.
   (Wrapped as unknown as Record<symbol, LayoutHandler>)[WRAP_LAYOUT_HANDLER] = layout;
 
   function setLayoutMergedInput(props: Record<string, unknown> | undefined): void {
@@ -461,6 +494,8 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
   }
 
   function wrapLeafPageMountHooks(leaf: Island<any, any>): void {
+    // SAFETY: ISLAND_MOUNT_INTERNAL is the mount-handle hook ilha places on
+    // every island; wrapLayout captures it only when present (typeof guard).
     const leafInternal = (leaf as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
       | ((
           host: Element,
@@ -472,6 +507,8 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
       | undefined;
     if (typeof leafInternal !== "function") return;
 
+    // SAFETY: re-assigning the same symbol slot keeps ilha's own hook contract;
+    // the wrapper defers to the captured leafInternal for the actual mount.
     (leaf as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
       host: Element,
       props?: Record<string, unknown>,
@@ -501,10 +538,14 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
     Element,
     { handle: InternalMountHandle; mountProps?: Record<string, unknown> }
   >();
+  // SAFETY: ISLAND_MOUNT_INTERNAL is ilha's optional mount-handle hook; the
+  // typeof guard keeps a plain-mount fallback when the island lacks it.
   const pageInternalBase = (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
     | ((host: Element, props?: Record<string, unknown>) => InternalMountHandle)
     | undefined;
   if (typeof pageInternalBase === "function") {
+    // SAFETY: the handle-tracking wrapper replaces the island's internal mount
+    // hook with an equivalent that records the page host before delegating.
     (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
       host: Element,
       props?: Record<string, unknown>,
@@ -549,6 +590,8 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
     };
 
   const layoutMount = Wrapped.mount.bind(Wrapped);
+  // SAFETY: ISLAND_MOUNT_INTERNAL is ilha's optional mount-handle hook; the
+  // typeof check below keeps the fallback path (plain mount) when absent.
   const layoutInternal = (Wrapped as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
     | ((
         host: Element,
@@ -583,6 +626,8 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any, any>): Islan
     return unmount;
   };
 
+  // SAFETY: installing the enhanced mount hook keeps ilha's slot reconciliation
+  // working on wrapped layouts via the same symbol-contract as the core island.
   (Wrapped as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
     host: Element,
     props?: Record<string, unknown>,
@@ -675,12 +720,16 @@ export function wrapError(handler: ErrorHandler, page: Island<any, any>): Island
   // interactivity. These two paths (.mount and ISLAND_MOUNT_INTERNAL) are
   // mutually exclusive by design: .mount is for top-level activation,
   // ISLAND_MOUNT_INTERNAL is for slot-based child mounting.
+  // SAFETY: installing the slot-mount hook on Wrapper keeps the symbol
+  // contract ilha's mountSlots resolves for child islands.
   (Wrapper as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
     host: Element,
     props?: Record<string, unknown>,
   ) => {
     try {
       // Forward to page's internal mount for full handle (unmount + updateProps)
+      // SAFETY: read of the page's own mount hook mirrors the caller above;
+      // absent on plain islands, where page.mount below is the fallback.
       const pageInternal = (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL];
       if (typeof pageInternal === "function") {
         return pageInternal(host, props);
@@ -858,7 +907,7 @@ export interface RouterBuilder {
   mount(target: string | Element, options?: MountOptions): () => void;
   render(url: string | URL): string;
   renderHydratable(
-    url: string | URL,
+    urlOrRequest: string | URL | Request,
     registry: Record<string, Island<any, any>>,
     options?: HydratableRenderOptions,
     request?: Request,
@@ -869,7 +918,7 @@ export interface RouterBuilder {
    * host server code so you can emit proper 302 / 4xx responses.
    */
   renderResponse(
-    url: string | URL,
+    urlOrRequest: string | URL | Request,
     registry: Record<string, Island<any, any>>,
     options?: HydratableRenderOptions,
     request?: Request,
@@ -881,7 +930,7 @@ export interface RouterBuilder {
    * redirect sentinel, or an error sentinel.
    */
   runLoader(
-    url: string | URL,
+    urlOrRequest: string | URL | Request,
     request?: Request,
   ): Promise<
     | { kind: "data"; data: Record<string, unknown>; head?: SerializedHead }
@@ -889,6 +938,16 @@ export interface RouterBuilder {
     | { kind: "error"; status: number; message: string }
     | { kind: "not-found" }
   >;
+  /**
+   * Render a route to a ready-to-send HTTP `Response`, handling redirects,
+   * loader errors, and security headers. `request` (or a URL string) selects
+   * the route; the optional `shell` injects `head` tags into a document.
+   */
+  respond(
+    urlOrRequest: string | URL | Request,
+    registry: Record<string, Island<any, any>>,
+    options?: RespondOptions,
+  ): Promise<Response>;
   /**
    * Hydrate the application - combines prime(), mount(), and router.mount() into one call.
    * @param registry - The island registry from ilha:registry
@@ -1147,6 +1206,8 @@ function mountIslandWithHandle(
   host: Element,
   props?: Record<string, unknown>,
 ): RouteMountHandle {
+  // SAFETY: ISLAND_MOUNT_INTERNAL is ilha's optional mount-handle hook; the
+  // typeof guard falls back to a plain mount when the island lacks it.
   const internal = (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
     | ((host: Element, props?: Record<string, unknown>) => InternalMountHandle)
     | undefined;
@@ -1517,6 +1578,8 @@ const REQUEST_ALS_KEY = Symbol.for("ilha.requestAls");
  * rendering); client code never has a reason to call it.
  */
 export function useContext(): IslandContext {
+  // SAFETY: REQUEST_ALS_KEY is the request-scope AsyncLocalStorage installed
+  // by request-scope.ts; absence is normal { request: undefined }.
   const als = (
     globalThis as unknown as Record<symbol, { getStore?: () => Request | undefined } | undefined>
   )[REQUEST_ALS_KEY];
@@ -1599,14 +1662,6 @@ function createRouteRegistry(): RouteRegistry {
   return [];
 }
 
-function parsePattern(pattern: string): { segments: string[]; kinds: number[] } {
-  const segments = pattern.split("/").filter(Boolean);
-  const kinds = segments.map((segment) =>
-    segment.startsWith("*") ? 0 : segment.startsWith(":") ? 1 : 2,
-  );
-  return { segments, kinds };
-}
-
 function addRouteEntry(registry: RouteRegistry, pattern: string, data: RouteData): void {
   const { segments, kinds } = parsePattern(pattern);
   // Insert sorted so matching is a simple first-hit walk. Compare kinds
@@ -1633,47 +1688,9 @@ function matchRoute(
   registry: RouteRegistry,
   pathname: string,
 ): { data: RouteData; params: Record<string, string> } | undefined {
-  const pathSegments = pathname.split("/").filter(Boolean);
   for (const entry of registry) {
-    const params: Record<string, string> = {};
-    let matched = true;
-    let cursor = 0;
-    for (let i = 0; i < entry.segments.length; i++) {
-      const segment = entry.segments[i]!;
-      const isLast = i === entry.segments.length - 1;
-      if (segment.startsWith("**") && isLast) {
-        // Trailing catch-all consumes the rest — including nothing. Named
-        // (`/**:slug`) captures the raw remainder; `extractParams` decodes it.
-        const name = segment.slice(2).replace(/^:/, "");
-        if (name) params[name] = pathSegments.slice(cursor).join("/");
-        cursor = pathSegments.length;
-        break;
-      }
-      if (segment.startsWith("*")) {
-        // Bare mid-pattern `*` matches exactly one segment — never a catch-all.
-        if (pathSegments[cursor] === undefined) {
-          matched = false;
-          break;
-        }
-        cursor++;
-        continue;
-      }
-      if (segment.startsWith(":")) {
-        const value = pathSegments[cursor];
-        if (value === undefined) {
-          matched = false;
-          break;
-        }
-        params[segment.slice(1)] = value;
-        cursor++;
-      } else if (pathSegments[cursor] === segment) {
-        cursor++;
-      } else {
-        matched = false;
-        break;
-      }
-    }
-    if (matched && cursor === pathSegments.length) return { data: entry.data, params };
+    const params = matchSegments(entry.segments, pathname);
+    if (params) return { data: entry.data, params };
   }
   return undefined;
 }
@@ -1682,7 +1699,7 @@ function extractParams(matchParams: Record<string, string> | undefined): Record<
   const params: Record<string, string> = {};
   if (matchParams) {
     for (const [k, v] of Object.entries(matchParams)) {
-      params[k] = decodeURIComponent(v as string);
+      params[k] = safeDecode(v as string);
     }
   }
   return params;
@@ -2262,9 +2279,33 @@ function escapeHtml(value: unknown): string {
 }
 
 function serializeAttrs(attrs: Record<string, string>): string {
-  return Object.entries(attrs)
-    .map(([k, v]) => ` ${k}="${escapeHeadAttr(v)}"`)
-    .join("");
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(attrs)) {
+    // Reject empty / nonsensical attribute names and event-handler attributes
+    // (`on*`) so a loader-controlled key can't inject an `onload`/`onclick`
+    // sink into the serialized tag.
+    if (!/^[A-Za-z_:][A-Za-z0-9:._-]*$/.test(k) || /^on[a-z]/i.test(k)) {
+      if (isDevEnv()) console.warn(`[ilha-router] Dropping unsafe head attribute "${k}".`);
+      continue;
+    }
+    parts.push(` ${k}="${escapeHeadAttr(v)}"`);
+  }
+  return parts.join("");
+}
+
+function isSafeUrl(value: string): boolean {
+  const v = value.trim();
+  if (v === "") return true;
+  // Relative and in-page targets are fine, but protocol-relative URLs are external.
+  if (v.startsWith("//")) return false;
+  if (v.startsWith("#") || v.startsWith("/") || v.startsWith("./")) return true;
+  if (/^(?:javascript|vbscript|data):/i.test(v)) return false;
+  try {
+    const u = new URL(v, "http://localhost");
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function metaDedupKey(tag: Record<string, string>): string {
@@ -2320,12 +2361,26 @@ export function serializeHead(entries: HeadInput[]): SerializedHead {
   const parts: string[] = [];
   if (resolvedTitle !== undefined) parts.push(`<title>${escapeHeadAttr(resolvedTitle)}</title>`);
   for (const tag of dedupByKey(meta, metaDedupKey)) {
+    // Neutralize a meta-refresh that tries to bounce the page to an unsafe URL.
+    if (/^refresh$/i.test(tag["http-equiv"] ?? "") && !isSafeRefreshTarget(tag.content ?? "")) {
+      if (isDevEnv())
+        console.warn(`[ilha-router] Dropping unsafe meta refresh target "${tag.content}".`);
+      continue;
+    }
     parts.push(`<meta${serializeAttrs({ ...tag, [ILHA_HEAD_ATTR]: "" })} />`);
   }
   for (const tag of dedupByKey(link, (t) => `${t.rel ?? ""}:${t.href ?? ""}`)) {
+    if (tag.href !== undefined && !isSafeUrl(tag.href)) {
+      if (isDevEnv()) console.warn(`[ilha-router] Dropping unsafe link href "${tag.href}".`);
+      continue;
+    }
     parts.push(`<link${serializeAttrs({ ...tag, [ILHA_HEAD_ATTR]: "" })} />`);
   }
   for (const tag of script) {
+    if (tag.src !== undefined && !isSafeUrl(tag.src)) {
+      if (isDevEnv()) console.warn(`[ilha-router] Dropping unsafe script src "${tag.src}".`);
+      continue;
+    }
     const { children, ...attrs } = tag;
     // Script bodies are trusted app code, but neutralise a literal `</script`
     // so a stray sequence can't terminate the tag and inject markup.
@@ -2338,6 +2393,77 @@ export function serializeHead(entries: HeadInput[]): SerializedHead {
     htmlAttrs: serializeAttrs(htmlAttrs),
     bodyAttrs: serializeAttrs(bodyAttrs),
   };
+}
+
+function isSafeRefreshTarget(content: string): boolean {
+  const match = /url\s*=\s*(['"]?)([^'";\s]+)\1/i.exec(content);
+  if (!match) return true;
+  return isSafeUrl(match[2] ?? "");
+}
+
+// ─────────────────────────────────────────────
+// HTTP response helper
+// ─────────────────────────────────────────────
+
+export interface HttpResponseOptions {
+  status?: number;
+  headers?: HeadersInit;
+  /**
+   * CSP nonce for inline scripts. When set (and `contentSecurityPolicy` is
+   * not), a conservative default CSP is emitted with `'nonce-${nonce}'` for
+   * `script-src` — pass the same nonce to head `<script nonce=…>` tags.
+   */
+  cspNonce?: string;
+  /** Full `Content-Security-Policy` string; overrides the nonce-derived default. */
+  contentSecurityPolicy?: string;
+}
+
+/**
+ * Build an HTTP `Response` for SSR output with sensible security headers:
+ * `Content-Type: text/html`, `X-Content-Type-Options: nosniff`,
+ * `Referrer-Policy`, `Cache-Control: no-store`, and an optional CSP. This is
+ * a low-level helper — prefer {@link RouterBuilder.respond} for the full
+ * render+head+headers pipeline.
+ */
+export function httpResponse(body: string | null, options: HttpResponseOptions = {}): Response {
+  const headers = new Headers(options.headers);
+  if (body != null && !headers.has("content-type")) {
+    headers.set("content-type", "text/html; charset=utf-8");
+  }
+  if (!headers.has("x-content-type-options")) headers.set("x-content-type-options", "nosniff");
+  if (!headers.has("referrer-policy")) headers.set("referrer-policy", "no-referrer");
+  if (!headers.has("cache-control")) headers.set("cache-control", "no-store");
+  const csp =
+    options.contentSecurityPolicy ??
+    (options.cspNonce
+      ? `default-src 'self'; script-src 'self' 'nonce-${options.cspNonce}'; ` +
+        `style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; ` +
+        `base-uri 'self'; frame-ancestors 'self'`
+      : undefined);
+  if (csp) headers.set("content-security-policy", csp);
+  return new Response(body, { status: options.status ?? 200, headers });
+}
+
+const EMPTY_HEAD: SerializedHead = { headTags: "", htmlAttrs: "", bodyAttrs: "" };
+
+/**
+ * Options for {@link RouterBuilder.respond}.
+ */
+export interface RespondOptions extends HydratableRenderOptions, HttpResponseOptions {
+  /**
+   * Wrap the rendered body with a document shell. Receives the serialized
+   * head (title/meta/link/script tags + html/body attributes) and the inner
+   * HTML; return the full document.
+   */
+  shell?: (head: SerializedHead, html: string) => string;
+}
+
+function resolveRequestUrl(
+  urlOrRequest: string | URL | Request,
+  request?: Request,
+): { url: string | URL; request?: Request } {
+  if (urlOrRequest instanceof Request) return { url: urlOrRequest.url, request: urlOrRequest };
+  return { url: urlOrRequest, request };
 }
 
 // ─────────────────────────────────────────────
@@ -2367,7 +2493,7 @@ function isDevEnv(): boolean {
  * `allowExternal`. Protocol-relative (`//host`) and unparsable targets are
  * always rejected.
  */
-function resolveRedirectTarget(
+export function resolveRedirectTarget(
   to: string,
   base: URL,
   allowExternal: boolean,
@@ -2415,6 +2541,8 @@ function defaultRequest(url: URL): Request {
     return new Request(url.toString());
   } catch {
     // Some environments may not have global Request; return a minimal shim.
+    // SAFETY: the shim satisfies the Request surface SSR loaders touch when
+    // global Request is unavailable (defensive, never a real fetch target).
     return {
       url: url.toString(),
       headers: new Headers(),
@@ -3083,42 +3211,77 @@ export function router(options: RouterOptions = {}): RouterBuilder {
 
     // ── Server-side — hydratable SSR ─────────────────────────────────────────
     async renderHydratable(
-      url: string | URL,
+      urlOrRequest: string | URL | Request,
       registry: Record<string, Island<any, any>>,
       options: HydratableRenderOptions = {},
       request?: Request,
     ): Promise<string> {
-      const response = await this.renderResponse(url, registry, options, request);
+      const { url, request: req } = resolveRequestUrl(urlOrRequest, request);
+      const response = await this.renderResponse(url, registry, options, req);
       if (response.kind === "html") return response.html;
       if (response.kind === "error") return response.html;
-      // Redirects encoded as meta-refresh for callers that use the string API
-      // directly. Prefer `renderResponse` to handle redirects at the HTTP layer.
+      // Deprecated: redirects encoded as meta-refresh for callers that use the
+      // string API directly. Prefer `renderResponse` (or `respond`) to handle
+      // redirects at the HTTP layer — a meta-refresh can't set a real status.
       // Escaped — redirect targets often carry user input (e.g. ?next= params).
       return `<meta http-equiv="refresh" content="0; url=${escapeHeadAttr(response.to)}">`;
     },
 
     // ── Server-side — structured response (preferred) ────────────────────────
     async renderResponse(
-      url: string | URL,
+      urlOrRequest: string | URL | Request,
       registry: Record<string, Island<any, any>>,
       options: HydratableRenderOptions = {},
       request?: Request,
     ): Promise<RenderResponse> {
+      const { url, request: req } = resolveRequestUrl(urlOrRequest, request);
       // Run the whole render inside a request-scoped route context so
       // concurrent SSR requests can't clobber each other's route signals.
       if (!isBrowser) {
         const als = await getRouteAlsAsync();
         if (!als.getStore()) {
-          return als.run(freshRouteStore(), () =>
-            renderResponseInner(url, registry, options, request),
-          );
+          return als.run(freshRouteStore(), () => renderResponseInner(url, registry, options, req));
         }
       }
-      return renderResponseInner(url, registry, options, request);
+      return renderResponseInner(url, registry, options, req);
+    },
+
+    // ── Server-side — render to a ready HTTP Response ─────────────────────────
+    async respond(
+      urlOrRequest: string | URL | Request,
+      registry: Record<string, Island<any, any>>,
+      options: RespondOptions = {},
+    ): Promise<Response> {
+      const { shell, headers, cspNonce, contentSecurityPolicy, status, ...renderOptions } = options;
+      const res = await this.renderResponse(
+        urlOrRequest,
+        registry,
+        renderOptions,
+        urlOrRequest instanceof Request ? urlOrRequest : undefined,
+      );
+      if (res.kind === "redirect") {
+        const h = new Headers(headers);
+        h.set("location", res.to);
+        return httpResponse(null, {
+          status: res.status,
+          headers: h,
+          cspNonce,
+          contentSecurityPolicy,
+        });
+      }
+      const head = res.head ?? EMPTY_HEAD;
+      const body = shell ? shell(head, res.html) : res.html;
+      return httpResponse(body, {
+        status: status ?? res.status ?? 200,
+        headers,
+        cspNonce,
+        contentSecurityPolicy,
+      });
     },
 
     // ── Server-side — run loader for a URL (loader endpoint) ────────────────
-    async runLoader(url: string | URL, request?: Request) {
+    async runLoader(urlOrRequest: string | URL | Request, request?: Request) {
+      const { url, request: req } = resolveRequestUrl(urlOrRequest, request);
       const parsed = parsedURL(url);
 
       const match = matchRoute(routes, parsed.pathname);
@@ -3129,15 +3292,15 @@ export function router(options: RouterOptions = {}): RouterBuilder {
       }
 
       const params = extractParams(match.params as Record<string, string> | undefined);
-      const req = request ?? defaultRequest(parsed);
-      const abort = loaderAbort(request, loaderTimeout);
+      const renderReq = req ?? defaultRequest(parsed);
+      const abort = loaderAbort(req, loaderTimeout);
       const headStore: HeadStore = { entries: [] };
       try {
         const result = await executeLoader(
           match.data.loader,
           parsed,
           params,
-          req,
+          renderReq,
           abort.signal,
           (input) => headStore.entries.push(input),
         );
@@ -3331,6 +3494,8 @@ export function router(options: RouterOptions = {}): RouterBuilder {
     // `head()` calls inside async SSR (e.g. wrapLayout) still collect.
     // The originating Request seeds the island-request scope so `.server.tsx`
     // render functions can read URL/headers via `useContext()`.
+    // SAFETY: REQUEST_ALS_KEY is the request-scope AsyncLocalStorage installed
+    // by request-scope.ts; a missing store falls back to unscoped rendering.
     const islandAls = (
       globalThis as unknown as Record<
         symbol,

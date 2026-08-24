@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 
-import ilha, { ISLAND_MOUNT_INTERNAL, mount as ilhaMount, html } from "ilha";
+import { ilha, ISLAND_MOUNT_INTERNAL, mount as ilhaMount, html } from "ilha";
 import { jsx, jsxs } from "ilha/jsx-runtime";
 
 import {
@@ -2880,19 +2880,15 @@ describe("wrapError / wrapLayout hydration", () => {
     unmount();
   });
 
-  it("wrapLayout hydrates module store seeded from loader props on k:page (no innerHTML wipe)", async () => {
-    const external: { items: string[] } = { items: [] };
-    const Page = ilha
-      .input<{ todos: string[] }>()
-      .onMount(({ input }) => {
-        external.items = input.todos;
-      })
-      .render(
-        () =>
-          html`<ul>
-            ${external.items.map((t) => html`<li>${t}</li>`)}
-          </ul>`,
-      );
+  it("wrapLayout hydrates page with loader props on k:page (no innerHTML wipe)", async () => {
+    // SSR onMount is client-only, so loader props must flow into the render
+    // directly from `input` (not via an onMount-seeded module store).
+    const Page = ilha.input<{ todos: string[] }>().render(
+      ({ input }) =>
+        html`<ul>
+          ${input.todos.map((t) => html`<li>${t}</li>`)}
+        </ul>`,
+    );
 
     const Layout = defineLayout((children) =>
       ilha.render(({ input }) => html`<main>${children(input)}</main>`),

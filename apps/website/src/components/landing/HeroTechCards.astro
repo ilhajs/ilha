@@ -1,4 +1,6 @@
 ---
+import { Card, CardDescription, CardHeader, CardTitle } from "@/ui/card";
+
 const cards = [
   {
     icon: "/code.svg",
@@ -29,48 +31,14 @@ const cards = [
 >
   {
     cards.map((card) => (
-      <div
-        data-hero-card
-        class="rounded-xl bg-[radial-gradient(180px_circle_at_var(--hero-card-x,50%)_var(--hero-card-y,50%),color-mix(in_oklch,var(--nb-foreground)_calc(var(--hero-card-opacity,0)*22%),transparent),transparent_70%),linear-gradient(var(--nb-border),var(--nb-border))] p-px transition-[background]"
-      >
-        <div class="bg-background flex h-full flex-col gap-1.5 rounded-[calc(0.75rem-1px)] p-5 sm:p-6">
-          <img src={card.icon} alt="" class="mb-2 size-6 opacity-75" />
-          <div class="text-foreground text-[0.975rem] leading-snug font-semibold tracking-tight">
-            {card.title}
-          </div>
-          <div class="text-muted-foreground text-sm leading-relaxed">{card.description}</div>
-        </div>
-      </div>
+      <Card data-hero-card class="h-full">
+        <CardHeader>
+          <img src={card.icon} alt="" class="size-6 opacity-75" />
+          <CardTitle>{card.title}</CardTitle>
+          <CardDescription>{card.description}</CardDescription>
+        </CardHeader>
+      </Card>
     ))
   }
 </div>
 
-<script>
-  const container = document.querySelector<HTMLElement>("[data-hero-cards]");
-  if (container) {
-    const cards = container.querySelectorAll<HTMLElement>("[data-hero-card]");
-
-    const updateCard = (card: HTMLElement, pointer: MouseEvent) => {
-      const rect = card.getBoundingClientRect();
-      const x = pointer.clientX - rect.left;
-      const y = pointer.clientY - rect.top;
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      const distance = Math.hypot(pointer.clientX - centerX, pointer.clientY - centerY);
-      const intensity = Math.max(0, 1 - distance / 360);
-
-      card.style.setProperty("--hero-card-x", `${x}px`);
-      card.style.setProperty("--hero-card-y", `${y}px`);
-      card.style.setProperty("--hero-card-opacity", intensity.toFixed(2));
-    };
-
-    container.addEventListener("mousemove", (event) => {
-      cards.forEach((card) => updateCard(card, event));
-    });
-    container.addEventListener("mouseleave", () => {
-      cards.forEach((card) => {
-        card.style.setProperty("--hero-card-opacity", "0");
-      });
-    });
-  }
-</script>

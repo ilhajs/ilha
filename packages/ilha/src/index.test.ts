@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 
 import { z } from "zod";
 
-import ilha, {
+import {
+  ilha,
   html,
   raw,
   css,
@@ -70,10 +71,10 @@ describe("public entry shape", () => {
   });
 
   it("main entry keeps the expected runtime helpers", () => {
-    expect(typeof mainExports.default).toBe("function");
-    expect(typeof mainExports.default.call).toBe("function");
-    expect(typeof mainExports.default.bind).toBe("function");
-    expect(typeof mainExports.default.render).toBe("function");
+    expect(typeof mainExports.ilha).toBe("function");
+    expect(typeof mainExports.ilha.call).toBe("function");
+    expect(typeof mainExports.ilha.bind).toBe("function");
+    expect(typeof mainExports.ilha.render).toBe("function");
     for (const helper of [
       "html",
       "raw",
@@ -3715,6 +3716,22 @@ describe(".derived", () => {
       expect(await Island()).toBe("<p>resolved</p>");
     });
 
+    it("toStringAsync() awaits async derived values and always resolves to a string", async () => {
+      const Island = ilha
+        .derived("data", async () => "resolved")
+        .render(({ derived }) =>
+          derived.data.loading ? `<p>loading</p>` : `<p>${derived.data.value}</p>`,
+        );
+
+      // toStringAsync mirrors `await Island(props)` — async SSR by name.
+      const promise: Promise<string> = Island.toStringAsync();
+      expect(await promise).toBe("<p>resolved</p>");
+
+      // The callable async form still works (JSX/html\`\`\`\` composition keeps
+      // the synchronous string return for child slots).
+      expect(await Island()).toBe("<p>resolved</p>");
+    });
+
     it("SSR async derived.value and derived.error are undefined during SSR", async () => {
       const Island = ilha
         .derived("data", async () => 42)
@@ -6277,7 +6294,7 @@ describe(".onMount", () => {
     cleanup(el);
   });
 
-  it("runs before sync SSR toString so external state can seed from input", () => {
+  it("does NOT run during SSR toString() — onMount is client-only", () => {
     const seeded: string[] = [];
     const Island = ilha
       .input(z.object({ items: z.array(z.string()) }))
@@ -6286,9 +6303,18 @@ describe(".onMount", () => {
       })
       .render(() => html`<p>${seeded.join(",")}</p>`);
 
+    // onMount is client-only: SSR never invokes it (matching .on()/.effect()),
+    // so server-rendered markup must not depend on onMount side effects.
     const out = Island.toString({ items: ["a", "b"] });
-    expect(out).toContain("a,b");
+    expect(seeded).toEqual([]);
+    expect(out).not.toContain("a,b");
+
+    // Mounting on the client runs it with the real host.
+    const el = makeEl();
+    const unmount = Island.mount(el, { items: ["a", "b"] });
     expect(seeded).toEqual(["a", "b"]);
+    unmount();
+    cleanup(el);
   });
 
   it("does NOT run the callback more than once even when state changes", () => {

@@ -6,7 +6,7 @@
 - It is a Bun monorepo containing four packages (`ilha`, `@ilha/router`, `@ilha/store`, `@ilha/astro`), one documentation app (`apps/website`), and scaffolding templates (`templates/`).
 - The core package (`packages/ilha`) is the island builder: signal-based reactivity, SSR rendering, DOM hydration, and a JSX runtime — no virtual DOM, no compiler.
 - `@ilha/router` provides an isomorphic SPA router with a Vite file-system routing plugin; `@ilha/store` provides cross-island global state backed by alien-signals.
-- The documentation site (`apps/website`) is built with Nimbus (Astro), Ilha, and Areia. It prerenders to static HTML and is deployed to Vercel.
+- The documentation site (`apps/website`) is built with Blume, Ilha, and Areia. It prerenders to static HTML and is deployed to Vercel.
 
 ## Build and run
 
@@ -29,7 +29,7 @@
 - `packages/ilha/src/jsx-runtime.ts` — JSX factory; do not merge with `index.ts`.
 - `packages/router/` and `packages/store/` follow the same single-entrypoint pattern with their own `tsdown.config.ts` and `package.json`.
 - `templates/` — official starters (vite-spa, oxide-spa). Keep them minimal and copy-pasteable; do not add build-time complexity.
-- `apps/website/src/content/docs/` — all MDX documentation lives here (Nimbus/Astro content collections). Directory structure maps to URLs.
+- `apps/website/docs/` — all MDX documentation lives here. Directory structure maps to URLs; `meta.ts` files control navigation order.
 
 ## Island API conventions
 
@@ -59,7 +59,7 @@
 
 ## Writing docs
 
-Docs live in `apps/website/src/content/docs/**/*.mdx` (guides under `guide/`, tutorials under `tutorial/`). Sidebar order comes from each file's frontmatter `sidebar.order` field. Style guidelines:
+Docs live in `apps/website/docs/**/*.mdx` (guides under `guide/`, tutorials under `tutorial/`). Navigation order comes from each directory's Blume `meta.ts`. Style guidelines:
 
 - **Address the reader as "you."** Describe what they do, not what the library has: "You define an island with `.state()`," not "Ilha provides a state primitive."
 - **Prefer active voice.** "`mount()` discovers every `[data-ilha]` element," not "elements are discovered by `mount()`."
@@ -69,11 +69,11 @@ Docs live in `apps/website/src/content/docs/**/*.mdx` (guides under `guide/`, tu
 - **Make rendering mode explicit.** Use `Island.toString(props)` in synchronous examples, `await Island(props)` in asynchronous examples, and `await Island.hydratable(props, options)` for hydration markup. Never show an unawaited `Island(props)` call.
 - **Be direct, cut filler.** Drop "simply," "just," "in order to," "it's worth noting that." No "powerful," "blazing fast," "seamless."
 - **Show, then explain.** Lead with a minimal, runnable code example, then describe what it does. Examples must be type-correct and copy-pasteable.
-- **Every new feature updates the docs.** Add or revise the relevant guide page, then run `bun run fmt` (oxfmt formats MDX). Build the site (`cd apps/website && bun run build`) to confirm the page prerenders without dead-link errors. Register MDX components in `apps/website/src/components.ts`. Put Preview demo source in a sibling `*.examples.ts` file when the sample contains PascalCase JSX tags (Nimbus MDX validation treats those as components).
+- **Every new feature updates the docs.** Add or revise the relevant guide page, then run `bun run fmt` (oxfmt formats MDX). Build the site (`cd apps/website && bun run build`) to confirm the page prerenders without dead-link errors. Register MDX components in `apps/website/components.ts`. Put Preview demo source in a sibling `*.examples.ts` file when the sample contains PascalCase JSX tags.
 
 ## LLM exports
 
-Each production docs build emits `dist/llms.txt`, `dist/llms-full.txt`, and per-section agent indexes via Nimbus. Do not disable these outputs — they are how agents (including this one) read the full documentation. If you add a new guide, verify it appears in `llms.txt` after a build.
+Each production docs build emits `dist/llms.txt`, `dist/llms-full.txt`, `dist/agent-readability.json`, and per-page Markdown mirrors via Blume. Do not disable these outputs — they are how agents (including this one) read the full documentation. If you add a new guide, verify it appears in `llms.txt` after a build.
 
 ## Agent behavior
 

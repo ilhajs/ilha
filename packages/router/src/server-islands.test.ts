@@ -374,7 +374,7 @@ describe("__ilhaServerIsland stale-args regression", () => {
 
 describe("server page proxies under layouts", () => {
   it("supports .key() so wrapLayout composition works", async () => {
-    const ilha = (await import("ilha")).default;
+    const { ilha } = await import("ilha");
     const { __ilhaServerIsland } = await import("./server-island");
     const { wrapLayout } = await import("./index");
     const proxy = __ilhaServerIsland("layout-proxy-test", "div", {}) as any;

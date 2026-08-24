@@ -1,0 +1,135 @@
+---
+title: Installation
+description: Install ilha and start building with official templates for Vite SPA and Oxide SPA.
+---
+
+ilha can be installed with your package manager of choice. For a beta project, start from a template when possible so SSR, mounting, and deployment wiring are already in place.
+
+## Install
+
+Install with your package manager:
+
+```ts twoslash
+ilha;
+```
+
+## Templates
+
+If you want to start from a ready-made project instead of wiring everything manually, use one of the official templates.
+
+| Template                                                                  | Command                                               | Sandbox                                                                         |
+| ------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------- |
+| [Vite SPA](https://github.com/ilhajs/ilha/tree/main/templates/vite-spa)   | `npx giget@latest gh:ilhajs/ilha/templates/vite-spa`  | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite-spa)  |
+| [Oxide SPA](https://github.com/ilhajs/ilha/tree/main/templates/oxide-spa) | `npx giget@latest gh:ilhajs/ilha/templates/oxide-spa` | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/oxide-spa) |
+
+Templates are the fastest way to get a working project structure for SSR, routing, and deployment targets without setting everything up from scratch.
+
+## Requirements
+
+ilha is designed for modern JavaScript and TypeScript projects.
+
+- Use it in apps that can run ESM modules.
+- Use TypeScript if you want the best editor support.
+- Use a browser environment for mounting and hydration.
+- Keep props and hydration snapshots JSON-serializable when rendering on the server.
+
+## Import
+
+```tsx twoslash
+import { ilha, raw, css, mount, from, context } from "ilha";
+```
+
+Import `ilha` as a named export to create an island with `ilha(() => JSX)` or a configured builder chain. Use other named exports for helpers such as `raw` and `mount`.
+
+## Minimal example
+
+Create an island directly when it does not need builder configuration:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Greeting = ilha(() => <p>Hello, ilha!</p>);
+```
+
+Start with a plain function for markup owned by another island, then wrap it with `ilha()` when it needs an independent lifecycle. Expand the shorthand into a builder chain when you need local state or actions:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Counter = ilha
+  .state("count", 0)
+  .action("increment", (_, { state }) => {
+    state.count((count) => count + 1);
+  })
+  .render(({ state, action }) => (
+    <button onclick={action.increment}>
+      Count: {state.count()}
+    </button>
+  ));
+```
+
+## Server-side rendering
+
+Render the island to an HTML string with `toString()`:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Counter = ilha
+  .state("count", 0)
+  .action("increment", (_, { state }) => {
+    state.count((count) => count + 1);
+  })
+  .render(({ state, action }) => (
+    <button onclick={action.increment}>
+      Count: {state.count()}
+    </button>
+  ));
+// ---cut---
+const htmlOutput = Counter.toString();
+```
+
+If your island uses async derived values, you can also await the island itself:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Counter = ilha
+  .state("count", 0)
+  .action("increment", (_, { state }) => {
+    state.count((count) => count + 1);
+  })
+  .render(({ state, action }) => (
+    <button onclick={action.increment}>
+      Count: {state.count()}
+    </button>
+  ));
+// ---cut---
+const htmlOutput = await Counter();
+```
+
+## Client-side mounting
+
+Mount the island into a DOM element:
+
+```tsx
+import { ilha } from "ilha";
+
+const Counter = ilha
+  .state("count", 0)
+  .action("increment", (_, { state }) => {
+    state.count((count) => count + 1);
+  })
+  .render(({ state, action }) => (
+    <button onclick={action.increment}>
+      Count: {state.count()}
+    </button>
+  ));
+// ---cut---
+const root = document.getElementById("app");
+if (root) {
+  const unmount = Counter.mount(root);
+}
+```
+
+The returned function stops listeners, effects, and other active behavior. Call it when removing the host element manually or when integrating ilha into another router.

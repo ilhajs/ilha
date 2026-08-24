@@ -1,7 +1,7 @@
 import { createTask, TaskList } from "$lib/tasks.server";
 import { loader } from "@ilha/router";
 import { Button, Input, LayerCard } from "areia";
-import ilha from "ilha";
+import { ilha } from "ilha";
 
 export const clientLoad = loader(({ head }) => {
   head({ title: "Home" });

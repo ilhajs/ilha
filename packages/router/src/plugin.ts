@@ -9,9 +9,13 @@ import type { PagesMode } from "./codegen";
 import { runWithIslandRequest } from "./request-scope";
 import {
   FrameError,
+  getFrameAuth,
   getFrameGuard,
+  isTrustedOrigin,
   renderServerIsland,
+  setFrameAuth,
   setFrameGuard,
+  setLoaderGuard,
 } from "./server-island-registry";
 import {
   generateServerIslandModule,
@@ -147,6 +151,23 @@ export interface IlhaPagesOptions {
    * `setFrameGuard()` from `@ilha/router/server-island-registry`.
    */
   frameGuard?: (request: Request) => Response | void | Promise<Response | void>;
+  /**
+   * Guard consulted only by `GET /__ilha/loader` in production. When absent,
+   * the loader endpoint falls back to the frame guard for backwards
+   * compatibility. Mirrors `setLoaderGuard()`.
+   */
+  loaderGuard?: (request: Request) => Response | void | Promise<Response | void>;
+  /**
+   * Explicit trusted origins for frame/loader requests (e.g. a `.vercel.app`
+   * or custom domain). When unset, origin checks compare the `Origin` header
+   * against the request's own `Host`. Mirrors `setFrameAuth({ trustedOrigins })`.
+   */
+  trustedOrigins?: string[];
+  /**
+   * Optional CSRF verifier for the state-changing `/__ilha/frame` POST.
+   * Mirrors `setFrameAuth({ csrf })`.
+   */
+  csrf?: (request: Request) => boolean | Promise<boolean>;
   /**
    * Fail codegen on duplicate route patterns / registry name collisions
    * instead of warning. Recommended for CI/production builds. Default: `false`.
@@ -525,6 +546,16 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
       configureServer(server) {
         server.watcher.add(state.pagesDir);
         if (options.frameGuard) setFrameGuard(options.frameGuard);
+        if (options.loaderGuard) setLoaderGuard(options.loaderGuard);
+        if (options.trustedOrigins || options.csrf) {
+          setFrameAuth({
+            trustedOrigins: options.trustedOrigins,
+            csrf: options.csrf,
+            // Dev stays permissive when no guard is registered; only a
+            // registered guard or the present csrf/trusted-origin checks gate.
+            defaultAction: "open",
+          });
+        }
 
         // Server-island frame endpoint: re-renders a proxy island from a
         // state snapshot. Reads through the module graph on every call, so
@@ -542,18 +573,39 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             res.end();
             return;
           }
+          // Same-origin defense, sharing logic with the production handler.
+          const guardHeaders = new Headers();
+          if (req.headers.origin) guardHeaders.set("origin", String(req.headers.origin));
+          if (req.headers.host) guardHeaders.set("host", String(req.headers.host));
+          if (
+            !isTrustedOrigin(
+              new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, {
+                headers: guardHeaders,
+              }),
+              getFrameAuth(),
+            )
+          ) {
+            // Dev-only log so proxy/container setups can see WHY the origin
+            // was rejected and configure trustedOrigins accordingly.
+            console.warn(
+              `[ilha-router] dev frame request rejected: Origin ${String(req.headers.origin)} is not trusted (host: ${String(req.headers.host ?? "localhost")}). Configure trustedOrigins via IlhaPagesOptions if this origin is expected.`,
+            );
+            res.statusCode = 403;
+            res.end();
+            return;
+          }
           // Guard hook (see IlhaPagesOptions.frameGuard): island state is
           // world-readable through frames unless gated.
+          const identityHeaders = new Headers();
+          for (const name of ["cookie", "authorization"]) {
+            const v = req.headers[name];
+            if (typeof v === "string") identityHeaders.set(name, v);
+          }
           try {
-            const guardHeaders = new Headers();
-            for (const name of ["cookie", "authorization", "x-forwarded-for"]) {
-              const v = req.headers[name];
-              if (typeof v === "string") guardHeaders.set(name, v);
-            }
             const denied = await getFrameGuard()?.(
               new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, {
                 method: req.method,
-                headers: guardHeaders,
+                headers: identityHeaders,
               }),
             );
             if (denied) {
@@ -567,12 +619,26 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             res.end();
             return;
           }
-          const origin = req.headers.origin;
-          const host = req.headers.host;
-          if (origin && origin !== `http://${host}` && origin !== `https://${host}`) {
-            res.statusCode = 403;
-            res.end();
-            return;
+          // Optional CSRF verifier for the state-changing frame POST.
+          const csrf = getFrameAuth()?.csrf;
+          if (csrf) {
+            try {
+              const ok = await csrf(
+                new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, {
+                  method: req.method,
+                  headers: identityHeaders,
+                }),
+              );
+              if (!ok) {
+                res.statusCode = 403;
+                res.end();
+                return;
+              }
+            } catch {
+              res.statusCode = 403;
+              res.end();
+              return;
+            }
           }
           const chunks: Buffer[] = [];
           let size = 0;
@@ -593,12 +659,16 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             const target = serverIslands.get(body.id ?? "");
             if (!target) throw new Error("unknown island");
             // Route context for server pages: render at the client's current
-            // path when provided (path-only, no foreign origin).
+            // path when provided (path-only, no foreign origin). Backslash is
+            // rejected too — WHATWG URLs treat `\` as `/` for http(s), so a
+            // `\evil.com` prefix would smuggle a new authority into the
+            // scoped request URL past the `//` check.
             let framePath = "/__ilha/frame";
             if (
               typeof body.path === "string" &&
               body.path.startsWith("/") &&
               !body.path.includes("//") &&
+              !body.path.includes("\\") &&
               body.path.length <= 2048
             ) {
               framePath = body.path;
@@ -614,8 +684,10 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             if (typeof render !== "function") throw new Error("unknown island");
             // Synthesize a Request for the render scope: same URL as the
             // page, forwarding identity headers (cookie, auth, UA).
+            // Client-supplied `x-forwarded-for` is NOT forwarded — it is
+            // spoofable and must not be trusted by loaders for IP checks.
             const headers = new Headers();
-            for (const name of ["cookie", "authorization", "user-agent", "x-forwarded-for"]) {
+            for (const name of ["cookie", "authorization", "user-agent"]) {
               const value = req.headers[name];
               if (typeof value === "string") headers.set(name, value);
             }
@@ -667,6 +739,8 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
           // invalidate every proxy virtual module, and reload.
           if (!SERVER_FILE_RE.test(file.replace(/\?.*$/, ""))) return;
           scanCache.delete(file);
+          // SAFETY: Vite's ModuleGraph carries forEachModule; the cast only
+          // exposes the iterator used to invalidate stale server-island proxies.
           const graph = server.moduleGraph as unknown as {
             forEachModule?: (fn: (mod: { id: string }) => void) => void;
           };
@@ -690,6 +764,8 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
 
       const structuralInvalidate = createStructuralInvalidate(state, () => {
         if (!compiler.watching) return;
+        // SAFETY: compiler implements watching via hooks in rspack; the
+        // invalidate call is a no-op guard when watching is not active.
         (compiler as unknown as { invalidate: () => void }).invalidate();
       });
 

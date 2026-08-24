@@ -331,7 +331,7 @@ Both the user-supplied cleanup function (if any) and the signal abort fire when 
 
 ### `.onMount(fn)`
 
-Runs once after the island is mounted into the DOM. Receives `{ state, derived, input, host, hydrated }` where `hydrated` is `true` when the island was mounted over existing SSR content. Optionally returns a cleanup function called on unmount.
+Runs once after the island is mounted into the DOM. **Client-only** — SSR never invokes it (matching `.on()` and `.effect()`), so server-rendered markup must not depend on onMount side effects. Receives `{ state, derived, input, host, hydrated }` where `hydrated` is `true` when the island was mounted over existing SSR content. Optionally returns a cleanup function called on unmount.
 
 ```ts
 ilha
@@ -538,7 +538,8 @@ Use `await island(props)` instead when asynchronous derived values must settle b
 ```ts
 MyIsland.toString(); // always sync
 MyIsland.toString({ name: "Ilha" }); // with props
-await MyIsland({ name: "Ilha" }); // async — awaits derived
+await MyIsland.toStringAsync({ name: "Ilha" }); // async SSR — awaits async derived values
+await MyIsland({ name: "Ilha" }); // callable async form (also used for JSX/html slot composition)
 ```
 
 ---
@@ -666,6 +667,8 @@ theme("dark"); // → sets to "dark"
 Safe to call in both SSR and browser environments.
 
 > **`signal()` vs `context()`** — both return the same accessor shape and can be used with `bind:` template syntax. Use `signal()` for one-off shared state where you'd hold the reference yourself; use `context()` when you want a name-keyed registry so the same signal can be looked up from anywhere by string key.
+>
+> **SSR caveat** — `context()` is process-global, not request-scoped. It is safe to read in SSR **only for app-wide singletons** (theme, locale, feature flags). Per-request state (current user, session) must not live in `context()`: concurrent SSR requests would leak it across requests. Pass per-request data through island props / loaders or use `@ilha/router`'s request-scope instead.
 
 ---
 

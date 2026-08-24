@@ -4,7 +4,7 @@ mock.module("virtual:@ilha/astro/options", () => ({
   default: (id: string) => id.includes("/ilha/"),
 }));
 
-import ilha, { __ilhaJsxSlot, html } from "ilha";
+import { ilha, __ilhaJsxSlot, html } from "ilha";
 
 import hydrate from "./client";
 import ilhaIntegration, { getRenderer, getViteConfig } from "./index";

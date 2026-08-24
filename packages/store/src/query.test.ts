@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 
-import ilha, { html, mount } from "ilha";
+import { ilha, html, mount } from "ilha";
 
 import { store } from "./index";
 import { query, QueryCache, defaultQueryCache, ILHA_QUERY } from "./query";

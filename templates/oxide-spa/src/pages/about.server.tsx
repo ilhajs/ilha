@@ -1,4 +1,4 @@
-import ilha from "ilha";
+import { ilha } from "ilha";
 
 type AboutInput = { path?: string };
 

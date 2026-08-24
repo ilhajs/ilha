@@ -43,4 +43,24 @@ describe("runWithIslandRequest", () => {
 
     if (saved) g[Symbol.for("oxidejs.runWithRequest")] = saved;
   });
+
+  test("isolates interleaved async requests via a single ALS scope", async () => {
+    const captured: string[] = [];
+    const run = (label: string, delay: number) =>
+      new Promise<void>((resolve) => {
+        runWithIslandRequest(new Request(`https://example.com/${label}`), async () => {
+          await new Promise((r) => setTimeout(r, delay));
+          const store = (
+            globalThis as unknown as Record<symbol, AsyncLocalStorage<Request> | undefined>
+          )[REQUEST_ALS_KEY]!.getStore();
+          // Each interleaved await must resolve back to ITS OWN request — never
+          // a sibling's — proving no cross-request contamination.
+          captured.push(store?.url ?? "none");
+          resolve();
+        });
+      });
+    await Promise.all([run("a", 30), run("b", 5)]);
+    expect(captured).toContain("https://example.com/a");
+    expect(captured).toContain("https://example.com/b");
+  });
 });

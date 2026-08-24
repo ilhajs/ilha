@@ -786,6 +786,20 @@ describe("codegen — loader detection", () => {
     expect(errorImport!).toContain("?client");
   });
 
+  it("loaders.ts wires the loader runner to runLoader with the originating request", async () => {
+    await writePage(
+      pagesDir,
+      "index.ts",
+      `export const load = async () => ({}); export default null;`,
+    );
+    const { routes } = await runCodegen();
+    // Client-navigation loaders keep cookies/identity and observe the real
+    // request's abort signal via the forwarded Request.
+    expect(routes).toContain(
+      `setFrameLoaderRunner((path, request) => pageRouter.runLoader(path, request));`,
+    );
+  });
+
   it("routes.ts marks routes that have loaders without importing loader code", async () => {
     await writePage(
       pagesDir,
