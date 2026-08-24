@@ -1,5 +1,5 @@
 ---
-title: ilha
+title: "Core package reference"
 description: Compact reference for the public exports from the ilha package.
 ---
 
@@ -9,7 +9,7 @@ Use this page as a map of the public `ilha` API. Start with [Introduction](/guid
 
 Import the callable `ilha` export:
 
-```tsx
+```tsx twoslash
 import { ilha } from "ilha";
 
 const Status = ilha(() => <p>Ready</p>);
@@ -23,7 +23,7 @@ const Greeting = ilha<{ name: string }>(({ input }) => (
 
 Use the builder when the island needs local capabilities:
 
-```tsx
+```tsx twoslash
 const Counter = ilha
   .state("count", 0)
   .action("increment", (_, { state }) => {
@@ -40,20 +40,21 @@ const Counter = ilha
 
 Call `.render()` exactly once and last.
 
-| API                                            | Purpose                                                      | Learn more                                                               |
-| ---------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| `ilha.input&lt;T&gt;()` / `ilha.input(schema)` | Define typed, defaulted, or validated input props.           | [Input](/guide/island/input)                                             |
-| `.as(tag)`                                     | Choose the wrapper tag when this island is a child slot.     | [Render](/guide/island/render#slot-wrapper--astag)                       |
-| `.state(key, initial?)`                        | Add local reactive state.                                    | [State](/guide/island/state)                                             |
-| `.derived(key, fn)`                            | Add synchronous or abortable asynchronous derived data.      | [Derived](/guide/island/derived)                                         |
-| `.action(key, fn)`                             | Add a typed reusable operation with reactive status.         | [Actions](/guide/island/action)                                          |
-| `.on(selector, handler)`                       | Add an advanced delegated or host event listener.            | [Advanced listeners](/guide/island/action#use-on-for-advanced-listeners) |
-| `.effect(fn)`                                  | Run a reactive client effect with cleanup and cancellation.  | [Effect](/guide/island/effect)                                           |
-| `.onMount(fn)`                                 | Run client setup once per mount and return optional cleanup. | [On mount](/guide/island/onmount)                                        |
-| `.onError(fn)`                                 | Handle errors from this island.                              | [On error](/guide/island/onerror)                                        |
-| `.transition(options)`                         | Add enter and leave lifecycle transitions.                   | [Transition](/guide/island/transition)                                   |
-| `.css(styles)`                                 | Attach styles scoped to the island host.                     | [CSS](/guide/island/css)                                                 |
-| `.render(fn)`                                  | Finish the builder and return an `Island`.                   | [Render](/guide/island/render)                                           |
+| API                                            | Purpose                                                      | Learn more                                         |
+| ---------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------- |
+| `ilha.input&lt;T&gt;()` / `ilha.input(schema)` | Define typed, defaulted, or validated input props.           | [Input](/guide/island/input)                       |
+| `.as(tag)`                                     | Choose the wrapper tag when this island is a child slot.     | [Render](/guide/island/render#slot-wrapper--astag) |
+| `.state(key, initial?)`                        | Add local reactive state.                                    | [State](/guide/island/state)                       |
+| `.derived(key, fn)`                            | Add synchronous or abortable asynchronous derived data.      | [Derived](/guide/island/derived)                   |
+| `.stream(key, fn)`                             | Feed a state key from a generator (first value in SSR).      | [Stream](/guide/island/stream)                     |
+| `.action(key, fn)`                             | Add a typed reusable operation with reactive status.         | [Actions](/guide/island/action)                    |
+| `.on(selector, handler)`                       | Add an advanced delegated or host event listener.            | [`.on()`](/guide/island/on)                        |
+| `.effect(fn)`                                  | Run a reactive client effect with cleanup and cancellation.  | [Effect](/guide/island/effect)                     |
+| `.onMount(fn)`                                 | Run client setup once per mount and return optional cleanup. | [On mount](/guide/island/onmount)                  |
+| `.onError(fn)`                                 | Handle errors from this island.                              | [On error](/guide/island/onerror)                  |
+| `.transition(options)`                         | Add enter and leave lifecycle transitions.                   | [Transition](/guide/island/transition)             |
+| `.css(styles)`                                 | Attach styles scoped to the island host.                     | [CSS](/guide/island/css)                           |
+| `.render(fn)`                                  | Finish the builder and return an `Island`.                   | [Render](/guide/island/render)                     |
 
 Declare actions before callbacks that consume them. Prefer lowercase native event props for element-owned events; reserve `.on()` for selectors, host listeners, full handler context, or combined modifiers.
 
@@ -74,7 +75,7 @@ Use `mount({ Counter })` when the server already emitted named `[data-ilha]` hos
 
 ## Helpers from `ilha`
 
-```ts
+```ts twoslash
 import {
   mount,
   html,
@@ -97,14 +98,14 @@ import {
 | `html\`...\``                    | Create escaped `RawHtml` template output.                        | [HTML](/guide/helpers/html)                                          |
 | `raw(value)`                     | Mark a trusted string as unescaped `RawHtml`.                    | [Raw](/guide/helpers/raw)                                            |
 | `css\`...\``                     | Create reusable CSS text for `.css()`.                           | [CSS helper](/guide/helpers/css)                                     |
-| `signal(initial)`                | Create a standalone readable and writable signal.                | [Signals](/guide/helpers/signals)                                    |
-| `computed(fn)`                   | Create a lazy, cached, read-only value from signals.             | [Signals](/guide/helpers/signals)                                    |
-| `effect(fn)`                     | Run a standalone reactive effect; returns a stop function.       | [Signals](/guide/helpers/signals)                                    |
-| `context(key, initial)`          | Get or create a keyed shared signal.                             | [Signals](/guide/helpers/signals)                                    |
-| `context.delete(key)`            | Remove one key from the context registry.                        | [Signals](/guide/helpers/signals)                                    |
-| `context.clear()`                | Clear the context registry, commonly between tests or HMR runs.  | [Signals](/guide/helpers/signals)                                    |
-| `batch(fn)`                      | Batch signal writes into one propagation pass.                   | [Signals](/guide/helpers/signals)                                    |
-| `untrack(fn)`                    | Read signals without subscribing the active reactive scope.      | [Signals](/guide/helpers/signals)                                    |
+| `signal(initial)`                | Create a standalone readable and writable signal.                | [Signals](/guide/island/signals)                                     |
+| `computed(fn)`                   | Create a lazy, cached, read-only value from signals.             | [Signals](/guide/island/signals)                                     |
+| `effect(fn)`                     | Run a standalone reactive effect; returns a stop function.       | [Signals](/guide/island/signals)                                     |
+| `context(key, initial)`          | Get or create a keyed shared signal.                             | [Signals](/guide/island/signals)                                     |
+| `context.delete(key)`            | Remove one key from the context registry.                        | [Signals](/guide/island/signals)                                     |
+| `context.clear()`                | Clear the context registry, commonly between tests or HMR runs.  | [Signals](/guide/island/signals)                                     |
+| `batch(fn)`                      | Batch signal writes into one propagation pass.                   | [Signals](/guide/island/signals)                                     |
+| `untrack(fn)`                    | Read signals without subscribing the active reactive scope.      | [Signals](/guide/island/signals)                                     |
 | `from(selector, island, props?)` | Mount an island into an existing selector or element.            | [Mount](/guide/helpers/mount)                                        |
 | `onUncaughtError(fn)`            | Register a global fallback for otherwise uncaught island errors. | [On error](/guide/island/onerror#global-error-sink--onuncaughterror) |
 
@@ -249,6 +250,6 @@ import type {
 
 | Package        | Guide                             |
 | -------------- | --------------------------------- |
-| `@ilha/router` | [Router](/guide/libraries/router) |
-| `@ilha/store`  | [Store](/guide/libraries/store)   |
-| `@ilha/astro`  | [Astro](/guide/libraries/astro)   |
+| `@ilha/router` | [Router](/guide/routing/overview) |
+| `@ilha/store`  | [Store](/guide/store/overview)    |
+| `@ilha/astro`  | [Astro](/guide/astro)             |

@@ -9,9 +9,10 @@ Registers a **per-island** error handler. The runtime routes uncaught errors thr
 
 Island errors that reach the sink include:
 
-- [`.on()`](/guide/island/action#use-on-for-advanced-listeners) — sync throws and async rejections (except filtered `AbortError`)
+- [`.on()`](/guide/island/on) — sync throws and async rejections (except filtered `AbortError`)
 - [`.effect()`](/guide/island/effect) — sync throws from the effect body or its cleanup
 - [`.action()`](/guide/island/action) — sync throws and async rejections, except cancellation
+- [`.stream()`](/guide/island/stream) — sync throws and async rejections from the generator, except cancellation
 - [`.onMount()`](/guide/island/onmount) — throws from the mount callback or its returned cleanup
 - [`.transition()`](/guide/island/transition) — throws or rejections from `enter` / `leave`
 
@@ -60,7 +61,12 @@ The handler receives an `ErrorContext`:
 ```ts
 {
   error: Error; // always wrapped to Error if a non-Error was thrown
-  source: "on" | "effect" | "action" | "mount" | "transition";
+  source: "on" |
+    "effect" |
+    "action" |
+    "mount" |
+    "transition" |
+    "stream";
   state: IslandState; // reactive state signals
   derived: IslandDerived; // current derived values
   action: IslandActions; // callable actions and their reactive status
@@ -96,7 +102,7 @@ const Island = ilha
 
 Import **`onUncaughtError`** from `ilha` (not chained on the builder). Register it once in your client entry — for example logging, toast, or telemetry — for **any island that has no local `.onError()`**:
 
-```ts
+```ts twoslash
 import { ilha, onUncaughtError } from "ilha";
 
 const off = onUncaughtError((error, source) => {

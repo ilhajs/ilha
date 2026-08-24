@@ -1,5 +1,5 @@
 ---
-title: "@ilha/astro"
+title: Astro
 description: Astro integration that renders and hydrates Ilha islands as Astro components.
 ---
 
@@ -42,7 +42,7 @@ Islands in these examples use JSX. Set `jsx` and `jsxImportSource` in `tsconfig.
 
 Define an island as usual, then use it in a page with a client directive:
 
-```tsx
+```tsx twoslash
 // src/islands/counter.tsx
 import { ilha } from "ilha";
 
@@ -117,7 +117,7 @@ Plain Astro function components do not create an Ilha island lifecycle. Lowercas
 
 Promote independently interactive UI with `ilha(() => JSX)`; use the builder form when it needs state, actions, or other local capabilities. Plain function children rendered inside an island inherit its event lifecycle.
 
-```tsx
+```tsx twoslash
 export const Button = ({ label }: { label: string }) => (
   <button class="btn" type="button">
     {label}
@@ -155,8 +155,8 @@ You almost never import the client or server entrypoints yourself. `ilha()` regi
 
 | Topic                     | Guide                                  |
 | ------------------------- | -------------------------------------- |
-| Core `ilha` API           | [ilha](/guide/libraries/ilha)          |
+| Core `ilha` API           | [ilha](/reference/ilha)                |
 | Hydratable SSR            | [Hydratable](/guide/island/hydratable) |
 | Mount and discovery       | [Mount](/guide/helpers/mount)          |
-| Shared cross-island state | [Store](/guide/libraries/store)        |
-| Multi-page SPA routing    | [Router](/guide/libraries/router)      |
+| Shared cross-island state | [Store](/guide/store/overview)         |
+| Multi-page SPA routing    | [Router](/guide/routing/overview)      |

@@ -25,7 +25,7 @@ The element mounts the island as soon as it connects to the DOM, and unmounts it
 
 ## Options
 
-```ts
+```ts twoslash
 interface DefineOptions {
   observe?: string[]; // attribute names to watch and pass through as string props
 }
@@ -78,7 +78,7 @@ const List = ilha
 List.define("x-ilha-list");
 ```
 
-```ts
+```ts twoslash
 const host = document.createElement(
   "x-ilha-list",
 ) as HTMLElement & {

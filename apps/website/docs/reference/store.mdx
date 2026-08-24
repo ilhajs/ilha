@@ -1,0 +1,47 @@
+---
+title: Store reference
+description: Compact index of @ilha/store exports mapped to the global-state guides.
+---
+
+A map of the public `@ilha/store` API. For how-to guidance, start with [Store overview](/guide/store/overview).
+
+## Builder
+
+| Export / method                             | Guide                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------- |
+| `store(initialState)` / `store(schema)`     | [Store overview](/guide/store/overview)                                   |
+| `.derived(key, fn)`                         | [Derived state and actions](/guide/store/derived-state-and-actions)       |
+| `.action(key, fn)`                          | [Derived state and actions](/guide/store/derived-state-and-actions)       |
+| `.middleware(fn)`                           | [Derived state and actions](/guide/store/derived-state-and-actions)       |
+| `.on(event, handler)` / `.onError(handler)` | [Subscriptions and validation](/guide/store/subscriptions-and-validation) |
+| `.build()`                                  | [Store overview](/guide/store/overview)                                   |
+
+## Built-in store methods
+
+| Method                                                               | Guide                                                                     |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| State accessors / `store.setState` / `store.reset` / `store.dispose` | [Subscriptions and validation](/guide/store/subscriptions-and-validation) |
+| `store.getState` / `store.getInitialState`                           | [Subscriptions and validation](/guide/store/subscriptions-and-validation) |
+| `store.subscribe(listenerOrSelector, …)`                             | [Subscriptions and validation](/guide/store/subscriptions-and-validation) |
+| `store.select(selector)`                                             | [Subscriptions and validation](/guide/store/subscriptions-and-validation) |
+| `store.bind(selector)`                                               | [Subscriptions and validation](/guide/store/subscriptions-and-validation) |
+| `effectScope`                                                        | [Subscriptions and validation](/guide/store/subscriptions-and-validation) |
+
+## Entry points
+
+| Import path           | Guide                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `@ilha/store`         | `store`, types, subscriptions, `persist`, `dehydrate`/`hydrate`, `shallowEqual`, `effectScope`                                 |
+| `@ilha/store/persist` | `persist`, `persistQuery`, `querySpec`, `codec`, `readQuery` — see [Persistence and query](/guide/store/persistence-and-query) |
+| `@ilha/store/query`   | `query`, `QueryCache`, `defaultQueryCache` — see [Persistence and query](/guide/store/persistence-and-query)                   |
+| `@ilha/store/form`    | `extractFormData`, `validateWithSchema`, `issuesToErrors` — see [Forms](/guide/store/forms)                                    |
+
+## SSR
+
+| Export                                            | Guide                   |
+| ------------------------------------------------- | ----------------------- |
+| `dehydrate(storeOrState)` / `hydrate(store, raw)` | [SSR](/guide/store/ssr) |
+
+## Related
+
+[Store overview](/guide/store/overview) · [Astro integration](/guide/astro)

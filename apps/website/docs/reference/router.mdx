@@ -1,0 +1,56 @@
+---
+title: Router reference
+description: Compact index of @ilha/router exports mapped to the routing guides.
+---
+
+A map of the public `@ilha/router` API. For how-to guidance, start with [Router overview](/guide/routing/overview).
+
+## Builder and routing
+
+| Export / method                                                                     | Guide                                                         |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `router(options)`                                                                   | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `.route(pattern, island, loader?)`                                                  | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `.mount(target, options?)`                                                          | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `.hydrate(registry)` / `.prime()`                                                   | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `navigate` / `prefetch` / `invalidate` / `navigating`                               | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `useRoute` / `routePath` / `routeParams` / `routeSearch` / `routeHash` / `isActive` | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `RouterView` / `RouterLink`                                                         | [Routes and navigation](/guide/routing/routes-and-navigation) |
+
+## Loaders
+
+| Export / method                         | Guide                             |
+| --------------------------------------- | --------------------------------- |
+| `loader` / `loader.client` / `load`     | [Loaders](/guide/routing/loaders) |
+| `redirect` / `error` / `composeLoaders` | [Loaders](/guide/routing/loaders) |
+| `InferLoader` / `MergeLoaders`          | [Loaders](/guide/routing/loaders) |
+| `.runLoader`                            | [Loaders](/guide/routing/loaders) |
+
+## File-system routing
+
+| Topic                                            | Guide                                                     |
+| ------------------------------------------------ | --------------------------------------------------------- |
+| Pages plugin (Vite/Rspack/Rolldown)              | [File-system routing](/guide/routing/file-system-routing) |
+| Layouts / error boundaries / route groups        | [File-system routing](/guide/routing/file-system-routing) |
+| Virtual modules (`ilha:pages/*`, `ilha:loaders`) | [File-system routing](/guide/routing/file-system-routing) |
+
+## Server rendering
+
+| Export / method                                     | Guide                                               |
+| --------------------------------------------------- | --------------------------------------------------- |
+| `.render` / `.renderHydratable` / `.renderResponse` | [Server rendering](/guide/routing/server-rendering) |
+| `.respond(urlOrRequest, registry, options?)`        | [Server rendering](/guide/routing/server-rendering) |
+| `httpResponse(body, options)` / `serializeHead`     | [Server rendering](/guide/routing/server-rendering) |
+| `useContext()`                                      | [Server islands](/guide/routing/server-islands)     |
+
+## Server islands and security
+
+| Topic                                               | Guide                                                             |
+| --------------------------------------------------- | ----------------------------------------------------------------- |
+| `*.server.tsx` / `*.server.ts` islands              | [Server islands](/guide/routing/server-islands)                   |
+| `@ilha/router/ssr` middleware                       | [Deployment](/guide/routing/deployment)                           |
+| `setFrameGuard` / `setLoaderGuard` / `setFrameAuth` | [Middleware and security](/guide/routing/middleware-and-security) |
+
+## Related
+
+[Router overview](/guide/routing/overview) · [Astro integration](/guide/astro)

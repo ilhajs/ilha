@@ -183,7 +183,7 @@ const same = context("ui.count", 999); // returns same signal, ignores 999
 
 This means context initialization is effectively first-write-wins. Define context signals in a shared module to ensure consistent initialization across your app:
 
-```ts
+```ts twoslash
 // contexts.ts
 import { context } from "ilha";
 

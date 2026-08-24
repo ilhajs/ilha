@@ -1,0 +1,71 @@
+---
+title: .on()
+description: Register a delegated or host event listener with a CSS selector, island-host listener, full handler context, and optional modifiers.
+---
+
+`.on()` registers an event listener for a CSS selector, the island host, or both, with the full island handler context. Use it when a native event prop cannot express the target — a selector that matches conditionally rendered elements, an island-host listener, or combined modifiers.
+
+Prefer lowercase native JSX event props when one rendered element owns the event. Use `.on()` when you need a selector, a host listener, the full handler context, or multiple listener modifiers.
+
+## Selector syntax
+
+The first argument combines an optional selector and event name with `@`:
+
+```ts
+.on("button@click", handler) // descendant buttons
+.on("@click", handler) // island host
+.on("button@click:once:capture", handler) // combined modifiers
+```
+
+## Combined with actions
+
+Declare actions before `.on()` to expose them through the handler context:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Registration = ilha
+  .action(
+    "registerUser",
+    async (event: SubmitEvent, { signal }) => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      await fetch("/api/register", {
+        method: "POST",
+        body: new FormData(form),
+        signal,
+      });
+    },
+  )
+  .on("form@submit", ({ action, event }) =>
+    action.registerUser(event),
+  )
+  .render(() => (
+    <form>
+      <input name="email" type="email" />
+      <button>Register</button>
+    </form>
+  ));
+```
+
+## Handler context
+
+The handler receives state, derived, action, input, host, target, event, and signal. Synchronous signal writes are batched, listeners clean up on unmount, and thrown errors route through [`.onError()`](/guide/island/onerror).
+
+Ilha resolves selectors again after each morph. Use `.on()` when template composition prevents a direct native event interpolation or when matching elements appear conditionally.
+
+## Error handling
+
+A throw or rejection in an `.on()` handler reaches the island error sink with `source: "on"`:
+
+1. Local [`.onError()`](/guide/island/onerror) handlers
+2. Global `onUncaughtError()` handlers
+3. `console.error`
+
+An `AbortError` caused by cancellation (via `:abortable` race-cancel or unmount) is filtered out and does not reach the sink.
+
+## Notes
+
+- Prefer native event props for element-owned events.
+- `.on()` also runs client-only — it never runs during SSR.
+- `AbortError` rejections are filtered, not treated as errors.

@@ -1,0 +1,34 @@
+---
+title: Astro reference
+description: Compact index of @ilha/astro — ilhaIntegration, getRenderer, client/server entries, and the client directives.
+---
+
+A map of the public `@ilha/astro` API. The full guide lives at [Astro](/guide/astro).
+
+## Exports and entry points
+
+| Import path             | Use it for                                    |
+| ----------------------- | --------------------------------------------- |
+| `@ilha/astro`           | `ilha()` integration and `getRenderer()`.     |
+| `@ilha/astro/client.js` | Client hydration entry (registered by Astro). |
+| `@ilha/astro/server.js` | Server renderer entry (registered by Astro).  |
+
+You almost never import the client or server entrypoints yourself — `ilha()` registers them through Astro's renderer API.
+
+## `ilha()` integration
+
+```ts
+// astro.config.mjs
+import { defineConfig } from "astro/config";
+import { ilha } from "@ilha/astro";
+
+export default defineConfig({
+  integrations: [ilha()],
+});
+```
+
+`ilha()` accepts `IlhaIntegrationOptions` `{ include?, exclude? }`. It routes ilha islands to Astro's renderer, dedupes `ilha`, and SSR/hydrates islands inside `<astro-island>`. See [Astro](/guide/astro) for the full setup, client-directive table, and plain-component behavior.
+
+## Related
+
+[Astro](/guide/astro) · [Hydratable](/guide/island/hydratable)

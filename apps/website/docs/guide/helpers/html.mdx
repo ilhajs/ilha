@@ -167,9 +167,9 @@ const events = enabled ? html` onclick=${handler}` : "";
 html`<button class="save" ${events}>Save</button>`;
 ```
 
-Ilha cannot register handlers hidden inside serialized attribute objects or `raw()` strings. Those paths produce plain markup. For broader composition, use [`.on()`](/guide/island/action#use-on-for-advanced-listeners) with a stable selector.
+Ilha cannot register handlers hidden inside serialized attribute objects or `raw()` strings. Those paths produce plain markup. For broader composition, use [`.on()`](/guide/island/on) with a stable selector.
 
-Use [`bind:*`](/guide/island/render#template-bindings) for signal synchronization. Use [`.on()`](/guide/island/action#use-on-for-advanced-listeners) for selectors, host listeners, its full handler context, or combined modifiers.
+Use [`bind:*`](/guide/island/bindings) for signal synchronization. Use [`.on()`](/guide/island/on) for selectors, host listeners, its full handler context, or combined modifiers.
 
 ## List rendering
 

@@ -26,7 +26,7 @@ const html = await MyIsland
 
 ## Options
 
-```ts
+```ts twoslash
 interface HydratableOptions {
   name: string; // required
   as?: string; // default: "div"
@@ -189,7 +189,7 @@ const html = await pageRouter.renderHydratable(
 );
 ```
 
-On the client, import from `ilha:pages/client` (see [Router — virtual modules](/guide/libraries/router#virtual-modules)).
+On the client, import from `ilha:pages/client` (see [Router — virtual modules](/guide/routing/file-system-routing#virtual-modules)).
 
 For manual setups without the router, call `.hydratable()` directly in your SSR handler.
 

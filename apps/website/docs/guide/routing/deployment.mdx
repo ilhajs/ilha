@@ -1,0 +1,84 @@
+---
+title: Deployment
+description: Host a router app in production — oxidejs SSR middleware, static prerendering, and where to register guards.
+---
+
+How you deploy depends on whether your app needs SSR/server islands or renders to static HTML.
+
+## SPA + SSR (server-rendered)
+
+For file-system routing with [oxidejs](https://npmjs.com/package/oxidejs), the SSR middleware serves both internal endpoints in production — the route-graph imports are implicit:
+
+```ts
+// vite.config.ts
+import pages from "@ilha/router/vite";
+import oxide from "oxidejs/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    oxide({ middleware: ["@ilha/router/ssr"] }),
+    pages(),
+  ],
+});
+```
+
+The `@ilha/router/ssr` middleware serves:
+
+- `POST /__ilha/frame` — server-island and server-page re-renders
+- `GET /__ilha/loader` — loader data for regular-page client navigations
+
+Any host that runs an oxidejs fetch handler serves these. See [Server rendering](/guide/routing/server-rendering) and [Middleware and security](/guide/routing/middleware-and-security).
+
+If you host the router in your own fetch handler instead, use the manual render methods — `render()`, `renderHydratable()`, `renderResponse()`, or `respond()` — described in [Server rendering](/guide/routing/server-rendering).
+
+## Registering guards in production
+
+Deny-by-default means `/__ilha/frame` and `/__ilha/loader` return `403` until you install a guard. Call the guards once at server startup, before handling requests:
+
+```ts twoslash
+import {
+  setFrameAuth,
+  setFrameGuard,
+  setLoaderGuard,
+} from "@ilha/router/server-island-registry";
+
+function isSignedIn(_request: Request) {
+  return true;
+}
+// ---cut---
+setFrameGuard((request) =>
+  isSignedIn(request)
+    ? undefined
+    : new Response("Unauthorized", { status: 401 }),
+);
+setLoaderGuard((request) =>
+  isSignedIn(request)
+    ? undefined
+    : new Response("Unauthorized", { status: 401 }),
+);
+```
+
+See [Middleware and security](/guide/routing/middleware-and-security) for the full guard, origin, and CSRF model.
+
+## Static prerendering (MPA)
+
+When you do not need runtime SSR or server islands, use `mode: "static"` and hydrate each pre-rendered page. Set `mode: "static"` in the plugin options, then hydrate with `hydrateStatic`:
+
+```ts
+import { pageRouter, registry } from "ilha:pages/client";
+
+pageRouter.hydrateStatic(registry);
+```
+
+Prerender each route's HTML at build time (for example with a site generator or `renderResponse`), and the client mounts per page. See [Virtual modules](/guide/routing/file-system-routing#virtual-modules) for the client entry.
+
+Hash mode (`setHistoryMode("hash")`) is another static-host option when you cannot serve an SPA fallback for every URL — see [Hash mode](/guide/routing/routes-and-navigation#hash-mode). SSR + hydration is not supported in hash mode.
+
+## Related
+
+| Topic                             | Guide                                                             |
+| --------------------------------- | ----------------------------------------------------------------- |
+| Guards in production              | [Middleware and security](/guide/routing/middleware-and-security) |
+| SSR render methods                | [Server rendering](/guide/routing/server-rendering)               |
+| Plugin `mode` and virtual modules | [File-system routing](/guide/routing/file-system-routing)         |

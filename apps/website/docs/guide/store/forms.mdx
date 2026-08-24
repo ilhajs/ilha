@@ -1,0 +1,102 @@
+---
+title: Forms
+description: type-safe, schema-validated forms for ilha with the @ilha/store/form helpers.
+---
+
+The `@ilha/store/form` import path adds small helpers on [Standard Schema](https://standardschema.dev) (Zod, Valibot, ArkType, and others) for extracting, validating, and mapping form data.
+
+A canonical form pattern: keep validation results in a small store, and gate submissions with `validateWithSchema`.
+
+## Helpers
+
+```ts twoslash
+import {
+  extractFormData,
+  validateWithSchema,
+  validateWithSchemaAsync,
+  issuesToErrors,
+} from "@ilha/store/form";
+```
+
+### `extractFormData(source)`
+
+Turns an `HTMLFormElement` (or `FormData`) into a plain object. Single fields stay scalar; repeated keys collapse to arrays. File inputs pass through as `File` values.
+
+```ts
+const data = extractFormData(event.target as HTMLFormElement);
+// → { email: "ada@example.com", role: ["admin", "editor"] }
+```
+
+### `validateWithSchema(schema, data)`
+
+Runs a Standard Schema synchronously. Never throws. Returns `{ ok: true, data }` or `{ ok: false, issues }`. Use `validateWithSchemaAsync` for async refinements.
+
+### `issuesToErrors(issues)`
+
+Flattens Standard Schema issues into `Record<string, string[]>` keyed by dot-separated path. Form-level errors (no path) land under `""`.
+
+```ts
+issuesToErrors([
+  { message: "Required", path: ["email"] },
+  { message: "Invalid", path: ["user", "email"] },
+]);
+// → { email: ["Required"], "user.email": ["Invalid"] }
+```
+
+## Full example — contact form
+
+```tsx twoslash
+import { store } from "@ilha/store";
+import {
+  extractFormData,
+  validateWithSchema,
+  issuesToErrors,
+} from "@ilha/store/form";
+import type { FormErrors } from "@ilha/store/form";
+import { ilha } from "ilha";
+import { z } from "zod";
+
+const ContactSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.email("Invalid email"),
+  message: z.string().min(10, "Too short"),
+});
+
+const formStore = store({ errors: {} as FormErrors })
+  .action("submit", (event: SubmitEvent) => {
+    const result = validateWithSchema(
+      ContactSchema,
+      extractFormData(event.target as HTMLFormElement),
+    );
+    return {
+      errors: result.ok ? {} : issuesToErrors(result.issues),
+    };
+  })
+  .build();
+
+const errors = formStore.errors; // state accessor — reactive
+
+export default ilha
+  .action("submit", ({ event }) => formStore.submit(event))
+  .render(() => (
+    <form>
+      <input name="name" />
+      {errors().name ? (
+        <p role="alert">{errors().name[0]}</p>
+      ) : null}
+      <input name="email" type="email" />
+      {errors().email ? (
+        <p role="alert">{errors().email[0]}</p>
+      ) : null}
+      <button type="submit">Send</button>
+    </form>
+  ));
+```
+
+## Related
+
+| Topic                             | Guide                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| `validateWithSchema` on the store | [Subscriptions and validation](/guide/store/subscriptions-and-validation) |
+| Bind two-way inputs               | [Bindings](/guide/island/bindings)                                        |
+| Shared state for the form         | [Store overview](/guide/store/overview)                                   |

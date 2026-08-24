@@ -11,8 +11,119 @@ export default defineConfig({
   logo: "/logo.svg",
   github: { owner: "ilhajs", repo: "ilha", dir: "apps/website" },
   navigation: {
+    sidebar: [
+      {
+        label: "Guide",
+        root: "/guide",
+        items: [
+          {
+            label: "Start",
+            items: [
+              "/guide/getting-started/introduction",
+              "/guide/getting-started/installation",
+              "/guide/getting-started/core-concepts",
+            ],
+          },
+          {
+            label: "Concepts",
+            items: ["/guide/concepts/ssr-and-hydration"],
+          },
+          {
+            label: "Build islands",
+            items: [
+              "/guide/island/input",
+              "/guide/island/state",
+              "/guide/island/derived",
+              "/guide/island/stream",
+              "/guide/island/action",
+              "/guide/island/on",
+              "/guide/island/effect",
+              "/guide/island/onmount",
+              "/guide/island/onerror",
+              "/guide/island/transition",
+              "/guide/island/css",
+              "/guide/island/render",
+              "/guide/island/hydratable",
+              "/guide/island/define",
+              "/guide/island/bindings",
+              "/guide/island/signals",
+            ],
+          },
+          {
+            label: "Routing",
+            items: [
+              "/guide/routing/overview",
+              "/guide/routing/routes-and-navigation",
+              "/guide/routing/loaders",
+              "/guide/routing/file-system-routing",
+              "/guide/routing/server-rendering",
+              "/guide/routing/server-islands",
+              "/guide/routing/middleware-and-security",
+              "/guide/routing/deployment",
+            ],
+          },
+          {
+            label: "Global state",
+            items: [
+              "/guide/store/overview",
+              "/guide/store/derived-state-and-actions",
+              "/guide/store/subscriptions-and-validation",
+              "/guide/store/forms",
+              "/guide/store/persistence-and-query",
+              "/guide/store/ssr",
+            ],
+          },
+          {
+            label: "Integrations",
+            items: ["/guide/astro"],
+          },
+          {
+            label: "Helpers",
+            items: [
+              "/guide/helpers/mount",
+              "/guide/helpers/html",
+              "/guide/helpers/raw",
+              "/guide/helpers/css",
+            ],
+          },
+          {
+            label: "Resources",
+            items: [
+              "/guide/resources/showcase",
+              {
+                label: "Awesome Ilha",
+                href: "https://github.com/ilhajs/awesome-ilha",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        label: "Reference",
+        root: "/reference",
+        items: ["/reference/ilha", "/reference/router", "/reference/store", "/reference/astro"],
+      },
+      {
+        label: "Tutorial",
+        root: "/tutorial",
+        items: [
+          {
+            label: "Build a counter",
+            items: [
+              "/tutorial/counter/state",
+              "/tutorial/counter/action",
+              "/tutorial/counter/derived",
+              "/tutorial/counter/bind",
+              "/tutorial/counter/effect",
+              "/tutorial/counter/onmount",
+            ],
+          },
+        ],
+      },
+    ],
     tabs: [
       { label: "Guide", path: "/guide", href: "/guide/getting-started/introduction" },
+      { label: "Reference", path: "/reference", href: "/reference/ilha" },
       { label: "Tutorial", path: "/tutorial", href: "/tutorial/counter/state" },
     ],
   },

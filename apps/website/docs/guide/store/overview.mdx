@@ -1,0 +1,108 @@
+---
+title: Store overview
+description: Shared reactive state for ilha islands — install @ilha/store, build a store, and read/write it from any island.
+---
+
+`@ilha/store` is shared reactive state for ilha apps. It sits outside any island and uses [alien-signals](https://github.com/stackblitz/alien-signals) — the same engine as island [`.state()`](/guide/island/state) — so stores and islands share one reactive graph without bridging.
+
+Island [`.state()`](/guide/island/state) is **local** to one component. Use `@ilha/store` when state must be **shared** across islands or updated from non-island code.
+
+## Install
+
+```package-install
+@ilha/store
+```
+
+`ilha` is an optional peer dependency. Install both so `bind:*` directives and signal tracking work in templates.
+
+## Import paths
+
+| Import path           | Use it for                                                                                                                  |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `@ilha/store`         | `store`, store types, subscriptions, `select`, `bind`, `persist`, `dehydrate`/`hydrate`, `shallowEqual`, and `effectScope`. |
+| `@ilha/store/persist` | `persist`, `persistQuery`, `querySpec`, `codec`, `readQuery`, and URL/localStorage persistence helpers.                     |
+| `@ilha/store/query`   | `query`, `QueryCache`, and `defaultQueryCache` — data-fetching cache for async `.derived()`.                                |
+| `@ilha/store/form`    | Form extraction, validation, and issue-to-error mapping. See [Forms](/guide/store/forms).                                   |
+
+## Quick start
+
+```ts twoslash
+import { store } from "@ilha/store";
+
+const counterStore = store({ count: 0, label: "counter" })
+  .derived("doubled", ({ get }) => get().count * 2)
+  .middleware((patch, {}, next) => {
+    // guard: floor count at zero
+    if (patch.count !== undefined && patch.count < 0) return;
+    next(patch);
+  })
+  .action("increment", (_, { get }) => ({
+    count: get().count + 1,
+  }))
+  .action("decrement", (_, { get }) => ({
+    count: get().count - 1,
+  }))
+  .action("setLabel", (label: string) => ({ label }))
+  .on("change", (state) => {
+    localStorage.setItem("counter", JSON.stringify(state));
+  })
+  .build();
+
+counterStore.count(); // 0  — reactive read
+counterStore.count(5); // write → goes through middleware
+counterStore.doubled(); // 10 — reactive derived
+counterStore.increment(); // 6
+counterStore.getState(); // { count: 6, label: "counter" }
+```
+
+## When to use
+
+Choose `@ilha/store` when state needs to be:
+
+- **Shared across multiple islands** — e.g. a cart, auth session, or active theme
+- **Updated from outside an island** — e.g. from a WebSocket handler or global event bus
+- **Persisted or derived globally** — e.g. synced to `localStorage` via `.on("change", …)`
+- **Form state** — pair with the [Form helpers](/guide/store/forms) for typed validation and error mapping
+
+Use island `.state()` when only one island reads and writes a piece of state.
+
+## Usage with ilha islands
+
+State and derived accessors are signal-shaped — use them **directly** inside `.render()`, `.derived()`, and `.effect()` without a wrapper:
+
+```tsx twoslash
+import { store } from "@ilha/store";
+import { ilha } from "ilha";
+
+const cartStore = store({ items: [] as string[] })
+  .action("add", (item: string, { get }) => ({
+    items: [...get().items, item],
+  }))
+  .derived("count", ({ get }) => get().items.length)
+  .build();
+
+export const CartBadge = ilha(() => (
+  <span>{cartStore.count()}</span>
+));
+
+export const CartList = ilha(() => (
+  <ul>
+    {cartStore.items().map((item) => (
+      <li key={item}>{item}</li>
+    ))}
+  </ul>
+));
+```
+
+Both islands stay in sync. `CartBadge` re-renders only when `count` changes; `CartList` only when `items` changes. Use `.select()` for ad-hoc projections and `.bind()` for two-way form fields — see [Subscriptions and validation](/guide/store/subscriptions-and-validation).
+
+## Related
+
+| Topic                             | Guide                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| Island-local state                | [State](/guide/island/state)                                              |
+| Derived values and actions        | [Derived state and actions](/guide/store/derived-state-and-actions)       |
+| Subscriptions, select, validation | [Subscriptions and validation](/guide/store/subscriptions-and-validation) |
+| Forms                             | [Forms](/guide/store/forms)                                               |
+| Persistence and query cache       | [Persistence and query](/guide/store/persistence-and-query)               |
+| SSR transfer                      | [SSR](/guide/store/ssr)                                                   |

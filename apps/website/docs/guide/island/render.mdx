@@ -308,7 +308,7 @@ Native event props accept one modifier. Functions never become inline HTML attri
 
 ### Use `.on()` for advanced listeners
 
-Prefer native event props when one rendered element owns the event. Use [`.on()`](/guide/island/action#use-on-for-advanced-listeners) when you need a CSS selector, an island-host listener, the full island handler context, or multiple modifiers.
+Prefer native event props when one rendered element owns the event. Use [`.on()`](/guide/island/on) when you need a CSS selector, an island-host listener, the full island handler context, or multiple modifiers.
 
 ```tsx twoslash
 import { ilha } from "ilha";
@@ -569,9 +569,7 @@ Rendering a plain component outside an island produces static HTML, so event pro
 
 ## Template bindings
 
-Inside JSX, use `bind:property={signal}` to create two-way bindings between form elements and signals. When the signal changes, the element updates. When the user interacts with the element, the signal updates.
-
-Use `bind:*` for synchronization and lowercase events for custom logic. You can put both on the same element, such as `<input bind:value={state.name} onchange={validate} />`.
+Two-way `bind:property={signal}` bindings synchronize form elements with signals. For the full contract — supported binding types, number coercion, `.select()` nested fields, radio and checkbox groups, element references, bind-prop contracts for component authors — see [Template bindings](/guide/island/bindings).
 
 ```tsx twoslash
 import { ilha } from "ilha";
@@ -581,180 +579,6 @@ const Name = ilha.state("name", "Ada").render(({ state }) => (
     <input bind:value={state.name} />
     <p>Hello, {state.name()}</p>
   </div>
-));
-```
-
-### Supported bindings
-
-| Binding              | Element                                           | Bound property      | Trigger event |
-| -------------------- | ------------------------------------------------- | ------------------- | ------------- |
-| `bind:value`         | `<input>`, `<textarea>`, `<select>`               | `value`             | `input`       |
-| `bind:valueAsNumber` | `<input type="number">`                           | `valueAsNumber`     | `input`       |
-| `bind:valueAsDate`   | `<input type="date">`                             | `valueAsDate`       | `input`       |
-| `bind:checked`       | `<input type="checkbox">`                         | `checked`           | `change`      |
-| `bind:group`         | `<input type="radio">`, `<input type="checkbox">` | `checked` / `value` | `change`      |
-| `bind:open`          | `<details>`                                       | `open`              | `toggle`      |
-| `bind:files`         | `<input type="file">`                             | `files`             | `change`      |
-| `bind:this`          | Any element                                       | element reference   | —             |
-
-The element type is detected at runtime — no configuration needed.
-
-### Number coercion warnings
-
-`bind:value` and radio-group `bind:group` bindings coerce the DOM's string value back to a number when the bound signal currently holds a number. If the DOM value cannot be parsed as a number (an empty or non-numeric input), ilha coerces to `0` and logs a dev warning suggesting `bind:valueAsNumber` instead — which yields `null` on invalid input rather than silently coercing to `0`. Checkbox-array `bind:group` bindings are exempt: an option value that fails to parse is kept as its raw string, with no `0` fallback:
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-// Prefer this for numeric inputs:
-const Age = ilha
-  .state("age", 0)
-  .render(({ state }) => (
-    <input type="number" bind:valueAsNumber={state.age} />
-  ));
-```
-
-The warning is suppressed in production.
-
-**Areia** in nested child islands: use `bind:checked={state.flag}` on `&lt;Switch /&gt;` and `bind:group={state.tab}` on `&lt;Tabs />` (recent **areia** mounts `Switch.Root` / `Tabs.Root` when bind props are present). Controlled `checked` + `onCheckedChange` or `value` + `onValueChange` still work.
-
-### Bind contracts for component authors
-
-A custom component must relay `bind:*` props to its controller. Ilha only wires bindings placed directly on native elements rendered by that island.
-
-Keep these paths separate:
-
-- User input writes the bound signal once and calls the semantic callback once.
-- A programmatic signal write updates the controller without calling the semantic callback.
-- A controlled prop update changes the controller without masquerading as user input.
-
-On initial mount, Ilha reflects bound properties before `.onMount()`, then attaches native bind listeners afterward. Controller listeners registered in `.onMount()` therefore observe user input before the bind write triggers reactive synchronization.
-
-Register component operations with `.action()`. Use direct lowercase event props or a morph-safe [`.on()` selector](/guide/island/action#use-on-for-advanced-listeners) to call them.
-
-Do not pass function handlers through attribute serializers or `raw()`. Those paths produce markup, not live event registrations.
-
-### Radio and checkbox groups
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const Plan = ilha.state("plan", "pro").render(({ state }) => (
-  <>
-    <input
-      type="radio"
-      name="plan"
-      value="free"
-      bind:group={state.plan}
-    />
-    <input
-      type="radio"
-      name="plan"
-      value="pro"
-      bind:group={state.plan}
-    />
-  </>
-));
-
-const Tags = ilha
-  .state<string[]>("tags", ["ts"])
-  .render(({ state }) => (
-    <>
-      <input
-        type="checkbox"
-        name="tag"
-        value="js"
-        bind:group={state.tags}
-      />
-      <input
-        type="checkbox"
-        name="tag"
-        value="ts"
-        bind:group={state.tags}
-      />
-      <input
-        type="checkbox"
-        name="tag"
-        value="rust"
-        bind:group={state.tags}
-      />
-    </>
-  ));
-```
-
-### Nested fields with `.select()`
-
-When state holds an object or array, bind to a nested slice with `.select()` instead of replacing the whole value on every keystroke:
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const Profile = ilha
-  .state("user", { name: "Ada", role: "dev" })
-  .render(({ state }) => (
-    <div>
-      <input bind:value={state.user.select((u) => u.name)} />
-      <p>{state.user().name}</p>
-    </div>
-  ));
-```
-
-In a list, select the item field you need inside `.map()`:
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const Todos = ilha
-  .state("todos", [{ text: "Learn ilha", completed: false }])
-  .render(({ state }) => (
-    <ul>
-      {state.todos().map((todo, index) => (
-        <li key={todo.text}>
-          <input
-            type="checkbox"
-            bind:checked={state.todos.select(
-              (t) => t[index].completed,
-            )}
-          />
-          {todo.text}
-        </li>
-      ))}
-    </ul>
-  ));
-```
-
-The selector must traverse nested state (for example `(u) => u.name` or `(t) => t[i].completed`). Writes update only that path — siblings and unrelated fields stay intact.
-
-### Element references
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const Focus = ilha
-  .state("ref", null as HTMLInputElement | null)
-  .render(({ state }) => <input bind:this={state.ref} />);
-```
-
-### External signals
-
-Any signal created with [`signal()`](/guide/helpers/signals) works as a binding target, including [nested slices via `.select()`](#nested-fields-with-select):
-
-```tsx twoslash
-import { ilha, signal } from "ilha";
-
-const username = signal("");
-
-const LoginForm = ilha(() => (
-  <input bind:value={username} placeholder="Username" />
-));
-
-const profile = signal({ user: { name: "Ada" } });
-
-const Settings = ilha(() => (
-  <input
-    bind:value={profile.select((p) => p.user.name)}
-    placeholder="Name"
-  />
 ));
 ```
 
@@ -804,7 +628,7 @@ See [`Island.define()`](/guide/island/define) to use an island from plain HTML o
 
 - `.render()` must be called exactly once and always last in the chain.
 - JSX output follows ilha's escaping rules; use `raw()` only for trusted markup.
-- Use lowercase native event props such as `onclick` and one optional modifier such as `oninput:abortable`; camelCase `onClick` props are omitted. Use [`.on()`](/guide/island/action#use-on-for-advanced-listeners) for host listeners, selectors, or combined modifiers.
+- Use lowercase native event props such as `onclick` and one optional modifier such as `oninput:abortable`; camelCase `onClick` props are omitted. Use [`.on()`](/guide/island/on) for host listeners, selectors, or combined modifiers.
 - The render function runs on every re-render triggered by a signal change. Keep it fast and free of side effects — use [`.effect()`](/guide/island/effect) or [`.onMount()`](/guide/island/onmount) for side effects instead.
 - During SSR the render function runs synchronously. Avoid browser-only APIs (`window`, `document`) at the top level of the render function.
 - The render function does not receive `host` — if you need the host element, use [`.onMount()`](/guide/island/onmount) or [`.effect()`](/guide/island/effect).

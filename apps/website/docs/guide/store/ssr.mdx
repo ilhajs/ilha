@@ -1,0 +1,44 @@
+---
+title: SSR
+description: move store state safely across the server/client boundary with dehydrate and hydrate.
+---
+
+Stores are module-level singletons, so on a concurrent SSR server they must **not** be written during a render — request A's data would leak into request B. Instead, state travels the same way ilha island state does: serialized into the HTML, then seeded on the client.
+
+## `dehydrate(storeOrState)` · `hydrate(store, raw)`
+
+- **`dehydrate(storeOrState)`** → JSON string. On a concurrent server pass a **request-local object** (e.g. loader data), not the shared store. Passing the store itself is fine in non-concurrent contexts (prerendering, tests).
+- **`hydrate(store, raw)`** → parses with the same guards as ilha's island snapshots (size cap, depth cap, must-be-plain-object, prototype-polluting keys stripped) and merges via `setState` — middleware runs and schema stores validate, so corrupt payloads are rejected. Returns `true` when the snapshot passes the parse/guard checks and is handed to `setState` (schema validation may still reject the patch there), `false` when it is ignored.
+
+```ts
+// server (inside the loader / request handler)
+const payload = dehydrate({ items: cartItems }); // request-local data
+// stamp into the shell, escaped for the embedding context:
+// <script type="application/json" id="cart-state">
+//   ${payload.replace(/</g, "\\u003c")}
+// </script>
+```
+
+```ts
+// client — page island's onMount (runs on hydration)
+import { hydrate } from "@ilha/store";
+
+ilha.onMount(() => {
+  hydrate(
+    cartStore,
+    document.getElementById("cart-state")?.textContent,
+  );
+});
+```
+
+## Request isolation
+
+Because stores are singleton modules, keep request-scoped data out of module-level store writes during a render. Prefer `@ilha/router` loaders for request-scoped data, then seed a client store from the loader result via `hydrate()`. See the [SSR caveat](/guide/store/persistence-and-query#ssr-and-module-level-stores) for `query()`-backed deriveds.
+
+## Related
+
+| Topic                         | Guide                                                       |
+| ----------------------------- | ----------------------------------------------------------- |
+| The data-fetching query cache | [Persistence and query](/guide/store/persistence-and-query) |
+| Hydrating island snapshots    | [Hydratable](/guide/island/hydratable)                      |
+| Building a store              | [Store overview](/guide/store/overview)                     |

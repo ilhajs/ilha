@@ -1,0 +1,82 @@
+---
+title: SSR and hydration
+description: How ilha renders HTML on the server and restores interactivity in the browser through hydration.
+---
+
+Server-side rendering (SSR) turns an island into HTML on the server. Hydration restores that HTML to a live, interactive island in the browser. This page is the mental model; each method page below carries the details.
+
+## Choose a render mode
+
+You pick a server API by whether you need async work (derived values, streams) and whether you want hydration markup.
+
+| API                                       | Env    | Output                     |
+| ----------------------------------------- | ------ | -------------------------- |
+| `Island.toString(props)`                  | Server | Synchronous HTML           |
+| `await Island.toStringAsync(props)`       | Server | Async HTML, by name        |
+| `await Island(props)`                     | Server | Async HTML shorthand       |
+| `await Island.hydratable(props, options)` | Server | HTML plus hydration data   |
+| `mount({ Island })`                       | Client | Discovers and mounts hosts |
+
+Use `Island.toString(props)` for plain markup that has no async work. Async SSR awaits derived values and streamed state, so prefer `await Island.toStringAsync(props)` — or its shorthand `await Island(props)` — whenever the island may resolve async data. You never call `Island(props)` unawaited; the caller always `await`s it.
+
+## Why `toStringAsync()` exists
+
+`Island.toString()` always renders synchronously — derived values that are still loading render in their loading state, and streamed keys fall back to their initial value. `Island.toStringAsync()` returns a `Promise` and awaits async derived values and the first streamed value before producing HTML. Prefer it by name when you want explicit async SSR:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Island = ilha
+  .derived("user", async () => {
+    const res = await fetch("/api/user");
+    return res.json();
+  })
+  .render(({ derived }) => {
+    if (derived.user.loading) return <p>Loading…</p>;
+    return <p>{derived.user()?.name}</p>;
+  });
+
+// Async — waits for derived values
+const html = await Island.toStringAsync();
+```
+
+## Hydration markup
+
+`await Island.hydratable(props, options)` emits HTML wrapped so the client can restore serialized props and snapshots when it calls `mount({ Island })`:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Island = ilha
+  .state("count", 0)
+  .render(({ state }) => <p>{state.count()}</p>);
+
+// On the server:
+await Island.hydratable({}, { name: "my-island" });
+```
+
+On the client, `mount({ Island })` auto-discovers `[data-ilha="IslandName"]` elements and hydrates them.
+
+## What runs where
+
+| Concern                            | Runs on server             | Runs on client        |
+| ---------------------------------- | -------------------------- | --------------------- |
+| Render function                    | Yes                        | Yes, on re-render     |
+| `.derived()` sync                  | Yes                        | Yes                   |
+| `.derived()` async                 | Yes (awaited in async SSR) | Yes                   |
+| `.stream()`                        | Pulls first value only     | Consumes continuously |
+| `.action()`                        | No-op (idle)               | Yes                   |
+| `.on()` / `.effect()`              | No                         | Yes                   |
+| `.onMount()`                       | No — **client-only**       | Yes                   |
+| `.onError()` / `onUncaughtError()` | No                         | Yes                   |
+
+`.onMount()` is client-only: SSR never invokes it, matching `.on()` and `.effect()`. Server-rendered markup must not depend on onMount side effects. If you previously seeded server-visible state from input inside onMount, migrate that work to a `.state()` initializer, module scope, or `.derived()`.
+
+## Linking the method pages
+
+- [`.render()`](/guide/island/render) — the island methods and sync/async SSR forms
+- [`.hydratable()`](/guide/island/hydratable) — hydration options and snapshots
+- [`.onMount()`](/guide/island/onmount) — client-only setup
+- [`.derived()`](/guide/island/derived) — async derived values
+- [`.stream()`](/guide/island/stream) — generator-fed state
+- [`mount()`](/guide/helpers/mount) — client mounting

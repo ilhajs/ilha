@@ -1,0 +1,117 @@
+---
+title: Server rendering
+description: Render routes to HTML on the server — render, renderHydratable, renderResponse, respond, runLoader, and Request-first overloads.
+---
+
+SSR is built into the SPA router — no separate server entry or render call. For file-system routing with [oxidejs](https://npmjs.com/package/oxidejs), add the SSR middleware and the routes render themselves:
+
+```ts
+// vite.config.ts
+import pages from "@ilha/router/vite";
+import oxide from "oxidejs/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    oxide({ middleware: ["@ilha/router/ssr"] }),
+    pages(),
+  ],
+});
+```
+
+## Manual SSR rendering — custom hosts only
+
+The builder exposes `render(url)`, `renderHydratable(url, registry, options?, request?)`, `renderResponse(...)`, `respond(...)`, and `runLoader(...)` for hosting setups that render routes in their own fetch handler instead of the built-in middleware. You do not need them for file-system routing with oxidejs — SSR is already embedded.
+
+Every SSR method accepts a `Request` as the first argument instead of a URL string — the route, the loader's `ctx.url`, the request scope for `useContext()`, and any redirect resolution then all derive from that one object:
+
+```ts twoslash
+import { router } from "@ilha/router";
+const pageRouter = router();
+const registry = {};
+const request = new Request("http://localhost/about");
+// ---cut---
+// all three forms are equivalent; the Request form is preferred on the server
+await pageRouter.renderResponse(
+  new Request("http://localhost/about"),
+  registry,
+);
+await pageRouter.renderResponse(
+  "http://localhost/about",
+  registry,
+  {},
+  request,
+);
+pageRouter.runLoader(new Request("http://localhost/user/42"));
+```
+
+**`.respond(urlOrRequest, registry, options?)`** renders to a ready-to-send `Response` — handling loader redirects (real `Location` + status), 404s, and security headers (`nosniff`, `no-referrer`, `no-store`, optional CSP) in one call. Pass `shell` to wrap the rendered HTML in a document shell that injects the serialized `head`:
+
+```ts twoslash
+import { router } from "@ilha/router";
+const pageRouter = router();
+const registry = {};
+const request = new Request("http://localhost/about");
+const nonce = "abc123";
+// ---cut---
+const response = await pageRouter.respond(request, registry, {
+  cspNonce: nonce,
+  shell: (head, html) =>
+    `<!doctype html><html${head.htmlAttrs}><head>${head.headTags}<head/><body${head.bodyAttrs}>${html}</body></html>`,
+});
+```
+
+:::note
+`useContext()` returns `{ request }` from the request-scoped island render — it is only populated when a `Request` was actually provided (`renderResponse(url)` with no `request`, or `respond(url)` with a URL string, leaves `request: undefined`). Pass a `Request` as the first argument whenever your `.server` render functions read request data.
+:::
+
+**`httpResponse(body, options)`** builds a single `Response` with sensible security headers. It is the low-level helper behind `respond` — prefer `respond` for the full render + head + headers pipeline, and reach for `httpResponse` when you already have the HTML and just want a correctly-headered `Response`:
+
+```ts twoslash
+import { httpResponse } from "@ilha/router";
+
+// Set by default: Content-Type: text/html, X-Content-Type-Options: nosniff,
+// Referrer-Policy: no-referrer, Cache-Control: no-store.
+const res = httpResponse("<h1>Hi</h1>");
+```
+
+| Option                  | Behavior                                                                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `status`                | Response status (default `200`).                                                                                                |
+| `headers`               | Extra headers, merged over defaults.                                                                                            |
+| `cspNonce`              | Emit a conservative default CSP with `'nonce-${nonce}'` for `script-src` — pass the same nonce to head `<script nonce=…>` tags. |
+| `contentSecurityPolicy` | Full CSP string; overrides the nonce-derived default.                                                                           |
+
+Security headers are added only when the caller has not already set them, so you can override any default by passing `headers`.
+
+## `.hydrate(registry, options?)` — browser only
+
+Convenience method combining `.prime()`, `ilha.mount()`, and `.mount()` in one call. This is the recommended client entry point.
+
+```ts twoslash
+import { router } from "@ilha/router";
+const pageRouter = router();
+const registry = {};
+// ---cut---
+pageRouter.hydrate(registry);
+
+// With options:
+pageRouter.hydrate(registry, {
+  root: document.getElementById("root"),
+  target: "#app",
+});
+```
+
+## How SSR reaches the client
+
+```text
+server                              client
+──────────────────────────────────  ────────────────────────────────────
+POST /__ilha/frame {id, path}       server-island proxy mounts
+  → loader runs at frame time         → morphs HTML into place
+  → island re-rendered from state     → actions replay over RPC
+GET /__ilha/loader?path=…           regular-page client navigation
+  → loader data as JSON               → next view mounts hydrated
+```
+
+Server islands and server pages pull their markup through `/__ilha/frame`; regular-page loaders fetch their data from `/__ilha/loader`. Both endpoints are served by the `"@ilha/router/ssr"` middleware — no host code required. See [Server islands](/guide/routing/server-islands) for the frame flow and [Deployment](/guide/routing/deployment) for production wiring.

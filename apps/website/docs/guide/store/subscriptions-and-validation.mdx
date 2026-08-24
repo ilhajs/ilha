@@ -1,0 +1,119 @@
+---
+title: Subscriptions and validation
+description: store.subscribe and store.select, two-way bind, built-in methods, and schema validation with onError.
+---
+
+Read and write shared state reactively, subscribe to changes, and validate commits with a schema.
+
+## `store(initialState)` · `store(schema)`
+
+Call `store()` with a plain object, or pass a [Standard Schema](https://standardschema.dev) so writes validate the merged state. Invalid commits are rejected; use `.onError()` to handle them. Initial state is parsed from the schema (use `.default()` on fields you want at startup).
+
+```ts twoslash
+import { z } from "zod";
+
+const s = store(
+  z.object({
+    email: z.email().default("ada@example.com"),
+  }),
+)
+  .onError(({ error, issues }) => {
+    /* toast, fieldErrors: error.fieldErrors */
+  })
+  .build();
+```
+
+**Per-keystroke writes skip full-schema validation.** State-key accessor writes (`s.email("dr")`) and `bind:*` writes commit **without** running the schema, so drafts like a half-typed email stay in state. This means `getState()` can hold schema-invalid state while the user is typing. Full validation runs on `setState`, action patches, and `reset`. Validate explicitly at trust boundaries (submit handlers) with `validateWithSchema(schema, store.getState())` — see [Forms](/guide/store/forms).
+
+## State accessors
+
+Every state key is a **signal-shaped accessor** on the built store — call to read, call with a value to write:
+
+```ts
+s.count(); // reactive read
+s.count(5); // write → goes through middleware
+```
+
+Writes are reactive: any ilha render or derived that called `s.count()` re-runs. Accessors carry `[SIGNAL_ACCESSOR]`, so JSX tracks them and `bind:*` directives accept them directly.
+
+Accessors and `store.bind()` accept either a value or an updater function:
+
+```ts
+s.count((previous) => previous + 1);
+s.profile.select((profile) => profile.visits)(
+  (previous) => previous + 1,
+);
+s.bind((state) => state.count)((previous) => previous + 1);
+```
+
+The updater receives the latest selected value. If the stored value is a function, return its replacement from an outer updater function.
+
+## `.on(event, handler)`
+
+Registers a lifecycle listener. `handler` receives `(nextState, prevState)`.
+
+| Event      | When it fires                                    |
+| ---------- | ------------------------------------------------ |
+| `"init"`   | Once, synchronously inside `.build()`            |
+| `"change"` | After every committed mutation (post-middleware) |
+
+`"change"` handlers are isolated: one throwing handler doesn't abort the commit or block later handlers — the error is routed to `.onError()` as `source: "listener"`.
+
+## `.onError(handler)`
+
+Runs when a commit fails schema validation (state stays at the last good snapshot), when an async action rejects, or when a `"change"` listener throws. Context: `{ error, source, patch?, path?, issues?, get() }` where `source` is `"validate" | "action" | "listener"`. For validation failures, `error` is a `StoreValidationError` (`issues`, `fieldErrors`). Without a handler, `console.error` is used.
+
+## `.subscribe(listener)` / `.subscribe(selector, listener, options?)`
+
+Full-state and slice forms. Neither fires on initial subscription. Both return an unsubscribe function.
+
+```ts
+const unsub = s.subscribe((state, prev) =>
+  console.log(state, prev),
+);
+const unsub2 = s.subscribe(
+  (s) => s.count,
+  (count, prev) => {
+    /* … */
+  },
+);
+unsub();
+```
+
+Slice comparison defaults to `Object.is`, so an object-building selector (`s => ({ a: s.a, b: s.b })`) fires on every commit — it returns a fresh object each time. Pass `{ equal: shallowEqual }` (exported from `@ilha/store`) to compare one level deep instead.
+
+## `store.select(selector)` — reactive read accessor
+
+Projects a slice into a `() => S` signal accessor. Hoist outside render functions — each call allocates a fresh `computed`.
+
+```ts
+const count = s.select((st) => st.count);
+count(); // reactive
+```
+
+Use state accessors directly (`s.count()`) instead of `select` when you don't need an ad-hoc projection.
+
+## `store.bind(selector)` — two-way `bind:*`
+
+Returns a read/write accessor for ilha's `bind:*` directives. Accepts property-path selectors only (`s => s.user.name`). Writes go through middleware but **skip full-schema validation** so in-progress input still commits.
+
+```ts
+const query = s.bind((st) => st.search.query);
+// <input bind:value={query} />
+```
+
+## Built-in store methods
+
+- **`store.setState(patch)`** — atomic multi-key write; one commit, one `"change"`, one re-render. Routes through middleware.
+- **`store.reset()`** — resets to the initial state captured at `.build()` time. Routes through middleware; no-op if already at initial state.
+- **`store.dispose()`** — tears the store down: stops all `subscribe` effects and async-derived effects, aborts in-flight async deriveds, and turns further writes into no-ops. Idempotent. Call it when a store's lifetime is shorter than the page, otherwise its effects (and any refetching async deriveds) leak.
+- **`store.getState()` / `store.getInitialState()`** — raw `TState` snapshots (no derived values or actions). The initial state is deep-cloned at `.build()` time, so mutating the original object later can't corrupt `reset()` or `getInitialState()`.
+- **`effectScope`** — re-exported from alien-signals. Runs a setup function inside a reactive scope and returns `stop()` to tear down every `subscribe` effect registered inside it. Use `store.dispose()` to tear down the whole store, including its async-derived effects.
+
+## Related
+
+| Topic                      | Guide                                                               |
+| -------------------------- | ------------------------------------------------------------------- |
+| `validateWithSchema`       | [Forms](/guide/store/forms)                                         |
+| Derived values and actions | [Derived state and actions](/guide/store/derived-state-and-actions) |
+| Building a store           | [Store overview](/guide/store/overview)                             |

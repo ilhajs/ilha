@@ -69,6 +69,7 @@ Docs live in `apps/website/docs/**/*.mdx` (guides under `guide/`, tutorials unde
 - **Make rendering mode explicit.** Use `Island.toString(props)` in synchronous examples, `await Island(props)` in asynchronous examples, and `await Island.hydratable(props, options)` for hydration markup. Never show an unawaited `Island(props)` call.
 - **Be direct, cut filler.** Drop "simply," "just," "in order to," "it's worth noting that." No "powerful," "blazing fast," "seamless."
 - **Show, then explain.** Lead with a minimal, runnable code example, then describe what it does. Examples must be type-correct and copy-pasteable.
+- **Destructure callback contexts in examples.** Prefer `({ state, input }) =>` and `(payload, { get, set }) =>` over named context parameters such as `(ctx) =>` or `(payload, ctx) =>`. Destructure only the members the example uses.
 - **Every new feature updates the docs.** Add or revise the relevant guide page, then run `bun run fmt` (oxfmt formats MDX). Build the site (`cd apps/website && bun run build`) to confirm the page prerenders without dead-link errors. Register MDX components in `apps/website/components.ts`. Put Preview demo source in a sibling `*.examples.ts` file when the sample contains PascalCase JSX tags.
 
 ## LLM exports

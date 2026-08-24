@@ -95,9 +95,9 @@ On first render, `loading` is `true` and `derived.user()` is `undefined` until t
 
 ## Cache fetches with `@ilha/store/query`
 
-Return [`query()`](/guide/libraries/store#query--data-fetching-cache) from island `.derived()` when you want cache, in-flight dedup, stale-while-revalidate, and invalidation across mounts. The island envelope stays the same — `loading` / `value` / `error`.
+Return [`query()`](/guide/store/persistence-and-query#query--data-fetching-cache) from island `.derived()` when you want cache, in-flight dedup, stale-while-revalidate, and invalidation across mounts. The island envelope stays the same — `loading` / `value` / `error`.
 
-```tsx
+```tsx twoslash
 import { ilha } from "ilha";
 import { query } from "@ilha/store/query";
 
@@ -124,7 +124,7 @@ const UserCard = ilha
   });
 ```
 
-Read reactive inputs (`state.userId()`) before building `key`. Capture the derived `signal` in `fn` so a re-run aborts the in-flight fetch. Full options, `invalidate` / `invalidatePrefix`, and SSR caveats live on [`@ilha/store`](/guide/libraries/store#query--data-fetching-cache).
+Read reactive inputs (`state.userId()`) before building `key`. Capture the derived `signal` in `fn` so a re-run aborts the in-flight fetch. Full options, `invalidate` / `invalidatePrefix`, and SSR caveats live on [`@ilha/store`](/guide/store/persistence-and-query#query--data-fetching-cache).
 
 ## Reactive dependencies
 

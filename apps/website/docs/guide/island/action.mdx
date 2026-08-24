@@ -133,19 +133,9 @@ const Quantity = ilha
   ));
 ```
 
-## Use `.on()` for advanced listeners
+## Advanced listeners — `.on()`
 
-Prefer native JSX event props when one rendered element owns the event. Use `.on()` when you need a CSS selector, an island-host listener, the full island handler context, or multiple listener modifiers.
-
-The first argument combines an optional selector and event name with `@`:
-
-```ts
-.on("button@click", handler) // descendant buttons
-.on("@click", handler) // island host
-.on("button@click:once:capture", handler) // combined modifiers
-```
-
-Declare actions before `.on()` to expose them through the handler context:
+For CSS selectors, island-host listeners, or combined modifiers, use [`.on()`](/guide/island/on) instead of native event props. Declare actions before `.on()` so they are exposed through the handler context:
 
 ```tsx twoslash
 import { ilha } from "ilha";
@@ -174,9 +164,7 @@ const Registration = ilha
   ));
 ```
 
-The `.on()` handler receives `state`, `derived`, `action`, `input`, `host`, `target`, `event`, and `signal`. Synchronous signal writes are batched, listeners clean up on unmount, and thrown errors route through [`.onError()`](/guide/island/onerror).
-
-Ilha resolves selectors again after each morph. Use `.on()` when template composition prevents a direct native event interpolation or when matching elements appear conditionally.
+See [`.on()`](/guide/island/on) for selector syntax, the handler context, and error handling.
 
 ## Reactive action state
 
@@ -251,4 +239,4 @@ Action state is transient and is not included in hydration snapshots. A hydrated
 - Action keys must be unique within one builder chain.
 - The action function returns `void`; read its result through `data` instead of awaiting the call site.
 - Synchronous state writes inside an action are batched into one propagation pass.
-- Use [`@ilha/store` actions](/guide/libraries/store) for mutations shared across multiple islands.
+- Use [`@ilha/store` actions](/guide/store/overview) for mutations shared across multiple islands.

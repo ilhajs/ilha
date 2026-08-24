@@ -1,0 +1,138 @@
+---
+title: Template bindings
+description: Two-way bindings between form elements and signals, including nested-field select, component contracts, and radio and checkbox groups.
+---
+
+Inside JSX, use `bind:property={signal}` to create two-way bindings between form elements and signals. When the signal changes, the element updates. When the user interacts with the element, the signal updates.
+
+Use `bind:*` for synchronization and lowercase events for custom logic. You can put both on the same element, such as `<input bind:value={state.name} onchange={validate} />`.
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Name = ilha.state("name", "Ada").render(({ state }) => (
+  <div>
+    <input bind:value={state.name} />
+    <p>Hello, {state.name()}</p>
+  </div>
+));
+```
+
+## Supported bindings
+
+| Binding              | Element                                           | Bound property      | Trigger event |
+| -------------------- | ------------------------------------------------- | ------------------- | ------------- |
+| `bind:value`         | `<input>`, `<textarea>`, `<select>`               | `value`             | `input`       |
+| `bind:valueAsNumber` | `<input type="number">`                           | `valueAsNumber`     | `input`       |
+| `bind:valueAsDate`   | `<input type="date">`                             | `valueAsDate`       | `input`       |
+| `bind:checked`       | `<input type="checkbox">`                         | `checked`           | `change`      |
+| `bind:group`         | `<input type="radio">`, `<input type="checkbox">` | `checked` / `value` | `change`      |
+| `bind:open`          | `<details>`                                       | `open`              | `toggle`      |
+| `bind:files`         | `<input type="file">`                             | `files`             | `change`      |
+| `bind:this`          | Any element                                       | element reference   | —             |
+
+The element type is detected at runtime — no configuration needed.
+
+## Number coercion
+
+`bind:value` and radio-group `bind:group` coerce the DOM string value back to a number when the bound signal currently holds a number. If the value cannot be parsed (empty or non-numeric), ilha coerces to `0` and logs a dev warning. Prefer `bind:valueAsNumber` for numeric inputs — it yields `null` on invalid input rather than silently coercing to `0`:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Age = ilha
+  .state("age", 0)
+  .render(({ state }) => (
+    <input type="number" bind:valueAsNumber={state.age} />
+  ));
+```
+
+Checkbox-array `bind:group` is exempt: an option value that fails to parse is kept as its raw string.
+
+## Radio and checkbox groups
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Plan = ilha.state("plan", "pro").render(({ state }) => (
+  <>
+    <input
+      type="radio"
+      name="plan"
+      value="free"
+      bind:group={state.plan}
+    />
+    <input
+      type="radio"
+      name="plan"
+      value="pro"
+      bind:group={state.plan}
+    />
+  </>
+));
+```
+
+## Nested fields with `.select()`
+
+Bind to a nested slice of an object or array with `.select()` instead of replacing the whole value on every keystroke:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Profile = ilha
+  .state("user", { name: "Ada", role: "dev" })
+  .render(({ state }) => (
+    <div>
+      <input bind:value={state.user.select((u) => u.name)} />
+      <p>{state.user().name}</p>
+    </div>
+  ));
+```
+
+In a list, select the item field inside `.map()`:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Todos = ilha
+  .state("todos", [{ text: "Learn ilha", completed: false }])
+  .render(({ state }) => (
+    <ul>
+      {state.todos().map((todo, index) => (
+        <li key={todo.text}>
+          <input
+            type="checkbox"
+            bind:checked={state.todos.select(
+              (t) => t[index].completed,
+            )}
+          />
+          {todo.text}
+        </li>
+      ))}
+    </ul>
+  ));
+```
+
+The selector must traverse nested state. Writes update only that path — siblings stay intact.
+
+## Element references
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Focus = ilha
+  .state("ref", null as HTMLInputElement | null)
+  .render(({ state }) => <input bind:this={state.ref} />);
+```
+
+## Component contracts
+
+A custom component must relay `bind:*` props to its controller — ilha only wires bindings placed directly on native elements rendered by that island.
+
+Keep these paths separate:
+
+- User input writes the bound signal once and calls the semantic callback once.
+- A programmatic signal write updates the controller without calling the semantic callback.
+- A controlled prop update changes the controller without masquerading as user input.
+
+On initial mount, ilha reflects bound properties before `.onMount()`, then attaches native bind listeners afterward. Register component operations with `.action()`; use direct lowercase event props or a morph-safe [`.on()`](/guide/island/on) selector to call them. Do not pass function handlers through attribute serializers or `raw()` — those paths produce markup, not live event registrations.
