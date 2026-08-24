@@ -22,7 +22,7 @@
         "@fontsource-variable/geist": "^5.3.0",
         "@fontsource-variable/geist-mono": "^5.3.0",
         "@ilha/astro": "^0.1.9",
-        "areia": "^0.2.5",
+        "areia": "^0.2.6",
         "astro": "^7.2.4",
         "astro-icon": "^1.1.5",
         "bejamas": "^0.4.0",
@@ -100,9 +100,9 @@
     "templates/oxide-spa": {
       "name": "@ilha/template-oxide-spa",
       "dependencies": {
-        "@ilha/router": "^0.9.1",
-        "areia": "^0.2.5",
-        "ilha": "^0.11.0",
+        "@ilha/router": "^0.9.2",
+        "areia": "^0.2.6",
+        "ilha": "^0.11.1",
         "quando": "^0.1.6",
         "sonner": "^2.0.8",
         "tacho": "^0.5.0",
@@ -120,10 +120,10 @@
       "name": "@ilha/template-vite-spa",
       "version": "0.0.0",
       "dependencies": {
-        "@ilha/router": "^0.9.1",
-        "@ilha/store": "^0.7.13",
-        "areia": "^0.2.5",
-        "ilha": "^0.11.0",
+        "@ilha/router": "^0.9.2",
+        "@ilha/store": "^0.7.14",
+        "areia": "^0.2.6",
+        "ilha": "^0.11.1",
         "quando": "^0.1.6",
       },
       "devDependencies": {
@@ -1074,7 +1074,7 @@
 
     "anynum": ["anynum@1.0.1", "", {}, "sha512-N6//FLET/tXYNM/F6ABca1oH6fWB+KlTt909Le28WMDBk8oaT4vY17DCrwg2MvmuqUKt3Ni4N5dGJ/EoBgcO6A=="],
 
-    "areia": ["areia@0.2.5", "", { "dependencies": { "@areia/slots": "0.2.0", "alien-signals": "3.2.1", "clsx": "2.1.1", "date-fns": "4.4.0", "tailwind-merge": "3.6.0" }, "peerDependencies": { "ilha": "0.11.0", "sonner": "^2.0.7", "tailwindcss": ">=4.0.0" }, "optionalPeers": ["tailwindcss"] }, "sha512-4mUmvOejL6OW3iF769CoMnLYYk9fXrGhSrK4ITCZHIKyHhh6+3bwYQ1SmClMMLOY5kKZVtwO0oPFDqY+jEIk7g=="],
+    "areia": ["areia@0.2.6", "", { "dependencies": { "@areia/slots": "0.2.0", "alien-signals": "3.2.1", "clsx": "2.1.1", "date-fns": "4.4.0", "tailwind-merge": "3.6.0" }, "peerDependencies": { "ilha": "0.11.1", "sonner": "^2.0.7", "tailwindcss": ">=4.0.0" }, "optionalPeers": ["tailwindcss"] }, "sha512-zW3mDIelQXnbh9EUSn0iysp/dZEGMbcmfvosRXbwXHCDt0aCgIr/+qNYexS16oHhAmgkZ8TaElJJwtUvEQd3oA=="],
 
     "argparse": ["argparse@2.0.1", "", {}, "sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q=="],
 
