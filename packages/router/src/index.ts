@@ -154,12 +154,7 @@ export class Redirect {
     this.to = to;
     // Clamp to a real 3xx so an invalid status can't flow into a host
     // `Response.redirect()` and throw. Errant codes default to 302.
-    if (isValidRedirectStatus(status)) {
-      this.status = status;
-    } else {
-      console.warn(`[ilha-router] redirect(): invalid redirect status ${status}; using 302.`);
-      this.status = 302;
-    }
+    this.status = isValidRedirectStatus(status) ? status : 302;
   }
 }
 
@@ -171,12 +166,7 @@ export class LoaderError {
     this.message = message;
     // Clamp to a real 4xx/5xx so an invalid status can't reach a Response
     // constructor. Errant codes default to 500.
-    if (isValidErrorStatus(status)) {
-      this.status = status;
-    } else {
-      console.warn(`[ilha-router] error(): invalid error status ${status}; using 500.`);
-      this.status = 500;
-    }
+    this.status = isValidErrorStatus(status) ? status : 500;
   }
 }
 

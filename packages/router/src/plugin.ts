@@ -585,6 +585,11 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
               getFrameAuth(),
             )
           ) {
+            // Dev-only log so proxy/container setups can see WHY the origin
+            // was rejected and configure trustedOrigins accordingly.
+            console.warn(
+              `[ilha-router] dev frame request rejected: Origin ${String(req.headers.origin)} is not trusted (host: ${String(req.headers.host ?? "localhost")}). Configure trustedOrigins via IlhaPagesOptions if this origin is expected.`,
+            );
             res.statusCode = 403;
             res.end();
             return;
