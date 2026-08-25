@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { ilha, action, html } from "./index";
 import { setServerManifestSerializer } from "./internal";
-import "/home/ryuz/Ubuntu/Developer/ilha/packages/ilha/happydom.ts";
+import "../happydom";
 
 // Test adapter standing in for @ilha/router's manifest serializer: captures
 // the manifest data core collects instead of asserting on markup ownership.
