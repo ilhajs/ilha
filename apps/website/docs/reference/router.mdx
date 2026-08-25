@@ -28,11 +28,20 @@ A map of the public `@ilha/router` API. For how-to guidance, start with [Router 
 
 ## File-system routing
 
-| Topic                                            | Guide                                                     |
-| ------------------------------------------------ | --------------------------------------------------------- |
-| Pages plugin (Vite/Rsbuild)                      | [File-system routing](/guide/routing/file-system-routing) |
-| Layouts / error boundaries / route groups        | [File-system routing](/guide/routing/file-system-routing) |
-| Virtual modules (`ilha:pages/*`, `ilha:loaders`) | [File-system routing](/guide/routing/file-system-routing) |
+| Export / method                                  | Guide                                                                              |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `defineLayout()`                                 | [File-system routing](/guide/routing/file-system-routing)                          |
+| `wrapLayout()` / `wrapError()`                   | [File-system routing](/guide/routing/file-system-routing) — used by generated code |
+| Pages plugin (Vite/Rsbuild)                      | [File-system routing](/guide/routing/file-system-routing)                          |
+| Virtual modules (`ilha:pages/*`, `ilha:loaders`) | [File-system routing](/guide/routing/file-system-routing)                          |
+
+## Navigation hooks
+
+| Export / method      | Guide                                                         |
+| -------------------- | ------------------------------------------------------------- |
+| `beforeNavigate(fn)` | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `afterNavigate(fn)`  | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `head(input)`        | [Loaders](/guide/routing/loaders)                             |
 
 ## Server rendering
 

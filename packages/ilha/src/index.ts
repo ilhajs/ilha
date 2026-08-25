@@ -942,6 +942,90 @@ export interface RawHtml {
 }
 
 // ---------------------------------------------
+// each() — Svelte-style {#each} iteration
+// ---------------------------------------------
+
+/** Mapped list result — usable directly in templates; chain `.else()` for empty fallback. */
+export type EachResult<TItem, TOut> = TOut[] & {
+  else<TEmpty>(fn: (items: readonly TItem[]) => TEmpty): TOut[] | TEmpty;
+  else<TEmpty>(value: TEmpty): TOut[] | TEmpty;
+};
+
+export interface EachKeyedBuilder<TItem, TKey> {
+  as<TOut>(fn: (item: TItem, index: number, key: TKey) => TOut): EachResult<TItem, TOut>;
+}
+
+export interface EachBuilder<TItem> {
+  key<TKey>(fn: (item: TItem, index: number) => TKey): EachKeyedBuilder<TItem, TKey>;
+  as<TOut>(fn: (item: TItem, index: number) => TOut): EachResult<TItem, TOut>;
+}
+
+function normalizeElseOutput<T>(value: T): T | readonly T[] {
+  if (value == null || value === false) return value;
+  return Array.isArray(value) ? value : [value];
+}
+
+function createEachResult<TItem, TOut>(
+  items: readonly TItem[],
+  mapFn: (item: TItem, index: number) => TOut,
+): EachResult<TItem, TOut> {
+  const mapped = items.length === 0 ? [] : items.map(mapFn);
+  const result = mapped as EachResult<TItem, TOut>;
+  Object.defineProperty(result, "else", {
+    value<TEmpty>(fallback: TEmpty | ((items: readonly TItem[]) => TEmpty)): TOut[] | TEmpty {
+      if (items.length === 0) {
+        const resolved =
+          typeof fallback === "function"
+            ? (fallback as (items: readonly TItem[]) => TEmpty)(items)
+            : fallback;
+        return normalizeElseOutput(resolved) as TOut[] | TEmpty;
+      }
+      return mapped;
+    },
+    enumerable: false,
+  });
+  return result;
+}
+
+function createEachBuilder<TItem>(items: readonly TItem[]): EachBuilder<TItem> {
+  return {
+    key(keyFn) {
+      return {
+        as(mapFn) {
+          return createEachResult(items, (item, index) => mapFn(item, index, keyFn(item, index)));
+        },
+      };
+    },
+    as(mapFn) {
+      return createEachResult(items, mapFn);
+    },
+  };
+}
+
+/**
+ * Svelte-style `{#each}` helper for mapping collections to rendered output
+ * with an optional empty fallback.
+ *
+ * @example — plain list (empty → [])
+ * each(items).as((item) => html`<li>${item.name}</li>`)
+ *
+ * @example — keyed list feeding island.key(), with empty fallback
+ * each(items)
+ *   .key((item) => item.id)
+ *   .as((item, _i, id) => Row.key(id)({ item }))
+ *   .else(() => html`<EmptyState />`)
+ */
+export function each<TItem>(items: readonly TItem[]): EachBuilder<TItem> {
+  if (typeof items === "function") {
+    throw new TypeError(
+      "[ilha] each() expected an array but received a function. " +
+        "Call accessors first (each(state.items())) or pass a snapshot from a reactive render.",
+    );
+  }
+  return createEachBuilder(Array.isArray(items) ? items : []);
+}
+
+// ---------------------------------------------
 // Render-time composition: island interpolation
 // ---------------------------------------------
 //
@@ -2916,6 +3000,8 @@ interface DerivedSlot extends BaseSlot {
   env: ReturnType<typeof signal<DerivedValue<unknown>>>;
   acc: DerivedAccessor<any>;
   fn: DerivedUserFn;
+  /** The first SSR probe returned a Promise or async iterable. */
+  ssrAsync: boolean;
   /** Seeded from a hydration snapshot — skip the first reactive run. */
   fromSnapshot: boolean;
 }
@@ -3126,8 +3212,31 @@ export function derived<V>(
   const f = frame!;
   if (existing) {
     // Refresh the closure so re-renders capture current props.
-    (existing as DerivedSlot).fn = fn as DerivedUserFn;
-    return existing.acc as DerivedAccessor<V>;
+    const slot = existing as DerivedSlot;
+    slot.fn = fn as DerivedUserFn;
+    // Async SSR renders twice: once to discover pending work, then again after
+    // it resolves. Recompute synchronous slots during that second pass so
+    // derived chains observe the resolved upstream envelopes. Never restart an
+    // async slot here — its first pull already populated the envelope.
+    if (f.ssr && !f.creating && !slot.ssrAsync) {
+      const ac = new AbortController();
+      const prevSub = setActiveSub(undefined);
+      try {
+        const result = slot.fn({ signal: ac.signal });
+        if (!(result instanceof Promise) && !isAsyncIterable(result)) {
+          slot.env({ loading: false, value: result, error: undefined });
+        }
+      } catch (err) {
+        slot.env({
+          loading: false,
+          value: undefined,
+          error: err instanceof Error ? err : new Error(String(err)),
+        });
+      } finally {
+        setActiveSub(prevSub);
+      }
+    }
+    return slot.acc as DerivedAccessor<V>;
   }
   if (!f.creating) {
     return defaultDerivedAccessor() as DerivedAccessor<V>;
@@ -3162,6 +3271,7 @@ export function derived<V>(
     env,
     acc: accessor as DerivedAccessor<any>,
     fn: fn as DerivedUserFn,
+    ssrAsync: false,
     fromSnapshot,
   };
 
@@ -3219,6 +3329,7 @@ export function derived<V>(
       env({ loading: false, value: result, error: undefined });
     }
 
+    slot.ssrAsync = pull !== null;
     if (pull) f.pendingDerived!.push({ index, promise: pull.catch(() => {}) });
   }
 
@@ -3781,6 +3892,10 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
     }
 
     const inputSignal = signal(resolveInput(props));
+    // Derived scopes register before the render effect so source changes settle
+    // derived envelopes before rendering. Prop changes use a separate trigger:
+    // the render first refreshes slot.fn closures, then derived scopes recompute.
+    const derivedPropsVersion = signal(0);
     const input = new Proxy({} as Record<string, unknown>, {
       get(_t, key) {
         return (inputSignal() as Record<PropertyKey, unknown>)[key];
@@ -3962,13 +4077,19 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
     let stopJsxEvents: () => void = () => {};
     let stopBindings: () => void = () => {};
 
-    /** Start every reactive scope in declaration order: derived scopes,
-     * effects, then one-shot setups. Client-only. */
-    function startPrimitiveScopes(): void {
+    /** Register derived scopes before the render effect so source updates
+     * settle derived envelopes before a render can consume them. */
+    function startDerivedScopes(): void {
       for (const slot of frame.slots) {
-        if (slot.kind === "derived") {
-          startDerivedScope(slot);
-        } else if (slot.kind === "effect") {
+        if (slot.kind === "derived") startDerivedScope(slot);
+      }
+    }
+
+    /** Register side-effecting scopes after the render effect so prop-change
+     * renders refresh their closures before those scopes execute. */
+    function startEffectScopes(): void {
+      for (const slot of frame.slots) {
+        if (slot.kind === "effect") {
           startEffectScope(slot);
         } else if (slot.kind === "once") {
           startOnceScope(slot);
@@ -3986,9 +4107,8 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
         ac = new AbortController();
         const currentAc = ac;
 
-        // Subscribe to props: parent-provided changes refresh closures via
-        // the re-render and recompute prop-driven deriveds.
-        void inputSignal();
+        // Prop updates trigger this only after the render has refreshed slot.fn.
+        void derivedPropsVersion();
 
         let result: unknown;
         try {
@@ -4190,7 +4310,7 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
     const initialRenderedHtml = initial.html;
     let lastRendered: string | null = null;
     let renderEpoch = 0;
-    const stopRender = alienEffect(() => {
+    const renderReactive = () => {
       const epoch = ++renderEpoch;
       frame.creating = false;
       frame.cursor = 0;
@@ -4318,12 +4438,16 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
       };
 
       applyMorph();
-    });
+    };
 
-    // Reactive scopes start AFTER the render effect so prop-change rerenders
-    // refresh primitive closures (slot.fn) before derived/effect scopes
-    // recompute against the new values.
-    startPrimitiveScopes();
+    // Run once before derived scopes to preserve the initial mount path. Then
+    // re-register after derived scopes so shared source dependencies notify
+    // derived computations before the render that consumes their envelopes.
+    let stopRender = alienEffect(renderReactive);
+    startDerivedScopes();
+    stopRender();
+    stopRender = alienEffect(renderReactive);
+    startEffectScopes();
 
     let tornDown = false;
     const unmount = (): void => {
@@ -4344,6 +4468,7 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
       const prev = inputSignal();
       if (shallowEqualInput(prev, next)) return;
       inputSignal(next);
+      derivedPropsVersion(derivedPropsVersion() + 1);
     };
 
     const handle: MountHandle = { unmount, updateProps };
@@ -4578,7 +4703,17 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
       if (doDerived) {
         // Await pending probes from the probe frame so snapshots carry values.
         const probePendings = probeFrame.pendingDerived ?? [];
-        if (probePendings.length > 0) await Promise.all(probePendings.map((p) => p.promise));
+        if (probePendings.length > 0) {
+          await Promise.all(probePendings.map((p) => p.promise));
+          // Mirror toStringAsync()'s resolved second pass so synchronous
+          // derived chains are snapshotted from their final SSR values.
+          probeFrame.creating = false;
+          probeFrame.cursor = 0;
+          withFrame(probeFrame, () => {
+            void component(input);
+          });
+          checkFrameDrift(probeFrame);
+        }
         const derivedEntries: unknown[] = [];
         for (const slot of probeFrame.slots) {
           if (slot.kind !== "derived") continue;

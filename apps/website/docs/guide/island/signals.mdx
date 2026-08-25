@@ -40,14 +40,12 @@ See [State](/guide/island/state) and [Derived](/guide/island/derived).
 `context()` creates a **named global signal**. Identical keys always return the same instance, which makes it useful for app-wide singletons (theme, locale, cart):
 
 ```tsx twoslash
-import { action, context, ilha } from "ilha";
+import { context, ilha } from "ilha";
 
 const cartCount = context("cart.count", 0);
 
 const CartButton = ilha(() => {
-  const addToCart = action(() =>
-    cartCount((count) => count + 1),
-  );
+  const addToCart = () => cartCount((count) => count + 1);
   return <button onclick={addToCart}>Add to cart</button>;
 });
 

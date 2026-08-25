@@ -1,11 +1,10 @@
 # Ilha + Oxide
 
-A minimal Ilha app with [Oxide](https://oxide.build) for server-side rendering. Pages live in `src/pages/` and hydrate on the client via `@ilha/router`. Server actions use [Tacho](https://oxide.build) for typed RPC.
+A minimal Ilha app with [Oxide](https://oxide.build). Pages live in `src/pages/` and mount via `@ilha/router`. Learn renders on the server, and the todo list is a server island.
 
 ## Requirements
 
-- [Bun](https://bun.sh) (for install and Tailwind build)
-- Node.js 20+
+- [Bun](https://bun.sh) or Node.js 20+
 
 ## Getting started
 
@@ -14,30 +13,26 @@ bun install
 bun run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:5173](http://localhost:5173).
 
 ## Scripts
 
-| Command         | Description                         |
-| --------------- | ----------------------------------- |
-| `bun run dev`   | Build and start the server with HMR |
-| `bun run build` | Build server and client bundles     |
-| `bun run start` | Run the production server           |
+| Command           | Description                         |
+| ----------------- | ----------------------------------- |
+| `bun run dev`     | Start the Vite development server   |
+| `bun run build`   | Build the server and client bundles |
+| `bun run preview` | Preview the production build        |
+| `bun run start`   | Run the production server           |
 
 ## Project layout
 
 ```text
 src/
-  pages/       # File-based routes (+layout, index, learn, …)
+  pages/       # File-based routes (+layout, index, learn.server, …)
+  lib/         # Server islands and actions
   client.ts    # Client entry — mounts islands
-  server.ts    # Oxide server — static assets + SPA shell
-  lib/         # Tacho server actions (tasks.server.tsx)
+  server.ts    # Oxide server entry
   app.css      # Tailwind + Areia styles
 ```
 
-The demo includes a todo island and [Areia](https://areia.ilha.build) UI components.
-
-## Learn more
-
-- [Ilha docs](https://ilha.build/docs)
-- [Scaffold a new project](https://ilha.build/docs/guide/getting-started/installation)
+The UI matches the Vite template, but `<TaskList />` keeps its data and mutations on the server. `learn.server.tsx` demonstrates whole-page server rendering.

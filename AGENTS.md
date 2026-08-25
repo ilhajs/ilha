@@ -38,6 +38,7 @@
 - Put conditional and async logic inside primitives, not around registration. `state(() => expensive())` is a lazy initializer; store function values through the updater wrapper (`setCallback(() => nextCallback)`).
 - Reading signals during render subscribes the island render; changes rerun the component with current props and morph the host DOM. State initialized from props does not reset on later prop changes.
 - Ordinary operations are plain functions. Use `action()` only when you need reactive execution state (`.pending`, `.data`, `.error`) or lifecycle cancellation.
+- DOM event handlers are the common case: when a handler needs no pending/result tracking, concurrency bookkeeping, or cancellation, write a plain function, not `action()`.
 - Keep plain function components transparent: `const View = () => JSX` belongs to its containing island's primitive frame, while `const View = ilha(() => JSX)` creates an independent boundary. Transparent components must preserve stable primitive ordering too.
 - Prefer lowercase native event props (`onclick={handler}` in JSX and `onclick=${handler}` in `html`` `) for element-owned events. For host or delegated listeners use `effect.once()` with native `addEventListener` and the provided `AbortSignal`.
 - Mount islands with `mount({ IslandName })` — it auto-discovers `[data-ilha="IslandName"]` elements.
@@ -45,7 +46,8 @@
 - Use `await Island.hydratable(props, options)` when emitting hydration markup; the client restores serialized props and positional primitive snapshots through `mount()`.
 - Functional signal setters use the setter directly (`count((previous) => previous + 1)`). To store a function value, return it from an updater wrapper (`callback(() => nextCallback)`).
 - Keep the public API surface minimal: named exports (`ilha`, `state`, `derived`, `action`, `effect`, `onError`, plus standalone helpers), island methods (`toString`, `toStringAsync`, `mount`, `hydratable`, `key`, `define`), and the JSX runtime contracts.
-- When changing public types, update `packages/ilha/src/public-types.ts` and add runtime tests in `index.test.ts` or `jsx-runtime.test.tsx`.
+- When changing public types, update `packages/*/src/types.test.ts` (compile-time type anchors, checked by `tsc`) and add runtime tests in the package's `*.test.ts(x)` files.
+- Type anchors use `@ts-expect-error` for negative assertions; those are enforced by `tsc`, not by `bun test` — keep each anchor file's runtime smoke `it()` passing under `bun test`.
 
 ## Testing
 

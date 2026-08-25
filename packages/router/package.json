@@ -48,10 +48,6 @@
       "types": "./dist/ssr.d.ts",
       "import": "./dist/ssr.js"
     },
-    "./server-island-registry": {
-      "types": "./dist/server-island-registry.d.ts",
-      "import": "./dist/server-island-registry.js"
-    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"

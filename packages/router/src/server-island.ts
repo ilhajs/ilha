@@ -17,6 +17,8 @@
 
 import { morph } from "ilha";
 
+import { applyHeadEntriesToDocument } from "./head";
+import type { HeadInput } from "./head";
 import { parseSnapshotAttr } from "./snapshot";
 
 /** Symbol.for keeps brands stable across duplicate ilha copies in one realm. */
@@ -53,12 +55,13 @@ export interface ServerIslandHandle {
   updateProps: (props?: Record<string, unknown>) => void;
 }
 
-/** Defensive snapshot parse — reuses the shared guarded parser (size cap,
- * plain-object check, depth cap, prototype-key stripping). */
-function parseSnapshot(raw: string): Record<string, unknown> | undefined {
-  return parseSnapshotAttr(raw);
+/** @internal Apply head entries returned with a server-page frame. */
+export function __ilhaApplyHead(entries: unknown): void {
+  if (Array.isArray(entries)) applyHeadEntriesToDocument(entries as HeadInput[]);
 }
 
+/** Defensive snapshot parse — reuses the shared guarded parser (size cap,
+ * plain-object check, depth cap, prototype-key stripping). */
 function assertValidTag(tag: string): string {
   const trimmed = tag.trim();
   if (/^[a-z][a-z0-9-]*$/i.test(trimmed)) return trimmed.toLowerCase();
@@ -90,7 +93,7 @@ function hydrateServerIsland(
   const state: Record<string, unknown> = {};
   const rawState = host.getAttribute(STATE_ATTR);
   if (rawState) {
-    const parsed = parseSnapshot(rawState);
+    const parsed = parseSnapshotAttr(rawState);
     if (parsed) {
       for (const [key, value] of Object.entries(parsed)) {
         if (!key.startsWith("_")) state[key] = value;
@@ -137,7 +140,7 @@ function hydrateServerIsland(
         ?.getAttribute(ACTIONS_ATTR) ??
       host.getAttribute(ACTIONS_ATTR) ??
       null;
-    return raw ? parseSnapshot(raw) : undefined;
+    return raw ? parseSnapshotAttr(raw) : undefined;
   };
   const wireEvents = (): void => {
     for (const { el, type, listener } of attached) {
@@ -213,7 +216,9 @@ function hydrateServerIsland(
     }
     for (const el of host.querySelectorAll(`[${CLIENT_REF_ATTR}]`)) {
       if (!belongsToHost(host, el)) continue;
-      const props = reviveChildProps(parseSnapshot(el.getAttribute(PROPS_ATTR) ?? "") ?? undefined);
+      const props = reviveChildProps(
+        parseSnapshotAttr(el.getAttribute(PROPS_ATTR) ?? "") ?? undefined,
+      );
       const mounted = mountedChildren.get(el);
       if (mounted) {
         mounted.updateProps(props);

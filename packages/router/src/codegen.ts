@@ -458,7 +458,7 @@ function buildServerFile(entries: PageEntry[], serverFile: string): string {
     // serve GET /__ilha/loader for regular pages with server loads.
     ...(entries.some((e) => e.hasLoader || e.loaderLayouts.length > 0)
       ? [
-          `import { setFrameLoaderRunner } from "@ilha/router/server-island-registry";`,
+          `import { setFrameLoaderRunner } from "@ilha/router/ssr";`,
           // Forward the originating request so client-navigation loaders keep
           // cookies/identity and observe the real request's abort signal.
           `setFrameLoaderRunner((path, request) => pageRouter.runLoader(path, request));`,

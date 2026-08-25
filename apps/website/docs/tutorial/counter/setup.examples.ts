@@ -1,13 +1,13 @@
-export const example = `import { ilha, state, derived, action, effect } from "ilha";
+export const example = `import { ilha, state, derived, effect } from "ilha";
 import { Button, Input } from "areia";
 
 export default ilha(() => {
   const count = state(0);
   const doubled = derived(() => count() * 2);
 
-  const increase = action(() => {
+  const increase = () => {
     count((value) => value + 1);
-  });
+  };
 
   effect.once(() => {
     count(2);

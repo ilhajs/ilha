@@ -291,6 +291,35 @@ describe("props", () => {
     cleanup(el);
   });
 
+  it("synchronous derived stays current when a nested island writes the source", () => {
+    type Task = { id: string; completed: boolean };
+    const Toggle = ilha(
+      ({ completed }: { completed: (value: boolean) => void }) =>
+        html`<button onclick=${() => completed(true)}>go</button>`,
+    );
+    const Island = ilha(() => {
+      const items = state<Task[]>([
+        { id: "1", completed: false },
+        { id: "2", completed: false },
+      ]);
+      const pending = derived(() => items().filter((task) => !task.completed).length);
+      return html`<section>
+        <i>${items().length}</i>
+        <b data-pending>${pending()}</b>
+        ${Toggle({ completed: items.select((current) => current[0].completed) })}
+      </section>`;
+    });
+    const el = makeEl();
+    const handle = mountInternal(Island, el);
+    expect(el.querySelector("[data-pending]")!.textContent).toBe("2");
+
+    el.querySelector("button")!.click();
+
+    expect(el.querySelector("[data-pending]")!.textContent).toBe("1");
+    handle.unmount();
+    cleanup(el);
+  });
+
   it("derived values follow current props", async () => {
     const Island = ilha<{ name: string }>(({ name }) => {
       const uppercase = derived(() => name.toUpperCase());
@@ -335,6 +364,39 @@ describe("derived", () => {
     const el = makeEl();
     const handle = mountInternal(Island, el);
     expect(el.textContent).toBe("10");
+    handle.unmount();
+    cleanup(el);
+  });
+
+  it("settles a ten-level synchronous chain once per update", () => {
+    let setBase!: (value: number) => void;
+    const runs = Array<number>(10).fill(0);
+    const Island = ilha(() => {
+      const base = state(0);
+      setBase = base;
+      let previous: () => number | undefined = base;
+      for (let index = 0; index < runs.length; index++) {
+        const upstream = previous;
+        previous = derived(() => {
+          runs[index]++;
+          return (upstream() ?? 0) + 1;
+        });
+      }
+      return html`<p>${base()}:${previous()}</p>`;
+    });
+    const el = makeEl();
+    const handle = mountInternal(Island, el);
+    expect(el.textContent).toBe("0:10");
+
+    runs.fill(0);
+    setBase(1);
+    expect(el.textContent).toBe("1:11");
+    expect(runs).toEqual(Array<number>(10).fill(1));
+
+    runs.fill(0);
+    setBase(2);
+    expect(el.textContent).toBe("2:12");
+    expect(runs).toEqual(Array<number>(10).fill(1));
     handle.unmount();
     cleanup(el);
   });
@@ -505,6 +567,36 @@ describe("derived", () => {
 
     const async = await Island.toStringAsync();
     expect(async).toContain("first");
+  });
+
+  it("SSR: synchronous derived chains recompute after async dependencies resolve", async () => {
+    const PromiseIsland = ilha(() => {
+      const items = derived(async () => ["a", "b", "c"]);
+      const count = derived(() => items()?.length ?? 0);
+      return html`<p>${count()}</p>`;
+    });
+    const GeneratorIsland = ilha(() => {
+      const items = derived(async function* () {
+        yield ["a", "b", "c"];
+      });
+      const count = derived(() => items()?.length ?? 0);
+      return html`<p>${count()}</p>`;
+    });
+
+    expect(await PromiseIsland.toStringAsync()).toContain(">3<");
+    expect(await GeneratorIsland.toStringAsync()).toContain(">3<");
+  });
+
+  it("SSR: hydration snapshots include recomputed derived chains", async () => {
+    const Island = ilha(() => {
+      const items = derived(async () => ["a", "b", "c"]);
+      const count = derived(() => items()?.length ?? 0);
+      return html`<p>${count()}</p>`;
+    });
+
+    const block = await Island.hydratable({}, { name: "chain", snapshot: true });
+    expect(block).toContain(">3<");
+    expect(block).toContain("&quot;value&quot;:3");
   });
 
   it("request-state never leaks between SSR renders", () => {

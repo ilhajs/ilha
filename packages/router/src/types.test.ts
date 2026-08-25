@@ -40,3 +40,13 @@ export function typecheckRouterApi(): void {
   void load;
   void headTags;
 }
+
+// ─── Runtime smoke (this file also runs under bun test) ──────────────────
+import { describe, expect, it } from "bun:test";
+
+describe("types.test anchors", () => {
+  it("exposes callable public surface", () => {
+    expect(typeof httpResponse).toBe("function");
+    expect(typeof serializeHead).toBe("function");
+  });
+});

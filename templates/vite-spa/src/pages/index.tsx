@@ -1,51 +1,37 @@
-import { loader, type InferLoader } from "@ilha/router";
 import { Badge, Button, Checkbox, Input, LayerCard } from "areia";
-import { action, derived, effect, ilha, state } from "ilha";
-import { each } from "quando";
+import { derived, each, ilha, state } from "ilha";
 
 type Todo = { id: string; text: string; completed: boolean };
 
+// A static app needs no loaders — plain client state is enough.
 const DEFAULT_TODOS: Todo[] = [
   { id: "1", text: "Start Ilha Dev Server", completed: true },
   { id: "2", text: "Develop my Ilha app", completed: false },
   { id: "3", text: "Deploy my Ilha app", completed: false },
 ];
 
-export const load = loader.client(({ head }) => {
-  // TIP: Fetch external resources here and pass them to the page via input.
-  head({ title: "Home" });
-  return {
-    todos: DEFAULT_TODOS,
-  };
-});
-
-export default ilha(({ todos }: InferLoader<typeof load>) => {
-  const items = state([] as Todo[]);
+export default ilha(() => {
+  const items = state(DEFAULT_TODOS);
   const draft = state("");
   const pending = derived(() => items().filter((t) => !t.completed));
 
-  // Seed from the loader once per mounted instance.
-  effect.once(() => {
-    items(todos?.load.value.todos ?? []);
-  });
-
-  const addItem = action((event: SubmitEvent) => {
+  const addItem = (event: SubmitEvent) => {
     event.preventDefault();
     const text = draft().trim();
     if (!text) return;
     items((current) => [...current, { id: crypto.randomUUID(), text, completed: false }]);
     draft("");
-  });
-  const deleteItem = action((index: number) => {
+  };
+  const deleteItem = (index: number) => {
     items((current) => current.filter((_, i) => i !== index));
-  });
+  };
 
   return (
     <div class="flex flex-col gap-4">
       <LayerCard>
         <LayerCard.Title>
           <span>To Do</span>
-          <Badge>{pending().length}</Badge>
+          <Badge>{pending()?.length ?? 0}</Badge>
         </LayerCard.Title>
         <LayerCard.Content>
           <form onsubmit={addItem}>

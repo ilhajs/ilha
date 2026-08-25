@@ -70,14 +70,14 @@ const Greeting = ilha(() => <p>Hello, ilha!</p>);
 Add local capabilities with primitives inside the component:
 
 ```tsx twoslash
-import { ilha, state, action } from "ilha";
+import { ilha, state } from "ilha";
 
 const Counter = ilha(() => {
   const count = state(0);
 
-  const increment = action(() => {
+  const increment = () => {
     count((value) => value + 1);
-  });
+  };
 
   return <button onclick={increment}>Count: {count()}</button>;
 });
@@ -88,11 +88,11 @@ const Counter = ilha(() => {
 Render the island to an HTML string with `toString()`:
 
 ```tsx twoslash
-import { ilha, state, action } from "ilha";
+import { ilha, state } from "ilha";
 
 const Counter = ilha(() => {
   const count = state(0);
-  const increment = action(() => count((value) => value + 1));
+  const increment = () => count((value) => value + 1);
   return <button onclick={increment}>Count: {count()}</button>;
 });
 

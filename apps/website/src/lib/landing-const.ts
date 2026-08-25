@@ -9,18 +9,18 @@ export const URLS = {
 export const META_DESCRIPTION =
   "Build fast, interactive websites with JavaScript only where you need it. Ilha works with your existing stack and keeps every page lightweight.";
 
-export const COUNTER_CODE = `import { ilha, state, derived, action, mount } from "ilha";
+export const COUNTER_CODE = `import { ilha, state, derived, mount } from "ilha";
 
 const Signup = ilha(() => {
   const email = state("");
   const ready = derived(() => email().includes("@"));
-  const join = action(async (event: SubmitEvent) => {
+  const join = async (event: SubmitEvent) => {
     event.preventDefault();
     await fetch("/api/waitlist", {
       method: "POST",
       body: JSON.stringify({ email: email() }),
     });
-  });
+  };
 
   return (
     <form class="card" onsubmit={join}>
@@ -116,7 +116,7 @@ export default defineConfig({
   integrations: [ilha()],
 });`;
 
-export const PREVIEW_CODE = `import { ilha, state, derived, action } from "ilha";
+export const PREVIEW_CODE = `import { ilha, state, derived } from "ilha";
 import { Button, Checkbox, Input, LayerCard } from "areia";
 
 let nextId = 4;
@@ -132,7 +132,7 @@ export default ilha(() => {
     tasks().filter((task) => !task.done)
   );
 
-  const add = action((event: SubmitEvent) => {
+  const add = (event: SubmitEvent) => {
     event.preventDefault();
     const label = draft().trim();
     if (!label) return;
@@ -141,12 +141,12 @@ export default ilha(() => {
       { id: nextId++, label, done: false },
     ]);
     draft("");
-  });
-  const remove = action((id: number) => {
+  };
+  const remove = (id: number) => {
     tasks((current) =>
       current.filter((task) => task.id !== id)
     );
-  });
+  };
 
   return (
     <LayerCard>

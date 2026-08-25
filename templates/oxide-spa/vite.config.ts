@@ -1,4 +1,4 @@
-import pages from "@ilha/router/vite";
+import { pages } from "@ilha/router/vite";
 import tailwindcss from "@tailwindcss/vite";
 import oxide from "oxidejs/vite";
 import { defineConfig } from "vite";

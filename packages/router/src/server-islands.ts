@@ -288,7 +288,7 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
   const moduleKey = basename(spec).replace(/\.server\.(?:[jt]sx?)$/i, "");
   const lines: string[] = [
     `import { client as $$rpc } from "virtual:oxide/client";`,
-    `import { __ilhaServerIsland } from "@ilha/router/server-island";`,
+    `import { __ilhaApplyHead, __ilhaServerIsland } from "@ilha/router/server-island";`,
     `const $$call = (method, args) => { const opts = args.at(-1); return opts && typeof opts === "object" && opts.signal instanceof AbortSignal && Object.keys(opts).length === 1 ? $$rpc[${JSON.stringify(moduleKey)}][method](args.slice(0, -1), opts) : $$rpc[${JSON.stringify(moduleKey)}][method](args); };`,
     ...scan.clientRefs.map((ref, index) =>
       ref.imported === "default"
@@ -327,7 +327,7 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
     }
     const id = serverIslandPublicId(spec, island.name);
     wiring.push(
-      `frame: () => fetch("/__ilha/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ${JSON.stringify(id)}, path: location.pathname + location.search }) }).then((r) => { if (!r.ok) throw new Error("frame failed"); return r.json(); }).then((j) => { if (j.redirect) { location.assign(j.redirect); throw new Error("frame redirected"); } return j.html; })`,
+      `frame: () => fetch("/__ilha/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ${JSON.stringify(id)}, path: location.pathname + location.search }) }).then((r) => { if (!r.ok) throw new Error("frame failed"); return r.json(); }).then((j) => { if (j.redirect) { location.assign(j.redirect); throw new Error("frame redirected"); } __ilhaApplyHead(j.head); return j.html; })`,
     );
     // `loader.client` on server pages executes over RPC when the view
     // hydrates — the module's code never ships to the browser.

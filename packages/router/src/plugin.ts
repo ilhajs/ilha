@@ -6,20 +6,8 @@ import type { UnpluginFactory } from "unplugin";
 
 import { fileToPattern, generate, resolveGeneratedPaths, SERVER_PAGE_RE } from "./codegen";
 import type { PagesMode } from "./codegen";
+import type { HeadInput } from "./head";
 import { runWithIslandRequest } from "./request-scope";
-import {
-  forwardIdentityHeaders,
-  frameEnvelope,
-  FrameError,
-  getFrameAuth,
-  getFrameGuard,
-  isSafeFramePath,
-  isTrustedOrigin,
-  renderServerIsland,
-  setFrameAuth,
-  setFrameGuard,
-  setLoaderGuard,
-} from "./server-island-registry";
 import {
   generateServerIslandModule,
   rewriteServerActions,
@@ -30,6 +18,17 @@ import {
   splitServerImports,
 } from "./server-islands";
 import type { ServerModuleScan } from "./server-islands";
+import {
+  authorizeFrameRequest,
+  frameEnvelope,
+  FrameError,
+  getFrameGuard,
+  isSafeFramePath,
+  renderServerIsland,
+  setFrameAuth,
+  setFrameGuard,
+  setLoaderGuard,
+} from "./ssr";
 
 export const VIRTUAL_PAGES_SERVER = "ilha:pages/server";
 export const VIRTUAL_PAGES_CLIENT = "ilha:pages/client";
@@ -152,7 +151,7 @@ export interface IlhaPagesOptions {
    * Return a `Response` to reject; return nothing to allow. Island state is
    * world-readable through frames unless gated — install a session check here
    * when islands serve private data. Production equivalents register via
-   * `setFrameGuard()` from `@ilha/router/server-island-registry`.
+   * `setFrameGuard()` from `@ilha/router/ssr`.
    */
   frameGuard?: (request: Request) => Response | void | Promise<Response | void>;
   /**
@@ -482,14 +481,10 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
           // default-export islands. Skipped for client stubs (browser graph).
           if (scan && scan.islands.length > 0 && !code.startsWith("// oxidejs:client-stub")) {
             if (Object.keys(scan.rpcActions).length > 0) {
-              lines.unshift(
-                `import { __ilhaServerAction } from "@ilha/router/server-island-registry";`,
-              );
+              lines.unshift(`import { __ilhaServerAction } from "@ilha/router/ssr";`);
             }
             lines.unshift(`import * as __ilhaSelf from ${JSON.stringify(file)};`);
-            lines.unshift(
-              `import { registerServerIsland } from "@ilha/router/server-island-registry";`,
-            );
+            lines.unshift(`import { registerServerIsland } from "@ilha/router/ssr";`);
             for (const island of scan.islands) {
               const id2 = serverIslandPublicId(file, island.name);
               // Server pages carry their `load` + route pattern so frame
@@ -556,15 +551,13 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
         server.watcher.add(state.pagesDir);
         if (options.frameGuard) setFrameGuard(options.frameGuard);
         if (options.loaderGuard) setLoaderGuard(options.loaderGuard);
-        if (options.trustedOrigins || options.csrf) {
-          setFrameAuth({
-            trustedOrigins: options.trustedOrigins,
-            csrf: options.csrf,
-            // Dev stays permissive when no guard is registered; only a
-            // registered guard or the present csrf/trusted-origin checks gate.
-            defaultAction: "open",
-          });
-        }
+        setFrameAuth({
+          trustedOrigins: options.trustedOrigins,
+          csrf: options.csrf,
+          // Dev stays permissive when no guard is registered; only a
+          // registered guard or the present csrf/trusted-origin checks gate.
+          defaultAction: "open",
+        });
 
         // Server-island frame endpoint: re-renders a proxy island from a
         // state snapshot. Reads through the module graph on every call, so
@@ -582,70 +575,32 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             res.end();
             return;
           }
-          // Same-origin defense, sharing logic with the production handler.
-          const guardHeaders = new Headers();
-          if (req.headers.origin) guardHeaders.set("origin", String(req.headers.origin));
-          if (req.headers.host) guardHeaders.set("host", String(req.headers.host));
-          if (
-            !isTrustedOrigin(
-              new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, {
-                headers: guardHeaders,
-              }),
-              getFrameAuth(),
-            )
-          ) {
-            // Dev-only log so proxy/container setups can see WHY the origin
-            // was rejected and configure trustedOrigins accordingly.
-            console.warn(
-              `[ilha-router] dev frame request rejected: Origin ${String(req.headers.origin)} is not trusted (host: ${String(req.headers.host ?? "localhost")}). Configure trustedOrigins via IlhaPagesOptions if this origin is expected.`,
-            );
-            res.statusCode = 403;
-            res.end();
-            return;
-          }
-          // Guard hook (see IlhaPagesOptions.frameGuard): island state is
-          // world-readable through frames unless gated. Identity headers are
-          // forwarded (cookie, auth, UA — same three as production) so the
-          // guard can authenticate the synthetic request.
-          const identityHeaders = forwardIdentityHeaders(req.headers);
-          try {
-            const denied = await getFrameGuard()?.(
-              new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, {
-                method: req.method,
-                headers: identityHeaders,
-              }),
-            );
-            if (denied) {
-              res.statusCode = denied.status;
-              res.setHeader("cache-control", "no-store");
-              res.end();
-              return;
-            }
-          } catch {
-            res.statusCode = 403;
-            res.end();
-            return;
-          }
-          // Optional CSRF verifier for the state-changing frame POST.
-          const csrf = getFrameAuth()?.csrf;
-          if (csrf) {
-            try {
-              const ok = await csrf(
-                new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, {
-                  method: req.method,
-                  headers: identityHeaders,
-                }),
+          // Same-origin + guard + CSRF defense, shared verbatim with the
+          // production `@ilha/router/ssr` handler so dev can never drift from
+          // prod semantics. Dev stays permissive when no guard is registered
+          // (defaultAction: "open" is installed in configureServer above).
+          const frameUrl = `http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`;
+          const authorized = await authorizeFrameRequest(
+            new Request(frameUrl, {
+              method: req.method,
+              headers: new Headers(req.headers as Record<string, string>),
+            }),
+            {
+              defaultAction: "open",
+              onGuardError: () => {},
+            },
+          );
+          if (!authorized.ok) {
+            if (authorized.status === 403 && !getFrameGuard()) {
+              // Dev-only log so proxy/container setups can see WHY the origin
+              // was rejected and configure trustedOrigins accordingly.
+              console.warn(
+                `[ilha-router] dev frame request rejected: Origin ${String(req.headers.origin)} is not trusted (host: ${String(req.headers.host ?? "localhost")}). Configure trustedOrigins via IlhaPagesOptions if this origin is expected.`,
               );
-              if (!ok) {
-                res.statusCode = 403;
-                res.end();
-                return;
-              }
-            } catch {
-              res.statusCode = 403;
-              res.end();
-              return;
             }
+            res.statusCode = authorized.status;
+            res.end();
+            return;
           }
           const chunks: Buffer[] = [];
           let size = 0;
@@ -695,16 +650,20 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             // page, forwarding identity headers (cookie, auth, UA).
             // Client-supplied `x-forwarded-for` is NOT forwarded — it is
             // spoofable and must not be trusted by loaders for IP checks.
-            const headers = forwardIdentityHeaders(req.headers);
+            const headers = authorized.identityHeaders;
             const requestOrigin = `http://${req.headers.host ?? "localhost"}`;
             const request = new Request(new URL(framePath, requestOrigin), {
               method: "POST",
               headers,
             });
-            const html = await renderServerIsland(body.id ?? "", request, (r, fn) =>
-              runWithIslandRequest(r, fn),
+            let head: HeadInput[] | undefined;
+            const html = await renderServerIsland(
+              body.id ?? "",
+              request,
+              (r, fn) => runWithIslandRequest(r, fn),
+              (entries) => (head = entries),
             );
-            const env = frameEnvelope(200, { html: String(html) });
+            const env = frameEnvelope(200, { html: String(html), head });
             res.statusCode = env.status;
             for (const [k, v] of Object.entries(env.headers)) res.setHeader(k, v);
             res.end(env.body);

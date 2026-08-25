@@ -108,6 +108,7 @@ describe("generateServerIslandModule", () => {
     expect(code).not.toContain("import type");
     expect(code).not.toContain("typeof $$types");
     expect(code).toContain(`import { client as $$rpc } from "virtual:oxide/client"`);
+    expect(code).toContain(`__ilhaApplyHead(j.head)`);
     expect(code).toContain(`"d0": (signal) => $$call("ticks", [{ signal }])`);
     expect(code).toContain(`export const ticks = (...args) => $$call("ticks", args)`);
     const id = serverIslandPublicId("/abs/tasks.server.ts", "T");

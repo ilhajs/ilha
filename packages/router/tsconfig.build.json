@@ -13,8 +13,6 @@
     "src/index.ts",
     "src/ssr.ts",
     "src/server-island.ts",
-    "src/server-island-registry.ts",
-    "src/public-types.ts",
     "src/vite.ts",
     "src/rsbuild.ts",
     "src/virtual.d.ts"

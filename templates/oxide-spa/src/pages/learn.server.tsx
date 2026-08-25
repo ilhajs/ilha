@@ -2,7 +2,8 @@ import { loader } from "@ilha/router";
 import { LayerCard, LinkButton } from "areia";
 import { each, ilha } from "ilha";
 
-export const load = loader.client(({ head }) => {
+// This is the same Learn page as the Vite template, rendered on the server.
+export const load = loader(({ head }) => {
   head({ title: "Learn" });
 });
 

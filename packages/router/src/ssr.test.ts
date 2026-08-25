@@ -23,7 +23,7 @@ import {
   setFrameGuard,
   setFrameLoaderRunner,
   setLoaderGuard,
-} from "./server-island-registry";
+} from "./ssr";
 import handleFrame from "./ssr";
 
 /** Opt out of the production deny-by-default for tests that render unauth'd. */
@@ -254,6 +254,20 @@ describe("@ilha/router/ssr", () => {
     const req = new Request("http://localhost/user/a%20b");
     await renderServerIsland("decoded-page", req, (_r, fn) => fn());
     expect(captured).toEqual({ id: "a b" });
+  });
+
+  test("server-page load exposes and returns head contributions", async () => {
+    registerServerIsland("head-page", () => () => "<p>ok</p>", {
+      load: ({ head }) => head({ title: "Server page" }),
+    });
+    let entries: unknown;
+    await renderServerIsland(
+      "head-page",
+      new Request("http://localhost/learn"),
+      (_request, fn) => fn(),
+      (value) => (entries = value),
+    );
+    expect(entries).toEqual([{ title: "Server page" }]);
   });
 
   test("same-origin frame load redirects are emitted; cross-origin are blocked", async () => {

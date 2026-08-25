@@ -1,5 +1,5 @@
 import { Button, Input, LinkButton, Radio, Switch } from "areia";
-import { derived, effect, ilha, state, action } from "ilha";
+import { derived, effect, ilha, state } from "ilha";
 
 import { URLS } from "@/lib/landing-const";
 
@@ -23,7 +23,7 @@ export const ProjectCreatorForm = ilha(() => {
     return TEMPLATES.find((candidate) => candidate.value === template())?.sandbox ?? true;
   });
 
-  const copyCommand = action(async (event: MouseEvent) => {
+  const copyCommand = async (event: MouseEvent) => {
     try {
       await navigator.clipboard.writeText(createCommand()!);
     } catch {
@@ -38,7 +38,7 @@ export const ProjectCreatorForm = ilha(() => {
         el.textContent = original;
       }, 2000);
     }
-  });
+  };
 
   let host: Element | null = null;
   effect.once(({ host: mounted }) => {

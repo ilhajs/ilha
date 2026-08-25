@@ -1,5 +1,7 @@
 {
   "name": "@ilha/template-oxide-spa",
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,8 +13,6 @@
     "@ilha/router": "^0.9.2",
     "areia": "^0.2.6",
     "ilha": "^0.11.1",
-    "quando": "^0.1.6",
-    "sonner": "^2.0.8",
     "tacho": "^0.5.0"
   },
   "devDependencies": {

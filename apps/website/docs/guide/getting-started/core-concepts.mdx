@@ -52,8 +52,7 @@ ilha uses signals for reactive state. A signal is a value you can read and updat
 A state accessor works as both a getter and setter:
 
 ```ts twoslash
-import { state } from "ilha";
-import { ilha } from "ilha";
+import { ilha, state } from "ilha";
 
 const Counter = ilha(() => {
   const count = state(0);
@@ -79,12 +78,12 @@ const App = ilha(() => {
 For an island, declare reactive capabilities as primitives inside the component, in a stable order:
 
 ```tsx twoslash
-import { ilha, state, derived, action } from "ilha";
+import { ilha, state, derived } from "ilha";
 
 const Counter = ilha(() => {
   const count = state(0); // local reactive state
   const double = derived(() => count() * 2); // derived computed value
-  const increment = action(() => count((v) => v + 1)); // reusable operation
+  const increment = () => count((v) => v + 1); // plain function — no action() needed
 
   return <button onclick={increment}>{double()}</button>;
 });
@@ -115,7 +114,7 @@ That is what [`derived()`](/guide/island/derived) is for. Read it with the same 
 
 ilha separates user interaction from side effects.
 
-Use [native handlers and `action()`](/guide/island/action) for DOM events and reusable operations. Use [`effect()`](/guide/island/effect) for reactive behavior that reruns when its dependencies change. Use [`effect.once()`](/guide/island/effect) when something should run once after the island is attached to the DOM.
+Use plain functions for most DOM events. Reach for [`action()`](/guide/island/action) only when an operation needs reactive status (`.pending`, `.data`, `.error`) or cancellation. Use [`effect()`](/guide/island/effect) for reactive behavior that reruns when its dependencies change. Use [`effect.once()`](/guide/island/effect) when something should run once after the island is attached to the DOM.
 
 This separation helps keep component logic easy to scan:
 

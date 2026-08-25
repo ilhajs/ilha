@@ -7,16 +7,16 @@ doesn't wrap it — you call `document.startViewTransition()` and update state
 inside the callback.
 
 ```tsx twoslash
-import { ilha, state, action } from "ilha";
+import { ilha, state } from "ilha";
 
 export default ilha(() => {
   const checked = state(false);
 
-  const toggle = action(() => {
+  const toggle = () => {
     document.startViewTransition(() => {
       checked(!checked());
     });
-  });
+  };
 
   return (
     <button
@@ -52,11 +52,11 @@ The same element before and after the change must carry the same
 ## Respect the reduced-motion setting
 
 ```ts twoslash
-import { state, action } from "ilha";
+import { state } from "ilha";
 
 const checked = state(false);
 
-const toggle = action(() => {
+const toggle = () => {
   const reduce = matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;

@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { ilha, html } from "ilha";
 import { setServerManifestSerializer } from "ilha/internal";
 
-import { __ilhaServerAction } from "./server-island-registry";
+import { __ilhaServerAction } from "./ssr";
 
 // Capture manifest DATA (router owns serialization; this adapter mirrors it).
 const manifests: Array<Record<string, unknown>> = [];

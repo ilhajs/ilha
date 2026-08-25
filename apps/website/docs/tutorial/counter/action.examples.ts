@@ -4,15 +4,27 @@ import { Button } from "areia";
 export default ilha(() => {
   const count = state(0);
 
-  const increase = action(() => {
-    count((value) => value + 1);
+  const save = action(async (value: number) => {
+    await fetch("/api/count", {
+      method: "POST",
+      body: JSON.stringify({ value }),
+    });
+    return value;
   });
 
   return (
     <>
       <p>Count: {count()}</p>
-      <Button variant="primary" onclick={increase}>
-        Increase
+      <Button
+        variant="primary"
+        disabled={save.pending}
+        onclick={async () => {
+          const next = count() + 1;
+          count(next);
+          await save(next);
+        }}
+      >
+        Increase{save.pending ? "…" : ""}
       </Button>
     </>
   );

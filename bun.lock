@@ -80,12 +80,11 @@
     },
     "templates/oxide-spa": {
       "name": "@ilha/template-oxide-spa",
+      "version": "0.0.0",
       "dependencies": {
         "@ilha/router": "^0.9.2",
         "areia": "^0.2.6",
         "ilha": "^0.11.1",
-        "quando": "^0.1.6",
-        "sonner": "^2.0.8",
         "tacho": "^0.5.0",
       },
       "devDependencies": {
@@ -104,7 +103,6 @@
         "@ilha/router": "^0.9.2",
         "areia": "^0.2.6",
         "ilha": "^0.11.1",
-        "quando": "^0.1.6",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.3",
@@ -2206,8 +2204,6 @@
     "punycode": ["punycode@2.3.1", "", {}, "sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg=="],
 
     "qs": ["qs@6.15.3", "", { "dependencies": { "es-define-property": "^1.0.1", "side-channel": "^1.1.1" } }, "sha512-O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A=="],
-
-    "quando": ["quando@0.1.6", "", {}, "sha512-ZDwMBR0hmNNcTY+7nSZvJg3z9vlwDJTRClpVilPCTWCF8//Qhpp/YJw+EnmEAaS6oc1tb8HU33rvW6yHCWc7Dw=="],
 
     "quansync": ["quansync@1.0.0", "", {}, "sha512-5xZacEEufv3HSTPQuchrvV6soaiACMFnq1H8wkVioctoH3TRha9Sz66lOxRwPK/qZj7HPiSveih9yAyh98gvqA=="],
 

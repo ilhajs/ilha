@@ -78,7 +78,7 @@ Rename a page to `foo.server.tsx` to render the complete route through Oxide. Ex
 
 ```tsx twoslash
 // src/pages/user/[id].server.tsx
-import type { FrameLoaderContext } from "@ilha/router/server-island-registry";
+import type { FrameLoaderContext } from "@ilha/router/ssr";
 import { ilha } from "ilha";
 
 export async function load({
@@ -142,7 +142,7 @@ import {
   setFrameAuth,
   setFrameGuard,
   setLoaderGuard,
-} from "@ilha/router/server-island-registry";
+} from "@ilha/router/ssr";
 
 function isSignedIn(_request: Request) {
   return true;
