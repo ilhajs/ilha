@@ -18,25 +18,29 @@ setServerManifestSerializer({
 const deleteTask = __ilhaServerAction("x:deleteTask", async (id: string) => `deleted:${id}`);
 const toggleTask = __ilhaServerAction("x:toggleTask", async (id: string) => `toggled:${id}`);
 
-test("direct server-export closures record instead of executing", async () => {
+test("server-export closures are never executed during SSR and record nothing", async () => {
+  let executed = 0;
+  const realDelete = __ilhaServerAction("x:real", async (id: string) => {
+    executed++;
+    return `deleted:${id}`;
+  });
   const List = ilha(() => {
     return html`<ul>
       <li>
         <input type="checkbox" data-c onclick=${() => toggleTask("t1")} />
-        <button onclick=${() => deleteTask("t1")}>del</button>
+        <button onclick=${() => realDelete("t1")}>del</button>
       </li>
     </ul>`;
   });
   const rs = (List as unknown as Record<symbol, (props?: unknown) => Promise<string>>)[
     Symbol.for("ilha.renderState")
   ];
-  const out = await rs({});
-  console.log("OUT:", out.slice(0, 260));
-  expect(manifests[manifests.length - 1]).toMatchObject({
-    "click:0": { k: "x:toggleTask", a: ["t1"] },
-    "click:1": { k: "x:deleteTask", a: ["t1"] },
-  });
+  await rs({});
+  // Fail closed: manifest rendering must not execute handler closures, so the
+  // wrapped server action never runs server-side. No manifest entries either.
+  expect(executed).toBe(0);
+  expect(manifests[manifests.length - 1] ?? {}).toEqual({});
 
-  // Outside capture frames the shim passes through.
+  // Outside rendering the shim passes through.
   expect(await deleteTask("z")).toBe("deleted:z");
 });

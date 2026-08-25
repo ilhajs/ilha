@@ -297,28 +297,17 @@ setServerManifestSerializer({
 
 /** Register `id` → entry. Later registrations win (id encodes file + name). */
 /**
- * Wrap an exported server action so ilha's hydration-manifest capture can
- * intercept it. During normal execution this is a transparent passthrough.
- * While ilha capture-invokes an event closure (manifest rendering for server
- * islands), calling the wrapper records `{ k, a }` in the active capture
- * frame instead of executing — the client replays it over RPC.
+ * Wrap an exported server action with a named transport key. Ilha never
+ * executes event-handler closures during server rendering (fail closed), so
+ * this is a transparent passthrough kept for API compatibility; the `key`
+ * documents the RPC transport name used by tooling.
  */
 export function __ilhaServerAction<A extends unknown[], R>(
   key: string,
   fn: (...args: A) => R,
 ): (...args: A) => R | undefined {
-  if (typeof fn !== "function") return fn;
-  const CAPTURE_FRAME = Symbol.for("ilha.eventCaptureFrame");
-  const wrapper = (...args: A): R | undefined => {
-    const g = globalThis as Record<symbol, unknown>;
-    const frame = g[CAPTURE_FRAME] as Array<{ k: string; a: unknown[] }> | undefined;
-    if (Array.isArray(frame)) {
-      if (!frame.some((entry) => entry.k === key)) frame.push({ k: key, a: args });
-      return undefined;
-    }
-    return fn(...args);
-  };
-  return wrapper;
+  void key;
+  return typeof fn === "function" ? fn : () => fn;
 }
 
 export function registerServerIsland(

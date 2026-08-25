@@ -86,8 +86,11 @@ setLoaderGuard((request) =>
 // Optional: explicit trusted origins and a CSRF verifier for the frame POST.
 setFrameAuth({
   trustedOrigins: ["https://app.example.com"],
-  csrf: (request) =>
-    request.headers.get("x-csrf") === "my-csrf-secret",
+  // Verify a per-session token issued by your server (double-submit cookie or
+  // synchronizer token), compared in constant time. Never use a build-time
+  // environment variable or literal string — anything shipped to the browser
+  // is public and cannot be a CSRF secret.
+  csrf: (request) => verifySessionCsrfToken(request),
 });
 ```
 

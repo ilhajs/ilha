@@ -1,6 +1,6 @@
 import {
   html,
-  isSafeUrl,
+  isSafeUrlAttrValue,
   isUrlAttributeName,
   raw,
   serializeStyle,
@@ -143,12 +143,14 @@ function pushJsxAttr({
   chunks,
   values,
   eventSpecs,
+  tagName,
   name,
   value,
 }: {
   chunks: string[];
   values: unknown[];
   eventSpecs: string[];
+  tagName: string;
   name: string;
   value: unknown;
 }): void {
@@ -202,7 +204,7 @@ function pushJsxAttr({
   // the scheme check so they cannot smuggle an unsafe URL past it.
   if (
     isUrlAttributeName(securityName) &&
-    !isSafeUrl(typeof value === "string" ? value : String(value))
+    !isSafeUrlAttrValue(tagName, securityName, typeof value === "string" ? value : String(value))
   ) {
     return;
   }
@@ -251,11 +253,11 @@ function renderJsxElement({
   const eventSpecs: string[] = [];
   if (props) {
     for (const [name, value] of Object.entries(props)) {
-      pushJsxAttr({ chunks, values, eventSpecs, name, value });
+      pushJsxAttr({ chunks, values, eventSpecs, tagName: type, name, value });
     }
   }
   if (slotKey !== undefined && props?.["data-key"] == null) {
-    pushJsxAttr({ chunks, values, eventSpecs, name: "data-key", value: slotKey });
+    pushJsxAttr({ chunks, values, eventSpecs, tagName: type, name: "data-key", value: slotKey });
   }
   if (eventSpecs.length > 0) {
     chunks[chunks.length - 1] += ` data-ilha-on="${eventSpecs.join(",")}"`;

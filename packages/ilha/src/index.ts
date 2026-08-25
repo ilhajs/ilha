@@ -338,11 +338,15 @@ function slotPropsForAttr(
     if (typeof value === "function") {
       // Function props on client-referenced child slots become replayable
       // `{ __ilha: "action" }` markers so server islands can revive them.
-      const action =
-        captureActions && !isRawHtmlValue(value)
-          ? captureHandlerActions(value as NativeEventHandler)
-          : undefined;
-      if (action) (out ??= {})[key] = { __ilha: "action", ...action };
+      // Only brand-recognized action references qualify — arbitrary closures
+      // are NEVER invoked or serialized during SSR (fail closed).
+      const id = captureActions && !isRawHtmlValue(value) ? actionManifestId(value) : undefined;
+      if (id) {
+        const a = actionBoundArgs(value);
+        (out ??= {})[key] = Array.isArray(a)
+          ? { __ilha: "action", k: id, a }
+          : { __ilha: "action", k: id };
+      }
       continue;
     }
     if (typeof value === "symbol") continue;
@@ -827,21 +831,75 @@ function escapeHtml(value: unknown): string {
 // scheme filtering and style serialization. If they diverge, a value that is
 // safe in one style can become an injection vector in the other.
 const SAFE_CSS_PROP_RE = /^(-{2}[a-zA-Z][a-zA-Z0-9-]*|-?[a-zA-Z][a-zA-Z0-9-]*)$/;
-const URL_ATTRS = new Set(["href", "src", "action", "formaction", "cite", "data", "poster"]);
-const SAFE_URL_RE =
-  /^(?!javascript:|data:text\/html|data:text\/xml|data:application\/xhtml\+xml|data:image\/svg|vbscript:)/i;
+const URL_ATTRS = new Set([
+  "href",
+  "src",
+  "srcset",
+  "imagesrcset",
+  "action",
+  "formaction",
+  "cite",
+  "data",
+  "poster",
+]);
+// Denylist of scheme prefixes plus an allowlist for `data:` — ALL data: URLs
+// are rejected except tightly-scoped raster image types. This blocks not only
+// text/html, xml, xhtml, and svg, but executable script MIME types like
+// data:text/javascript and data:application/javascript too.
+const SAFE_DATA_IMAGE_RE = /^data:image\/(png|jpe?g|gif|webp|avif)[;,]/i;
+const UNSAFE_SCHEME_RE = /^(?:javascript|vbscript):/i;
+
+// Raster data: URLs are allowed ONLY in true image contexts. Everywhere else
+// (script/iframe/embed src, object data, navigation and form actions, …)
+// every data: URL is rejected unconditionally.
+const DATA_IMAGE_CONTEXTS = new Set(["img:src", "source:srcset", "link:imagesrcset"]);
 
 // HTML parsers strip ASCII control chars (tab/newline/CR and friends) anywhere
 // inside a URL before resolving its scheme, so "java\tscript:" reaches the
-// browser as "javascript:". Normalize the same way before testing SAFE_URL_RE.
-function isSafeUrl(value: string): boolean {
+// browser as "javascript:". Normalize the same way before testing.
+function normalizeUrl(value: string): string {
   // oxlint-disable-next-line no-control-regex -- intentional: mirrors the HTML parser stripping control chars from URLs
-  return SAFE_URL_RE.test(value.replace(/[\u0000-\u0020]/g, ""));
+  return value.replace(/[\u0000-\u0020]/g, "");
+}
+
+function checkUrl(normalized: string, allowDataImage: boolean): boolean {
+  if (UNSAFE_SCHEME_RE.test(normalized)) return false;
+  if (/^data:/i.test(normalized)) return allowDataImage && SAFE_DATA_IMAGE_RE.test(normalized);
+  return true;
+}
+
+/** Strict single-URL check — all data: URLs rejected. */
+function isSafeUrl(value: string): boolean {
+  return checkUrl(normalizeUrl(value), false);
+}
+
+/** Element- and attribute-aware URL policy for rendered attributes.
+ * `srcset`/`imagesrcset` validate each comma-separated candidate URL. */
+function isSafeUrlAttrValue(tagName: string, attrName: string, value: string): boolean {
+  const attr = attrName.toLowerCase();
+  // ponytail: naive comma-split srcset parsing misreads commas inside URLs
+  // (e.g. base64 data: candidates), so srcset rejects ALL data: URLs instead
+  // of context-gating them — img[src] remains the data-image escape hatch.
+  // Upgrade path: a syntax-aware srcset parser.
+  const allowDataImage =
+    DATA_IMAGE_CONTEXTS.has(`${tagName.toLowerCase()}:${attr}`) &&
+    !attr.startsWith("srcset") &&
+    attr !== "imagesrcset";
+  if (/^(?:srcset|imagesrcset)$/i.test(attr)) {
+    return value.split(",").every((candidate) => {
+      const url = candidate.trim().split(/\s+/)[0] ?? "";
+      return url === "" || checkUrl(normalizeUrl(url), false);
+    });
+  }
+  return checkUrl(normalizeUrl(value), allowDataImage);
 }
 
 function isUrlAttributeName(name: string): boolean {
   const lower = name.toLowerCase();
-  return URL_ATTRS.has(lower) || /:(href|src|action|formaction|cite|data|poster)$/.test(lower);
+  return (
+    URL_ATTRS.has(lower) ||
+    /:(href|src|srcset|imagesrcset|action|formaction|cite|data|poster)$/.test(lower)
+  );
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -1103,60 +1161,117 @@ interface JsxEventRecord {
   type: string;
   handler: NativeEventHandler;
   modifier?: NativeEventModifier;
-  /** Action call captured at render time from a forwarding closure
-   * (`onclick={() => remove(id)}`). Serialized into the hydration
-   * manifest so server-owned islands replay it over RPC. */
-  capture?: { k: string; a: unknown[] };
 }
 
-/** Marks SSR action stubs so event registration never capture-invokes them
- * (invoking the real action body during render would run its side effects). */
+/** Marks SSR action stubs so event registration can recognize action
+ * references without ever invoking them (executing a handler body during
+ * render would run its side effects server-side). Symbol.for brands keep
+ * this recognizable across duplicate ilha copies and external action
+ * implementations (e.g. oxidejs) in the same realm. */
 const SSR_ACTION_STUB = Symbol.for("ilha.ssrActionStub");
-const CAPTURE_FRAME = Symbol.for("ilha.eventCaptureFrame");
+const ACTION_MANIFEST_ID = Symbol.for("ilha.actionManifestId");
+const ACTION_BOUND_ARGS = Symbol.for("ilha.actionBoundArgs");
 
-// Synchronous render ⇒ a simple stack scopes capture-recording to exactly one
-// handler invocation.
-const captureStack: Array<Array<{ k: string; a: unknown[] }>> = [];
+/** Serialized size ceiling for `.withArgs()` payloads (JSON chars). */
+const MAX_BOUND_ARGS_CHARS = 8192;
 
-/**
- * Invoke a forwarding closure once against sentinel arguments so any
- * action(...) call inside it is RECORDED, not executed. Returns the first
- * recorded call, or undefined when the closure throws or calls no action.
- *
- * ponytail: the closure body really executes once per manifest render (SSR
- * and every frame) — only the action call is intercepted. Handlers must be
- * pure "call one action" thunks; side effects before/around the action call
- * run server-side on every frame. Upgrade path: static-scan the closure
- * instead of invoking it.
- */
-function captureHandlerActions(
-  handler: NativeEventHandler,
-): { k: string; a: unknown[] } | undefined {
-  const frame: Array<{ k: string; a: unknown[] }> = [];
-  captureStack.push(frame);
-  // Published so interop layers (e.g. @ilha/router's server-action shim,
-  // RPC frameworks) can cooperate: while set, server-mutation wrappers
-  // should push { k: "<transport key>", a: args } instead of executing.
-  const g = globalThis as typeof globalThis & { [CAPTURE_FRAME]?: unknown };
-  const previousFrame = g[CAPTURE_FRAME];
-  g[CAPTURE_FRAME] = frame;
-  try {
-    const sentinelEvent = {
-      preventDefault: () => {},
-      stopPropagation: () => {},
-      stopImmediatePropagation: () => {},
-      persist: () => {},
-    } as unknown as Event;
-    const sentinelContext: NativeEventContext = { signal: new AbortController().signal };
-    const result = handler(sentinelEvent as Event, sentinelContext);
-    void Promise.resolve(result).catch(() => {});
-  } catch {
-    // Closure has logic that doesn't hold under sentinel args — no record.
-  } finally {
-    g[CAPTURE_FRAME] = previousFrame;
-    captureStack.pop();
+/** Manifest id for a brand-recognized action reference, else undefined.
+ * Anything that isn't a branded action stub is rejected outright — event
+ * handlers are never executed during SSR to discover what they call. */
+function actionManifestId(fn: unknown): string | undefined {
+  if (typeof fn !== "function" || !(SSR_ACTION_STUB in fn)) return undefined;
+  return (fn as Record<symbol, string | undefined>)[ACTION_MANIFEST_ID];
+}
+
+/** Bound args recorded by `.withArgs()` on an action reference, else undefined. */
+function actionBoundArgs(fn: unknown): unknown[] | undefined {
+  if (typeof fn !== "function" || !(ACTION_BOUND_ARGS in fn)) return undefined;
+  const args = (fn as Record<symbol, unknown>)[ACTION_BOUND_ARGS];
+  return Array.isArray(args) ? args : undefined;
+}
+
+/** Attach `.withArgs(...args)` to an action accessor. Returns an explicit,
+ * serializable action REFERENCE — never a closure to inspect or probe.
+ * Arguments are validated JSON-safe at bind time; the hydration manifest
+ * stores `{ actionId, args }` directly and the client RPC path sends them
+ * only after a real user event. On the client, calling the bound reference
+ * invokes the accessor with the bound payload. */
+/** Keys that must never appear in a bound payload — they become dangerous
+ * if an RPC handler or downstream library merges the object into another. */
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/** Strict JSON-safety validator: accept, or throw — never transform.
+ * Rejects undefined, functions, symbols, bigint, non-finite numbers,
+ * Dates/custom prototypes/Map/Set, circular values, and unsafe keys so a
+ * bound payload is byte-identical to what the author wrote. */
+function assertJsonSafe(value: unknown, seen = new WeakSet<object>()): void {
+  if (value === null) return;
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+      return;
+    case "number":
+      if (Number.isFinite(value)) return;
+      throw new TypeError("withArgs() rejects non-finite numbers.");
+    case "object":
+      break;
+    default:
+      // undefined, function, symbol, bigint
+      throw new TypeError(`withArgs() rejects ${typeof value} values.`);
   }
-  return frame[0];
+  if (seen.has(value as object)) throw new TypeError("withArgs() rejects circular values.");
+  seen.add(value as object);
+  if (Array.isArray(value)) {
+    for (const item of value) assertJsonSafe(item, seen);
+    return;
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype) {
+    throw new TypeError("withArgs() accepts plain objects only.");
+  }
+  for (const [key, child] of Object.entries(value)) {
+    if (UNSAFE_KEYS.has(key)) {
+      throw new TypeError(`withArgs() rejects unsafe key "${key}".`);
+    }
+    assertJsonSafe(child, seen);
+  }
+}
+
+/** Deep-clone an already-validated JSON-safe value. */
+function cloneJsonSafe(value: unknown): unknown {
+  return structuredClone(value);
+}
+
+function attachWithArgs(accessor: Function): void {
+  Object.defineProperty(accessor, "withArgs", {
+    enumerable: false,
+    value: (...args: unknown[]) => {
+      for (const arg of args) assertJsonSafe(arg);
+      const serialized = cloneJsonSafe(args) as unknown[];
+      if (JSON.stringify(serialized).length > MAX_BOUND_ARGS_CHARS) {
+        throw new RangeError(`withArgs() payload exceeds ${MAX_BOUND_ARGS_CHARS} JSON characters.`);
+      }
+      const manifestId = actionManifestId(accessor);
+      const bound = (...runtimeArgs: unknown[]) => {
+        // Bound payload wins; runtime args (the DOM event) apply only when
+        // nothing was bound — matching a plain direct reference.
+        const payload =
+          serialized.length > 0
+            ? serialized.length === 1
+              ? serialized[0]
+              : serialized
+            : runtimeArgs.length === 1
+              ? runtimeArgs[0]
+              : runtimeArgs;
+        return (accessor as (...a: unknown[]) => unknown)(payload);
+      };
+      // SAFETY: internal Symbol.for branding on our own function object.
+      const brand = bound as unknown as Record<symbol, unknown>;
+      brand[SSR_ACTION_STUB] = true;
+      brand[ACTION_MANIFEST_ID] = manifestId;
+      brand[ACTION_BOUND_ARGS] = serialized;
+      return bound;
+    },
+  });
 }
 
 // Shared across duplicate ilha copies in one realm (app + component library).
@@ -1882,26 +1997,16 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
       // manifest. Closures attach after mount; Ilha never executes user event
       // handlers during SSR to inspect their captured arguments.
       result += cleanPrefix;
-      // Forwarding closures (`onclick={() => remove(id)}`) are invoked once
-      // against sentinel args so the action call is recorded for the
-      // hydration manifest; direct action references are matched by identity.
+      // Direct action references are matched by brand/identity for the
+      // hydration manifest. Closures are NEVER executed during SSR to
+      // discover what they call — non-action handlers get no manifest entry.
       const isActionStub = typeof value === "function" && SSR_ACTION_STUB in (value as object);
-      const capture =
-        ctx?.manifest === true && typeof value === "function" && !isActionStub
-          ? captureHandlerActions(value as NativeEventHandler)
-          : undefined;
-      if (
-        __DEV__ &&
-        ctx?.manifest === true &&
-        typeof value === "function" &&
-        !isActionStub &&
-        !capture
-      ) {
+      if (__DEV__ && ctx?.manifest === true && typeof value === "function" && !isActionStub) {
         warn(
-          `Event handler recorded no action during hydration-manifest rendering. Forwarding ` +
-            `closures may only call actions replayable over RPC (an action() slot or an ` +
-            `exported server action); any other code executes on the server and cannot be ` +
-            `replayed by the client.`,
+          `Event handler is not an action() reference, so it cannot appear in the ` +
+            `hydration manifest. Handlers are never executed during server rendering; ` +
+            `pass an action() slot directly as the handler ` +
+            `so the client can replay it. The closure will only run on the client after mount.`,
         );
       }
       if (ctx && typeof value === "function") {
@@ -1918,7 +2023,6 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
             type: eventName,
             handler: value as NativeEventHandler,
             modifier,
-            capture,
           });
           pendingEventSpecs += (pendingEventSpecs ? "," : "") + `${eventName}:${index}`;
         }
@@ -2072,11 +2176,12 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
           continue;
         }
         const url = String(resolved);
-        if (!isSafeUrl(url)) {
+        const tagName = openTagName(result + chunk, result.length + attrMatch.index!);
+        if (!isSafeUrlAttrValue(tagName, attrName, url)) {
           if (__DEV__) {
             warn(
-              `Dropped unsafe ${attrName} value from <${openTagName(result + chunk, result.length + attrMatch.index!)}> ` +
-                `(javascript:/vbscript:/data:html/svg schemes are blocked).`,
+              `Dropped unsafe ${attrName} value from <${tagName}> ` +
+                `(javascript:/vbscript:/data: schemes are blocked outside image contexts).`,
             );
           }
           result += cleanPrefix;
@@ -2889,6 +2994,11 @@ export type ActionAccessor<P = undefined, R = void> = ActionCall<P> & {
   readonly pending: boolean;
   readonly data: Awaited<R> | undefined;
   readonly error: Error | undefined;
+  /** Bind an explicit serializable payload into an RPC-replayable action
+   * reference for server-owned islands (`onclick={remove.withArgs(id)}`).
+   * Arguments are validated JSON-safe (≤ 8 KiB serialized) at bind time and
+   * stored in the hydration manifest — never extracted by executing code. */
+  withArgs: (...args: unknown[]) => NativeEventHandler;
 };
 
 // ---------------------------------------------
@@ -3365,6 +3475,7 @@ export function action<P, R>(
       data: { get: () => undefined },
       error: { get: () => undefined },
     });
+    attachWithArgs(noop);
     return noop;
   }
   const index = f.actionIndex++;
@@ -3372,17 +3483,9 @@ export function action<P, R>(
 
   if (f.ssr) {
     // SSR stub: actions run only after mount; never execute side effects
-    // during render. Inside a capture frame (forwarding-closure registration)
-    // the call is RECORDED for the hydration manifest instead of executed.
+    // during render. Calls are ignored with a dev warning.
     let warned = false;
-    const invoke = (...callArgs: unknown[]) => {
-      const frame = captureStack[captureStack.length - 1];
-      if (frame) {
-        if (!frame.some((r) => r.k === manifestId)) {
-          frame.push({ k: manifestId, a: callArgs });
-        }
-        return;
-      }
+    const invoke = (..._callArgs: unknown[]) => {
       if (__DEV__ && !warned) {
         warned = true;
         warn(`An action was called during SSR and was ignored. Actions run only after mount.`);
@@ -3391,6 +3494,7 @@ export function action<P, R>(
     // SAFETY: SSR_ACTION_STUB is a Symbol.for brand this module sets and the
     // SSR manifest capture path checks; the Record cast is internal branding.
     (invoke as unknown as Record<symbol, unknown>)[SSR_ACTION_STUB] = true;
+    (invoke as unknown as Record<symbol, unknown>)[ACTION_MANIFEST_ID] = manifestId;
     Object.defineProperties(invoke, {
       pending: { get: () => false, enumerable: true },
       data: { get: () => undefined, enumerable: true },
@@ -3405,7 +3509,9 @@ export function action<P, R>(
     // SAFETY: invoke is a closure branded with ISLAND_ACCESSOR / action
     // symbols and registered in f.slots; the cast widens it to the public
     // accessor shape (pending/data/error accessors + invoke signature).
-    return invoke as unknown as ActionAccessor<P, R>;
+    const ssrAccessor = invoke as unknown as ActionAccessor<P, R>;
+    attachWithArgs(ssrAccessor);
+    return ssrAccessor;
   }
 
   const instance = f.instance!;
@@ -3497,7 +3603,10 @@ export function action<P, R>(
   instance.actionIds.set(slot.acc, manifestId);
   // SAFETY: invoke is the same closure object stored in the slot; the cast
   // restores the public action accessor type for the caller.
-  return invoke as unknown as ActionAccessor<P, R>;
+  const clientAccessor = invoke as unknown as ActionAccessor<P, R>;
+  (clientAccessor as unknown as Record<symbol, string>)[ACTION_MANIFEST_ID] = manifestId;
+  attachWithArgs(clientAccessor);
+  return clientAccessor;
 }
 
 // ---------------------------------------------
@@ -3784,12 +3893,14 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
   ): void {
     if (!eventsOut || events.length === 0) return;
     events.forEach((record, index) => {
-      if (record.capture) {
-        eventsOut.set(`${record.type}:${index}`, record.capture);
-        return;
-      }
-      const id = frame.actionManifest?.get(record.handler);
-      if (id) eventsOut.set(`${record.type}:${index}`, id);
+      // Brand-recognized action references only — matched by identity first,
+      // then by the cross-copy Symbol.for manifest id on the stub itself.
+      const id = frame.actionManifest?.get(record.handler) ?? actionManifestId(record.handler);
+      if (!id) return;
+      // `.withArgs()` references carry an explicit serializable payload —
+      // stored in the manifest directly, replayed by the client verbatim.
+      const args = actionBoundArgs(record.handler);
+      eventsOut.set(`${record.type}:${index}`, Array.isArray(args) ? { k: id, a: args } : id);
     });
   }
 
@@ -4828,22 +4939,20 @@ setJsxRuntimeBridge({
   registerEvent({ type, handler, modifier }: JsxEventRegistration): number | undefined {
     const ctx = currentRenderCtx();
     if (!ctx) return undefined;
-    // Forwarding closures get capture-invoked so action(...) calls inside
-    // them are recorded for the hydration manifest. Direct SSR action stubs
-    // are matched by identity in recordEventsManifest — never invoked.
+    // Direct SSR action stubs are matched by brand in recordEventsManifest —
+    // never invoked. Any other handler gets no manifest entry; closures are
+    // NEVER executed during server rendering to inspect their captured args.
     const isActionStub = SSR_ACTION_STUB in (handler as object);
-    const capture =
-      ctx.manifest === true && !isActionStub ? captureHandlerActions(handler) : undefined;
-    if (__DEV__ && ctx.manifest === true && !isActionStub && !capture) {
+    if (__DEV__ && ctx.manifest === true && !isActionStub) {
       warn(
-        `Event handler recorded no action during hydration-manifest rendering. Forwarding ` +
-          `closures may only call actions replayable over RPC (an action() slot or an ` +
-          `exported server action); any other code executes on the server and cannot be ` +
-          `replayed by the client.`,
+        `Event handler is not an action() reference, so it cannot appear in the ` +
+          `hydration manifest. Handlers are never executed during server rendering; ` +
+          `pass an action() slot directly as the handler ` +
+          `so the client can replay it. The closure will only run on the client after mount.`,
       );
     }
     const index = ctx.events.length;
-    ctx.events.push({ type, handler, modifier, capture });
+    ctx.events.push({ type, handler, modifier });
     return index;
   },
   slot({ island, props, key }) {
@@ -4889,4 +4998,4 @@ export const context = ilhaContext;
 // Shared URL/style policy — consumed by the JSX runtime (jsx-runtime.ts) and
 // available to advanced template authors who want the same checks in custom
 // builders.
-export { isSafeUrl, isUrlAttributeName, serializeStyle };
+export { isSafeUrl, isSafeUrlAttrValue, isUrlAttributeName, serializeStyle };

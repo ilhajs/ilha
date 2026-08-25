@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { css, html, ilha, json, mount, raw, state } from "./index";
+import { jsx } from "./jsx-runtime";
 import "../happydom.ts";
 
 function makeEl(html: string): Element {
@@ -188,8 +189,10 @@ describe("html/jsx parity — attribute policy", () => {
       "<a href=https://example.com/x>x</a>",
     );
     expect(html`<a href=${"mailto:a@b"}>x</a>`.value).toBe("<a href=mailto:a@b>x</a>");
-    expect(html`<a href=${"data:image/png;base64,abc"}>x</a>`.value).toBe(
-      "<a href=data:image/png;base64,abc>x</a>",
+    // Raster data: images are allowed only in image contexts — not on <a href>.
+    expect(html`<a href=${"data:image/png;base64,abc"}>x</a>`.value).toBe("<a>x</a>");
+    expect(html`<img src=${"data:image/png;base64,abc"} alt="i" />`.value).toContain(
+      "src=data:image/png;base64,abc",
     );
   });
 
@@ -332,5 +335,67 @@ describe("html/jsx parity — script and style content", () => {
     const inner = out.slice(7, -8); // between <style> and </style>
     expect(inner).not.toContain("</style>");
     expect(inner).toContain("\\3C ");
+  });
+});
+
+describe("executable data: URLs are rejected", () => {
+  test("html`` — script MIME data: URLs are dropped from src and href", () => {
+    expect(html`<script src=${"data:text/javascript,alert(1)"}></script>`.value).toBe(
+      "<script></script>",
+    );
+    expect(html`<script src=${"data:application/javascript,alert(1)"}></script>`.value).toBe(
+      "<script></script>",
+    );
+    expect(html`<a href=${"data:text/javascript,alert(1)"}>x</a>`.value).toBe("<a>x</a>");
+  });
+
+  test("JSX — script MIME data: URLs are dropped from src", () => {
+    expect(jsx("script", { src: "data:text/javascript,alert(1)" }).value).toBe("<script></script>");
+    expect(jsx("script", { src: "data:application/javascript,alert(1)" }).value).toBe(
+      "<script></script>",
+    );
+  });
+});
+
+describe("URL policy hardening", () => {
+  test("control-char-obfuscated executable data: URLs are rejected", () => {
+    expect(html`<script src=${"data:text/javascript,alert(1)"}></script>`.value).toBe(
+      "<script></script>",
+    );
+    expect(html`<a href=${"da\nta:text/javascript,alert(1)"}>x</a>`.value).toBe("<a>x</a>");
+    expect(html`<script src=${" \tdata:application/javascript,alert(1)"}></script>`.value).toBe(
+      "<script></script>",
+    );
+    expect(html`<img src=${"data:image/svg+xml,<svg onload=alert(1)>"} />`.value).not.toContain(
+      "src=",
+    );
+  });
+
+  test("srcset candidates are validated individually", () => {
+    expect(
+      html`<img srcset=${"a.png 1x, javascript:alert(1) 2x"} src="a.png" />`.value,
+    ).not.toContain("javascript");
+    expect(
+      html`<img srcset=${"a.png 1x, data:text/javascript,alert(1) 2x"} src="a.png" />`.value,
+    ).not.toContain("data:");
+    expect(html`<img srcset=${"a.png 1x, b.png 2x"} src="a.png" />`.value).toContain("srcset=");
+    // data: URLs are rejected in all srcset contexts (comma-split parsing is
+    // not syntax-aware, so no data-image exception is made there).
+    expect(html`<source srcset=${"data:image/png;base64,abc"} />`.value).not.toContain("data:");
+  });
+
+  test("raster data: images are allowed only in image contexts", () => {
+    expect(html`<img src=${"data:image/webp;base64,abc"} alt="i" />`.value).toContain(
+      "src=data:image/webp;base64,abc",
+    );
+    // Non-image consumers reject all data: URLs.
+    expect(html`<script src=${"data:image/png;base64,abc"}></script>`.value).toBe(
+      "<script></script>",
+    );
+    expect(html`<iframe src=${"data:image/png;base64,abc"}></iframe>`.value).not.toContain("src=");
+    expect(html`<object data=${"data:image/png;base64,abc"}></object>`.value).not.toContain(
+      "data=",
+    );
+    expect(html`<a href=${"data:image/png;base64,abc"}>x</a>`.value).toBe("<a>x</a>");
   });
 });

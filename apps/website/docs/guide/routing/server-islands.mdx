@@ -48,7 +48,7 @@ export const TaskList = ilha(() => {
       {each(items() ?? []).as((task) => (
         <li key={task.id}>
           {task.text}
-          <button onclick={() => remove(task.id)}>
+          <button onclick={remove.withArgs(task.id)}>
             Remove
           </button>
         </li>
@@ -162,8 +162,11 @@ setLoaderGuard((request) =>
 
 setFrameAuth({
   trustedOrigins: ["https://app.example.com"],
-  csrf: (request) =>
-    request.headers.get("x-csrf") === "my-csrf-secret",
+  // Verify a per-session token issued by your server (double-submit cookie or
+  // synchronizer token), compared in constant time. Never use a build-time
+  // environment variable or literal string — anything shipped to the browser
+  // is public and cannot be a CSRF secret.
+  csrf: (request) => verifySessionCsrfToken(request),
 });
 ```
 

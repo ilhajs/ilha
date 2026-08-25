@@ -1773,3 +1773,33 @@ describe("ilha JSX runtime — compound component children", () => {
     expect(panelIdx).toBeGreaterThan(rootIdx);
   });
 });
+
+describe("JSX bridge — SSR closure non-execution", () => {
+  it("never invokes a closure handler during manifest rendering", async () => {
+    const { ilha } = await import("./index");
+    const { setServerManifestSerializer } = await import("./internal");
+    const entries: Array<Record<string, unknown>> = [];
+    setServerManifestSerializer({
+      template(manifest) {
+        entries.push(Object.fromEntries(manifest));
+        return "";
+      },
+    });
+    let foreignCalls = 0;
+    const App = ilha(() => (
+      <button
+        onclick={() => {
+          foreignCalls++;
+        }}
+      >
+        del
+      </button>
+    ));
+    const rs = (App as unknown as Record<symbol, (props?: unknown) => Promise<string>>)[
+      Symbol.for("ilha.renderState")
+    ];
+    await rs({});
+    expect(foreignCalls).toBe(0);
+    expect(entries[entries.length - 1] ?? {}).toEqual({});
+  });
+});

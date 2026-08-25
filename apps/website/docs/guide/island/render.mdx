@@ -204,7 +204,7 @@ const Form = ilha(() => (
 
 ## Notes
 
-- In server-rendered islands, event handlers that should replay over RPC must call an `action()` declared by the same island. Forwarding closures (`onclick={() => remove(id)}`) are capture-probed once per manifest render — keep them pure "call one action" thunks. Handlers that call anything else cannot be replayed; in development you get a warning, and no hydration manifest entry is emitted.
+- In server-rendered islands, event handlers that should replay over RPC must be `action()` references passed directly (`onclick={remove}`). To bind item-specific arguments, use `withArgs()`: `onclick={remove.withArgs(task.id)}`. Arguments are validated JSON-safe at bind time and stored in the hydration manifest; they are sent only after a real user event. Handlers are never executed during server rendering — closures like `onclick={() => remove(id)}` are not probed, so they get no hydration manifest entry (plus a development warning). For a normal client island such a closure still runs on the client after mount; for a server-owned island whose implementation never ships to the browser, an unrecognized closure cannot be replayed and never runs at all. Use a direct action reference when server interactivity is needed.
 - `.hydratable()` is always async: it awaits async derived values and snapshots values at the moment you call it.
 - Direct `Island(props)` calls are child composition only, never top-level server rendering.
 - `@ilha/router` emits hydration markup for you; call `.hydratable()` directly only in a manual SSR handler.
