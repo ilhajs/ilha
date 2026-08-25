@@ -71,21 +71,21 @@ callback(() => nextCallback);
 
 ## Standalone helpers
 
-| Helper                   | Purpose                                                     | Learn more                       |
-| ------------------------ | ----------------------------------------------------------- | -------------------------------- |
-| `signal(initial)`        | Free-standing signal for shared state.                      | [Signals](/guide/island/signals) |
-| `computed(fn)`           | Lazy, cached, read-only value derived from signals.         | [Signals](/guide/island/signals) |
-| `effect(fn)`             | Standalone reactive effect outside an island; returns stop. | [Signals](/guide/island/signals) |
-| `context(key)`           | Get or create a keyed shared signal.                        | [Signals](/guide/island/signals) |
-| `batch(fn)`              | Batch signal writes into one propagation pass.              | [Signals](/guide/island/signals) |
-| `untrack(fn)`            | Read signals without subscribing the active reactive scope. | [Signals](/guide/island/signals) |
-| `persist(accessor, key)` | Keep a standalone signal in sync with storage.              | [Signals](/guide/island/signals) |
-| `html\`…\``              | XSS-safe tagged template for HTML strings.                  | [html](/guide/helpers/html)      |
-| `raw(str)`               | Trusted raw markup inside JSX / html.                       | [raw](/guide/helpers/raw)        |
-| `json(value)`            | `JSON.stringify` with `<` escaped for `<script>` data.      | [html](/guide/helpers/html)      |
-| `css(str)`               | `String` with `<` escaped for `<style>` data.               | [html](/guide/helpers/html)      |
-| `mount(registry)`        | Auto-discover and mount `[data-ilha]` hosts.                | [Mount](/guide/helpers/mount)    |
-| `onUncaughtError(fn)`    | Global fallback for otherwise uncaught island errors.       | [Errors](/guide/island/errors)   |
+| Helper                   | Purpose                                                     | Learn more                                          |
+| ------------------------ | ----------------------------------------------------------- | --------------------------------------------------- |
+| `signal(initial)`        | Free-standing signal for shared state.                      | [Signals](/guide/island/signals)                    |
+| `computed(fn)`           | Lazy, cached, read-only value derived from signals.         | [Signals](/guide/island/signals)                    |
+| `effect(fn)`             | Standalone reactive effect outside an island; returns stop. | [Signals](/guide/island/signals)                    |
+| `context(key)`           | Get or create a keyed shared signal.                        | [Signals](/guide/island/signals)                    |
+| `batch(fn)`              | Batch signal writes into one propagation pass.              | [Signals](/guide/island/signals)                    |
+| `untrack(fn)`            | Read signals without subscribing the active reactive scope. | [Signals](/guide/island/signals)                    |
+| `persist(accessor, key)` | Keep a standalone signal in sync with storage.              | [Signals](/guide/island/signals)                    |
+| `html\`…\``              | XSS-safe tagged template for HTML strings.                  | [html](/guide/recipes/helpers#build-html-strings)   |
+| `raw(str)`               | Trusted raw markup inside JSX / html.                       | [raw](/guide/recipes/helpers#render-trusted-markup) |
+| `json(value)`            | `JSON.stringify` with `<` escaped for `<script>` data.      | [html](/guide/recipes/helpers#build-html-strings)   |
+| `css(str)`               | `String` with `<` escaped for `<style>` data.               | [html](/guide/recipes/helpers#build-html-strings)   |
+| `mount(registry)`        | Auto-discover and mount `[data-ilha]` hosts.                | [Mount](/guide/recipes/helpers#mount-islands)       |
+| `onUncaughtError(fn)`    | Global fallback for otherwise uncaught island errors.       | [Errors](/guide/island/errors)                      |
 
 ## Actions
 

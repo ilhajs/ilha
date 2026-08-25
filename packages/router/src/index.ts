@@ -117,8 +117,19 @@ export function loader<T>(fn: Loader<T>): Loader<T> {
  */
 loader.client = <T>(fn: Loader<T>): Loader<T> => fn;
 
-/** Extract the return type of a loader. */
-export type InferLoader<L> = L extends Loader<infer T> ? Awaited<T> : never;
+/** Infer the page props produced by a loader. */
+export type InferLoader<L> =
+  L extends Loader<infer T>
+    ? {
+        load: {
+          loading: boolean;
+          value: Awaited<T>;
+          error: Error | undefined;
+        };
+      }
+    : never;
+
+type InferLoaderValue<L> = L extends Loader<infer T> ? Awaited<T> : never;
 
 /**
  * Merge multiple loader return types into a single object type.
@@ -132,8 +143,8 @@ export type MergeLoaders<Ls extends readonly Loader<any>[]> = Ls extends readonl
   ...infer Rest extends readonly Loader<any>[],
 ]
   ? Rest extends readonly []
-    ? InferLoader<First>
-    : Omit<InferLoader<First>, keyof MergeLoaders<Rest>> & MergeLoaders<Rest>
+    ? InferLoaderValue<First>
+    : Omit<InferLoaderValue<First>, keyof MergeLoaders<Rest>> & MergeLoaders<Rest>
   : {};
 
 // ─────────────────────────────────────────────

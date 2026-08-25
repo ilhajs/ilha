@@ -16,8 +16,7 @@
     "src/server-island-registry.ts",
     "src/public-types.ts",
     "src/vite.ts",
-    "src/rspack.ts",
-    "src/rolldown.ts",
+    "src/rsbuild.ts",
     "src/virtual.d.ts"
   ]
 }

@@ -47,7 +47,6 @@ export default defineConfig({
               "/guide/routing/routes-and-navigation",
               "/guide/routing/loaders",
               "/guide/routing/file-system-routing",
-              "/guide/routing/server-rendering",
               "/guide/routing/server-islands",
               "/guide/routing/middleware-and-security",
               "/guide/routing/deployment",
@@ -59,11 +58,7 @@ export default defineConfig({
           },
           {
             label: "Recipes",
-            items: ["/guide/recipes/view-transitions"],
-          },
-          {
-            label: "Helpers",
-            items: ["/guide/helpers/mount", "/guide/helpers/html", "/guide/helpers/raw"],
+            items: ["/guide/recipes/helpers", "/guide/recipes/view-transitions"],
           },
           {
             label: "Resources",

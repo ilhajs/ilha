@@ -4,8 +4,7 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/vite.ts",
-    "src/rspack.ts",
-    "src/rolldown.ts",
+    "src/rsbuild.ts",
     "src/ssr.ts",
     "src/server-island.ts",
     "src/server-island-registry.ts",

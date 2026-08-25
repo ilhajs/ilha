@@ -118,7 +118,7 @@ Per-instance state never leaks between requests: every SSR render creates a fres
 
 ## Escaping and safe values
 
-JSX children and attributes are escaped by default. `null` and `undefined` render as empty strings; arrays flatten without commas. Use [`raw()`](/guide/helpers/raw) only for trusted markup you control.
+JSX children and attributes are escaped by default. `null` and `undefined` render as empty strings; arrays flatten without commas. Use [`raw()`](/guide/recipes/helpers#render-trusted-markup) only for trusted markup you control.
 
 ## Attributes
 
@@ -213,4 +213,4 @@ const Form = ilha(() => (
 
 - [Create an island](/guide/island/create)
 - [Compose islands](/guide/island/compose)
-- [Mount](/guide/helpers/mount)
+- [Mount](/guide/recipes/helpers#mount-islands)

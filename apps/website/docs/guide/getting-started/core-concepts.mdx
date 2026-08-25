@@ -97,7 +97,7 @@ const userInput = "edited by the user";
 const Message = ilha(() => <p>{userInput}</p>);
 ```
 
-JSX output follows safe rendering rules: interpolated values are escaped by default, arrays render without commas, and child islands can be nested directly. If you need to inject trusted markup, opt into that explicitly with [`raw()`](/guide/helpers/raw).
+JSX output follows safe rendering rules: interpolated values are escaped by default, arrays render without commas, and child islands can be nested directly. If you need to inject trusted markup, opt into that explicitly with [`raw()`](/guide/recipes/helpers#render-trusted-markup).
 
 ## Derived values
 

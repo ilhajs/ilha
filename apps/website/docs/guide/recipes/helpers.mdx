@@ -1,7 +1,136 @@
 ---
-title: html
-description: An XSS-safe tagged template for building HTML strings with automatic escaping and signal interpolation.
+title: Helpers
+description: Mount islands, build safe HTML strings without JSX, and render explicitly trusted markup.
 ---
+
+## Mount islands
+
+Auto-discovers all `[data-ilha]` elements in the DOM and mounts the matching island from a registry. This is the recommended way to activate islands on a page, especially when using SSR and hydration.
+
+### Basic usage
+
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Counter = ilha(() => "<p>counter</p>");
+const Card = ilha(() => "<p>card</p>");
+
+mount({ Counter, Card });
+```
+
+Each key in the registry maps to a `data-ilha` attribute value in the HTML:
+
+```html
+<div data-ilha="Counter"></div>
+<div data-ilha="Card"></div>
+```
+
+### Options
+
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Counter = ilha(() => "<p>counter</p>");
+
+const { unmount } = mount(
+  { counter: Counter },
+  {
+    root: document.getElementById("app")!, // default: document.body
+    lazy: true, // mount on visibility
+  },
+);
+```
+
+| Option | Type      | Default         | Description                                       |
+| ------ | --------- | --------------- | ------------------------------------------------- |
+| `root` | `Element` | `document.body` | Scope discovery to a subtree                      |
+| `lazy` | `boolean` | `false`         | Use `IntersectionObserver` to mount on visibility |
+
+### Unmounting
+
+`mount()` returns an object with an `unmount` function that tears down all discovered islands at once:
+
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Counter = ilha(() => "<p>counter</p>");
+
+const { unmount } = mount({ Counter });
+
+// Later — stops all effects, removes all listeners
+unmount();
+```
+
+### Lazy mounting
+
+When `lazy: true` is set, islands are not mounted immediately. Instead, each host element is observed with an `IntersectionObserver` and mounted only when it enters the viewport. This keeps the initial page load lean when islands are below the fold.
+
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const HeavyChart = ilha(() => "<canvas></canvas>");
+
+mount({ HeavyChart }, { lazy: true });
+```
+
+Once an island becomes visible it mounts normally and is no longer observed.
+
+### Passing props
+
+Props can be embedded directly in the HTML using `data-ilha-props`. `mount()` reads and parses this attribute automatically — no need to pass props through JavaScript:
+
+```html
+<div data-ilha="Counter" data-ilha-props='{"start":10}'></div>
+```
+
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Counter = ilha(() => "<p>counter</p>");
+
+// No props needed here — they are read from data-ilha-props
+mount({ Counter });
+```
+
+### Hydration with state snapshots
+
+When using `.hydratable()` on the server, the rendered HTML includes a `data-ilha-state` attribute with a snapshot of signal values. `mount()` reads this automatically and restores state without re-fetching or re-computing:
+
+```html
+<div data-ilha="Counter" data-ilha-state='{"count":42}'></div>
+```
+
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Counter = ilha(() => "<p>counter</p>");
+
+// Reads data-ilha-state and restores signals from snapshot
+mount({ Counter });
+```
+
+See [Render and hydrate](/guide/island/render#emit-hydration-markup) for how to generate this output on the server.
+
+### Scoping to a subtree
+
+Pass a `root` element to limit discovery to a specific part of the page. This is useful when islands are injected dynamically into a container:
+
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Widget = ilha(() => "<p>widget</p>");
+
+const container = document.getElementById("dynamic-content")!;
+const { unmount } = mount({ Widget }, { root: container });
+```
+
+### Notes
+
+- If a `data-ilha` value has no matching key in the registry, that element is silently skipped.
+- In dev mode, double-mounting the same element logs a warning and returns a no-op for that element.
+- `mount()` is safe to call before the DOM is fully loaded if you wrap it in a `DOMContentLoaded` listener or place the script at the end of `<body>`.
+
+## Build HTML strings
 
 An XSS-safe tagged template for building HTML strings. This is ilha's low-level templating API: you can use it directly, but JSX is the preferred authoring style for most apps.
 
@@ -9,7 +138,7 @@ Because `html`` ` is plain TypeScript/JavaScript, it does not require JSX syntax
 
 Interpolated values are HTML-escaped by default, making the safe path the default and explicit opt-in required for raw markup.
 
-## Basic usage
+### Basic usage
 
 ```ts twoslash
 import { html } from "ilha";
@@ -20,7 +149,7 @@ html`<p>${name}</p>`;
 // → <p>&lt;script&gt;alert(1)&lt;/script&gt;</p>
 ```
 
-## Interpolation rules
+### Interpolation rules
 
 | Value type           | Behavior                                   |
 | -------------------- | ------------------------------------------ |
@@ -31,7 +160,7 @@ html`<p>${name}</p>`;
 | Signal accessor      | Called automatically, value is escaped     |
 | Array                | Each item processed recursively, no commas |
 
-## Escaping
+### Escaping
 
 All string and number interpolations are escaped automatically:
 
@@ -47,7 +176,7 @@ html`<p>${count}</p>`; // → <p>42</p>
 
 The characters `&`, `<`, `>`, `"`, and `'` are all escaped.
 
-## Skipping null and undefined
+### Skipping null and undefined
 
 `null` and `undefined` are silently omitted, making conditional rendering clean:
 
@@ -60,9 +189,9 @@ html`<div>${error}</div>`;
 // → <div></div>
 ```
 
-## Trusted markup with `raw()`
+### Trusted markup with `raw()`
 
-When you need to inject pre-sanitized or server-controlled markup, use [`raw()`](/guide/helpers/raw) to opt out of escaping:
+When you need to inject pre-sanitized or server-controlled markup, use [`raw()`](/guide/recipes/helpers#render-trusted-markup) to opt out of escaping:
 
 ```ts twoslash
 import { html, raw } from "ilha";
@@ -75,7 +204,7 @@ html`<button>${raw(icon)} Submit</button>`;
 
 Only use `raw()` with markup you fully control. Never pass user input to `raw()`.
 
-## Nesting html results
+### Nesting html results
 
 Results of html are already safe and pass through unescaped when interpolated into a parent template. This is the foundation of composable templates:
 
@@ -91,7 +220,7 @@ html`<div class="card">
 // → <div class="card"><span class="badge">New</span><p>Content</p></div>
 ```
 
-## Signal accessors
+### Signal accessors
 
 Signal accessors can be interpolated without calling them. ilha detects signal accessors and calls them automatically, then escapes the result:
 
@@ -107,7 +236,7 @@ const Island = ilha(() => {
 
 Both forms are equivalent. The no-call shorthand is purely a convenience.
 
-## URL attributes
+### URL attributes
 
 Full-value URL attributes get the same scheme filter as JSX. If the interpolated value is the _entire_ attribute value, an unsafe scheme (`javascript:`, `vbscript:`, script-capable `data:` subtypes such as `data:text/html` or `data:image/svg+xml`) drops the attribute:
 
@@ -124,7 +253,7 @@ Safe targets pass through unchanged: `https:`/`http:` URLs, relative paths, `mai
 
 `raw()` in a URL attribute passes through unescaped, as in JSX — it is the author-owned escape hatch for values the filter rejects (for example a vetted SVG data URI). This only works when the interpolation is the whole value; partial values (`href="/u/${id}"`) are plain escaped interpolation and cannot be scheme-checked.
 
-## Unquoted attribute values
+### Unquoted attribute values
 
 An unquoted attribute whose value contains a character the HTML tokenizer treats as a terminator (whitespace, `=`, backtick) is re-emitted quoted and escaped. What used to be an attribute-injection hole is now one parsed attribute:
 
@@ -139,7 +268,7 @@ html`<a href=${value}>x</a>`;
 
 Benign unquoted values keep the author's literal form (`<a href=/path>` stays `<a href=/path>`).
 
-## Script and style data
+### Script and style data
 
 HTML escaping is the wrong encoding inside `<script>` and `<style>` content: entities are not decoded by the JS/CSS tokenizer, and a stray `</script>` or `</style>` truncates the element. Use the `json()` and `css()` helpers for executable-element data — they escape `<` so the value can never close the block or open the `<!--` escape hatch:
 
@@ -163,7 +292,7 @@ html`<style>
 
 `json()` takes any `JSON.stringify`-able value and escapes `<` as `\u003C`; the JS engine decodes it inside string literals, so data round-trips exactly. `css()` takes a string and escapes `<` as the CSS hex escape `\3C`. Like `raw()`, both are for element _content_ only — interpolating them into an attribute is author error.
 
-## Native event handlers
+### Native event handlers
 
 Use lowercase `on*` attributes with function interpolations inside an island render:
 
@@ -233,7 +362,7 @@ Ilha cannot register handlers hidden inside serialized attribute objects or `raw
 
 Use [`bind:*`](/guide/island/bindings) for signal synchronization. Use [`effect.once()`](/guide/island/effect) to attach host listeners with native DOM APIs when handlers do not sit on one rendered element.
 
-## List rendering
+### List rendering
 
 Arrays are processed recursively with no comma joining. The canonical list pattern is:
 
@@ -252,7 +381,7 @@ html`
 
 Each html result in the array passes through unescaped. Mixed arrays of strings and html results also work — each item is processed by its own rules.
 
-## Whitespace and indentation
+### Whitespace and indentation
 
 `html\`\`` automatically strips leading and trailing blank lines and dedents the template based on the minimum indentation found. This keeps rendered output clean regardless of how the template is indented in source:
 
@@ -267,7 +396,7 @@ const result = html`
 // → <div>\n  <p>Hello</p>\n</div>
 ```
 
-## Return type
+### Return type
 
 html returns a `RawHtml` object, not a plain string. This lets ilha distinguish between trusted and untrusted content when the result is interpolated into another template. To get the plain string value, access `.value` or let ilha unwrap it at a render boundary:
 
@@ -281,9 +410,108 @@ result.value; // → "<p>hello</p>"
 
 In practice you rarely need to access `.value` directly — ilha handles unwrapping automatically at render time.
 
-## Notes
+### Notes
 
 - html is purely a runtime helper with no compiler step. It works in any JavaScript environment including Node, Bun, Deno, and the browser.
 - Full-value attribute interpolation (`href=${…}` / `href="${…}"`) applies the same URL/style policy as JSX. Values assembled from several interpolations (`href="/u/${a}/${b}"`) stay plain escaped interpolation — scheme-checking cannot span partial values, so keep user input out of URL pieces.
 - Style objects (`style=${{ color: "red" }}`) serialize through the same allowlisted property list as JSX.
 - For stylesheets and script bodies, use `json()` / `css()` (see above) rather than raw string interpolation.
+
+## Render trusted markup
+
+Marks a string as trusted HTML, bypassing escaping when rendered in JSX or interpolated inside [`html`](/guide/recipes/helpers#build-html-strings). Use it when you need to inject markup you fully control — icons, pre-rendered fragments, or server-sanitized content.
+
+### Basic usage
+
+```tsx twoslash
+import { raw } from "ilha";
+
+<div>{raw("<em>hello</em>")}</div>;
+// → <div><em>hello</em></div>
+```
+
+Without `raw()`, the same string would be escaped:
+
+```tsx twoslash
+<div>{"<em>hello</em>"}</div>
+// → <div>&lt;em&gt;hello&lt;/em&gt;</div>
+```
+
+### When to use it
+
+`raw()` is appropriate when the markup comes from a source you fully control:
+
+```tsx twoslash
+import { ilha, raw } from "ilha";
+
+// SVG icons defined in your codebase
+const chevron = `<svg viewBox="0 0 16 16">
+    <path d="M4 6l4 4 4-4"/>
+</svg>`;
+
+const Dropdown = ilha(() => (
+  // [!code highlight]
+  <button>Options {raw(chevron)}</button>
+));
+```
+
+```tsx twoslash
+import { raw } from "ilha";
+
+// Pre-rendered HTML from a trusted server-side renderer
+const renderedMarkdown = `<h1>Title</h1><p>Body text.</p>`;
+
+<article>{raw(renderedMarkdown)}</article>;
+```
+
+### When not to use it
+
+Never pass user input to `raw()`. It disables all escaping, so any unescaped string becomes a potential XSS vector:
+
+```tsx twoslash
+import { raw } from "ilha";
+
+// ❌ Never do this
+const userComment = `<script>alert(1)</script>`;
+<p>{raw(userComment)}</p>;
+
+// ✅ Do this instead — JSX escapes it automatically
+<p>{userComment}</p>;
+```
+
+### Composing with JSX
+
+JSX results are already treated as safe and pass through unescaped without needing `raw()`. Reserve `raw()` for plain strings that contain trusted markup:
+
+```tsx twoslash
+import { raw } from "ilha";
+
+// JSX result — no raw() needed
+const badge = <span class="badge">New</span>;
+<div>{badge}</div>;
+
+// Plain string with markup — raw() required
+const iconStr = `<svg>…</svg>`;
+<div>{raw(iconStr)}</div>;
+```
+
+### Return type
+
+`raw()` returns a `RawHtml` object. This means raw values compose freely with JSX and arrays:
+
+```tsx twoslash
+import { raw } from "ilha";
+
+const icons = ["<svg>…</svg>", "<svg>…</svg>"];
+
+<ul>
+  {icons.map((icon) => (
+    <li>{raw(icon)}</li>
+  ))}
+</ul>;
+```
+
+### Notes
+
+- `raw()` only has an effect when rendered by ilha JSX or [`html`](/guide/recipes/helpers#build-html-strings). Elsewhere it simply wraps the string in a `RawHtml` object with no other transformation.
+- There is no runtime sanitization inside `raw()`. If you need to accept user-generated HTML, sanitize it with a dedicated library such as [DOMPurify](https://github.com/cure53/DOMPurify) before passing it to `raw()`.

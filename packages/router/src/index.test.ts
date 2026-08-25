@@ -18,6 +18,7 @@ import {
   wrapError,
   wrapLayout,
   loader,
+  type InferLoader,
   redirect,
   Redirect,
   error,
@@ -1382,6 +1383,19 @@ describe("composeLoaders()", () => {
 // ─────────────────────────────────────────────
 
 describe("router.runLoader()", () => {
+  it("infers the complete page props from a loader", () => {
+    const load = loader(async () => ({ user: { name: "Ada" } }));
+    const props: InferLoader<typeof load> = {
+      load: {
+        loading: false,
+        value: { user: { name: "Ada" } },
+        error: undefined,
+      },
+    };
+
+    expect(props.load.value.user.name).toBe("Ada");
+  });
+
   it("returns { kind: 'data', data: {} } for routes without a loader", async () => {
     const r = router().route("/", HomePage);
     const result = await r.runLoader("/");

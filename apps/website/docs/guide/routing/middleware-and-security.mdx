@@ -3,7 +3,7 @@ title: Middleware and security
 description: Security headers, deny-by-default frame and loader guards, trusted origins, CSRF, and the production hardening model.
 ---
 
-`@ilha/router` hardens SSR and server-island endpoints by default. This page is the full guard and origin model. It sits behind [Server rendering](/guide/routing/server-rendering) and [Server islands](/guide/routing/server-islands).
+`@ilha/router` hardens SSR and server-island endpoints by default. This page is the full guard and origin model behind [Server islands](/guide/routing/server-islands).
 
 ## Security headers
 
@@ -121,6 +121,6 @@ The middleware forwards only `cookie`, `authorization`, and `user-agent` headers
 | Topic                            | Guide                                                                                     |
 | -------------------------------- | ----------------------------------------------------------------------------------------- |
 | Server islands and frames        | [Server islands](/guide/routing/server-islands)                                           |
-| Rendering routes to a `Response` | [Server rendering](/guide/routing/server-rendering)                                       |
+| Rendering routes to a `Response` | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed)      |
 | Guards via the pages plugin      | [File-system routing — plugin options](/guide/routing/file-system-routing#plugin-options) |
 | Production wiring                | [Deployment](/guide/routing/deployment)                                                   |

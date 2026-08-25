@@ -30,18 +30,18 @@ A map of the public `@ilha/router` API. For how-to guidance, start with [Router 
 
 | Topic                                            | Guide                                                     |
 | ------------------------------------------------ | --------------------------------------------------------- |
-| Pages plugin (Vite/Rspack/Rolldown)              | [File-system routing](/guide/routing/file-system-routing) |
+| Pages plugin (Vite/Rsbuild)                      | [File-system routing](/guide/routing/file-system-routing) |
 | Layouts / error boundaries / route groups        | [File-system routing](/guide/routing/file-system-routing) |
 | Virtual modules (`ilha:pages/*`, `ilha:loaders`) | [File-system routing](/guide/routing/file-system-routing) |
 
 ## Server rendering
 
-| Export / method                                     | Guide                                               |
-| --------------------------------------------------- | --------------------------------------------------- |
-| `.render` / `.renderHydratable` / `.renderResponse` | [Server rendering](/guide/routing/server-rendering) |
-| `.respond(urlOrRequest, registry, options?)`        | [Server rendering](/guide/routing/server-rendering) |
-| `httpResponse(body, options)` / `serializeHead`     | [Server rendering](/guide/routing/server-rendering) |
-| `useContext()`                                      | [Server islands](/guide/routing/server-islands)     |
+| Export / method                                     | Guide                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `.render` / `.renderHydratable` / `.renderResponse` | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
+| `.respond(urlOrRequest, registry, options?)`        | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
+| `httpResponse(body, options)` / `serializeHead`     | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
+| `useContext()`                                      | [Server islands](/guide/routing/server-islands#read-the-request-during-rendering)    |
 
 ## Server islands and security
 

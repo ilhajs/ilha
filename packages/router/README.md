@@ -752,8 +752,16 @@ interface LoaderContext {
 
 type Loader<T> = (ctx: LoaderContext) => Promise<T> | T;
 
-// Extract the return type of a loader
-type InferLoader<L> = L extends Loader<infer T> ? Awaited<T> : never;
+// Infer the complete page props produced by a loader
+type InferLoader<L> = L extends Loader<infer T>
+  ? {
+      load: {
+        loading: boolean;
+        value: Awaited<T>;
+        error: Error | undefined;
+      };
+    }
+  : never;
 
 // Merge multiple loader return types — later loaders win on key collision
 type MergeLoaders<Ls extends readonly Loader<any>[]> = /* … */;
