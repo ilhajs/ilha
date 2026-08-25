@@ -16,27 +16,12 @@ const ilhaPascalCase = {
 
   create(context) {
     function isIlhaRenderCall(node) {
-      if (
-        node.type !== "CallExpression" ||
-        node.callee.type !== "MemberExpression" ||
-        node.callee.property.name !== "render"
-      ) {
-        return false;
-      }
-
-      // Walk leftward through call chains AND member expressions
-      let obj = node.callee.object;
-      while (obj) {
-        if (obj.type === "CallExpression") {
-          obj = obj.callee?.object; // 👈 optional chain — callee may lack .object
-        } else if (obj.type === "MemberExpression") {
-          obj = obj.object; // 👈 handle bare .foo accesses in the chain
-        } else {
-          break;
-        }
-      }
-
-      return obj?.type === "Identifier" && obj.name === "ilha";
+      // ilha(...) — direct island constructor call.
+      return (
+        node.type === "CallExpression" &&
+        node.callee.type === "Identifier" &&
+        node.callee.name === "ilha"
+      );
     }
 
     function toPascalCase(name) {

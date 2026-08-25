@@ -11,6 +11,8 @@
  * route pattern so frame handlers can run the loader with matched params.
  */
 
+import { setServerManifestSerializer } from "ilha/internal";
+
 import { resolveRedirectTarget } from "./index";
 import { matchSegments, parsePattern, safeDecode } from "./route-match";
 
@@ -197,7 +199,48 @@ export function getFrameLoaderRunner(): FrameLoaderRunner | undefined {
   ];
 }
 
+// ─── Server-manifest serialization (owned by @ilha/router) ──────────────
+// Core only collects event→action manifest data; the markup format is a
+// router integration detail. Every `.server` module transform imports this
+// module, so registering here covers dev frames, production frames, and
+// prerendered server graphs alike.
+setServerManifestSerializer({
+  template(manifest) {
+    // Escape for a single-quoted attribute (& first — mirrors core's escapeHtml).
+    const json = JSON.stringify(Object.fromEntries(manifest))
+      .replace(/&/g, "&amp;")
+      .replace(/'/g, "&#39;")
+      .replace(/</g, "&lt;");
+    return `<template data-ilha-actions='${json}'></template>`;
+  },
+});
+
 /** Register `id` → entry. Later registrations win (id encodes file + name). */
+/**
+ * Wrap an exported server action so ilha's hydration-manifest capture can
+ * intercept it. During normal execution this is a transparent passthrough.
+ * While ilha capture-invokes an event closure (manifest rendering for server
+ * islands), calling the wrapper records `{ k, a }` in the active capture
+ * frame instead of executing — the client replays it over RPC.
+ */
+export function __ilhaServerAction<A extends unknown[], R>(
+  key: string,
+  fn: (...args: A) => R,
+): (...args: A) => R | undefined {
+  if (typeof fn !== "function") return fn;
+  const CAPTURE_FRAME = Symbol.for("ilha.eventCaptureFrame");
+  const wrapper = (...args: A): R | undefined => {
+    const g = globalThis as Record<symbol, unknown>;
+    const frame = g[CAPTURE_FRAME] as Array<{ k: string; a: unknown[] }> | undefined;
+    if (Array.isArray(frame)) {
+      if (!frame.some((entry) => entry.k === key)) frame.push({ k: key, a: args });
+      return undefined;
+    }
+    return fn(...args);
+  };
+  return wrapper;
+}
+
 export function registerServerIsland(
   id: string,
   render: () => unknown,

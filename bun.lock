@@ -78,25 +78,6 @@
         "ilha": ">=0.11.1",
       },
     },
-    "packages/store": {
-      "name": "@ilha/store",
-      "version": "0.7.14",
-      "devDependencies": {
-        "@ilha/router": "0.9.2",
-        "alien-signals": "3.2.1",
-        "ilha": "0.11.1",
-        "zod": "4.4.3",
-      },
-      "peerDependencies": {
-        "@ilha/router": ">=0.9.2",
-        "alien-signals": "^3.2.1",
-        "ilha": ">=0.11.1",
-      },
-      "optionalPeers": [
-        "@ilha/router",
-        "ilha",
-      ],
-    },
     "templates/oxide-spa": {
       "name": "@ilha/template-oxide-spa",
       "dependencies": {
@@ -121,7 +102,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@ilha/router": "^0.9.2",
-        "@ilha/store": "^0.7.14",
         "areia": "^0.2.6",
         "ilha": "^0.11.1",
         "quando": "^0.1.6",
@@ -136,6 +116,7 @@
   },
   "patchedDependencies": {
     "blume@1.5.3": "patches/blume@1.5.3.patch",
+    "areia@0.2.6": "patches/areia@0.2.6.patch",
   },
   "packages": {
     "@ai-sdk/gateway": ["@ai-sdk/gateway@4.0.62", "", { "dependencies": { "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.29", "@vercel/oidc": "3.2.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-zR3pustGWhw5eUZHG+fJZx/V/PBe+LxdDpc5hDFWxozG/3MB/+eY62jn+YiR+9uOH+Hx63e5zJoeKLfZfPktWQ=="],
@@ -393,8 +374,6 @@
     "@ilha/astro": ["@ilha/astro@workspace:packages/astro"],
 
     "@ilha/router": ["@ilha/router@workspace:packages/router"],
-
-    "@ilha/store": ["@ilha/store@workspace:packages/store"],
 
     "@ilha/template-oxide-spa": ["@ilha/template-oxide-spa@workspace:templates/oxide-spa"],
 

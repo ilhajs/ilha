@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { z } from "zod";
 
-import { ilha, html, raw } from "./index";
+import { ilha, html, raw, signal, state } from "./index";
 import * as jsxDevRuntime from "./jsx-dev-runtime";
 import { jsx, jsxs } from "./jsx-runtime";
 import * as jsxRuntime from "./jsx-runtime";
@@ -25,7 +25,7 @@ function cleanup(el: Element): void {
 }
 
 function typecheckIntrinsicElements(): void {
-  const value = ilha.signal("");
+  const value = signal("");
   <input
     accept="image/*"
     checked
@@ -80,15 +80,13 @@ function typecheckIntrinsicElements(): void {
   // @ts-expect-error bind values must be signal accessors
   <input bind:value="not-a-signal" />;
   // @ts-expect-error bindings are element-specific
-  <div bind:checked={ilha.signal(false)} />;
+  <div bind:checked={signal(false)} />;
   // @ts-expect-error checked bindings require boolean signals
-  <input bind:checked={ilha.signal("yes")} />;
-  // @ts-expect-error date bindings require Date signals
-  <input bind:valueAsDate={ilha.signal(1)} />;
+  <input bind:checked={signal("yes")} />;
   // @ts-expect-error element refs require Element signals
-  <div bind:this={ilha.signal("element")} />;
+  <div bind:this={signal("element")} />;
   // @ts-expect-error element refs must accept the actual element type
-  <input bind:this={ilha.signal<HTMLVideoElement | null>(null)} />;
+  <input bind:this={signal<HTMLVideoElement | null>(null)} />;
   // @ts-expect-error binding names are checked
   <input bind:vale={value} />;
   const invalidAria: IlhaJSX.IntrinsicElements["button"] = {
@@ -116,9 +114,9 @@ describe("ilha JSX runtime", () => {
   });
 
   it("renders simple JSX in an ilha island", () => {
-    const Greeting = ilha.render(() => <p>Hello, ilha!</p>);
+    const Greeting = ilha(() => <p>Hello, ilha!</p>);
 
-    expect(Greeting()).toBe("<p>Hello, ilha!</p>");
+    expect(Greeting.toString()).toBe("<p>Hello, ilha!</p>");
   });
 
   it("renders static JSX", () => {
@@ -148,15 +146,21 @@ describe("ilha JSX runtime", () => {
   });
 
   it("renders signal accessor values without calling them", () => {
-    const Island = ilha.state("label", "Ada").render(({ state }) => <p>{state.label}</p>);
+    const Island = ilha(() => {
+      const label = state("Ada");
+      return <p>{label}</p>;
+    });
 
-    expect(Island()).toBe("<p>Ada</p>");
+    expect(Island.toString()).toBe("<p>Ada</p>");
   });
 
   it("escapes signal accessor values", () => {
-    const Island = ilha.state("label", "<b>hi</b>").render(({ state }) => <p>{state.label}</p>);
+    const Island = ilha(() => {
+      const label = state("<b>hi</b>");
+      return <p>{label}</p>;
+    });
 
-    expect(Island()).toBe("<p>&lt;b&gt;hi&lt;/b&gt;</p>");
+    expect(Island.toString()).toBe("<p>&lt;b&gt;hi&lt;/b&gt;</p>");
   });
 
   it("returns a RawHtml object, not a string", () => {
@@ -239,18 +243,17 @@ describe("ilha JSX runtime", () => {
       >`;
     }
 
-    const Island = ilha
-      .state("todos", [{ id: "t1", title: "first" }] as Todo[])
-      .render(({ state }) => {
-        setTodos = state.todos as typeof setTodos;
-        return (
-          <div>
-            {state.todos().map((todo) => (
-              <Row key={todo.id} todo={todo} />
-            ))}
-          </div>
-        );
-      });
+    const Island = ilha(() => {
+      const todos = state([{ id: "t1", title: "first" }] as Todo[]);
+      setTodos = todos as typeof setTodos;
+      return (
+        <div>
+          {todos().map((todo) => (
+            <Row key={todo.id} todo={todo} />
+          ))}
+        </div>
+      );
+    });
 
     const el = makeEl();
     const unmount = Island.mount(el);
@@ -385,7 +388,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("mounts a directly constructed JSX island with its own reactive lifecycle", () => {
-    const count = ilha.signal(0);
+    const count = signal(0);
     let renders = 0;
     const Counter = ilha(() => {
       renders++;
@@ -415,7 +418,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("composes a directly constructed island as an independent child slot", () => {
-    const count = ilha.signal(0);
+    const count = signal(0);
     let parentRenders = 0;
     const Child = ilha(() => (
       <button onclick={() => count((value) => value + 1)}>{count()}</button>
@@ -443,44 +446,44 @@ describe("ilha JSX runtime", () => {
   });
 
   it("renders non-JSX ilha island as child of JSX component", () => {
-    const Child = ilha.render(() => html` <span>child</span> `);
-    const Parent = ilha.render(() => (
+    const Child = ilha(() => html` <span>child</span> `);
+    const Parent = ilha(() => (
       <div class="parent">
         <Child />
       </div>
     ));
 
-    const result = Parent() as string;
+    const result = Parent.toString() as string;
     expect(result).toContain('class="parent"');
     expect(result).toContain("<span>child</span>");
     expect(result).toContain("data-ilha-slot=");
   });
 
   it("renders non-JSX ilha island via expression in JSX", () => {
-    const Child = ilha.render(() => html` <b>bold</b> `);
-    const Parent = ilha.render(() => <div>{Child()}</div>);
+    const Child = ilha(() => html` <b>bold</b> `);
+    const Parent = ilha(() => <div>{Child()}</div>);
 
-    const result = Parent() as string;
+    const result = Parent.toString() as string;
     expect(result).toContain("<b>bold</b>");
     expect(result).toContain("data-ilha-slot=");
   });
 
   it("renders a plain function component returning html`` inside a JSX ilha island", () => {
     const Child = () => html` <span>plain child</span> `;
-    const Parent = ilha.render(() => (
+    const Parent = ilha(() => (
       <div class="parent">
         <Child />
       </div>
     ));
 
-    const result = Parent() as string;
+    const result = Parent.toString() as string;
     expect(result).toContain('class="parent"');
     expect(result).toContain("<span>plain child</span>");
   });
 
   it("mounts a plain function component returning html`` inside a JSX ilha island", () => {
     const Child = () => html` <span class="child">mounted child</span> `;
-    const Parent = ilha.render(() => (
+    const Parent = ilha(() => (
       <div class="parent">
         <Child />
       </div>
@@ -497,14 +500,12 @@ describe("ilha JSX runtime", () => {
   });
 
   it("mounts a non-JSX ilha island inside a JSX parent and keeps it reactive", () => {
-    const Child = ilha
-      .state("count", 0)
-      .on("button@click", ({ state }) => {
-        state.count(state.count() + 1);
-      })
-      .render(({ state }) => html`<button>${state.count()}</button>`);
+    const Child = ilha(() => {
+      const count = state(0);
+      return html`<button onclick=${() => count((v) => v + 1)}>${count()}</button>`;
+    });
 
-    const Parent = ilha.render(() => (
+    const Parent = ilha(() => (
       <section>
         <Child />
       </section>
@@ -523,50 +524,54 @@ describe("ilha JSX runtime", () => {
   });
 
   it("renders state in JSX", () => {
-    const Counter = ilha.state("count", 3).render(({ state }) => <p>Count: {state.count()}</p>);
+    const Counter = ilha(() => {
+      const count = state(3);
+      return <p>Count: {count()}</p>;
+    });
 
-    expect(Counter()).toBe("<p>Count: 3</p>");
+    expect(Counter.toString()).toBe("<p>Count: 3</p>");
   });
 
   it("renders JSX with schema defaults when called with no args", () => {
-    const Counter = ilha
-      .input(z.object({ count: z.number().default(0) }))
-      .state("count", ({ count }) => count)
-      .render(({ state }) => <p>{state.count()}</p>);
+    const Counter = ilha(z.object({ count: z.number().default(0) }), ({ count }) => {
+      const value = state(count);
+      void value;
+      return <p>{count}</p>;
+    });
 
-    expect(Counter()).toBe("<p>0</p>");
+    expect(Counter.toString()).toBe("<p>0</p>");
   });
 
   it("renders JSX with provided input props", () => {
-    const Greeting = ilha
-      .input(z.object({ name: z.string().default("world") }))
-      .render(({ input }) => <p>hello {input.name}</p>);
+    const Greeting = ilha(z.object({ name: z.string().default("world") }), ({ name }) => (
+      <p>hello {name}</p>
+    ));
 
-    expect(Greeting({ name: "Ada" })).toBe("<p>hello Ada</p>");
+    expect(Greeting.toString({ name: "Ada" })).toBe("<p>hello Ada</p>");
   });
 
   it("toString() renders JSX with provided input props", () => {
-    const Counter = ilha
-      .input(z.object({ count: z.number().default(0) }))
-      .state("count", ({ count }) => count)
-      .render(({ state }) => <span>{state.count()}</span>);
+    const Counter = ilha(z.object({ count: z.number().default(0) }), ({ count }) => {
+      const value = state(count);
+      void value;
+      return <span>{count}</span>;
+    });
 
     expect(Counter.toString({ count: 99 })).toBe("<span>99</span>");
   });
 
   it("throws validation errors before rendering JSX", () => {
-    const Counter = ilha
-      .input(z.object({ count: z.number() }))
-      .render(({ input }) => <p>{input.count}</p>);
+    const Counter = ilha(z.object({ count: z.number() }), ({ count }) => <p>{count}</p>);
 
-    expect(() => Counter({ count: "nope" as never })).toThrow("[ilha] Validation failed");
+    expect(() => Counter.toString({ count: "nope" as never })).toThrow("[ilha] Validation failed");
   });
 
   it("mounts JSX into an element and re-renders when state changes", () => {
     let count!: (value?: number) => number | void;
-    const Counter = ilha.state("count", 0).render(({ state }) => {
-      count = state.count as typeof count;
-      return <p>{state.count()}</p>;
+    const Counter = ilha(() => {
+      const value = state(0);
+      count = value as typeof count;
+      return <p>{value()}</p>;
     });
 
     const el = makeEl();
@@ -581,25 +586,29 @@ describe("ilha JSX runtime", () => {
   });
 
   it("updates JSX after a click handler changes state", () => {
-    const Counter = ilha
-      .state("count", 0)
-      .on("button@click", ({ state }) => {
-        state.count(state.count() + 1);
-      })
-      .render(({ state }) => (
+    const Counter = ilha(() => {
+      const count = state(0);
+      return (
         <div>
-          <p>Count: {state.count()}</p>
-          <button type="button">+</button>
+          <p>Count: {count()}</p>
+          <button type="button" onclick={() => count((v) => v + 1)}>
+            +
+          </button>
         </div>
-      ));
+      );
+    });
 
     const el = makeEl();
     const unmount = Counter.mount(el);
 
-    expect(el.innerHTML).toBe('<div><p>Count: 0</p><button type="button">+</button></div>');
+    expect(el.innerHTML).toBe(
+      '<div><p>Count: 0</p><button type="button" data-ilha-on="click:0">+</button></div>',
+    );
 
     (el.querySelector("button") as HTMLButtonElement).click();
-    expect(el.innerHTML).toBe('<div><p>Count: 1</p><button type="button">+</button></div>');
+    expect(el.innerHTML).toBe(
+      '<div><p>Count: 1</p><button type="button" data-ilha-on="click:0">+</button></div>',
+    );
 
     unmount();
     cleanup(el);
@@ -607,15 +616,16 @@ describe("ilha JSX runtime", () => {
 
   it("wires lowercase JSX event props and keeps the latest handler across re-renders", () => {
     const seen: number[] = [];
-    const Counter = ilha.state("count", 0).render(({ state }) => {
-      const renderedCount = state.count();
+    const Counter = ilha(() => {
+      const count = state(0);
+      const renderedCount = count();
       return (
         <div>
           <p>{renderedCount}</p>
           <button
             onclick={() => {
               seen.push(renderedCount);
-              state.count(renderedCount + 1);
+              count(renderedCount + 1);
             }}
           >
             Increment
@@ -642,14 +652,14 @@ describe("ilha JSX runtime", () => {
   });
 
   it("wires events from plain function components through the containing island", () => {
-    const value = ilha.signal("bar");
+    const value = signal("bar");
     const Test = () => (
       <>
         <p>{value()}</p>
         <button onclick={() => value("baz")}>Change</button>
       </>
     );
-    const Parent = ilha.render(() => <Test />);
+    const Parent = ilha(() => <Test />);
 
     const standalone = <Test />;
     expect(standalone.value).not.toContain("data-ilha-on");
@@ -667,12 +677,12 @@ describe("ilha JSX runtime", () => {
 
   it("keeps parent and child island event handlers isolated", () => {
     const fired: string[] = [];
-    const Child = ilha.render(() => (
+    const Child = ilha(() => (
       <button class="child" onclick={() => fired.push("child")}>
         Child
       </button>
     ));
-    const Parent = ilha.render(() => (
+    const Parent = ilha(() => (
       <section>
         <button class="parent" onclick={() => fired.push("parent")}>
           Parent
@@ -695,9 +705,7 @@ describe("ilha JSX runtime", () => {
 
   it("supports hyphenated custom-element event names", () => {
     let received: Event | undefined;
-    const Island = ilha.render(() => (
-      <ilha-widget onvalue-change={(event) => (received = event)} />
-    ));
+    const Island = ilha(() => <ilha-widget onvalue-change={(event) => (received = event)} />);
 
     const el = makeEl();
     const unmount = Island.mount(el);
@@ -714,34 +722,37 @@ describe("ilha JSX runtime", () => {
     const abortSignals: AbortSignal[] = [];
     let onceCalls = 0;
     let passivePrevented = true;
-    const Island = ilha.state("onceCalls", 0).render(({ state }) => (
-      <section onclick:capture={() => order.push("capture")}>
-        <button class="bubble" onclick={() => order.push("bubble")}>
-          Bubble
-        </button>
-        <button
-          class="once"
-          onclick:once={() => {
-            onceCalls++;
-            state.onceCalls((count) => count + 1);
-          }}
-        >
-          Once: {state.onceCalls()}
-        </button>
-        <div
-          class="passive"
-          onwheel:passive={(event) => {
-            event.preventDefault();
-            passivePrevented = event.defaultPrevented;
-          }}
-        />
-        <input
-          oninput:abortable={(_, { signal }) => {
-            abortSignals.push(signal);
-          }}
-        />
-      </section>
-    ));
+    const Island = ilha(() => {
+      const onceCallsState = state(0);
+      return (
+        <section onclick:capture={() => order.push("capture")}>
+          <button class="bubble" onclick={() => order.push("bubble")}>
+            Bubble
+          </button>
+          <button
+            class="once"
+            onclick:once={() => {
+              onceCalls++;
+              onceCallsState((count) => count + 1);
+            }}
+          >
+            Once: {onceCallsState()}
+          </button>
+          <div
+            class="passive"
+            onwheel:passive={(event) => {
+              event.preventDefault();
+              passivePrevented = event.defaultPrevented;
+            }}
+          />
+          <input
+            oninput:abortable={(_, { signal }) => {
+              abortSignals.push(signal);
+            }}
+          />
+        </section>
+      );
+    });
 
     const el = makeEl();
     const unmount = Island.mount(el);
@@ -770,46 +781,36 @@ describe("ilha JSX runtime", () => {
     cleanup(el);
   });
 
-  it("stops native handlers when asynchronous unmount starts", async () => {
-    let releaseLeave!: () => void;
+  it("stops native handlers on unmount", () => {
     let calls = 0;
     let handlerSignal!: AbortSignal;
-    const Island = ilha
-      .transition({
-        leave: () =>
-          new Promise<void>((resolve) => {
-            releaseLeave = resolve;
-          }),
-      })
-      .render(() => (
-        <button
-          onclick={(_, { signal }) => {
-            calls++;
-            handlerSignal = signal;
-          }}
-        >
-          Run
-        </button>
-      ));
+    const Island = ilha(() => (
+      <button
+        onclick={(_, { signal }) => {
+          calls++;
+          handlerSignal = signal;
+        }}
+      >
+        Run
+      </button>
+    ));
 
     const el = makeEl();
     const unmount = Island.mount(el);
     const button = el.querySelector("button")!;
     button.click();
-    const pendingUnmount = unmount();
+    unmount();
 
     expect(handlerSignal.aborted).toBe(true);
     button.click();
     expect(calls).toBe(1);
 
-    releaseLeave();
-    await pendingUnmount;
     cleanup(el);
   });
 
   it("supports multiple JSX events on one element", () => {
     const fired: string[] = [];
-    const Island = ilha.render(() => (
+    const Island = ilha(() => (
       <button onclick={() => fired.push("click")} onfocus={() => fired.push("focus")}>
         Events
       </button>
@@ -833,7 +834,7 @@ describe("ilha JSX runtime", () => {
       fired.push(`${name}:${(event.currentTarget as Element).id || "form"}`);
       if (event.type === "submit") event.preventDefault();
     };
-    const Island = ilha.render(() => (
+    const Island = ilha(() => (
       <form onsubmit={record("submit")}>
         <input id="text" onchange={record("change")} onselect={record("select")} />
         <input id="checkbox" type="checkbox" onchange={record("change")} />
@@ -874,12 +875,15 @@ describe("ilha JSX runtime", () => {
   });
 
   it("supports bind:value in JSX", () => {
-    const Name = ilha.state("name", "Ada").render(({ state }) => (
-      <div>
-        <input bind:value={state.name} />
-        <p>Hello {state.name()}</p>
-      </div>
-    ));
+    const Name = ilha(() => {
+      const name = state("Ada");
+      return (
+        <div>
+          <input bind:value={name} />
+          <p>Hello {name()}</p>
+        </div>
+      );
+    });
 
     const el = makeEl();
     const unmount = Name.mount(el);
@@ -898,14 +902,15 @@ describe("ilha JSX runtime", () => {
   });
 
   it("supports bind:value on nested object property in JSX", () => {
-    const Form = ilha
-      .state("user", { name: "Ada", email: "ada@example.com" })
-      .render(({ state }) => (
+    const Form = ilha(() => {
+      const user = state({ name: "Ada", email: "ada@example.com" });
+      return (
         <div>
-          <input bind:value={state.user.select((u) => u.name)} />
-          <p>{state.user().name}</p>
+          <input bind:value={user.select((u) => u.name)} />
+          <p>{user().name}</p>
         </div>
-      ));
+      );
+    });
 
     const el = makeEl();
     const unmount = Form.mount(el);
@@ -924,15 +929,18 @@ describe("ilha JSX runtime", () => {
   });
 
   it("supports bind:value on array items via select in JSX", () => {
-    const List = ilha.state("users", ["Ada", "Grace"]).render(({ state }) => (
-      <ul>
-        {state.users().map((_, i) => (
-          <li>
-            <input bind:value={state.users.select((u) => u[i])} />
-          </li>
-        ))}
-      </ul>
-    ));
+    const List = ilha(() => {
+      const users = state(["Ada", "Grace"]);
+      return (
+        <ul>
+          {users().map((_, i) => (
+            <li>
+              <input bind:value={users.select((u) => u[i])} />
+            </li>
+          ))}
+        </ul>
+      );
+    });
 
     const el = makeEl();
     const unmount = List.mount(el);
@@ -953,13 +961,16 @@ describe("ilha JSX runtime", () => {
   });
 
   it("supports bind:value on array index in JSX", () => {
-    const List = ilha.state("items", ["a", "b"]).render(({ state }) => (
-      <div>
-        {state.items().map((_, i) => (
-          <input bind:value={state.items.select((items) => items[i])} />
-        ))}
-      </div>
-    ));
+    const List = ilha(() => {
+      const items = state(["a", "b"]);
+      return (
+        <div>
+          {items().map((_, i) => (
+            <input bind:value={items.select((list) => list[i])} />
+          ))}
+        </div>
+      );
+    });
 
     const el = makeEl();
     const unmount = List.mount(el);
@@ -978,14 +989,15 @@ describe("ilha JSX runtime", () => {
   });
 
   it("nested bind:value preserves sibling keys in JSX", () => {
-    const Form = ilha
-      .state("user", { name: "Ada", email: "ada@example.com" })
-      .render(({ state }) => (
+    const Form = ilha(() => {
+      const user = state({ name: "Ada", email: "ada@example.com" });
+      return (
         <div>
-          <input bind:value={state.user.select((u) => u.name)} />
-          <p data-email>{state.user().email}</p>
+          <input bind:value={user.select((u) => u.name)} />
+          <p data-email>{user().email}</p>
         </div>
-      ));
+      );
+    });
 
     const el = makeEl();
     const unmount = Form.mount(el);
@@ -1003,9 +1015,10 @@ describe("ilha JSX runtime", () => {
   it("programmatic nested write updates bound input in JSX", () => {
     let nameAccessor!: (v?: string) => string | void;
 
-    const Form = ilha.state("user", { name: "Ada" }).render(({ state }) => {
-      nameAccessor = state.user.select((u) => u.name) as typeof nameAccessor;
-      return <input bind:value={state.user.select((u) => u.name)} />;
+    const Form = ilha(() => {
+      const user = state({ name: "Ada" });
+      nameAccessor = user.select((u) => u.name) as typeof nameAccessor;
+      return <input bind:value={user.select((u) => u.name)} />;
     });
 
     const el = makeEl();
@@ -1018,14 +1031,17 @@ describe("ilha JSX runtime", () => {
   });
 
   it("does not bind when mapping snapshot array from state() in JSX", () => {
-    const List = ilha.state("users", ["Ada"]).render(({ state }) => (
-      <div>
-        {state.users().map((u) => (
-          <input data-u bind:value={u as any} />
-        ))}
-        <span data-out>{state.users()[0]}</span>
-      </div>
-    ));
+    const List = ilha(() => {
+      const users = state(["Ada"]);
+      return (
+        <div>
+          {users().map((u) => (
+            <input data-u bind:value={u as any} />
+          ))}
+          <span data-out>{users()[0]}</span>
+        </div>
+      );
+    });
 
     const el = makeEl();
     const unmount = List.mount(el);
@@ -1042,8 +1058,11 @@ describe("ilha JSX runtime", () => {
   });
 
   it("nests an ilha island inside another island via JSX", () => {
-    const Child = ilha.state("count", 0).render(({ state }) => <button>{state.count()}</button>);
-    const Parent = ilha.render(() => (
+    const Child = ilha(() => {
+      const count = state(0);
+      return <button>{count()}</button>;
+    });
+    const Parent = ilha(() => (
       <section>
         <h1>Parent</h1>
         <Child />
@@ -1056,10 +1075,8 @@ describe("ilha JSX runtime", () => {
   });
 
   it("passes JSX props to a nested ilha island", () => {
-    const Child = ilha
-      .input(z.object({ label: z.string() }))
-      .render(({ input }) => <strong>{input.label}</strong>);
-    const Parent = ilha.render(() => (
+    const Child = ilha(z.object({ label: z.string() }), ({ label }) => <strong>{label}</strong>);
+    const Parent = ilha(() => (
       <section>
         <Child label="nested" />
       </section>
@@ -1071,10 +1088,8 @@ describe("ilha JSX runtime", () => {
   });
 
   it("jsx key prop on nested ilha island uses k:{key} slot id", () => {
-    const Child = ilha
-      .input(z.object({ label: z.string() }))
-      .render(({ input }) => <strong>{input.label}</strong>);
-    const Parent = ilha.render(() => (
+    const Child = ilha(z.object({ label: z.string() }), ({ label }) => <strong>{label}</strong>);
+    const Parent = ilha(() => (
       <section>
         <Child key="item-a" label="a" />
       </section>
@@ -1086,26 +1101,26 @@ describe("ilha JSX runtime", () => {
   });
 
   it("jsx key on list items preserves child identity after delete", () => {
-    const Child = ilha
-      .input(z.object({ label: z.string() }))
-      .state("n", 0)
-      .on("button@click", ({ state }) => state.n(state.n() + 1))
-      .render(({ input, state }) => (
+    const Child = ilha(z.object({ label: z.string() }), ({ label }) => {
+      const n = state(0);
+      return (
         <>
-          <span data-label={input.label}>
-            {input.label}:{state.n()}
+          <span data-label={label}>
+            {label}:{n()}
           </span>
-          <button>+</button>
+          <button onclick={() => n((v) => v + 1)}>+</button>
         </>
-      ));
+      );
+    });
 
     let setLabels!: (v: string[]) => void;
 
-    const Parent = ilha.state<string[]>("labels", ["a", "b", "c"]).render(({ state }) => {
-      setLabels = state.labels as unknown as typeof setLabels;
+    const Parent = ilha(() => {
+      const labels = state(["a", "b", "c"]);
+      setLabels = labels as unknown as typeof setLabels;
       return (
         <div>
-          {state.labels().map((label) => (
+          {labels().map((label) => (
             <Child key={label} label={label} />
           ))}
         </div>
@@ -1132,10 +1147,8 @@ describe("ilha JSX runtime", () => {
   });
 
   it("renders arrays of nested ilha islands without commas", () => {
-    const Item = ilha
-      .input(z.object({ label: z.string() }))
-      .render(({ input }) => <li>{input.label}</li>);
-    const Parent = ilha.render(() => (
+    const Item = ilha(z.object({ label: z.string() }), ({ label }) => <li>{label}</li>);
+    const Parent = ilha(() => (
       <ul>
         {["a", "b"].map((label) => (
           <Item label={label} />
@@ -1151,13 +1164,11 @@ describe("ilha JSX runtime", () => {
   });
 
   it("keeps a nested JSX island reactive after parent mount", () => {
-    const Child = ilha
-      .state("count", 0)
-      .on("button@click", ({ state }) => {
-        state.count(state.count() + 1);
-      })
-      .render(({ state }) => <button>{state.count()}</button>);
-    const Parent = ilha.render(() => (
+    const Child = ilha(() => {
+      const count = state(0);
+      return <button onclick={() => count((v) => v + 1)}>{count()}</button>;
+    });
+    const Parent = ilha(() => (
       <section>
         <Child />
       </section>
@@ -1343,11 +1354,12 @@ describe("ilha JSX runtime", () => {
   });
 
   it("bind:value escapes XSS in SSR output", () => {
-    const Island = ilha
-      .state("name", "<script>alert(1)</script>")
-      .render(({ state }) => <input bind:value={state.name} />);
+    const Island = ilha(() => {
+      const name = state("<script>alert(1)</script>");
+      return <input bind:value={name} />;
+    });
 
-    const out = Island();
+    const out = Island.toString();
     expect(out).not.toContain("<script>");
     expect(out).toContain("&lt;script&gt;");
   });
@@ -1435,19 +1447,20 @@ describe("ilha JSX runtime", () => {
   });
 
   it("function component returning an IslandCall renders correctly", () => {
-    const Child = ilha.state("x", 42).render(({ state }) => <span>{state.x()}</span>);
+    const Child = ilha(() => {
+      const x = state(42);
+      return <span>{x()}</span>;
+    });
     const Parent = () => Child();
     expect((<Parent />).value).toContain("42");
   });
 
   it("cross-entry JSX island composition mounts interactively", () => {
-    const Child = ilha
-      .state("count", 0)
-      .on("button@click", ({ state }) => state.count(state.count() + 1))
-      .render(({ state }) => <button>{state.count()}</button>);
-    const Parent = ilha.render(() =>
-      jsxRuntime.jsx("div", { children: jsxRuntime.jsx(Child, {}) }),
-    );
+    const Child = ilha(() => {
+      const count = state(0);
+      return <button onclick={() => count((v) => v + 1)}>{count()}</button>;
+    });
+    const Parent = ilha(() => jsxRuntime.jsx("div", { children: jsxRuntime.jsx(Child, {}) }));
 
     const el = makeEl();
     const unmount = Parent.mount(el);
@@ -1458,7 +1471,7 @@ describe("ilha JSX runtime", () => {
   });
 
   it("JSX island component returning SSR string emits slot instead of escaping", () => {
-    const Child = ilha.render(() => html` <span>child</span> `);
+    const Child = ilha(() => html` <span>child</span> `);
     const CrossBundleChild = Object.assign(
       (props?: Record<string, unknown>) => Child.toString(props),
       {
@@ -1467,13 +1480,13 @@ describe("ilha JSX runtime", () => {
         mount: Child.mount.bind(Child),
       },
     );
-    const Parent = ilha.render(() => (
+    const Parent = ilha(() => (
       <div>
         <CrossBundleChild />
       </div>
     ));
 
-    const result = Parent() as string;
+    const result = Parent.toString() as string;
     expect(result).not.toContain("&lt;span");
     expect(result).toContain("data-ilha-slot=");
     expect(result).toContain("<span>child</span>");
@@ -1534,17 +1547,19 @@ describe("ilha JSX runtime", () => {
   });
 
   it("bind:value SSR emits current value as value attribute", () => {
-    const Island = ilha
-      .state("name", "Ada")
-      .render(({ state }) => <input bind:value={state.name} />);
+    const Island = ilha(() => {
+      const name = state("Ada");
+      return <input bind:value={name} />;
+    });
 
-    expect(Island()).toContain('value="Ada"');
+    expect(Island.toString()).toContain('value="Ada"');
   });
 
   it("bind:this writes the element reference into a signal on mount", () => {
-    const Island = ilha
-      .state("el", null as Element | null)
-      .render(({ state }) => <div bind:this={state.el} id="target" />);
+    const Island = ilha(() => {
+      const el = state(null as Element | null);
+      return <div bind:this={el} id="target" />;
+    });
 
     const host = makeEl();
     const unmount = Island.mount(host);
@@ -1587,22 +1602,16 @@ describe("ilha JSX runtime", () => {
   });
 
   it("bind:group SSR emits checked on matching radio input", () => {
-    const Island = ilha.state("color", "red").render(
-      ({ state }) => html`
-        <input type="radio" value="red" bind:group=${state.color} />
-        <input type="radio" value="blue" bind:group=${state.color} />
-      `,
-    );
-    const out = Island();
+    const Island = ilha(() => {
+      const color = state("red");
+      return html`
+        <input type="radio" value="red" bind:group=${color} />
+        <input type="radio" value="blue" bind:group=${color} />
+      `;
+    });
+    const out = Island.toString();
     expect(out).toMatch(/value="red"[^>]*checked/);
     expect(out).not.toMatch(/value="blue"[^>]*checked/);
-  });
-
-  it("bind:valueAsDate SSR emits ISO date string as value", () => {
-    const Island = ilha
-      .state("date", new Date("2025-06-15"))
-      .render(({ state }) => <input type="date" bind:valueAsDate={state.date} />);
-    expect(Island()).toContain('value="2025-06-15"');
   });
 
   it("normalizeClass filters empty strings from array", () => {
@@ -1616,7 +1625,7 @@ describe("ilha JSX runtime", () => {
 
     try {
       // Force a fresh render context by calling html`` directly
-      const result = html`<input bind:value=${ilha.signal("x")} />`;
+      const result = html`<input bind:value=${signal("x")} />`;
       expect(result).toBeDefined();
 
       // Should have emitted at least one warning about missing context
@@ -1632,8 +1641,8 @@ describe("ilha JSX runtime", () => {
     console.warn = (msg: string) => warnings.push(msg);
 
     try {
-      const Island = ilha.render(() => <input {...({ "bind:foobar": ilha.signal("x") } as any)} />);
-      Island();
+      const Island = ilha(() => <input {...({ "bind:foobar": signal("x") } as any)} />);
+      Island.toString();
 
       expect(warnings.some((w) => w.includes("Unknown") || w.includes("foobar"))).toBe(true);
     } finally {

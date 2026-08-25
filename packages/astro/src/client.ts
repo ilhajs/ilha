@@ -17,7 +17,7 @@ function isRawHtml(value: unknown): value is { value: string } {
 }
 
 function wrapPlainAsIsland(Component: PlainComponent, merged: Record<string, unknown>) {
-  return ilha.render(() => {
+  return ilha(() => {
     const result = Component(merged);
     if (result == null) return raw("");
     if (typeof result === "string") return raw(result);
@@ -39,7 +39,7 @@ function wrapPlainAsIsland(Component: PlainComponent, merged: Record<string, unk
 //
 // When a plain component nests islands, SSR emits a `data-ilha` shell (see
 // server.ts). Mount that shell so nested `data-ilha-slot` children get
-// `.mount()` / `.onMount()` — re-invoke alone cannot hydrate nested islands.
+// `.mount()` / hydration setup — re-invoke alone cannot hydrate nested islands.
 export default (element: HTMLElement) =>
   async (
     Component: unknown,

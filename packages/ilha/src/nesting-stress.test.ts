@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
-import { z } from "zod";
-
-import { ilha, html, mount, raw, signal, type Island } from "./index";
+import { effect, ilha, html, mount, raw, signal, state, type Island } from "./index";
 import { jsx, jsxs } from "./jsx-runtime";
 
 const RAW = Symbol.for("ilha.raw");
 
 function makeEl(inner = ""): Element {
   const el = document.createElement("div");
+  // pi-lens-ignore: ast-grep:no-inner-html — test host only; markup in these
+  // tests is author-controlled literals, never user input.
   el.innerHTML = inner;
   document.body.appendChild(el);
   return el;
@@ -22,11 +22,11 @@ function flush(): Promise<void> {
   return new Promise((r) => queueMicrotask(() => queueMicrotask(r)));
 }
 
-function parseSlotPropsAttr(html: string, slotId: string): Record<string, unknown> | null {
+function parseSlotPropsAttr(htmlString: string, slotId: string): Record<string, unknown> | null {
   const re = new RegExp(
     `data-ilha-slot="${slotId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"[^>]*data-ilha-props='([^']*)'`,
   );
-  const m = html.match(re);
+  const m = htmlString.match(re);
   if (!m) return null;
   const json = m[1]!
     .replace(/&quot;/g, '"')
@@ -60,23 +60,19 @@ function paintChildren(kids: unknown): unknown {
 describe("stress: slot props serialization", () => {
   it("omits functions, symbols, and children from data-ilha-props", () => {
     const sym = Symbol("x");
-    const Child = ilha
-      .input<{
-        page: number;
-        label: string;
-        setPage?: (n: number) => void;
-        meta?: { nested: boolean };
-        children?: unknown;
-        [key: symbol]: unknown;
-      }>()
-      .render(
-        ({ input }) =>
-          html`<div data-child data-page=${String(input.page)}>
-            ${paintChildren(input.children)}
-          </div>`,
-      );
+    const Child = ilha<{
+      page: number;
+      label: string;
+      setPage?: (n: number) => void;
+      meta?: { nested: boolean };
+      children?: unknown;
+      [key: symbol]: unknown;
+    }>(({ children, page, meta }) => {
+      void meta;
+      return html`<div data-child data-page=${String(page)}>${paintChildren(children)}</div>`;
+    });
 
-    const Parent = ilha.render(
+    const Parent = ilha(
       () =>
         html`<section>
           ${Child({
@@ -93,7 +89,7 @@ describe("stress: slot props serialization", () => {
         </section>`,
     );
 
-    const out = String(Parent());
+    const out = String(Parent.toString());
     expect(out).toContain('data-ilha-slot="p:0"');
     expect(out).toContain("data-bold");
     expect(out).toContain("data-italic");
@@ -107,14 +103,12 @@ describe("stress: slot props serialization", () => {
 
   it("omits children even when they are huge HTML strings", () => {
     const huge = `<div data-huge>${"Z".repeat(20_000)}</div>`;
-    const Child = ilha
-      .input<{ n: number; children?: unknown }>()
-      .render(
-        ({ input }) =>
-          html`<div data-root data-n=${String(input.n)}>${paintChildren(input.children)}</div>`,
-      );
+    const Child = ilha<{ n: number; children?: unknown }>(
+      ({ n, children }) =>
+        html`<div data-root data-n=${String(n)}>${paintChildren(children)}</div>`,
+    );
 
-    const Parent = ilha.render(
+    const Parent = ilha(
       () =>
         html`<div>
           ${Child.key("big")({
@@ -124,7 +118,7 @@ describe("stress: slot props serialization", () => {
         </div>`,
     );
 
-    const out = String(Parent());
+    const out = String(Parent.toString());
     expect(out).toContain("data-huge");
     expect(out.length).toBeGreaterThan(20_000);
 
@@ -135,35 +129,34 @@ describe("stress: slot props serialization", () => {
     expect(attr.length).toBeLessThan(200);
   });
 
-  it("revives legacy {value} children when mounting from attr only", () => {
-    const Child = ilha
-      .input<{ page: number; children?: unknown }>()
-      .render(
-        ({ input }) =>
-          html`<div data-from-attr data-page=${String(input.page)}>
-            ${paintChildren(input.children)}
-          </div>`,
-      );
+  it("no longer revives legacy {value} children from attr props", () => {
+    const seen: unknown[] = [];
+    const Child = ilha<{ children?: unknown }>(({ children }) => {
+      seen.push(children);
+      return html`<div data-root></div>`;
+    });
 
     const el = makeEl();
     el.setAttribute(
       "data-ilha-props",
-      JSON.stringify({
-        page: 4,
-        children: [{ value: "<span data-legacy>revived</span>" }],
-      }),
+      JSON.stringify({ children: [{ value: "<span data-legacy>revived</span>" }] }),
     );
     const unmount = Child.mount(el);
-    expect(el.querySelector("[data-legacy]")?.textContent).toBe("revived");
-    expect(el.querySelector("[data-from-attr]")?.getAttribute("data-page")).toBe("4");
+    // Legacy un-branded `{ value }` blobs are no longer treated as RawHtml —
+    // they arrive as plain data and must keep their exact shape (not markup).
+    const kids = seen[0] as unknown[];
+    expect(Array.isArray(kids)).toBe(true);
+    expect(kids[0]).toEqual({ value: "<span data-legacy>revived</span>" });
+    expect(kids[0] && typeof kids[0] === "object" && RAW in (kids[0] as object)).toBe(false);
+    expect(el.querySelector("[data-legacy]")).toBeNull();
     unmount();
     cleanup(el);
   });
 
   it("does not treat {value, extra} objects as legacy RawHtml children", () => {
     const seen: unknown[] = [];
-    const Child = ilha.input<{ children?: unknown }>().render(({ input }) => {
-      seen.push(input.children);
+    const Child = ilha<{ children?: unknown }>(({ children }) => {
+      seen.push(children);
       return html`<div data-root></div>`;
     });
 
@@ -186,15 +179,15 @@ describe("stress: slot props serialization", () => {
   it("encodeSlotPropValue rejects circular slot props predictably", () => {
     const cyclic: Record<string, unknown> = { page: 1 };
     cyclic.self = cyclic;
-    const Child = ilha.input<{ page: number }>().render(() => html`<div></div>`);
-    const Parent = ilha.render(() => html`<div>${Child(cyclic as never)}</div>`);
-    expect(() => String(Parent())).toThrow(/circular reference/);
+    const Child = ilha<{ page: number }>(() => html`<div></div>`);
+    const Parent = ilha(() => html`<div>${Child(cyclic as never)}</div>`);
+    expect(() => String(Parent.toString())).toThrow(/circular reference/);
   });
 
   it("revives tagged __ilha raw markers from attr props", () => {
-    const Child = ilha
-      .input<{ children?: unknown }>()
-      .render(({ input }) => html`<div data-tag>${paintChildren(input.children)}</div>`);
+    const Child = ilha<{ children?: unknown }>(
+      ({ children }) => html`<div data-tag>${paintChildren(children)}</div>`,
+    );
 
     const el = makeEl();
     el.setAttribute(
@@ -210,18 +203,14 @@ describe("stress: slot props serialization", () => {
   });
 
   it("special characters in scalar props survive attr round-trip", () => {
-    const Child = ilha
-      .input(z.object({ title: z.string(), note: z.string() }))
-      .render(
-        ({ input }) =>
-          html`<p data-child>
-            <span data-title>${input.title}</span><span data-note>${input.note}</span>
-          </p>`,
-      );
+    const Child = ilha<{ title: string; note: string }>(
+      ({ title, note }) =>
+        html`<p data-child><span data-title>${title}</span><span data-note>${note}</span></p>`,
+    );
 
     const tricky = `O'Brien & "quotes" <not-a-tag> &amp; 中文`;
-    const Parent = ilha.render(() => html`<div>${Child({ title: tricky, note: tricky })}</div>`);
-    const ssr = String(Parent());
+    const Parent = ilha(() => html`<div>${Child({ title: tricky, note: tricky })}</div>`);
+    const ssr = String(Parent.toString());
     const props = parseSlotPropsAttr(ssr, "p:0");
     expect(props?.title).toBe(tricky);
     expect(props?.note).toBe(tricky);
@@ -248,23 +237,22 @@ describe("stress: deep and wide island nesting", () => {
   it("5-level deep chain mounts, paints, and keeps leaf callbacks", async () => {
     const clicks: string[] = [];
 
-    function makeLevel(name: string, next?: Island<any, any>): Island<any, any> {
-      return ilha
-        .input<{ label: string; onPing?: () => void; children?: unknown }>()
-        .on(`[data-ping=${name}]@click`, ({ input }) => input.onPing?.())
-        .render(({ input }) => {
+    function makeLevel(name: string, next?: Island<any>): Island<any> {
+      return ilha<{ label: string; onPing?: () => void; children?: unknown }>(
+        ({ label, onPing, children }) => {
           const body = next
             ? next({
-                label: `${input.label}>${name}`,
-                onPing: input.onPing,
-                children: input.children,
+                label: `${label}>${name}`,
+                onPing,
+                children,
               })
-            : paintChildren(input.children);
+            : paintChildren(children);
           return html`<div data-level=${name}>
-            <button type="button" data-ping=${name}>${name}</button>
+            <button type="button" data-ping=${name} onclick=${() => onPing?.()}>${name}</button>
             ${body}
           </div>`;
-        });
+        },
+      );
     }
 
     const L5 = makeLevel("L5");
@@ -273,7 +261,7 @@ describe("stress: deep and wide island nesting", () => {
     const L2 = makeLevel("L2", L3);
     const L1 = makeLevel("L1", L2);
 
-    const Root = ilha.render(
+    const Root = ilha(
       () =>
         html`<main>
           ${L1({
@@ -301,18 +289,17 @@ describe("stress: deep and wide island nesting", () => {
   it("wide fan-out: 40 keyed siblings with unique children and callbacks", async () => {
     const hits: number[] = [];
 
-    const Item = ilha
-      .input<{ id: number; onHit?: (id: number) => void; children?: unknown }>()
-      .on("[data-hit]@click", ({ input }) => input.onHit?.(input.id))
-      .render(
-        ({ input }) =>
-          html`<li data-item=${String(input.id)}>
-            <button type="button" data-hit data-id=${String(input.id)}>go</button>
-            ${paintChildren(input.children)}
-          </li>`,
-      );
+    const Item = ilha<{ id: number; onHit?: (id: number) => void; children?: unknown }>(
+      ({ id, onHit, children }) =>
+        html`<li data-item=${String(id)}>
+          <button type="button" data-hit data-id=${String(id)} onclick=${() => onHit?.(id)}>
+            go
+          </button>
+          ${paintChildren(children)}
+        </li>`,
+    );
 
-    const List = ilha.render(() => {
+    const List = ilha(() => {
       const items = Array.from({ length: 40 }, (_, id) =>
         Item.key(`i${id}`)({
           id,
@@ -334,7 +321,7 @@ describe("stress: deep and wide island nesting", () => {
 
     // Spot-check several callbacks
     for (const id of [0, 7, 19, 39]) {
-      el.querySelector<HTMLButtonElement>(`[data-hit][data-id="${id}"]`)!.click();
+      el.querySelector<HTMLButtonElement>(`[data-id="${id}"]`)!.click();
     }
     expect(hits).toEqual([0, 7, 19, 39]);
 
@@ -347,16 +334,12 @@ describe("stress: deep and wide island nesting", () => {
   });
 
   it("mixed keyed + positional slots under one parent stay independent", async () => {
-    const A = ilha
-      .input<{ name: string; children?: unknown }>()
-      .render(
-        ({ input }) => html`<div data-a>${input.name}:${paintChildren(input.children)}</div>`,
-      );
-    const B = ilha
-      .input<{ name: string }>()
-      .render(({ input }) => html`<div data-b>${input.name}</div>`);
+    const A = ilha<{ name: string; children?: unknown }>(
+      ({ name, children }) => html`<div data-a>${name}:${paintChildren(children)}</div>`,
+    );
+    const B = ilha<{ name: string }>(({ name }) => html`<div data-b>${name}</div>`);
 
-    const Parent = ilha.render(
+    const Parent = ilha(
       () =>
         html`<section>
           ${A.key("featured")({
@@ -394,32 +377,30 @@ describe("stress: parent re-render prop churn", () => {
   it("rapid parent updates keep children painted and latest callback", async () => {
     const calls: number[] = [];
 
-    const Child = ilha
-      .input<{ page: number; setPage?: (n: number) => void; children?: unknown }>()
-      .on("[data-go]@click", ({ input }) => input.setPage?.(input.page + 10))
-      .render(
-        ({ input }) =>
-          html`<div data-child data-page=${String(input.page)}>
-            ${paintChildren(input.children)}
-            <button type="button" data-go>go</button>
-          </div>`,
-      );
+    const Child = ilha<{ page: number; setPage?: (n: number) => void; children?: unknown }>(
+      ({ page, setPage, children }) =>
+        html`<div data-child data-page=${String(page)}>
+          ${paintChildren(children)}
+          <button type="button" data-go onclick=${() => setPage?.(page + 10)}>go</button>
+        </div>`,
+    );
 
     let setPage!: (n: number) => void;
-    const Parent = ilha.state("page", 1).render(({ state }) => {
-      setPage = state.page as unknown as typeof setPage;
-      const page = state.page();
+    const Parent = ilha(() => {
+      const page = state(1);
+      const current = page();
+      setPage = (n) => {
+        calls.push(n);
+        page(n);
+      };
       return html`<div>
         ${Child.key("pag")({
-          page,
-          setPage: (n) => {
-            calls.push(n);
-            state.page(n);
-          },
+          page: current,
+          setPage,
           children: [
             {
               [RAW]: true,
-              value: `<span data-info>page-${page}</span>`,
+              value: `<span data-info>page-${current}</span>`,
             },
           ],
         })}
@@ -447,31 +428,28 @@ describe("stress: parent re-render prop churn", () => {
     cleanup(el);
   });
 
-  it("onMount state write + first-effect path keeps nested compound children", async () => {
-    const Child = ilha
-      .input<{ n: number; children?: unknown }>()
-      .render(
-        ({ input }) =>
-          html`<div data-root data-n=${String(input.n)}>${paintChildren(input.children)}</div>`,
-      );
+  it("effect.once state write + first-effect path keeps nested compound children", async () => {
+    const Child = ilha<{ n: number; children?: unknown }>(
+      ({ n, children }) =>
+        html`<div data-root data-n=${String(n)}>${paintChildren(children)}</div>`,
+    );
 
-    const Parent = ilha
-      .state("n", 1)
-      .onMount(({ state }) => {
-        state.n(2);
-      })
-      .render(({ state }) => {
-        const n = state.n();
-        return html`<footer>
-          ${Child.key("x")({
-            n,
-            children: [
-              { [RAW]: true, value: `<span data-info>n=${n}</span>` },
-              { [RAW]: true, value: `<button type="button" data-btn>b</button>` },
-            ],
-          })}
-        </footer>`;
+    const Parent = ilha(() => {
+      const n = state(1);
+      effect.once(() => {
+        n(2);
       });
+      const current = n();
+      return html`<footer>
+        ${Child.key("x")({
+          n: current,
+          children: [
+            { [RAW]: true, value: `<span data-info>n=${current}</span>` },
+            { [RAW]: true, value: `<button type="button" data-btn>b</button>` },
+          ],
+        })}
+      </footer>`;
+    });
 
     const el = makeEl();
     const unmount = Parent.mount(el);
@@ -486,21 +464,22 @@ describe("stress: parent re-render prop churn", () => {
   });
 
   it("conditional swap of sibling islands does not leave empty slots", async () => {
-    const Left = ilha
-      .input<{ children?: unknown }>()
-      .render(({ input }) => html`<div data-left>${paintChildren(input.children)}</div>`);
-    const Right = ilha
-      .input<{ children?: unknown }>()
-      .render(({ input }) => html`<div data-right>${paintChildren(input.children)}</div>`);
+    const Left = ilha<{ children?: unknown }>(
+      ({ children }) => html`<div data-left>${paintChildren(children)}</div>`,
+    );
+    const Right = ilha<{ children?: unknown }>(
+      ({ children }) => html`<div data-right>${paintChildren(children)}</div>`,
+    );
 
     let setSide!: (s: string) => void;
-    const Parent = ilha.state("side", "left").render(({ state }) => {
-      setSide = state.side as unknown as typeof setSide;
-      const side = state.side();
-      const island = side === "left" ? Left : Right;
+    const Parent = ilha(() => {
+      const side = state("left");
+      const current = side();
+      setSide = side;
+      const island = current === "left" ? Left : Right;
       return html`<div>
         ${island.key("slot")({
-          children: [{ [RAW]: true, value: `<span data-body>${side}</span>` }],
+          children: [{ [RAW]: true, value: `<span data-body>${current}</span>` }],
         })}
       </div>`;
     });
@@ -530,14 +509,11 @@ describe("stress: parent re-render prop churn", () => {
   it("external signal driven list shrink/grow preserves remaining child content", async () => {
     const count = signal(5);
 
-    const Cell = ilha
-      .input<{ id: number; children?: unknown }>()
-      .render(
-        ({ input }) =>
-          html`<li data-cell=${String(input.id)}>${paintChildren(input.children)}</li>`,
-      );
+    const Cell = ilha<{ id: number; children?: unknown }>(
+      ({ id, children }) => html`<li data-cell=${String(id)}>${paintChildren(children)}</li>`,
+    );
 
-    const List = ilha.render(() => {
+    const List = ilha(() => {
       const n = count();
       return html`<ul>
         ${Array.from({ length: n }, (_, id) =>
@@ -582,18 +558,15 @@ describe("stress: hydration with nested compound children", () => {
   it("hydratable snapshot + mount wires nested island with children and callbacks", async () => {
     const calls: number[] = [];
 
-    const Child = ilha
-      .input<{ page: number; setPage?: (n: number) => void; children?: unknown }>()
-      .on("[data-next]@click", ({ input }) => input.setPage?.(input.page + 1))
-      .render(
-        ({ input }) =>
-          html`<div data-slot="pag" data-page=${String(input.page)}>
-            ${paintChildren(input.children)}
-            <button type="button" data-next>next</button>
-          </div>`,
-      );
+    const Child = ilha<{ page: number; setPage?: (n: number) => void; children?: unknown }>(
+      ({ page, setPage, children }) =>
+        html`<div data-slot="pag" data-page=${String(page)}>
+          ${paintChildren(children)}
+          <button type="button" data-next onclick=${() => setPage?.(page + 1)}>next</button>
+        </div>`,
+    );
 
-    const Page = ilha.render(
+    const Page = ilha(
       () =>
         html`<div>
           ${Child.key("grid")({
@@ -618,6 +591,10 @@ describe("stress: hydration with nested compound children", () => {
 
     expect(root.querySelector("[data-info]")?.textContent).toBe("info");
     expect(root.querySelector("[data-extra]")?.textContent).toBe("extra");
+    // Manifest SSR capture-invokes the forwarded closure once (documented
+    // contract: event thunks must be pure "call one action" functions), so
+    // reset before measuring the click itself.
+    calls.length = 0;
     root.querySelector<HTMLButtonElement>("[data-next]")!.click();
     expect(calls).toEqual([3]);
 
@@ -628,20 +605,23 @@ describe("stress: hydration with nested compound children", () => {
   it("JSX compound children under nested islands hydrate and stay interactive", async () => {
     const calls: string[] = [];
 
-    const Inner = ilha
-      .input<{ id: string; onAct?: () => void; children?: unknown }>()
-      .on("[data-act]@click", ({ input }) => input.onAct?.())
-      .render(({ input }) =>
+    const Inner = ilha<{ id: string; onAct?: () => void; children?: unknown }>(
+      ({ id, onAct, children }) =>
         jsxs("div", {
-          "data-inner": input.id,
+          "data-inner": id,
           children: [
-            paintChildren(input.children),
-            jsx("button", { "data-act": true, type: "button", children: "act" }),
+            paintChildren(children),
+            jsx("button", {
+              "data-act": true,
+              type: "button",
+              onclick: () => onAct?.(),
+              children: "act",
+            }),
           ],
         }),
-      );
+    );
 
-    const Outer = ilha.render(() =>
+    const Outer = ilha(() =>
       jsxs("section", {
         children: [
           jsx(Inner as never, {
@@ -669,6 +649,8 @@ describe("stress: hydration with nested compound children", () => {
     const labels = [...root.querySelectorAll("[data-label]")].map((n) => n.textContent);
     expect(labels).toEqual(["label-one", "label-two"]);
 
+    // Reset SSR capture invocations (see note above).
+    calls.length = 0;
     root.querySelector<HTMLButtonElement>("[data-inner=one] [data-act]")!.click();
     root.querySelector<HTMLButtonElement>("[data-inner=two] [data-act]")!.click();
     expect(calls).toEqual(["one", "two"]);

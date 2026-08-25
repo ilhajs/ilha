@@ -1,14 +1,37 @@
+import { z } from "zod";
+
 import {
   ilha,
+  action,
   batch,
+  derived,
+  effect,
   html,
-  type morph,
+  onError,
+  onUncaughtError,
+  persist,
   signal,
+  state,
   untrack,
+  type ActionAccessor,
+  type DerivedAccessor,
+  type EffectContext,
+  type EffectOnceContext,
+  type ErrorContext,
+  type ErrorSource,
+  type HydratableOptions,
+  type Island,
+  type IslandComponent,
+  morph,
   type NativeEventHandler,
+  type PersistOptions,
+  type PersistStorage,
   type SignalAccessor,
+  type StateAccessor,
 } from "./index";
 import { jsx, Fragment } from "./jsx-runtime";
+
+// ─── Signal accessors ─────────────────────────────────────────────────────
 
 export const typeCheckedNativeHandler: NativeEventHandler<InputEvent> = (event, { signal }) => {
   const inputEvent: InputEvent = event;
@@ -22,6 +45,23 @@ typeCheckedExternalSignal((previous) => previous + 1);
 // @ts-expect-error updater must return the signal value type
 typeCheckedExternalSignal(() => "wrong");
 
+const typeCheckedNestedSignal = signal({ profile: { name: "Ilha", age: 1 } });
+const typeCheckedSelectedByFunction: SignalAccessor<string> = typeCheckedNestedSignal.select(
+  (state) => state.profile.name,
+);
+const typeCheckedSelectedByPath: SignalAccessor<string> = typeCheckedNestedSignal.select(
+  "profile",
+  "name",
+);
+typeCheckedSelectedByPath("Ilha.js");
+// @ts-expect-error selected path resolves to string
+const typeCheckedWrongSelectedPath: SignalAccessor<number> = typeCheckedNestedSignal.select(
+  "profile",
+  "name",
+);
+void typeCheckedSelectedByFunction;
+void typeCheckedWrongSelectedPath;
+
 const nextCallback = () => "next";
 const typeCheckedFunctionSignal = signal<() => string>(() => "initial");
 // @ts-expect-error function values must be returned from an updater wrapper
@@ -34,71 +74,263 @@ typeCheckedNullableFunctionSignal(nextCallback);
 typeCheckedNullableFunctionSignal(() => nextCallback);
 typeCheckedNullableFunctionSignal(null);
 
+// ─── Islands: typed props ────────────────────────────────────────────────
+
 export const TypeCheckedDirectIsland = ilha(() => html`<p>Direct island</p>`);
 export const typeCheckedDirectHtml: string = TypeCheckedDirectIsland.toString();
-// Async SSR form — always a Promise, naming `await island(props)`.
 export const typeCheckedDirectAsyncHtml: Promise<string> = TypeCheckedDirectIsland.toStringAsync();
 void typeCheckedDirectAsyncHtml;
 export const typeCheckedDirectUnmount: () => void = TypeCheckedDirectIsland.mount(
   document.createElement("div"),
 );
-void TypeCheckedDirectIsland.hydratable({}, { name: "TypeCheckedDirectIsland" });
-export const TypeCheckedDirectInputIsland = ilha<{ label: string }>(({ input }) => {
-  const label: string = input.label;
-  // @ts-expect-error undeclared input keys are not available
-  void input.missing;
-  return html`<p>${label}</p>`;
+void TypeCheckedDirectIsland.hydratable({} as Record<string, never>, {
+  name: "TypeCheckedDirectIsland",
 });
-TypeCheckedDirectInputIsland({ label: "Inbox" });
-// @ts-expect-error direct island input props retain their declared types
-TypeCheckedDirectInputIsland({ label: 42 });
-// @ts-expect-error direct island render functions must return HTML
+export const typeCheckedIslandKey: ReturnType<typeof TypeCheckedDirectIsland.key> =
+  TypeCheckedDirectIsland.key("k");
+void typeCheckedIslandKey;
+
+export const TypeCheckedTypedPropsIsland = ilha<{ label: string }>(({ label }) => {
+  const text: string = label;
+  return html`<p>${text}</p>`;
+});
+TypeCheckedTypedPropsIsland({ label: "Inbox" });
+// @ts-expect-error typed props reject undeclared keys
+TypeCheckedTypedPropsIsland({ label: "Inbox", extra: true });
+// @ts-expect-error typed props retain their declared types
+TypeCheckedTypedPropsIsland({ label: 42 });
+// @ts-expect-error island components must return HTML
 ilha(() => 42);
 
-export const TypeCheckedIsland = ilha
-  .input<{ name: string }>()
-  .as("span")
-  .state("count", 0)
-  .derived("label", ({ input, state }) => `${input.name}:${state.count()}`)
-  .action("increment", (amount: number, { state }) => {
-    state.count((previous) => previous + amount);
-    return state.count();
-  })
-  .action("save", async (name: string) => name.length)
-  .on("button@click", ({ event, state, derived, action }) => {
-    const mouseEvent: MouseEvent = event;
-    const label: string | undefined = derived.label();
-    state.count((previous) => previous + 1);
-    action.increment(2);
-    // @ts-expect-error increment requires a number payload
-    action.increment("wrong");
-    void mouseEvent;
-    void label;
-  })
-  .effect(({ state, action }) => {
-    const count: number = state.count();
-    const pending: boolean = action.save.pending;
-    void count;
-    void pending;
-  })
-  .onMount(({ signal }) => {
-    const abortSignal: AbortSignal = signal;
-    void abortSignal.aborted;
-  })
-  .render(({ input, state, derived, action }) => {
-    const name: string = input.name;
-    const count: number = state.count();
-    const label: string | undefined = derived.label();
-    const savedLength: number | undefined = action.save.data;
-    const actionError: Error | undefined = action.save.error;
-    void savedLength;
-    void actionError;
-    return html`<button>${name}:${count}:${label}</button>`;
+export const TypeCheckedComponentType: IslandComponent<{ name: string }> = ({ name }) =>
+  html`<p>${name}</p>`;
+export const TypeCheckedComponentIsland: Island<{ name: string }> = ilha(TypeCheckedComponentType);
+
+// ─── Islands: schema inference ───────────────────────────────────────────
+
+const typeCheckedSchema = z.object({
+  name: z.string().default("World"),
+  count: z.number().default(0),
+});
+
+const TypeCheckedSchemaIsland = ilha(typeCheckedSchema, ({ name, count }) => {
+  const label: string = name;
+  const n: number = count;
+  return html`<p>${label}:${n}</p>`;
+});
+TypeCheckedSchemaIsland({ name: "Ada", count: 1 });
+// @ts-expect-error schema types reject wrong value types
+TypeCheckedSchemaIsland({ name: "Ada", count: "many" });
+const typeCheckedSchemaSsr: string = TypeCheckedSchemaIsland.toString({ name: "Ada", count: 2 });
+void typeCheckedSchemaSsr;
+
+// Schema form accepts coercion through its input type (zod default).
+const TypeCheckedSchemaInputIsland = ilha(
+  z.object({ name: z.string().default("World") }),
+  ({ name }) => html`<p>hello ${name}</p>`,
+);
+TypeCheckedSchemaInputIsland({ name: "Ada" });
+
+// ─── state() ─────────────────────────────────────────────────────────────
+
+export const TypeCheckedStateIsland = ilha(() => {
+  const count: StateAccessor<number> = state(0);
+  count();
+  count(1);
+  count((previous) => previous + 1);
+  // @ts-expect-error state writes must match the value type
+  count("one");
+  const lazy: StateAccessor<number> = state(() => 1);
+  void lazy;
+  return html`<p>${count()}</p>`;
+});
+
+// ─── derived() ───────────────────────────────────────────────────────────
+
+export const TypeCheckedDerivedIsland = ilha(() => {
+  const count = state(0);
+  const doubled: DerivedAccessor<number> = derived(() => count() * 2);
+  const value: number | undefined = doubled();
+  const loading: boolean = doubled.loading;
+  const resolved: number | undefined = doubled.value;
+  const error: Error | undefined = doubled.error;
+  void loading;
+  void resolved;
+  void error;
+  void value;
+  return html`<p>${doubled()}</p>`;
+});
+
+export const TypeCheckedAsyncDerivedIsland = ilha(() => {
+  const id = state("one");
+  const user: DerivedAccessor<{ name: string }> = derived(async ({ signal }) => {
+    const response = await fetch(`/users/${id()}`, { signal });
+    return response.json();
+  });
+  const name: { name: string } | undefined = user.value;
+  void name;
+  return html`<p>${user.loading ? "loading" : "done"}</p>`;
+});
+
+export const TypeCheckedGeneratorDerivedIsland = ilha(() => {
+  const messages: DerivedAccessor<string> = derived(async function* ({ signal }) {
+    for await (const message of connect(signal)) {
+      yield message;
+    }
+  });
+  const next: string | undefined = messages();
+  void next;
+  return html`<ul>
+    ${messages() ?? ""}
+  </ul>`;
+});
+
+async function* connect(signal: AbortSignal): AsyncGenerator<string> {
+  void signal;
+  yield "hi";
+}
+
+// ─── action() ────────────────────────────────────────────────────────────
+
+export const TypeCheckedActionsIsland = ilha(() => {
+  const count = state(0);
+  const increment = action((amount: number) => {
+    count((previous) => previous + amount);
+    return count();
+  });
+  const save = action(async (form: string) => {
+    await fetch("/save", { method: "POST", body: form });
+    return form.length;
+  });
+  const noPayload = action((_payload: undefined, { signal }: EffectContext) => {
+    void signal;
+    return 1;
   });
 
-export const typeCheckedJsx = jsx(Fragment, {
-  children: jsx(TypeCheckedIsland, { name: "Ada" }),
+  increment(2);
+  // @ts-expect-error the action payload type is enforced
+  increment("two");
+  save("form");
+  // @ts-expect-error the async action payload type is enforced
+  save(12);
+  noPayload();
+
+  // @ts-expect-error actions declared with a payload require it
+  increment();
+  // @ts-expect-error actions with explicit payloads are callable with the payload type only
+  noPayload(5);
+
+  const pending: boolean = save.pending;
+  const data: number | undefined = save.data;
+  const error: Error | undefined = save.error;
+  void pending;
+  void data;
+  void error;
+
+  const typedSave: ActionAccessor<string, number> = save;
+  void typedSave;
+  const typedIncrement: ActionAccessor<number, number> = increment;
+  void typedIncrement;
+  const typedNoPayload: ActionAccessor<undefined, number> = noPayload;
+  void typedNoPayload;
+
+  return html`<button onclick=${() => increment(1)}>${count()}</button>`;
 });
+
+// ─── effect() / effect.once() / onError() ────────────────────────────────
+
+export const TypeCheckedEffectsIsland = ilha(() => {
+  const count = state(0);
+
+  effect(() => {
+    void count();
+    return () => {
+      // cleanup before rerun or unmount
+    };
+  });
+
+  effect(({ signal }: EffectContext) => {
+    const abortSignal: AbortSignal = signal;
+    void abortSignal.aborted;
+  });
+
+  effect.once(({ host, signal, hydrated }: EffectOnceContext) => {
+    const hostElement: Element = host;
+    const abortSignal: AbortSignal = signal;
+    const wasHydrated: boolean = hydrated;
+    void hostElement;
+    void abortSignal;
+    void wasHydrated;
+    return () => {
+      // runs on unmount
+    };
+  });
+
+  onError(({ error, source, host }: ErrorContext) => {
+    const err: Error = error;
+    const reason: ErrorSource = source;
+    const element: Element = host;
+    void err;
+    void reason;
+    void element;
+  });
+
+  return html`<p>${count()}</p>`;
+});
+
+export const typeCheckedErrorSource: ErrorSource = "action";
+void typeCheckedErrorSource;
+export const typeCheckedOnUncaught: () => void = onUncaughtError((error, source) => {
+  const e: Error = error;
+  const s: ErrorSource = source;
+  void e;
+  void s;
+});
+
+// ─── Island methods ──────────────────────────────────────────────────────
+
+export const TypeCheckedMethodsIsland = ilha<{ name: string }>(({ name }) => html`<p>${name}</p>`);
+
+export const typeCheckedToString: string = TypeCheckedMethodsIsland.toString({ name: "Ada" });
+export const typeCheckedToAsync: Promise<string> = TypeCheckedMethodsIsland.toStringAsync({
+  name: "Ada",
+});
+export const typeCheckedMount: () => void = TypeCheckedMethodsIsland.mount(
+  document.createElement("div"),
+  { name: "Ada" },
+);
+export const typeCheckedHydratable: Promise<string> = TypeCheckedMethodsIsland.hydratable(
+  { name: "Ada" },
+  { name: "Ada", as: "span", snapshot: { state: false, derived: true }, skipOnMount: true },
+);
+export const typeCheckedHydratableOptions: HydratableOptions = {
+  name: "x",
+  snapshot: true,
+};
+void typeCheckedHydratableOptions;
+void typeCheckedHydratable;
+export const typeCheckedKeyed = TypeCheckedMethodsIsland.key("stable")({ name: "Ada" });
+void typeCheckedKeyed;
+void TypeCheckedMethodsIsland.define("ada-label", { observe: ["name"] });
+
+// Keyed island callables carry through to island props
+export const TypeCheckedKeyedIsland = ilha<{ value: number }>(({ value }) => html`<b>${value}</b>`);
+// @ts-expect-error keyed islands still enforce prop types
+TypeCheckedKeyedIsland.key("k")({ value: "no" });
+TypeCheckedKeyedIsland.key("k")({ value: 1 });
+// @ts-expect-error keys must be strings
+TypeCheckedKeyedIsland.key(12);
+
+// ─── JSX composition ─────────────────────────────────────────────────────
+
+export const typeCheckedJsx = jsx(Fragment, {
+  children: [
+    jsx(TypeCheckedMethodsIsland, { name: "Ada" }),
+    jsx("span", { className: "x", children: "child" }),
+  ],
+});
+
+// ─── Top-level helpers ───────────────────────────────────────────────────
 
 export const typeCheckedBatchReturn: number = batch(() => {
   typeCheckedExternalSignal(1);
@@ -107,26 +339,36 @@ export const typeCheckedBatchReturn: number = batch(() => {
 
 export const typeCheckedUntrackReturn: number = untrack(() => typeCheckedExternalSignal());
 
-// The callable `ilha` export aliases the canonical named exports: ilha.morph
-// exists alongside the named `morph` export (ilha.effect stays named-only
-// because the builder's .effect() method owns that name on `ilha`).
-export const typeCheckedDefaultMorph: typeof morph = ilha.morph;
-const typeCheckedMorphHost = document.createElement("div");
-ilha.morph(typeCheckedMorphHost, "<p>morphed</p>");
+export const typeCheckedPersistOptions: PersistOptions<number> = {
+  storage: {} as PersistStorage,
+  crossTab: false,
+  serialize: String,
+  deserialize: (raw) => Number(raw),
+};
+export const typeCheckedPersistUnsubscribe: () => void = persist(typeCheckedExternalSignal, "key");
+export const typeCheckedPersistOptionsUnsubscribe: () => void = persist(
+  typeCheckedExternalSignal,
+  "key",
+  typeCheckedPersistOptions,
+);
+// @ts-expect-error mismatch between signal value type and options serialize callback
+persist<number>(typeCheckedExternalSignal, "key", { serialize: (value: string) => value });
+// @ts-expect-error persist requires a signal accessor, not a plain value
+persist(5, "key");
 
-// Builder contexts receive the FULL input type — never Partial. Each of these
-// compiles only while `input.name` is `string` (not `string | undefined`).
-export const TypeCheckedFullInputIsland = ilha
-  .input<{ name: string }>()
-  .derived("upper", ({ input }) => {
-    const name: string = input.name;
-    return name.toUpperCase();
-  })
-  .onMount(({ input }) => {
-    const name: string = input.name;
-    void name;
-  })
-  .render(({ input }) => {
-    const name: string = input.name;
-    return html`<p>${name}</p>`;
-  });
+export const typeCheckedMorph: typeof morph = morph;
+const typeCheckedMorphHost = document.createElement("div");
+morph(typeCheckedMorphHost, "<p>morphed</p>");
+
+// Standalone effect returns a stop function; island effect() registers a slot.
+export const typeCheckedStandaloneEffect: () => void = effect(() => {}) as () => void;
+export const TypeCheckedStandaloneEffectInside = ilha(() => {
+  const stopOrVoid: void | (() => void) = effect(() => {});
+  void stopOrVoid;
+  return html`<p>ok</p>`;
+});
+
+// island() call returns the IslandCall composition rather than HTML
+export const typeCheckedComposition: ReturnType<typeof TypeCheckedMethodsIsland> =
+  TypeCheckedMethodsIsland({ name: "Ada" });
+void typeCheckedComposition;

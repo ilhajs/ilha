@@ -49,7 +49,7 @@ function hasNestedIslandSlots(html: string): boolean {
  * when the shell hydrates on the client.
  */
 function wrapPlainAsIsland(Component: PlainComponent, merged: Record<string, unknown>) {
-  return ilha.render(() => {
+  return ilha(() => {
     const result = Component(merged);
     if (result == null) return raw("");
     if (typeof result === "string") return raw(result);
@@ -137,7 +137,7 @@ async function mergePlainProps(
 //
 // Exception: when the plain tree nests islands (JSX → `data-ilha-slot`), those
 // children need a parent island render ctx for unique slot ids + client mount.
-// Re-render through a thin `ilha.render` shell and emit hydratable markup.
+// Re-render through a thin ilha() shell and emit hydratable markup.
 async function renderPlainComponent(
   Component: PlainComponent,
   props: Record<string, unknown>,
@@ -188,8 +188,8 @@ async function renderToStaticMarkup(
   if (isIsland(Component)) {
     // `.hydratable()` embeds serialized props and a state snapshot in
     // `data-ilha-*` attributes, so the client entrypoint hydrates without a
-    // mismatch or re-running `.onMount()` for snapshotted islands
-    // (`skipOnMount`). `.onMount()` is client-only — SSR never invokes it.
+    // mismatch or re-running setup for snapshotted islands
+    // (`skipOnMount`). Setup is client-only — SSR never invokes it.
     const html = await Component.hydratable(await resolveProps(props), {
       name: metadata?.displayName ?? "IlhaIsland",
       snapshot: true,

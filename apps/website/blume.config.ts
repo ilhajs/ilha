@@ -25,28 +25,19 @@ export default defineConfig({
             ],
           },
           {
-            label: "Concepts",
-            items: ["/guide/concepts/ssr-and-hydration"],
-          },
-          {
             label: "Build islands",
             items: [
-              "/guide/island/input",
+              "/guide/island/create",
               "/guide/island/state",
               "/guide/island/derived",
-              "/guide/island/stream",
               "/guide/island/action",
-              "/guide/island/on",
               "/guide/island/effect",
-              "/guide/island/onmount",
-              "/guide/island/onerror",
-              "/guide/island/transition",
-              "/guide/island/css",
+              "/guide/island/errors",
               "/guide/island/render",
-              "/guide/island/hydratable",
-              "/guide/island/define",
+              "/guide/island/compose",
               "/guide/island/bindings",
               "/guide/island/signals",
+              "/guide/island/define",
             ],
           },
           {
@@ -63,28 +54,16 @@ export default defineConfig({
             ],
           },
           {
-            label: "Global state",
-            items: [
-              "/guide/store/overview",
-              "/guide/store/derived-state-and-actions",
-              "/guide/store/subscriptions-and-validation",
-              "/guide/store/forms",
-              "/guide/store/persistence-and-query",
-              "/guide/store/ssr",
-            ],
-          },
-          {
             label: "Integrations",
             items: ["/guide/astro"],
           },
           {
+            label: "Recipes",
+            items: ["/guide/recipes/view-transitions"],
+          },
+          {
             label: "Helpers",
-            items: [
-              "/guide/helpers/mount",
-              "/guide/helpers/html",
-              "/guide/helpers/raw",
-              "/guide/helpers/css",
-            ],
+            items: ["/guide/helpers/mount", "/guide/helpers/html", "/guide/helpers/raw"],
           },
           {
             label: "Resources",
@@ -101,7 +80,7 @@ export default defineConfig({
       {
         label: "Reference",
         root: "/reference",
-        items: ["/reference/ilha", "/reference/router", "/reference/store", "/reference/astro"],
+        items: ["/reference/ilha", "/reference/router", "/reference/astro"],
       },
       {
         label: "Tutorial",

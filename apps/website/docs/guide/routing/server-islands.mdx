@@ -7,22 +7,25 @@ Define islands in `*.server.ts(x)` files. The render function never ships to the
 
 ```tsx
 // src/lib/tasks.server.tsx
-export const TaskList = ilha
-  .stream("items", ({ signal }) => getTasks({ signal }))
-  .action("remove", (id: string) => deleteTask(id))
-  .render(({ state, action }) => (
+export const TaskList = ilha(() => {
+  const items = derived(async function* ({ signal }) {
+    yield* getTasks({ signal });
+  });
+  const remove = action((id: string) => deleteTask(id));
+
+  return (
     <ul>
-      {each(state.items() ?? []).as((task) => (
-        <li
-          key={task.id}
-          onclick={() => action.remove(task.id)}
-        >
+      {each(items() ?? []).as((task) => (
+        <li key={task.id} onclick={() => remove(task.id)}>
           {task.text}
         </li>
       ))}
     </ul>
-  ));
+  );
+});
 ```
+
+Actions declare with the in-component `action()` primitive; streaming feeds declare with a `derived()` async generator. The scanner wires client transports to them by primitive order — the first streaming derived generator becomes `d0`, and each `action()` slot becomes `a0`, `a1`, … in declaration order. Keep the primitive order stable so the generated proxy resolves the same transports.
 
 Import `<TaskList />` in any page. The plugin scans the module, generates a client proxy, and keeps the render function server-side.
 
@@ -61,13 +64,17 @@ pages({
 });
 ```
 
-```ts
+```ts twoslash
 // production — call once at server startup
 import {
   setFrameAuth,
   setFrameGuard,
   setLoaderGuard,
 } from "@ilha/router/server-island-registry";
+
+function isSignedIn(_request: Request) {
+  return true;
+}
 
 // Gates /__ilha/frame in production; without this the endpoint returns 403.
 setFrameGuard((request) => {
@@ -88,7 +95,7 @@ setLoaderGuard((request) =>
 setFrameAuth({
   trustedOrigins: ["https://app.example.com"],
   csrf: (request) =>
-    request.headers.get("x-csrf") === process.env.CSRF_SECRET,
+    request.headers.get("x-csrf") === "my-csrf-secret",
 });
 ```
 
@@ -110,8 +117,8 @@ export async function load({ params, request }: any) {
   return { path: new URL(request.url).pathname, id: params.id };
 }
 
-export default ilha.render(({ input }: any) => {
-  return `<section><h1>About ${input.path}</h1></section>`;
+export default ilha(({ path }: { path: string }) => {
+  return `<section><h1>About ${path}</h1></section>`;
 });
 ```
 

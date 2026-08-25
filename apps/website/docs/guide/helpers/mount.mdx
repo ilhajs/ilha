@@ -7,9 +7,11 @@ Auto-discovers all `[data-ilha]` elements in the DOM and mounts the matching isl
 
 ## Basic usage
 
-```ts
-import { mount } from "ilha";
-import { Counter, Card } from "./islands";
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Counter = ilha(() => "<p>counter</p>");
+const Card = ilha(() => "<p>card</p>");
 
 mount({ Counter, Card });
 ```
@@ -23,14 +25,15 @@ Each key in the registry maps to a `data-ilha` attribute value in the HTML:
 
 ## Options
 
-```ts
-import { mount } from "ilha";
-import { Counter } from "./islands";
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Counter = ilha(() => "<p>counter</p>");
 
 const { unmount } = mount(
   { counter: Counter },
   {
-    root: document.getElementById("app"), // default: document.body
+    root: document.getElementById("app")!, // default: document.body
     lazy: true, // mount on visibility
   },
 );
@@ -45,9 +48,10 @@ const { unmount } = mount(
 
 `mount()` returns an object with an `unmount` function that tears down all discovered islands at once:
 
-```ts
-import { mount } from "ilha";
-import { Counter } from "./islands";
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Counter = ilha(() => "<p>counter</p>");
 
 const { unmount } = mount({ Counter });
 
@@ -59,9 +63,10 @@ unmount();
 
 When `lazy: true` is set, islands are not mounted immediately. Instead, each host element is observed with an `IntersectionObserver` and mounted only when it enters the viewport. This keeps the initial page load lean when islands are below the fold.
 
-```ts
-import { mount } from "ilha";
-import { HeavyChart } from "./islands";
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const HeavyChart = ilha(() => "<canvas></canvas>");
 
 mount({ HeavyChart }, { lazy: true });
 ```
@@ -76,9 +81,10 @@ Props can be embedded directly in the HTML using `data-ilha-props`. `mount()` re
 <div data-ilha="Counter" data-ilha-props='{"start":10}'></div>
 ```
 
-```ts
-import { mount } from "ilha";
-import { Counter } from "./islands";
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Counter = ilha(() => "<p>counter</p>");
 
 // No props needed here — they are read from data-ilha-props
 mount({ Counter });
@@ -92,23 +98,25 @@ When using `.hydratable()` on the server, the rendered HTML includes a `data-ilh
 <div data-ilha="Counter" data-ilha-state='{"count":42}'></div>
 ```
 
-```ts
-import { mount } from "ilha";
-import { Counter } from "./islands";
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Counter = ilha(() => "<p>counter</p>");
 
 // Reads data-ilha-state and restores signals from snapshot
 mount({ Counter });
 ```
 
-See [`.hydratable()`](/guide/island/hydratable) for how to generate this output on the server.
+See [Render and hydrate](/guide/island/render#emit-hydration-markup) for how to generate this output on the server.
 
 ## Scoping to a subtree
 
 Pass a `root` element to limit discovery to a specific part of the page. This is useful when islands are injected dynamically into a container:
 
-```ts
-import { mount } from "ilha";
-import { Widget } from "./islands";
+```ts twoslash
+import { ilha, mount } from "ilha";
+
+const Widget = ilha(() => "<p>widget</p>");
 
 const container = document.getElementById("dynamic-content")!;
 const { unmount } = mount({ Widget }, { root: container });

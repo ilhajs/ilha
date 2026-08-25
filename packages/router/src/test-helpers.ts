@@ -20,4 +20,4 @@ export async function removeDir(dir: string): Promise<void> {
   await rm(dir, { recursive: true, force: true });
 }
 
-export const make = (content: string) => ilha.render(() => content);
+export const make = (content: string) => ilha(() => content);

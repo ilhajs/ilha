@@ -1,0 +1,20 @@
+---
+title: "Tutorial: Setup once"
+description: Tutorial — run one-time setup logic after a component first renders with the effect.once() primitive.
+seo:
+  title: Set up a counter with effect.once() - Ilha
+---
+
+import { example } from "./setup.examples";
+
+Use `effect.once()` to run logic once, immediately after the component renders for the first time. Unlike `effect()`, it does not re-run on state changes — making it the right place for one-time setup such as seeding initial data or initializing third-party libraries.
+
+The callback provides `host`, `signal`, and `hydrated` in its context, so you have direct access to the mounted element and a cancellation signal.
+
+<Preview code={example} size="lg" />
+
+## Similar concepts
+
+- React: `useEffect` with an empty dependency array
+- Vue: `onMounted()`
+- Svelte: `onMount()`

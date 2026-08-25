@@ -1,5 +1,5 @@
 import { Button, Input, LinkButton, Radio, Switch } from "areia";
-import { ilha } from "ilha";
+import { derived, effect, ilha, state, action } from "ilha";
 
 import { URLS } from "@/lib/landing-const";
 
@@ -8,24 +8,24 @@ const TEMPLATES = [
   { value: "oxide-spa", label: "Oxide SPA", icon: "/oxide.svg", sandbox: true },
 ] as const;
 
-export const ProjectCreatorForm = ilha
-  .state("name", "")
-  .state("template", "vite-spa")
-  .state("useBun", false)
-  .derived("createCommand", ({ state }) => {
-    const packageManager = state.useBun() ? "bunx" : "npx";
-    const projectName = state.name() ? ` ${state.name()}` : "";
-    return `${packageManager} giget@latest gh:ilhajs/ilha/templates/${state.template()}${projectName}`;
-  })
-  .derived("sandboxUrl", ({ state }) => {
-    return URLS.SANDBOX.replace("{template}", state.template());
-  })
-  .derived("hasSandbox", ({ state }) => {
-    return TEMPLATES.find((template) => template.value === state.template())?.sandbox ?? true;
-  })
-  .action("copyCommand", async (event: MouseEvent, { derived }) => {
+export const ProjectCreatorForm = ilha(() => {
+  const name = state("");
+  const template = state("vite-spa");
+  const useBun = state(false);
+
+  const createCommand = derived(() => {
+    const packageManager = useBun() ? "bunx" : "npx";
+    const projectName = name() ? ` ${name()}` : "";
+    return `${packageManager} giget@latest gh:ilhajs/ilha/templates/${template()}${projectName}`;
+  });
+  const sandboxUrl = derived(() => URLS.SANDBOX.replace("{template}", template()));
+  const hasSandbox = derived(() => {
+    return TEMPLATES.find((candidate) => candidate.value === template())?.sandbox ?? true;
+  });
+
+  const copyCommand = action(async (event: MouseEvent) => {
     try {
-      await navigator.clipboard.writeText(derived.createCommand()!);
+      await navigator.clipboard.writeText(createCommand()!);
     } catch {
       // Clipboard can be denied without a user gesture; leave the label as-is.
       return;
@@ -38,31 +38,39 @@ export const ProjectCreatorForm = ilha
         el.textContent = original;
       }, 2000);
     }
-  })
-  .effect(({ derived, host }) => {
+  });
+
+  let host: Element | null = null;
+  effect.once(({ host: mounted }) => {
+    host = mounted;
+  });
+
+  effect(() => {
+    if (!host) return;
     const commandSpan = host.querySelector<HTMLElement>("[data-copy-command] span");
     if (commandSpan && commandSpan.textContent !== "Copied!") {
-      commandSpan.textContent = derived.createCommand()!;
+      commandSpan.textContent = createCommand()!;
     }
 
     const sandboxLink = host.querySelector<HTMLAnchorElement>("[data-sandbox-link]");
     if (sandboxLink) {
-      if (derived.hasSandbox()) {
-        sandboxLink.href = derived.sandboxUrl()!;
+      if (hasSandbox()) {
+        sandboxLink.href = sandboxUrl()!;
         sandboxLink.classList.remove("hidden");
       } else {
         sandboxLink.classList.add("hidden");
       }
     }
-  })
-  .render(({ state, derived, action }) => (
+  });
+
+  return (
     <div class="flex flex-col gap-4">
       <Input
         id="project-name"
         label="Project name"
         name="name"
         placeholder="my-app"
-        bind:value={state.name}
+        bind:value={name}
       />
       <Radio.Group
         legend="Pick a template"
@@ -71,39 +79,39 @@ export const ProjectCreatorForm = ilha
         orientation="horizontal"
         class="[&>div]:lg:grid-cols-2"
       >
-        {TEMPLATES.map((template) => (
+        {TEMPLATES.map((candidate) => (
           <Radio.Item
             label={
               <span class="flex items-center gap-2">
-                <img src={template.icon} class="size-6" alt="" />
-                <span>{template.label}</span>
+                <img src={candidate.icon} class="size-6" alt="" />
+                <span>{candidate.label}</span>
               </span>
             }
-            value={template.value}
+            value={candidate.value}
             name="template"
             appearance="card"
-            bind:group={state.template}
+            bind:group={template}
           />
         ))}
       </Radio.Group>
-      <Switch label="Use Bun" name="useBun" bind:checked={state.useBun} />
+      <Switch label="Use Bun" name="useBun" bind:checked={useBun} />
       <div class="grid min-w-0 gap-2 sm:flex sm:items-center">
         <Button
           variant="outline"
           class="w-full min-w-0 flex-1 justify-start overflow-hidden text-left"
           data-copy-command
-          onclick={action.copyCommand}
+          onclick={copyCommand}
         >
           <img src="/copy.svg" class="size-5 shrink-0" alt="" />
-          <span class="block truncate">{derived.createCommand()}</span>
+          <span class="block truncate">{createCommand()}</span>
         </Button>
         <LinkButton
-          href={derived.sandboxUrl()}
+          href={sandboxUrl()}
           target="_blank"
           rel="noopener noreferrer"
           variant="primary"
           external
-          class={`w-full justify-center sm:w-auto sm:justify-center ${derived.hasSandbox() ? "" : "hidden"}`}
+          class={`w-full justify-center sm:w-auto sm:justify-center ${hasSandbox() ? "" : "hidden"}`}
           data-sandbox-link
         >
           <img src="/stackblitz.svg" class="size-4" alt="" />
@@ -111,4 +119,5 @@ export const ProjectCreatorForm = ilha
         </LinkButton>
       </div>
     </div>
-  ));
+  );
+});

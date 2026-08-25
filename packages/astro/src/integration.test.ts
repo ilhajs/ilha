@@ -27,33 +27,33 @@ const ASTRO_BIN = join(
 );
 
 const JSX_COUNTER = `/** @jsxImportSource ilha */
-import { ilha } from "ilha";
-export const Counter = ilha
-  .input<{ start?: number }>({ start: 0 })
-  .state("count", (input) => input.start ?? 0)
-  .action("increment", (_, { state }) => state.count((count) => count + 1))
-  .render(({ state, action }) => (
+import { ilha, state, action } from "ilha";
+export const Counter = ilha<{ start?: number }>(({ start = 0 }) => {
+  const count = state(start);
+  const increment = action(() => count((value) => value + 1));
+  return (
     <div class="flex gap-2">
-      {state.count()}
-      <button type="button" onclick={() => action.increment()}>Increment with Ilha-JSX</button>
+      {count()}
+      <button type="button" onclick={increment}>Increment with Ilha-JSX</button>
     </div>
-  ));
+  );
+});
 `;
 
 const HTML_COUNTER = `/** @jsxImportSource ilha */
-import { ilha, html } from "ilha";
-export const Counter = ilha
-  .input<{ start?: number }>({ start: 0 })
-  .state("count", (input) => input.start ?? 0)
-  .action("increment", (_, { state }) => state.count((count) => count + 1))
-  .render(({ state, action }) => html\`
+import { ilha, html, state, action } from "ilha";
+export const Counter = ilha<{ start?: number }>(({ start = 0 }) => {
+  const count = state(start);
+  const increment = action(() => count((value) => value + 1));
+  return html\`
     <div class="flex gap-2">
-      \${state.count()}
-      <button type="button" onclick=\${() => action.increment()}>
+      \${count()}
+      <button type="button" onclick=\${increment}>
         Increment with Ilha-HTML
       </button>
     </div>
-  \`);
+  \`;
+});
 `;
 
 const SOLID_COUNTER = `/** @jsxImportSource fake-js */

@@ -31,12 +31,12 @@ Every route is an ilha island. The router matches URLs, runs loaders, and mounts
 
 ```ts twoslash
 import { router } from "@ilha/router";
-import {
-  HomePage,
-  AboutPage,
-  UserPage,
-  NotFound,
-} from "./pages";
+import { ilha } from "ilha";
+
+const HomePage = ilha(() => "<p>home</p>");
+const AboutPage = ilha(() => "<p>about</p>");
+const UserPage = ilha(() => "<p>user</p>");
+const NotFound = ilha(() => "<p>not found</p>");
 
 router()
   .route("/", HomePage)
@@ -70,7 +70,7 @@ export default defineConfig({
 // src/pages/index.tsx
 import { TaskList } from "$lib/tasks.server";
 
-export default ilha.render(() => <TaskList />);
+export default ilha(() => <TaskList />);
 ```
 
 **Whole pages**: rename `src/pages/about.tsx` to `src/pages/about.server.tsx` and the entire route renders server-side.

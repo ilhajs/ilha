@@ -23,11 +23,18 @@ export async function* getTasks() {
 
 export async function toggleTask(id: string) {}
 
-export const Tasks = ilha
-  .stream("tasks", () => getTasks())
-  .action("toggle", (id: string) => toggleTask(id))
-  .as("section")
-  .render(({ state }) => html\`<p>\${state.tasks()}</p>\`);
+export const Tasks = ilha(
+  () => {
+    const items = derived(async function* () {
+      yield* getTasks();
+    });
+    const toggle = action((id: string) => toggleTask(id));
+    void items;
+    void toggle;
+    return html\`<p>x</p>\`;
+  },
+  { as: "section" },
+);
 
 export const Plain = ilha(() => html\`<p>hi</p>\`);
 
@@ -42,9 +49,11 @@ export function helper(): string {
 
     const tasks = scan.islands.find((i) => i.name === "Tasks")!;
     expect(tasks).toBeDefined();
+    // { as: "section" } constructor option is scanned.
     expect(tasks.as).toBe("section");
-    expect(tasks.streams).toEqual({ tasks: "getTasks" });
-    expect(tasks.actions).toEqual({ toggle: "toggleTask" });
+    // Order-based ids: d0 = first streaming derived generator, a0 = first action.
+    expect(tasks.streams).toEqual({ d0: "getTasks" });
+    expect(tasks.actions).toEqual({ a0: "toggleTask" });
 
     const plain = scan.islands.find((i) => i.name === "Plain")!;
     expect(plain.as).toBe("div");
@@ -53,7 +62,7 @@ export function helper(): string {
   });
 
   it("detects default island exports", () => {
-    const scan = scanServerIslands(`export default ilha.render(() => "x");`);
+    const scan = scanServerIslands(`export default ilha(() => "x");`);
     expect(scan.islands.map((i) => i.name)).toEqual(["default"]);
   });
 
@@ -65,7 +74,7 @@ export function helper(): string {
   it("collects imported JSX islands for client hydration", () => {
     const scan = scanServerIslands(`
       import { Checkbox as Box, Button } from "areia";
-      export const Tasks = ilha.render(() => <Box checked />);
+      export const Tasks = ilha(() => <Box checked />);
     `);
     expect(scan.clientRefs).toEqual([
       {
@@ -86,14 +95,20 @@ describe("generateServerIslandModule", () => {
   it("wires streams to stub calls with signal threading", () => {
     const scan = scanServerIslands(`
       export async function* ticks(): AsyncGenerator<number> { yield 1; }
-      export const T = ilha.stream("n", ({ signal }) => ticks({ signal })).render(() => "");
+      export const T = ilha(() => {
+        const tickStream = derived(async function* () {
+          yield* ticks();
+        });
+        void tickStream;
+        return "";
+      });
     `);
     const code = generateServerIslandModule("/abs/tasks.server.ts", scan);
     // Plain JS only — \0 virtual modules bypass Vite's TS transform.
     expect(code).not.toContain("import type");
     expect(code).not.toContain("typeof $$types");
     expect(code).toContain(`import { client as $$rpc } from "virtual:oxide/client"`);
-    expect(code).toContain(`"n": (signal) => $$call("ticks", [{ signal }])`);
+    expect(code).toContain(`"d0": (signal) => $$call("ticks", [{ signal }])`);
     expect(code).toContain(`export const ticks = (...args) => $$call("ticks", args)`);
     const id = serverIslandPublicId("/abs/tasks.server.ts", "T");
     expect(code).toContain(`export const T = __ilhaServerIsland("${id}", "div"`);
@@ -107,7 +122,7 @@ describe("generateServerIslandModule", () => {
   it("wires imported JSX islands into the client proxy", () => {
     const scan = scanServerIslands(`
       import { Checkbox } from "areia";
-      export const T = ilha.render(() => <Checkbox checked />);
+      export const T = ilha(() => <Checkbox checked />);
     `);
     const code = generateServerIslandModule("/abs/tasks.server.tsx", scan);
     const ref = clientRefPublicId("areia", "Checkbox");
@@ -116,7 +131,7 @@ describe("generateServerIslandModule", () => {
   });
 
   it("handles default exports", () => {
-    const scan = scanServerIslands(`export default ilha.render(() => "x");`);
+    const scan = scanServerIslands(`export default ilha(() => "x");`);
     const code = generateServerIslandModule("/abs/x.server.ts", scan);
     expect(code).toContain("export default __ilhaServerIsland");
   });
@@ -378,7 +393,7 @@ describe("server page proxies under layouts", () => {
     const { __ilhaServerIsland } = await import("./server-island");
     const { wrapLayout } = await import("./index");
     const proxy = __ilhaServerIsland("layout-proxy-test", "div", {}) as any;
-    const wrapped = wrapLayout(() => ilha.render(() => `<section data-shell></section>`), proxy);
+    const wrapped = wrapLayout(() => ilha(() => `<section data-shell></section>`), proxy);
     // Must not throw; rendering yields an empty client shell.
     expect(() => wrapped.toString()).not.toThrow();
     expect(proxy.key("page")({ a: 1 })).toMatchObject({

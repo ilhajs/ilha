@@ -2,8 +2,7 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "paths": {
-      "ilha": ["./packages/ilha/src/index.ts"],
-      "@ilha/store": ["./packages/store/src/index.ts"]
+      "ilha": ["./packages/ilha/src/index.ts"]
     }
   },
   "include": ["packages/*/src/**/*", "packages/form/tsdown.config.ts"],

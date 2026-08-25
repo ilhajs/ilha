@@ -16,7 +16,6 @@
 - **Flexible scope** — progressively enhance server-rendered HTML, or build fully self-contained apps
 - **SSR + hydration** — render on the server, restore state on the client with zero flicker
 - **File-system routing** — optional Vite plugin for automatic, convention-based routing
-- **Shared global state** — `@ilha/store` for cross-island state on the same signal engine as the core
 - **Backend agnostic** — integrates with any backend; first-class Oxide and Hono support
 - **Prompt-sized source** — small enough to fit the entire codebase into an AI context window
 - **Type-safe by default** — first-class TypeScript support throughout
@@ -63,18 +62,18 @@ Place a mount point anywhere in your HTML:
 Define your island and mount it:
 
 ```ts
-import ilha, { html, mount } from "ilha";
+import { ilha, state, action, html, mount } from "ilha";
 
-const Counter = ilha
-  .state("count", 0)
-  .action("changeCountBy", (change: number, { state }) => state.count(state.count() + change))
-  .render(
-    ({ state, action }) => html`
-      <p>Count: ${state.count()}</p>
-      <button onclick=${() => action.changeCountBy(1)}>Increase</button>
-      <button onclick=${() => action.changeCountBy(-1)}>Decrease</button>
-    `,
-  );
+const Counter = ilha(() => {
+  const count = state(0);
+  const changeCountBy = action((change: number) => count((value) => value + change));
+
+  return html`
+    <p>Count: ${count()}</p>
+    <button onclick=${() => changeCountBy(1)}>Increase</button>
+    <button onclick=${() => changeCountBy(-1)}>Decrease</button>
+  `;
+});
 
 mount({ Counter });
 ```
@@ -87,11 +86,10 @@ mount({ Counter });
 
 This monorepo contains the following packages:
 
-| Package                             | Description                                                                      |
-| ----------------------------------- | -------------------------------------------------------------------------------- |
-| [`ilha`](./packages/ilha)           | Core island builder — state, events, SSR rendering, and DOM hydration            |
-| [`@ilha/router`](./packages/router) | Isomorphic SPA router with SSR support and a Vite file-system routing plugin     |
-| [`@ilha/store`](./packages/store)   | Zustand-shaped global store backed by alien-signals — share state across islands |
+| Package                             | Description                                                                             |
+| ----------------------------------- | --------------------------------------------------------------------------------------- |
+| [`ilha`](./packages/ilha)           | Core island library — function components, primitives, SSR rendering, and DOM hydration |
+| [`@ilha/router`](./packages/router) | Isomorphic SPA router with SSR support and a Vite file-system routing plugin            |
 
 ---
 

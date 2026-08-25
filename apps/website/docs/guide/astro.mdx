@@ -19,17 +19,17 @@ It is a separate package from `ilha`. Add it when you build with Astro and want 
 
 Add the integration to your Astro config:
 
-```ts
+```ts twoslash
 // astro.config.mjs
 import { defineConfig } from "astro/config";
-import { ilha } from "@ilha/astro";
+import ilha from "@ilha/astro";
 
 export default defineConfig({
   integrations: [ilha()],
 });
 ```
 
-Islands in these examples use JSX. Set `jsx` and `jsxImportSource` in `tsconfig.json` (or use `/** @jsxImportSource ilha */` per file) — see [`.render()` — JSX setup](/guide/island/render#jsx-setup):
+Islands in these examples use JSX. Set `jsx` and `jsxImportSource` in `tsconfig.json` (or use `/** @jsxImportSource ilha */` per file) — see [Render and hydrate](/guide/island/render):
 
 ```json
 {
@@ -44,19 +44,20 @@ Define an island as usual, then use it in a page with a client directive:
 
 ```tsx twoslash
 // src/islands/counter.tsx
-import { ilha } from "ilha";
+import { ilha, state, action } from "ilha";
 
-export const Counter = ilha
-  .input<{ start?: number }>()
-  .state("count", (input) => input.start ?? 0)
-  .action("increment", (_, { state }) => {
-    state.count((count) => count + 1);
-  })
-  .render(({ state, action }) => (
-    <button type="button" onclick={action.increment}>
-      {state.count()}
-    </button>
-  ));
+export const Counter = ilha(
+  ({ start = 0 }: { start?: number }) => {
+    const count = state(start);
+    const increment = action(() => count((value) => value + 1));
+
+    return (
+      <button type="button" onclick={increment}>
+        {count()}
+      </button>
+    );
+  },
+);
 ```
 
 ```astro
@@ -67,14 +68,14 @@ import { Counter } from "../islands/counter";
 <Counter client:load start={10} />
 ```
 
-Astro SSR-renders the island on the server. On the client, `@ilha/astro` calls the island's own `.mount()` against the existing markup — no flicker, and `.onMount()` is skipped when the state snapshot already matches the DOM.
+Astro SSR-renders the island on the server. On the client, `@ilha/astro` calls the island's own `.mount()` against the existing markup — no flicker, and `effect.once()` is skipped when the state snapshot already matches the DOM.
 
 ## How it works
 
-| Phase  | What happens                                                                                                                                    |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Server | The renderer calls [`.hydratable()`](/guide/island/hydratable), which wraps SSR output in a `[data-ilha]` host with serialized props and state. |
-| Client | The client entry finds that `[data-ilha]` host inside Astro's `<astro-island>` and calls `.mount()` for hydration.                              |
+| Phase  | What happens                                                                                                                                                      |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server | The renderer calls [`.hydratable()`](/guide/island/render#emit-hydration-markup), which wraps SSR output in a `[data-ilha]` host with serialized props and state. |
+| Client | The client entry finds that `[data-ilha]` host inside Astro's `<astro-island>` and calls `.mount()` for hydration.                                                |
 
 Hydration is driven by Ilha's `data-ilha-*` attributes, so every Astro client directive works as expected.
 
@@ -115,7 +116,7 @@ On the server, `@ilha/astro` calls the function and emits the HTML with no `data
 
 Plain Astro function components do not create an Ilha island lifecycle. Lowercase event props such as `onclick` therefore stay inert when you render the function directly through Astro. Plain functions also cannot use `client:only`, because there is no island to mount without SSR markup.
 
-Promote independently interactive UI with `ilha(() => JSX)`; use the builder form when it needs state, actions, or other local capabilities. Plain function children rendered inside an island inherit its event lifecycle.
+Promote independently interactive UI with `ilha(() => JSX)`; add state, actions, and other capabilities with primitives inside the component. Plain function children rendered inside an island inherit its event lifecycle.
 
 ```tsx twoslash
 export const Button = ({ label }: { label: string }) => (
@@ -147,16 +148,15 @@ You almost never import the client or server entrypoints yourself. `ilha()` regi
 
 ## Notes
 
-- Ilha islands do not support Astro's `<slot />` or children forwarding. Pass data through props and render inside the island's `.render()` function.
+- Ilha islands do not support Astro's `<slot />` or children forwarding. Pass data through props and render it inside the island component.
 - `client:only` mounts with `Component.mount(element, props)` against an empty host. Prefer SSR + hydrate when you can.
 - Peer ranges: `astro` `^7.0.0`, `ilha` `>=0.9.5`.
 
 ## Related
 
-| Topic                     | Guide                                  |
-| ------------------------- | -------------------------------------- |
-| Core `ilha` API           | [ilha](/reference/ilha)                |
-| Hydratable SSR            | [Hydratable](/guide/island/hydratable) |
-| Mount and discovery       | [Mount](/guide/helpers/mount)          |
-| Shared cross-island state | [Store](/guide/store/overview)         |
-| Multi-page SPA routing    | [Router](/guide/routing/overview)      |
+| Topic                  | Guide                                                            |
+| ---------------------- | ---------------------------------------------------------------- |
+| Core `ilha` API        | [ilha](/reference/ilha)                                          |
+| Hydratable SSR         | [Render and hydrate](/guide/island/render#emit-hydration-markup) |
+| Mount and discovery    | [Mount](/guide/helpers/mount)                                    |
+| Multi-page SPA routing | [Router](/guide/routing/overview)                                |

@@ -20,7 +20,7 @@ export const load = loader(
     const session = await getSession(request);
     if (!session) redirect("/login");
 
-    const user = await fetchUser(params.id, { signal });
+    const user = await fetchUser(params.id, signal);
     if (!user) error(404, "User not found");
 
     return { user };
@@ -34,18 +34,27 @@ Use `InferLoader` to derive an island's input from its loader instead of repeati
 import { loader, type InferLoader } from "@ilha/router";
 import { ilha } from "ilha";
 
+// Loader results arrive in a `load` envelope; InferLoader types the value.
+type LoaderProps<T> = {
+  load: {
+    loading: boolean;
+    value: T;
+    error: Error | undefined;
+  };
+};
+
 async function fetchUser(id?: string, _signal?: AbortSignal) {
   return { name: "Ada" };
 }
 // ---cut---
 export const load = loader(async ({ params, signal }) => {
-  const user = await fetchUser(params.id, { signal });
+  const user = await fetchUser(params.id, signal);
   return { user };
 });
 
-export default ilha<InferLoader<typeof load>>(({ input }) => (
-  <h1>{input.load.value.user.name}</h1>
-));
+export default ilha<LoaderProps<InferLoader<typeof load>>>(
+  ({ load }) => <h1>{load.value.user.name}</h1>,
+);
 ```
 
 `InferLoader<typeof load>` awaits asynchronous loaders and preserves the exact returned fields. Prefer it whenever one loader defines the page input. Use an explicit merged type when layout loaders or other sources add fields that are not present in that loader's return value.
@@ -54,13 +63,13 @@ export default ilha<InferLoader<typeof load>>(({ input }) => (
 
 The loader receives a `LoaderContext`:
 
-```ts
-{
+```ts twoslash
+type LoaderContext = {
   params: Record<string, string>; // matched URL params
   request: Request; // the incoming request
   url: URL; // parsed URL
   signal: AbortSignal; // abort on superseded navigation
-}
+};
 ```
 
 On the server, loaders run when a route is rendered — at frame time for server pages, and inside the SSR middleware's `/__ilha/loader` endpoint for regular pages. You can also call **`.runLoader(url, request?)`** on the builder to execute a loader without rendering HTML.
@@ -75,7 +84,7 @@ Loader `ctx.head(...)` contributions are applied on the server **and** on client
 
 ## Same-island navigations update in place
 
-A navigation that changes only params or the query string (`/t/a` → `/t/b`, `?page=1` → `?page=2`) re-runs the loader, then pushes the fresh data into the already-mounted island as reactive input — ilha's fine-grained morph reconciles the DOM, so island state, focus, caret position, and scroll all survive; the router never tears the view down. Only when the matched island itself changes does the router unmount and mount fresh. This is what makes a filter bar built on [`persistQuery`](/guide/store/persistence-and-query) work: an input bound with `bind:value` writes to the URL, the loader re-runs, and the list updates — without the input ever losing focus mid-typing. [`invalidate()`](/guide/routing/routes-and-navigation#invalidate) takes the same in-place path, so refreshing data after a mutation doesn't blur a form.
+A navigation that changes only params or the query string (`/t/a` → `/t/b`, `?page=1` → `?page=2`) re-runs the loader, then pushes the fresh data into the already-mounted island as reactive input — ilha's fine-grained morph reconciles the DOM, so island state, focus, caret position, and scroll all survive; the router never tears the view down. Only when the matched island itself changes does the router unmount and mount fresh. This is what makes a filter bar built on core [`persist(signal, key)`](/guide/island/signals#persistsignal-key) work: an input bound with `bind:value` writes to the URL, the loader re-runs, and the list updates — without the input ever losing focus mid-typing. [`invalidate()`](/guide/routing/routes-and-navigation#invalidate) takes the same in-place path, so refreshing data after a mutation doesn't blur a form.
 
 If a loader fails, the error renders through the route's `+error` boundary when one is registered (see [Error boundaries](/guide/routing/file-system-routing#error-boundaries)) — on the server `renderResponse` returns the boundary's HTML with the error status, and client navigations mount the boundary island in the outlet. Without a boundary, a minimal inline `data-router-error` element renders instead.
 

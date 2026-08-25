@@ -1,4 +1,19 @@
-import { signal, computed, effect, setActiveSub, startBatch, endBatch } from "alien-signals";
+import {
+  signal,
+  computed,
+  effect as alienEffect,
+  setActiveSub,
+  startBatch,
+  endBatch,
+} from "alien-signals";
+
+import {
+  ISLAND_MOUNT_HANDLES,
+  ISLAND_MOUNT_INTERNAL,
+  serializeServerManifest,
+  setJsxRuntimeBridge,
+  type JsxEventRegistration,
+} from "./internal";
 
 // ---------------------------------------------
 // Standard Schema V1 (inlined, type-only)
@@ -208,7 +223,7 @@ function shallowEqualInput(a: unknown, b: unknown): boolean {
 // Detect the expected client-mount divergence: eager render inlines child
 // SSR while the first reactive pass emits empty slot stubs. Props encoded on
 // the stub must match — if they differ, state changed before the first
-// effect (e.g. Parent.onMount wrote new props) and we must reconcile.
+// effect (e.g. an effect.once in the parent wrote new props) and we must reconcile.
 function parseHtmlFragment(html: string): DocumentFragment {
   const tpl = document.createElement("template");
   // pi-lens-ignore: ast-grep:no-inner-html — parse into a detached <template>
@@ -327,9 +342,12 @@ function slotPropsForAttr(
     if (key === "children") continue;
     const value = props[key];
     if (typeof value === "function") {
-      const action = captureActions
-        ? captureHandlerActions(value as NativeEventHandler)
-        : undefined;
+      // Function props on client-referenced child slots become replayable
+      // `{ __ilha: "action" }` markers so server islands can revive them.
+      const action =
+        captureActions && !isRawHtmlValue(value)
+          ? captureHandlerActions(value as unknown as NativeEventHandler)
+          : undefined;
       if (action) (out ??= {})[key] = { __ilha: "action", ...action };
       continue;
     }
@@ -389,45 +407,14 @@ function reviveSlotPropValue(value: unknown): unknown {
   return out;
 }
 
-/**
- * Exact legacy shape produced when RawHtml lost its brand under JSON.stringify:
- * a plain object with a single own key `value` that is a string.
- */
-function isLegacyRawHtmlBlob(value: unknown): value is { value: string } {
-  if (!value || typeof value !== "object" || isRawHtmlValue(value)) return false;
-  if (Object.getPrototypeOf(value) !== Object.prototype) return false;
-  const keys = Object.keys(value as object);
-  return (
-    keys.length === 1 &&
-    keys[0] === "value" &&
-    typeof (value as { value: unknown }).value === "string"
-  );
-}
-
-/** Revive attr-parsed props (RawHtml tags). Children stay as plain data if present. */
+/** Revive attr-parsed props, restoring tagged `__ilha:raw` RawHtml values. */
 function reviveSlotProps(props: Record<string, unknown>): Record<string, unknown> {
   // Callers normally pass safeParseSnapshot output (already a plain object),
   // but guard so a mistaken non-object never throws inside revival.
   if (typeof props !== "object" || props === null || Array.isArray(props)) {
     return {};
   }
-  const out = reviveSlotPropValue(props) as Record<string, unknown>;
-  // Legacy / debug attrs may still carry children as `{ value: string }` blobs
-  // after JSON.stringify stripped the RawHtml brand — restore them so a child
-  // island that only sees attr props can still paint compound children.
-  if ("children" in out) out.children = reviveLegacyChildren(out.children);
-  return out;
-}
-
-function reviveLegacyChildren(children: unknown): unknown {
-  if (!Array.isArray(children)) {
-    if (isLegacyRawHtmlBlob(children)) return makeRawHtml(children.value);
-    return reviveSlotPropValue(children);
-  }
-  return children.map((child) => {
-    if (isLegacyRawHtmlBlob(child)) return makeRawHtml(child.value);
-    return reviveSlotPropValue(child);
-  });
+  return reviveSlotPropValue(props) as Record<string, unknown>;
 }
 
 /** Serialized form of slot props, matching the decoded `data-ilha-props` attr. */
@@ -608,11 +595,10 @@ function morphChildren(fromParent: Element, toParent: Element): void {
         continue;
       }
 
-      // A slot host mid leave-transition no longer participates in matching
-      // (its slot id was stripped at teardown). If the template claims this
-      // position, replace it outright — the deferred removal then no-ops on
-      // the detached element instead of deleting a newly adopted subtree.
-      if (fromEl.hasAttribute(LEAVING_ATTR)) {
+      // A slot host that no longer belongs to a live child island no longer
+      // participates in matching. If the template claims this position,
+      // replace it outright.
+      if (fromEl.hasAttribute(SLOT_ATTR) && !fromEl.isConnected) {
         fromParent.replaceChild(toEl.cloneNode(true), fromEl);
         continue;
       }
@@ -869,24 +855,9 @@ const ISLAND_CALL = Symbol.for("ilha.islandCall");
 // and a permissive check (Solid's accepts any function whose output stringifies)
 // registered first will claim ilha islands and render them as escaped raw HTML.
 const ASTRO_RENDERER_GLOBAL = Symbol.for("ilha.astroRenderer");
-/** @internal Internal hook used by a parent's mountSlots to mount a child island and
- * retain a handle to push updated props into it on subsequent parent
- * re-renders. Not part of the public surface. */
-export const ISLAND_MOUNT_INTERNAL = Symbol.for("ilha.islandMountInternal");
+
 const ISLAND_SLOT_TAG = Symbol.for("ilha.islandSlotTag");
 const ISLAND_CLIENT_REF = Symbol.for("ilha.clientRef");
-
-/** @internal Live mount handles keyed by host element. Lets @ilha/router adopt
- * islands hydrated by `ilha.mount()` (whose handles it never saw) and push new
- * loader props into them in place instead of remounting. Entries are removed
- * on unmount. Not part of the public surface. */
-export const ISLAND_MOUNT_HANDLES: WeakMap<
-  Element,
-  {
-    unmount: () => void | Promise<void>;
-    updateProps: (props?: Record<string, unknown>) => void;
-  }
-> = new WeakMap();
 
 /** @internal Sync re-render of an island from a state snapshot. Attached by
  * render(); used by server-frame endpoints to produce HTML for streamed
@@ -902,49 +873,14 @@ type EventManifestEntry = string | { k: string; a: unknown[] };
  * interactive surface alongside their inlined HTML. */
 const ISLAND_SSR_MANIFEST = Symbol.for("ilha.ssrManifest");
 
-function manifestTemplatePrefix(manifest: Map<string, EventManifestEntry>): string {
-  if (manifest.size === 0) return "";
-  const json = escapeHtml(JSON.stringify(Object.fromEntries(manifest)));
-  return `<template ${ACTIONS_ATTR}='${json}'></template>`;
-}
-
 const SLOT_ATTR = "data-ilha-slot";
-/** Marks a slot host whose child island is mid leave-transition: it has been
- * unmounted (and its slot id stripped) but stays connected so the leave
- * animation can paint. The morph replaces such elements instead of matching
- * or mutating them. */
-const LEAVING_ATTR = "data-ilha-leaving";
 const PROPS_ATTR = "data-ilha-props";
 const CLIENT_REF_ATTR = "data-ilha-client-ref";
 const STATE_ATTR = "data-ilha-state";
-const CSS_ATTR = "data-ilha-css";
 /** Hydration manifest mapping `${type}:${index}` event-sentinel pairs to the
  * action keys that own them. Emitted by hydratable(); lets server-owned
  * islands (whose render fn never ships to the client) reconnect their
  * interactive surface. */
-const ACTIONS_ATTR = "data-ilha-actions";
-
-// ---------------------------------------------
-// CSS scoping
-// ---------------------------------------------
-//
-// Wrap the user's CSS in an @scope rule bounded by the island host (upper) and
-// any nested island root (lower). This gives us:
-//   - Selectors resolved against the host's descendants only
-//   - Low-specificity selectors that don't win cascade wars with utilities
-//   - A donut hole at every `[data-ilha]` descendant so parent styles don't
-//     leak into child islands
-//
-// The resulting <style> element is emitted as the first child of the host on
-// every render. Because it's deterministically the same node on both `from`
-// and `to` sides of the morph, `morphChildren` sees a matching <style> and
-// leaves it alone — no flicker, no re-parse, no special-case code in the morph.
-function buildScopedStyle(css: string): string {
-  // Prevent a stray "</style" in author CSS from breaking out of the element.
-  const safeCss = css.replace(/<\/style/gi, "<\\/style");
-  return `<style ${CSS_ATTR}>@scope (:scope) to ([data-ilha]){${safeCss}}</style>`;
-}
-
 export interface RawHtml {
   [RAW]: true;
   value: string;
@@ -1006,15 +942,7 @@ interface IslandRenderCtx {
   manifest?: boolean;
 }
 
-type BindKind =
-  | "value"
-  | "checked"
-  | "valueAsNumber"
-  | "valueAsDate"
-  | "files"
-  | "open"
-  | "group"
-  | "this";
+type BindKind = "value" | "checked" | "files" | "open" | "group" | "this";
 
 interface BindRecord {
   kind: BindKind;
@@ -1037,7 +965,7 @@ interface JsxEventRecord {
   handler: NativeEventHandler;
   modifier?: NativeEventModifier;
   /** Action call captured at render time from a forwarding closure
-   * (`onclick={() => action.remove(id)}`). Serialized into the hydration
+   * (`onclick={() => remove(id)}`). Serialized into the hydration
    * manifest so server-owned islands replay it over RPC. */
   capture?: { k: string; a: unknown[] };
 }
@@ -1045,6 +973,7 @@ interface JsxEventRecord {
 /** Marks SSR action stubs so event registration never capture-invokes them
  * (invoking the real action body during render would run its side effects). */
 const SSR_ACTION_STUB = Symbol.for("ilha.ssrActionStub");
+const CAPTURE_FRAME = Symbol.for("ilha.eventCaptureFrame");
 
 // Synchronous render ⇒ a simple stack scopes capture-recording to exactly one
 // handler invocation.
@@ -1052,7 +981,7 @@ const captureStack: Array<Array<{ k: string; a: unknown[] }>> = [];
 
 /**
  * Invoke a forwarding closure once against sentinel arguments so any
- * `action.x(...)` call inside it is RECORDED, not executed. Returns the first
+ * action(...) call inside it is RECORDED, not executed. Returns the first
  * recorded call, or undefined when the closure throws or calls no action.
  *
  * ponytail: the closure body really executes once per manifest render (SSR
@@ -1066,6 +995,12 @@ function captureHandlerActions(
 ): { k: string; a: unknown[] } | undefined {
   const frame: Array<{ k: string; a: unknown[] }> = [];
   captureStack.push(frame);
+  // Published so interop layers (e.g. @ilha/router's server-action shim,
+  // RPC frameworks) can cooperate: while set, server-mutation wrappers
+  // should push { k: "<transport key>", a: args } instead of executing.
+  const g = globalThis as typeof globalThis & { [CAPTURE_FRAME]?: unknown };
+  const previousFrame = g[CAPTURE_FRAME];
+  g[CAPTURE_FRAME] = frame;
   try {
     const sentinelEvent = {
       preventDefault: () => {},
@@ -1079,6 +1014,7 @@ function captureHandlerActions(
   } catch {
     // Closure has logic that doesn't hold under sentinel args — no record.
   } finally {
+    g[CAPTURE_FRAME] = previousFrame;
     captureStack.pop();
   }
   return frame[0];
@@ -1192,10 +1128,9 @@ function emitIslandSlot({
   // SSR path: render the child's HTML inline.
   //
   // When async child rendering is enabled (ctx.pending is set — the parent
-  // itself is in async SSR mode), pop the render context so island(props)
-  // invokes renderToString (the SSR path) instead of returning an IslandCall.
-  // This allows child islands with async derived() to be properly awaited
-  // instead of emitting loading markup.
+  // itself is in async SSR mode), pop the render context before rendering the
+  // child through its explicit async SSR API. This allows child islands with
+  // async derived() to settle instead of emitting loading markup.
   if (ctx?.pending) {
     popRenderCtx();
     try {
@@ -1212,8 +1147,8 @@ function emitIslandSlot({
         | undefined;
       const result = ssrWithManifest
         ? ssrWithManifest(props as Record<string, unknown>, manifest)
-        : island(props as Record<string, unknown>);
-      const prefix = (): string => manifestTemplatePrefix(manifest);
+        : island.toStringAsync(props as Record<string, unknown>);
+      const prefix = (): string => serializeServerManifest(manifest);
 
       if (result instanceof Promise) {
         // Store the pending render for later resolution by renderWithCtx.
@@ -1281,10 +1216,19 @@ export interface SignalWriter<T> {
   readonly [SIGNAL_WRITER_TYPE]?: (value: T) => void;
 }
 
+type PathValue<T, P extends readonly PathSegment[]> = P extends readonly [infer Head, ...infer Tail]
+  ? Head extends keyof T
+    ? Tail extends readonly PathSegment[]
+      ? PathValue<T[Head], Tail>
+      : never
+    : unknown
+  : T;
+
 interface MarkedSignalAccessor<T> extends SignalWriter<T> {
   (): T;
   (...args: [value: SignalSetter<T>]): void;
   select<S>(selector: (state: T) => S): MarkedSignalAccessor<S>;
+  select<const P extends readonly PathSegment[]>(...path: P): MarkedSignalAccessor<PathValue<T, P>>;
   [SIGNAL_ACCESSOR]: true;
 }
 
@@ -1304,7 +1248,8 @@ function markSignalAccessor<T>(fn: {
 }): MarkedSignalAccessor<T> {
   (fn as unknown as Record<symbol, boolean>)[SIGNAL_ACCESSOR] = true;
   const accessor = fn as MarkedSignalAccessor<T>;
-  accessor.select = <S>(selector: (state: T) => S) => createSelectAccessor(accessor, selector);
+  accessor.select = ((...args: Array<((state: unknown) => unknown) | PathSegment>) =>
+    createSelectAccessor(accessor, args)) as MarkedSignalAccessor<T>["select"];
   return accessor;
 }
 
@@ -1390,38 +1335,49 @@ function trackSelectPath<T, S>(rootState: T, selector: (state: T) => S): readonl
   return path;
 }
 
-function createSelectAccessor<T, S>(
-  root: MarkedSignalAccessor<T>,
-  selector: (state: T) => S,
-): MarkedSignalAccessor<S> {
-  const path = trackSelectPath(root(), selector);
-  const selected = selector(root());
-  const resolved = path.length === 0 ? root() : getAtPath(root(), path);
-  if (!Object.is(selected, resolved)) {
-    const msg =
-      "select(): selector must only traverse nested properties or array indexes — derived or transformed values are not supported.";
-    if (__DEV__) warn(msg);
-    throw new Error(msg);
+function createSelectAccessor(
+  root: MarkedSignalAccessor<any>,
+  input: Array<((state: unknown) => unknown) | PathSegment>,
+): MarkedSignalAccessor<unknown> {
+  const hasSelector = typeof input[0] === "function";
+  const selector = hasSelector ? (input[0] as (state: unknown) => unknown) : undefined;
+  // Resolve the traversal path either by running the selector through the
+  // tracking proxy (selector form) or by taking the literal property path
+  // (variadic form). The variadic path skips the Proxy tracker entirely.
+  let path: readonly PathSegment[];
+  if (selector) {
+    path = trackSelectPath(root(), selector);
+    const selected = selector(root());
+    const resolved = path.length === 0 ? root() : getAtPath(root(), path);
+    if (!Object.is(selected, resolved)) {
+      const msg =
+        "select(): selector must only traverse nested properties or array indexes — derived or transformed values are not supported.";
+      if (__DEV__) warn(msg);
+      throw new Error(msg);
+    }
+    if (__DEV__ && path.length === 0) {
+      warn(
+        "select(): selector did not traverse nested state — bind writes may replace the entire root value.",
+      );
+    }
+  } else {
+    path = input as PathSegment[];
   }
-  if (__DEV__ && path.length === 0) {
-    warn(
-      "select(): selector did not traverse nested state — bind writes may replace the entire root value.",
-    );
-  }
+  const read = (from: unknown): unknown =>
+    selector ? (path.length === 0 ? selector(from) : getAtPath(from, path)) : getAtPath(from, path);
   return markSignalAccessor((...args: unknown[]): unknown => {
     if (args.length === 0) {
-      return path.length === 0 ? selector(root()) : (getAtPath(root(), path) as S);
+      return read(root());
     }
     const previousRoot = root();
-    const previousSelected =
-      path.length === 0 ? selector(previousRoot) : (getAtPath(previousRoot, path) as S);
-    const value = resolveSignalSetter(() => previousSelected, args[0] as SignalSetter<S>);
+    const previousSelected = read(previousRoot);
+    const value = resolveSignalSetter(() => previousSelected, args[0] as SignalSetter<unknown>);
     const next =
-      path.length === 0
-        ? (value as unknown as T)
-        : (setAtPath({ object: previousRoot, path, value }) as T);
-    if (!Object.is(previousRoot, next)) root((() => next) as SignalSetter<T>);
-  }) as MarkedSignalAccessor<S>;
+      path.length === 0 && selector
+        ? (value as unknown)
+        : (setAtPath({ object: previousRoot, path, value }) as unknown);
+    if (!Object.is(previousRoot, next)) root((() => next) as SignalSetter<unknown>);
+  }) as MarkedSignalAccessor<unknown>;
 }
 
 // ---------------------------------------------
@@ -1430,21 +1386,6 @@ function createSelectAccessor<T, S>(
 
 function ilhaRaw(value: string): RawHtml {
   return { [RAW]: true, value };
-}
-
-// Plain passthrough tagged template for CSS. This exists purely for editor
-// tooling — it lets authors tag their stylesheets as `css\`…\`` so LSPs and
-// Prettier plugins can syntax-highlight and format the contents. No runtime
-// magic: the result is just the interpolated string, identical to what you'd
-// get from a plain template literal.
-function ilhaCss(strings: TemplateStringsArray | string, ...values: (string | number)[]): string {
-  if (typeof strings === "string") return strings;
-  let result = "";
-  for (let i = 0; i < strings.length; i++) {
-    result += strings[i];
-    if (i < values.length) result += String(values[i]);
-  }
-  return result;
 }
 
 // ---------------------------------------------
@@ -1490,16 +1431,7 @@ function interpolateValue(v: unknown): string {
 // Mount-time wiring lives in applyTemplateBindings — it walks the host for
 // `[data-ilha-bind]` and uses resolveBindOps for the canonical
 // property/event mapping per kind.
-const BIND_VALID_KINDS = new Set<BindKind>([
-  "value",
-  "checked",
-  "valueAsNumber",
-  "valueAsDate",
-  "files",
-  "open",
-  "group",
-  "this",
-]);
+const BIND_VALID_KINDS = new Set<BindKind>(["value", "checked", "files", "open", "group", "this"]);
 
 // Matches a `bind:NAME=` or lowercase `onNAME=` (with an optional opening
 // quote) at the end of a static chunk. The `$` anchor prevents matching text
@@ -1561,20 +1493,6 @@ function findTagCloseIndex(
 // Format a Date for an <input type=date|datetime-local|time|month|week>.
 // We pick `date` semantics by default; users wanting datetime-local should
 // pre-format the string themselves on the value side.
-function formatDateForInput(d: unknown): string {
-  if (d instanceof Date) {
-    if (isNaN(d.getTime())) {
-      if (__DEV__)
-        warn("bind:valueAsDate received an invalid Date object — value attribute will be empty.");
-      return "";
-    }
-    // YYYY-MM-DD
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  }
-  return "";
-}
-
 // Try to extract the element's static `value="..."` attribute from the
 // trailing prefix of the current open tag. Used for SSR reflection of
 // bind:group on radio/checkbox inputs, where the runtime needs the
@@ -1624,10 +1542,6 @@ function emitBindSSR({
   switch (kind) {
     case "value":
       return [` value="${escapeHtml(v ?? "")}"`, spec];
-    case "valueAsNumber":
-      return [` value="${escapeHtml(v == null ? "" : String(v))}"`, spec];
-    case "valueAsDate":
-      return [` value="${escapeHtml(formatDateForInput(v))}"`, spec];
     case "checked":
       return [v ? ` checked` : ``, spec];
     case "open":
@@ -1715,6 +1629,18 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
     const value = values[i];
     const eventMatch = chunk.match(EVENT_PREFIX_RE);
     const eventMatchStart = eventMatch ? chunk.length - eventMatch[0]!.length : -1;
+    if (!eventMatch && typeof value === "function") {
+      const ambiguous = chunk.match(
+        /(?:^|\s)on([a-z][a-z0-9-]*)(?::[a-z][a-z0-9-]*)?\s*=\s*(?:(?:"[^"]*)|(?:'[^']*)|(?:[^\s"'=<>`]+))$/,
+      );
+      const start = ambiguous ? chunk.length - ambiguous[0]!.length : -1;
+      if (ambiguous && isEventAttributePosition(result + chunk, result.length + start)) {
+        throw new Error(
+          `[ilha] on${ambiguous[1]} handler must occupy the entire attribute value. ` +
+            `Write on${ambiguous[1]}=\${handler}.`,
+        );
+      }
+    }
     // An attribute-only nested template (html` onclick=${handler}`) has no
     // opening tag of its own. Register it so the returned sentinel can be
     // composed into an outer tag instead of invoking/serializing the function.
@@ -1732,18 +1658,45 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
         ? (rawModifier as NativeEventModifier)
         : undefined;
       const openQuote = (eventMatch[3] ?? null) as '"' | "'" | null;
+      const nextChunk = strings[i + 1] ?? "";
+      const occupiesWholeAttribute = openQuote
+        ? nextChunk.startsWith(openQuote)
+        : /^(?:\s|\/?>|$)/.test(nextChunk);
+      if (!occupiesWholeAttribute) {
+        throw new Error(
+          `[ilha] on${eventName} handler must occupy the entire attribute value. ` +
+            `Write on${eventName}=\${handler}.`,
+        );
+      }
       const cleanPrefix = chunk.slice(0, eventMatchStart).replace(/\s+$/, "");
       // Event functions are runtime-only. Never call or serialize them into an
       // inline on* attribute, even when the template is rendered standalone.
-      // Forwarding closures (`onclick={() => action.remove(id)}`) are invoked
-      // once against sentinel args so the action call is recorded for the
+      // Direct action references are matched by identity for the hydration
+      // manifest. Closures attach after mount; Ilha never executes user event
+      // handlers during SSR to inspect their captured arguments.
+      result += cleanPrefix;
+      // Forwarding closures (`onclick={() => remove(id)}`) are invoked once
+      // against sentinel args so the action call is recorded for the
       // hydration manifest; direct action references are matched by identity.
       const isActionStub = typeof value === "function" && SSR_ACTION_STUB in (value as object);
       const capture =
-        ctx?.manifest && typeof value === "function" && !isActionStub
+        ctx?.manifest === true && typeof value === "function" && !isActionStub
           ? captureHandlerActions(value as NativeEventHandler)
           : undefined;
-      result += cleanPrefix;
+      if (
+        __DEV__ &&
+        ctx?.manifest === true &&
+        typeof value === "function" &&
+        !isActionStub &&
+        !capture
+      ) {
+        warn(
+          `Event handler recorded no action during hydration-manifest rendering. Forwarding ` +
+            `closures may only call actions replayable over RPC (an action() slot or an ` +
+            `exported server action); any other code executes on the server and cannot be ` +
+            `replayed by the client.`,
+        );
+      }
       if (ctx && typeof value === "function") {
         const index = ctx.events.length;
         if (rawModifier && !modifier) {
@@ -1791,12 +1744,12 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
       if (!ctx) {
         // No active render context (e.g. html`` invoked at module top
         // level outside an island render). Bindings only work inside a
-        // .render() body; emit plain reflection without sentinel so the
+        // island body; emit plain reflection without sentinel so the
         // output still has the signal's current value, and warn in dev.
         if (__DEV__) {
           warn(
             `bind:${name} used outside an island render — bindings only ` +
-              `work in .render(). The value is reflected once but not wired.`,
+              `work inside an island render. The value is reflected once but not wired.`,
           );
         }
         const stripped = chunk.slice(0, chunk.length - m[0]!.length);
@@ -1908,7 +1861,7 @@ const ilhaContext = Object.assign(ilhaContextFn, {
  *
  * The returned accessor is a getter when called with no arguments and a
  * setter when called with one. Reading it inside a `.derived()`, `.effect()`,
- * or `.render()` automatically subscribes the surrounding reactive scope —
+ * or during an island render automatically subscribes the surrounding reactive scope —
  * so when the signal changes, dependents re-run as if it were local state.
  */
 export function ilhaSignal<T>(initial: T): SignalAccessor<T> {
@@ -1923,7 +1876,7 @@ export function ilhaSignal<T>(initial: T): SignalAccessor<T> {
  * Create a free-standing read-only reactive value derived from other signals.
  * The computation is lazy and cached: `fn` re-runs only when a signal it read
  * changed and the computed is read again. Reading it inside a `.derived()`,
- * `.effect()`, `.render()`, or top-level `effect()` subscribes that scope —
+ * `.effect()`, an island render, or top-level `effect()` subscribes that scope —
  * dependents re-run when the computed's value changes.
  *
  * ```ts
@@ -1967,7 +1920,7 @@ function ilhaEffect(fn: () => void | (() => void)): () => void {
       cleanup = undefined;
     }
   };
-  const stop = effect(() => {
+  const stop = alienEffect(() => {
     runCleanup();
     startBatch();
     try {
@@ -2019,6 +1972,113 @@ export function batch<T>(fn: () => T): T {
 }
 
 // ---------------------------------------------
+// persist() — storage sync for standalone signals
+// ---------------------------------------------
+
+/** Minimal storage surface — `localStorage`, `sessionStorage`, or a custom adapter. */
+export type PersistStorage = Pick<Storage, "getItem" | "setItem">;
+
+export interface PersistOptions<T> {
+  /** Storage backend. Default: `window.localStorage`. */
+  storage?: PersistStorage;
+  /**
+   * Mirror writes from other tabs via the window `storage` event. Only active
+   * for the default `localStorage` backend. Default: `true`.
+   */
+  crossTab?: boolean;
+  /** Value → string. Default: `JSON.stringify`. */
+  serialize?: (value: T) => string;
+  /** String → value. Default: `JSON.parse` (malformed payloads are ignored). */
+  deserialize?: (raw: string) => T | null;
+}
+
+/**
+ * Keep a standalone signal in sync with persistent storage:
+ *
+ * 1. On call, reads `key` and writes the stored value into the signal.
+ * 2. Subscribes to the signal and writes its value back on every change.
+ * 3. Optionally mirrors writes from other tabs (`storage` events).
+ *
+ * No-op on the server (returns an inert unsubscribe). Call the returned
+ * unsubscribe to stop syncing.
+ *
+ * ```ts
+ * const cart = signal([] as string[]);
+ * persist(cart, "cart");
+ * ```
+ */
+export function persist<T>(
+  accessor: SignalAccessor<T>,
+  key: string,
+  options: PersistOptions<T> = {},
+): () => void {
+  if (typeof window === "undefined") return () => {};
+  const storage = options.storage ?? window.localStorage;
+  const serialize = options.serialize ?? (JSON.stringify as (value: T) => string);
+  const deserialize =
+    options.deserialize ??
+    ((raw: string): T | null => {
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        return null;
+      }
+    });
+
+  const label = `[ilha] persist("${key}")`;
+  const applyRaw = (raw: string | null): void => {
+    if (raw == null) return;
+    try {
+      const value = deserialize(raw);
+      if (value !== null) {
+        const prevSub = setActiveSub(undefined);
+        try {
+          // Updater wrapper: stores the persisted value regardless of whether
+          // T is a non-function type (SignalSetter excludes function values).
+          accessor(() => value);
+        } finally {
+          setActiveSub(prevSub);
+        }
+      }
+    } catch (err) {
+      console.error(`${label}: failed to restore`, err);
+    }
+  };
+
+  // 1. Hydrate from storage.
+  try {
+    applyRaw(storage.getItem(key));
+  } catch (err) {
+    console.error(`${label}: failed to read storage`, err);
+  }
+
+  // 2. Write-through on every signal change.
+  const stopEffect = ilhaEffect(() => {
+    try {
+      storage.setItem(key, serialize(accessor()));
+    } catch (err) {
+      console.error(`${label}: failed to write storage`, err);
+    }
+  });
+
+  // 3. Cross-tab sync (localStorage only — sessionStorage/custom backends
+  // don't emit cross-tab storage events).
+  let onStorage: ((e: StorageEvent) => void) | null = null;
+  if (options.crossTab !== false && storage === window.localStorage) {
+    onStorage = (e) => {
+      if (e.key !== key) return;
+      applyRaw(e.newValue);
+    };
+    window.addEventListener("storage", onStorage);
+  }
+
+  return () => {
+    stopEffect();
+    if (onStorage) window.removeEventListener("storage", onStorage);
+  };
+}
+
+// ---------------------------------------------
 // Derived
 // ---------------------------------------------
 
@@ -2067,349 +2127,6 @@ function defaultDerivedAccessor(): DerivedAccessor<unknown> {
   }));
 }
 
-function buildDerivedAccessors<TDerivedMap extends Record<string, unknown>>(
-  envelopes: Record<string, DerivedValue<unknown>>,
-): IslandDerived<TDerivedMap> {
-  const accessors = new Map<string, DerivedAccessor<unknown>>();
-  for (const [key, envelope] of Object.entries(envelopes)) {
-    accessors.set(
-      key,
-      createDerivedAccessor(
-        () => envelope,
-        (value) => {
-          envelope.loading = false;
-          envelope.value = value;
-          envelope.error = undefined;
-        },
-      ),
-    );
-  }
-  return new Proxy({} as IslandDerived<TDerivedMap>, {
-    get(_, key) {
-      // Symbol keys (Symbol.toPrimitive, Symbol.iterator, …) reach this trap
-      // during coercion/spreads; handing them a fresh accessor function
-      // produces confusing behavior — report them as absent instead.
-      if (typeof key !== "string") return undefined;
-      return accessors.get(key) ?? defaultDerivedAccessor();
-    },
-  });
-}
-
-type DerivedFnContext<TInput, TStateMap extends Record<string, unknown>> = {
-  state: IslandState<TStateMap>;
-  input: TInput;
-  signal: AbortSignal;
-};
-
-type DerivedFn<TInput, TStateMap extends Record<string, unknown>, V> = (
-  ctx: DerivedFnContext<TInput, TStateMap>,
-) => V | Promise<V>;
-
-interface DerivedEntry<TInput, TStateMap extends Record<string, unknown>> {
-  key: string;
-  fn: DerivedFn<TInput, TStateMap, unknown>;
-}
-
-export type IslandDerived<TDerivedMap extends Record<string, unknown>> = {
-  readonly [K in keyof TDerivedMap]: DerivedAccessor<TDerivedMap[K]>;
-};
-
-// Duck-typed @ilha/store/query detection (Symbol.for — no hard dependency).
-// query() attaches calls to a capture stack and exposes ILHA_QUERY_RUN.
-const ILHA_QUERY = Symbol.for("ilha.store.query");
-const ILHA_QUERY_RUN = Symbol.for("ilha.store.query.run");
-const ILHA_QUERY_PENDING = Symbol.for("ilha.store.query.pending");
-const ILHA_QUERY_STACK = Symbol.for("ilha.store.query.stack");
-
-type QueryRunCallbacks = {
-  onResult: (value: unknown) => void;
-  onError: (err: Error) => void;
-  onFetchStart: () => void;
-};
-
-type QueryCallLike = {
-  [run: symbol]: (signal: AbortSignal, cbs: QueryRunCallbacks) => void;
-};
-
-function queryCaptureStack(): { queryCall?: QueryCallLike }[] {
-  const g = globalThis as Record<symbol, unknown>;
-  let stack = g[ILHA_QUERY_STACK] as { queryCall?: QueryCallLike }[] | undefined;
-  if (!stack) {
-    stack = [];
-    g[ILHA_QUERY_STACK] = stack;
-  }
-  return stack;
-}
-
-function isQueryCall(value: unknown): value is QueryCallLike {
-  return value !== null && typeof value === "object" && ILHA_QUERY in (value as object);
-}
-
-function resolveQueryCall(
-  result: unknown,
-  captureSlot: { queryCall?: QueryCallLike },
-): QueryCallLike | undefined {
-  const pending = (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] as
-    | QueryCallLike
-    | undefined;
-  (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
-  return captureSlot.queryCall ?? pending ?? (isQueryCall(result) ? result : undefined);
-}
-
-function runBrandedQuery(
-  queryCall: QueryCallLike,
-  abortSignal: AbortSignal,
-  env: {
-    (): DerivedValue<unknown>;
-    (value: DerivedValue<unknown>): void;
-  },
-): void {
-  const writeEnv = (next: DerivedValue<unknown>) => {
-    if (abortSignal.aborted) return;
-    const prevSub = setActiveSub(undefined);
-    env(next);
-    setActiveSub(prevSub);
-  };
-  const run = queryCall[ILHA_QUERY_RUN];
-  if (typeof run !== "function") {
-    writeEnv({
-      loading: false,
-      value: undefined,
-      error: new Error("[@ilha] branded query is missing a callable runner"),
-    });
-    return;
-  }
-  try {
-    run.call(queryCall, abortSignal, {
-      onResult: (value) => {
-        writeEnv({ loading: false, value, error: undefined });
-      },
-      onError: (err) => {
-        writeEnv({ loading: false, value: undefined, error: err });
-      },
-      onFetchStart: () => {
-        const prevSub = setActiveSub(undefined);
-        const prevVal = env();
-        env({ loading: true, value: prevVal.value, error: undefined });
-        setActiveSub(prevSub);
-      },
-    });
-  } catch (err) {
-    writeEnv({
-      loading: false,
-      value: undefined,
-      error: err instanceof Error ? err : new Error(String(err)),
-    });
-  }
-}
-
-function createDerivedProxy<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown>,
->({
-  entries,
-  state,
-  input,
-  derivedSnapshot,
-}: {
-  entries: DerivedEntry<TInput, TStateMap>[];
-  state: IslandState<TStateMap>;
-  input: TInput;
-  derivedSnapshot?: Record<string, DerivedValue<unknown>>;
-}): { proxy: IslandDerived<TDerivedMap>; setup: () => () => void } {
-  const envelopes = new Map<string, ReturnType<typeof signal<DerivedValue<unknown>>>>();
-
-  for (const entry of entries) {
-    let initialEnvelope: DerivedValue<unknown>;
-
-    if (derivedSnapshot != null && entry.key in derivedSnapshot) {
-      initialEnvelope = { ...(derivedSnapshot[entry.key] as DerivedValue<unknown>) };
-    } else {
-      // Probe the derived function to compute an initial value for onMount.
-      // Skip async functions to avoid triggering their side effects twice
-      // (once here, once in the reactive effect). The heuristic checks the
-      // constructor name, which works for native async functions; transpiled
-      // async fns fall back to not eagerly computing (safe — the effect
-      // handles them).
-      // Note: the probe calls entry.fn once synchronously. If the derived fn
-      // has observable side effects (beyond reading signals), those effects
-      // fire twice on mount — once here and once in setup(). Pure computed
-      // functions are fine.
-      const looksAsync =
-        entry.fn.constructor.name === "AsyncFunction" ||
-        entry.fn.constructor.name === "AsyncGeneratorFunction";
-      if (looksAsync) {
-        initialEnvelope = { loading: true, value: undefined, error: undefined };
-      } else {
-        const ac = new AbortController();
-        const captureSlot: { queryCall?: QueryCallLike } = {};
-        const stack = queryCaptureStack();
-        // Match the reactive path: drop any stale global pending sentinel
-        // before invoking so a plain return cannot be misread as a query.
-        (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
-        stack.push(captureSlot);
-        try {
-          const result = entry.fn({ state, input, signal: ac.signal });
-          const queryCall = resolveQueryCall(result, captureSlot);
-          if (queryCall) {
-            initialEnvelope = { loading: true, value: undefined, error: undefined };
-          } else if (result instanceof Promise) {
-            // Sync function that returns a Promise — treat as async
-            initialEnvelope = { loading: true, value: undefined, error: undefined };
-            result.catch(() => {});
-          } else {
-            initialEnvelope = { loading: false, value: result as unknown, error: undefined };
-          }
-        } catch (err) {
-          (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
-          initialEnvelope = {
-            loading: false,
-            value: undefined,
-            error: err instanceof Error ? err : new Error(String(err)),
-          };
-        } finally {
-          stack.pop();
-          ac.abort();
-        }
-      }
-    }
-
-    const env = signal<DerivedValue<unknown>>(initialEnvelope);
-    envelopes.set(entry.key, env);
-  }
-
-  const accessors = new Map<string, DerivedAccessor<unknown>>();
-  for (const entry of entries) {
-    const env = envelopes.get(entry.key)!;
-    accessors.set(
-      entry.key,
-      createDerivedAccessor(
-        () => env(),
-        (value) => {
-          const prevSub = setActiveSub(undefined);
-          env({ loading: false, value, error: undefined });
-          setActiveSub(prevSub);
-        },
-      ),
-    );
-  }
-
-  const proxy = new Proxy({} as IslandDerived<TDerivedMap>, {
-    get(_, key) {
-      if (typeof key !== "string") return undefined;
-      return accessors.get(key) ?? defaultDerivedAccessor();
-    },
-  });
-
-  const setup = () => {
-    const stops: Array<() => void> = [];
-
-    for (const entry of entries) {
-      const env = envelopes.get(entry.key)!;
-      let ac = new AbortController();
-
-      let skipFirst = derivedSnapshot != null && entry.key in derivedSnapshot;
-
-      const stopEffect = effect(() => {
-        ac.abort();
-        ac = new AbortController();
-        const currentAc = ac;
-
-        let result: unknown;
-        const captureSlot: { queryCall?: QueryCallLike } = {};
-        const stack = queryCaptureStack();
-        (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
-        stack.push(captureSlot);
-        try {
-          result = entry.fn({ state, input, signal: currentAc.signal });
-        } catch (err) {
-          (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
-          if (skipFirst) {
-            skipFirst = false;
-            return;
-          }
-          const prevSub = setActiveSub(undefined);
-          env({
-            loading: false,
-            value: undefined,
-            error: err instanceof Error ? err : new Error(String(err)),
-          });
-          setActiveSub(prevSub);
-          return;
-        } finally {
-          stack.pop();
-        }
-
-        const queryCall = resolveQueryCall(result, captureSlot);
-
-        if (skipFirst) {
-          skipFirst = false;
-          if (result instanceof Promise) {
-            (result as Promise<unknown>).catch(() => {});
-          }
-          return;
-        }
-
-        if (queryCall) {
-          runBrandedQuery(queryCall, currentAc.signal, env);
-          return;
-        }
-
-        if (!(result instanceof Promise)) {
-          const prevSub = setActiveSub(undefined);
-          env({ loading: false, value: result as unknown, error: undefined });
-          setActiveSub(prevSub);
-          return;
-        }
-
-        const prevSub = setActiveSub(undefined);
-        const prevVal = env();
-        env({ loading: true, value: prevVal.value, error: undefined });
-        setActiveSub(prevSub);
-
-        // Keep the capture-slot snapshot for hosts that attach during the
-        // sync preamble; after `await`, `return query()` resolves to the
-        // branded call itself — detect that here too.
-        (result as Promise<unknown>)
-          .then((value) => {
-            if (currentAc.signal.aborted) return;
-            if (isQueryCall(value)) {
-              runBrandedQuery(value, currentAc.signal, env);
-              return;
-            }
-            const latePending = (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] as
-              | QueryCallLike
-              | undefined;
-            (globalThis as Record<symbol, unknown>)[ILHA_QUERY_PENDING] = undefined;
-            if (latePending) {
-              runBrandedQuery(latePending, currentAc.signal, env);
-              return;
-            }
-            env({ loading: false, value, error: undefined });
-          })
-          .catch((err: unknown) => {
-            if (currentAc.signal.aborted) return;
-            env({
-              loading: false,
-              value: undefined,
-              error: err instanceof Error ? err : new Error(String(err)),
-            });
-          });
-      });
-
-      stops.push(() => {
-        stopEffect();
-        ac.abort();
-      });
-    }
-
-    return () => stops.forEach((s) => s());
-  };
-
-  return { proxy, setup };
-}
-
 // ---------------------------------------------
 // Bind
 // ---------------------------------------------
@@ -2448,8 +2165,7 @@ function resolveBindOps(
   el: Element,
   kind: BindKind,
 ): {
-  // Event name to listen on, or null for one-shot bindings (e.g. `this`,
-  // and SSR-only `valueAsDate` when reflection is the only effect).
+  // Event name to listen on, or null for one-shot bindings such as `this`.
   event: string | null;
   // Read the current DOM value back into something writable to the
   // signal. May return undefined to signal "skip this update" (e.g.
@@ -2467,25 +2183,6 @@ function resolveBindOps(
         event: el.tagName === "SELECT" ? "change" : "input",
         read: (el) => (el as HTMLInputElement).value,
         write: (el, v) => ((el as HTMLInputElement).value = v == null ? "" : String(v)),
-      };
-    case "valueAsNumber":
-      return {
-        event: "input",
-        read: (el) => {
-          const n = (el as HTMLInputElement).valueAsNumber;
-          return Number.isNaN(n) ? null : n;
-        },
-        write: (el, v) =>
-          ((el as HTMLInputElement).value =
-            v == null || Number.isNaN(v as number) ? "" : String(v)),
-      };
-    case "valueAsDate":
-      return {
-        event: "input",
-        read: (el) => (el as HTMLInputElement).valueAsDate,
-        write: (el, v) => {
-          (el as HTMLInputElement).value = formatDateForInput(v);
-        },
       };
     case "checked":
       return {
@@ -2609,7 +2306,7 @@ function applyJsxEvents({
           invocationController = new AbortController();
         }
         const signal = invocationController
-          ? anySignal([listenerController.signal, invocationController.signal])
+          ? AbortSignal.any([listenerController.signal, invocationController.signal])
           : listenerController.signal;
         let result: unknown;
         startBatch();
@@ -2780,7 +2477,7 @@ function applyTemplateBindings(
           if (Number.isNaN(n) && __DEV__) {
             warn(
               `bind:${spec.kind} read "${raw}" but the signal holds a number — ` +
-                `coercing to 0. Use bind:valueAsNumber (null on invalid input) or string state.`,
+                `coercing to 0. Use a native oninput handler with valueAsNumber or string state.`,
             );
           }
           value = Number.isNaN(n) ? 0 : n;
@@ -2804,15 +2501,13 @@ function applyTemplateBindings(
 
 export type SignalAccessor<T> = MarkedSignalAccessor<T>;
 
-type MergeState<TStateMap extends Record<string, unknown>, K extends string, V> = Omit<
-  TStateMap,
-  K
-> &
-  Record<K, V>;
+/** Island-local reactive state returned by the state() primitive. */
+export type StateAccessor<T> = MarkedSignalAccessor<T>;
 
-export type IslandState<TStateMap extends Record<string, unknown>> = {
-  readonly [K in keyof TStateMap]-?: SignalAccessor<TStateMap[K]>;
-};
+/** A function component body: receives current props, returns HTML. */
+export interface IslandComponent<P> {
+  (props: P): string | RawHtml;
+}
 
 // ---------------------------------------------
 // Hydratable options
@@ -2829,36 +2524,30 @@ export interface HydratableOptions {
 // Island interface
 // ---------------------------------------------
 
-export interface Island<
-  TInput = Record<string, unknown>,
-  _TStateMap extends Record<string, unknown> = Record<string, unknown>,
-> {
-  // Top-level call returns SSR HTML. Inside an html`` interpolation the call
-  // is intercepted by the render context and produces an IslandCall (a
-  // composition marker) instead — but from the caller's perspective the
-  // return type is the SSR string union; interpolation handles the rest.
-  (props?: Partial<TInput>): string | Promise<string>;
+export interface Island<TInput = Record<string, unknown>> {
+  // Calling an island is reserved for child composition inside another
+  // island's render. Use toString()/toStringAsync() for top-level SSR.
+  (props?: Partial<TInput>): IslandCall;
   toString(props?: Partial<TInput>): string;
   /**
-   * Async SSR: renders the island and awaits async `.derived()` values before
-   * returning the HTML string. Always returns a Promise — prefer this over
-   * `await island(props)` when you need the async SSR form by name.
+   * Async SSR: renders the island and awaits async derived values before
+   * returning the HTML string. Always returns a Promise.
    */
   toStringAsync(props?: Partial<TInput>): Promise<string>;
   mount(host: Element, props?: Partial<TInput>): () => void;
   hydratable(props: Partial<TInput>, options: HydratableOptions): Promise<string>;
-  // Create a keyed invocation for use inside html`` list rendering. The key
-  // stabilises slot identity across re-renders where positional order is not
-  // reliable (e.g. reorderable lists). Keys must be unique within a single
-  // parent render.
+  // Create a keyed invocation for use inside html``/JSX list rendering. The
+  // key stabilises slot identity across re-renders where positional order is
+  // not reliable (e.g. reorderable lists). Keys must be unique within a
+  // single parent render.
   key(key: string): KeyedIsland<TInput>;
   /**
    * Register this island as a custom element, usable from plain HTML or any
    * framework: `Counter.define("x-counter", { observe: ["label"] })` then
    * `<x-counter label="hi"></x-counter>`. Observed attributes become string
-   * input props and re-resolve input on change; richer props can be assigned
-   * via the element's `props` property. Mounts on connect, unmounts on
-   * disconnect. No-op (with a dev warning) where customElements is missing.
+   * props and re-resolve on change; richer props can be assigned via the
+   * element's `props` property. Mounts on connect, unmounts on disconnect.
+   * No-op (with a dev warning) where customElements is missing.
    */
   define(tagName: string, options?: { observe?: string[] }): void;
   [ISLAND]: true;
@@ -2871,304 +2560,65 @@ export interface KeyedIsland<TInput> {
   [ISLAND_CALL]: true;
 }
 
-type AnyIsland = Island<any, any>;
+type AnyIsland = Island<any>;
 
-type AnyActionFn = (props: any, ctx: any) => unknown;
-type ActionMap = Record<string, AnyActionFn>;
+// ---------------------------------------------
+// Actions
+// ---------------------------------------------
 
 type ActionCall<P> = [P] extends [undefined]
   ? () => void
   : unknown extends P
     ? () => void
-    : (props: P) => void;
+    : (payload: P) => void;
 
+/**
+ * Reactive operation with execution state. `pending`, `data`, and `error`
+ * are reactive: reading them during render subscribes the island render.
+ */
 export type ActionAccessor<P = undefined, R = void> = ActionCall<P> & {
   readonly pending: boolean;
   readonly data: Awaited<R> | undefined;
   readonly error: Error | undefined;
 };
 
-export type IslandActions<TActionMap extends ActionMap> = {
-  readonly [K in keyof TActionMap]: TActionMap[K] extends (props: infer P, ctx: any) => infer R
-    ? ActionAccessor<P, R>
-    : never;
-};
+// ---------------------------------------------
+// Effect / error contexts
+// ---------------------------------------------
 
-export type ActionContext<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<never, never>,
-> = {
-  state: IslandState<TStateMap>;
-  derived: IslandDerived<TDerivedMap>;
-  input: TInput;
-  host: Element;
-  signal: AbortSignal;
-};
-
-type RenderContext<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown>,
-  TActionMap extends ActionMap = Record<never, never>,
-> = {
-  state: IslandState<TStateMap>;
-  derived: IslandDerived<TDerivedMap>;
-  action: IslandActions<TActionMap>;
-  input: TInput;
-};
-
-export type EffectContext<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<never, never>,
-  TActionMap extends ActionMap = Record<never, never>,
-> = {
-  state: IslandState<TStateMap>;
-  derived: IslandDerived<TDerivedMap>;
-  action: IslandActions<TActionMap>;
-  input: TInput;
-  host: Element;
+export interface EffectContext {
   /**
-   * AbortSignal that aborts when the effect re-runs (because a dependency
-   * changed) or when the island unmounts. Pass to `fetch` or check
-   * `signal.aborted` after `await` boundaries to bail out of stale work
-   * without needing a manual cleanup function.
-   */
-  signal: AbortSignal;
-};
-
-export type OnMountContext<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<never, never>,
-  TActionMap extends ActionMap = Record<never, never>,
-> = {
-  state: IslandState<TStateMap>;
-  derived: IslandDerived<TDerivedMap>;
-  action: IslandActions<TActionMap>;
-  input: TInput;
-  host: Element;
-  hydrated: boolean;
-  /** AbortSignal that aborts when the island unmounts. */
-  signal: AbortSignal;
-};
-
-export type HandlerContext<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<never, never>,
-  TActionMap extends ActionMap = Record<never, never>,
-> = {
-  state: IslandState<TStateMap>;
-  derived: IslandDerived<TDerivedMap>;
-  action: IslandActions<TActionMap>;
-  input: TInput;
-  host: Element;
-  target: Element;
-  event: Event;
-  /**
-   * AbortSignal that fires when the island unmounts. If the handler's selector
-   * was registered with the `:abortable` modifier, the signal is also aborted
-   * when the same listener fires again on the same target (giving you free
-   * race-cancellation for things like search-as-you-type fetches). Pass this
-   * to `fetch`, `AbortController`-aware APIs, or check `signal.aborted`
+   * AbortSignal that aborts when the effect re-runs (a dependency changed)
+   * or when the island unmounts. Pass to `fetch` or check `signal.aborted`
    * after `await` boundaries to bail out of stale work.
    */
   signal: AbortSignal;
-};
+}
 
-// ---------------------------------------------
-// Event type resolution helpers (cached at module level)
-// ---------------------------------------------
-
-type HTMLEventFor<E extends string> = E extends keyof HTMLElementEventMap
-  ? HTMLElementEventMap[E]
-  : Event;
-
-type HTMLTargetFor<E extends string> = E extends keyof HTMLElementEventMap
-  ? NonNullable<HTMLElementEventMap[E]["target"]> extends Element
-    ? NonNullable<HTMLElementEventMap[E]["target"]>
-    : Element
-  : Element;
-
-export type HandlerContextFor<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TEventName extends string,
-  TDerivedMap extends Record<string, unknown> = Record<never, never>,
-  TActionMap extends ActionMap = Record<never, never>,
-> = {
-  state: IslandState<TStateMap>;
-  derived: IslandDerived<TDerivedMap>;
-  action: IslandActions<TActionMap>;
-  input: TInput;
+export interface EffectOnceContext {
   host: Element;
-  target: HTMLTargetFor<TEventName>;
-  event: HTMLEventFor<TEventName>;
-  /**
-   * AbortSignal that fires when the island unmounts. If the handler's selector
-   * was registered with the `:abortable` modifier, the signal is also aborted
-   * when the same listener fires again on the same target.
-   */
+  /** AbortSignal that aborts when the island unmounts. */
   signal: AbortSignal;
-};
-
-// ---------------------------------------------
-// State init type
-// ---------------------------------------------
-
-type StateInit<TInput, V> = V | ((input: TInput) => V);
-
-interface StateEntry<TInput> {
-  key: string;
-  init: StateInit<TInput, unknown>;
+  /** True when hydration restored existing markup/state for this instance. */
+  hydrated: boolean;
 }
 
-/** A state key fed by a generator (`.stream()`). The runtime iterates the
- * generator and writes each yielded value into the state signal. During SSR
- * only the first value is pulled so it can render inline; on the client the
- * generator is consumed continuously. */
-interface StreamEntry<TInput> {
-  key: string;
-  fn: StreamFn<TInput>;
-}
+export type EffectFn = (ctx: EffectContext) => void | (() => void);
+export type EffectOnceFn = (ctx: EffectOnceContext) => void | (() => void);
 
-export type StreamFnContext<TInput> = {
-  input: TInput;
-  /** Aborts when the island unmounts. Pass through to fetch/SSE layers. */
-  signal: AbortSignal;
-};
-
-export type StreamFn<TInput, V = unknown> = (
-  ctx: StreamFnContext<TInput>,
-) => AsyncGenerator<V> | Generator<V>;
-
-interface ActionEntry<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown>,
-> {
-  key: string;
-  fn: (props: unknown, ctx: ActionContext<TInput, TStateMap, TDerivedMap>) => unknown;
-}
-
-// ---------------------------------------------
-// Event modifier parsing
-// ---------------------------------------------
-
-interface ParsedOn {
-  selector: string;
-  eventType: string;
-  options: AddEventListenerOptions;
-  abortable: boolean;
-}
-
-function parseOnArgs(selectorOrCombined: string): ParsedOn {
-  const atIdx = selectorOrCombined.lastIndexOf("@");
-  const selector = atIdx === -1 ? "" : selectorOrCombined.slice(0, atIdx);
-  const rawEvent = atIdx === -1 ? selectorOrCombined : selectorOrCombined.slice(atIdx + 1);
-  const parts = rawEvent.split(":");
-  const eventType = parts[0]!;
-  const modifiers = new Set(parts.slice(1));
-  if (__DEV__ && eventType.trim() === "") {
-    warn(`on(): "${selectorOrCombined}" has no event name.`);
-  }
-  if (__DEV__) {
-    const allowed = new Set(["once", "capture", "passive", "abortable"]);
-    for (const modifier of modifiers) {
-      if (modifier && !allowed.has(modifier)) {
-        warn(
-          `on(): unknown modifier ":${modifier}" in "${selectorOrCombined}". ` +
-            `Supported modifiers are :once, :capture, :passive, and :abortable.`,
-        );
-      }
-    }
-  }
-  return {
-    selector,
-    eventType,
-    options: {
-      once: modifiers.has("once"),
-      capture: modifiers.has("capture"),
-      passive: modifiers.has("passive"),
-    },
-    abortable: modifiers.has("abortable"),
-  };
-}
-
-/**
- * Combine multiple AbortSignals into one that aborts when any input aborts.
- * Uses native AbortSignal.any when available, falls back to a manual chain
- * otherwise (for older runtimes).
- */
-function anySignal(signals: AbortSignal[]): AbortSignal {
-  if (
-    typeof (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any ===
-    "function"
-  ) {
-    return (AbortSignal as unknown as { any: (s: AbortSignal[]) => AbortSignal }).any(signals);
-  }
-  const controller = new AbortController();
-  const cleanups: Array<() => void> = [];
-  for (const s of signals) {
-    if (s.aborted) {
-      controller.abort((s as AbortSignal & { reason?: unknown }).reason);
-      cleanups.forEach((c) => c());
-      return controller.signal;
-    }
-    const handler = () => controller.abort((s as AbortSignal & { reason?: unknown }).reason);
-    s.addEventListener("abort", handler, { once: true });
-    cleanups.push(() => s.removeEventListener("abort", handler));
-  }
-  if (!controller.signal.aborted) {
-    controller.signal.addEventListener("abort", () => {
-      cleanups.forEach((c) => c());
-    });
-  }
-  return controller.signal;
-}
-
-interface OnEntry<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<never, never>,
-  TActionMap extends ActionMap = Record<never, never>,
-> {
-  selector: string;
-  event: string;
-  options: AddEventListenerOptions;
-  abortable: boolean;
-  handler: (
-    ctx: HandlerContext<TInput, TStateMap, TDerivedMap, TActionMap>,
-  ) => void | Promise<void>;
-}
-
-interface EffectEntry<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown>,
-  TActionMap extends ActionMap = Record<never, never>,
-> {
-  fn: (ctx: EffectContext<TInput, TStateMap, TDerivedMap, TActionMap>) => (() => void) | void;
-}
-
-/** Where the error originated. `"on"` covers sync throws and async rejections
- *  from `.on()` handlers; `"effect"` covers sync throws from `.effect()` runs
- *  (async work spawned inside an effect is not awaited by the runtime). */
 // Where a reported error originated.
-//  - "on"         : a .on() handler threw (sync) or rejected (async)
-//  - "effect"     : a .effect() body or its cleanup threw
-//  - "mount"      : a .onMount() callback or its returned cleanup threw
-//  - "transition" : transition.enter / transition.leave threw or rejected
+//  - "effect"     : an effect() body or its cleanup threw
+//  - "once"       : an effect.once() callback or its cleanup threw
+//  - "event"      : a JSX/html`` event handler threw or rejected
+//  - "action"     : an action() callback threw or rejected
 // Derived errors are intentionally NOT reported here: they are surfaced as
-// first-class state via derived.x.error(). Malformed SSR snapshots are not
-// reported either — they degrade gracefully (see safeParseSnapshot).
-export type ErrorSource = "on" | "effect" | "mount" | "transition" | "action" | "stream";
+// first-class state via the accessor's `.error`. Malformed SSR snapshots are
+// not reported either — they degrade gracefully (see safeParseSnapshot).
+export type ErrorSource = "effect" | "once" | "event" | "action";
 
 // Global error handlers, invoked when an island reports an error and has no
-// local .onError() handler registered. Lets apps install a single app-wide
-// sink (logging/telemetry) without wiring .onError() on every island.
+// local onError() handler registered. Lets apps install a single app-wide
+// sink (logging/telemetry) without wiring onError() on every island.
 const globalErrorHandlers = new Set<(error: Error, source: ErrorSource) => void>();
 
 function reportToGlobal(error: Error, source: ErrorSource): boolean {
@@ -3185,9 +2635,7 @@ function reportToGlobal(error: Error, source: ErrorSource): boolean {
 
 /**
  * Register a global error handler invoked when any island reports an error
- * (from .on, .effect, .onMount, or transitions) and has no local .onError()
- * handler. Returns an unsubscribe function. Islands with their own .onError()
- * are handled locally and do not reach the global sink.
+ * and has no local onError() handler. Returns an unsubscribe function.
  */
 export function onUncaughtError(fn: (error: Error, source: ErrorSource) => void): () => void {
   globalErrorHandlers.add(fn);
@@ -3196,42 +2644,10 @@ export function onUncaughtError(fn: (error: Error, source: ErrorSource) => void)
   };
 }
 
-export type ErrorContext<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<never, never>,
-  TActionMap extends ActionMap = Record<never, never>,
-> = {
+export interface ErrorContext {
   error: Error;
   source: ErrorSource;
-  state: IslandState<TStateMap>;
-  derived: IslandDerived<TDerivedMap>;
-  action: IslandActions<TActionMap>;
-  input: TInput;
   host: Element;
-};
-
-interface OnErrorEntry<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown>,
-  TActionMap extends ActionMap = Record<never, never>,
-> {
-  fn: (ctx: ErrorContext<TInput, TStateMap, TDerivedMap, TActionMap>) => void;
-}
-
-interface OnMountEntry<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown>,
-  TActionMap extends ActionMap = Record<never, never>,
-> {
-  fn: (ctx: OnMountContext<TInput, TStateMap, TDerivedMap, TActionMap>) => (() => void) | void;
-}
-
-interface TransitionOptions {
-  enter?: (host: Element) => Promise<void> | void;
-  leave?: (host: Element) => Promise<void> | void;
 }
 
 export interface MountOptions {
@@ -3244,1991 +2660,1695 @@ export interface MountResult {
 }
 
 // ---------------------------------------------
-// Builder config
+// Combining abort signals
 // ---------------------------------------------
 
-interface BuilderConfig<
-  TInput,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown>,
-  TActionMap extends ActionMap = Record<never, never>,
-> {
-  schema: StandardSchemaV1 | null;
-  /** Shallow defaults merged before props (POJO `.input({ ... })` only). */
-  defaultInput: Record<string, unknown> | null;
-  states: StateEntry<TInput>[];
-  streams: StreamEntry<TInput>[];
-  deriveds: DerivedEntry<TInput, TStateMap>[];
-  actions: ActionEntry<TInput, TStateMap, TDerivedMap>[];
-  ons: OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>[];
-  effects: EffectEntry<TInput, TStateMap, TDerivedMap, TActionMap>[];
-  onMounts: OnMountEntry<TInput, TStateMap, TDerivedMap, TActionMap>[];
-  onErrors: OnErrorEntry<TInput, TStateMap, TDerivedMap, TActionMap>[];
-  transition: TransitionOptions | null;
-  css: string | null;
-  /** Slot wrapper tag when this island is embedded in a parent (default div). */
-  as: string | null;
+// ---------------------------------------------
+// Primitive frame — order-based slots
+// ---------------------------------------------
+//
+// Every island instance owns one persistent frame: an ordered list of slots,
+// one per primitive call site. The component function runs inside the frame;
+// each primitive retrieves its slot by call order. On the first client pass
+// (and on every fresh SSR render) slots are CREATED; on later client passes
+// the existing accessors are returned so state survives re-renders.
+
+type SlotKind = "state" | "derived" | "action" | "effect" | "once" | "error";
+
+interface BaseSlot {
+  kind: SlotKind;
+}
+
+interface StateSlot extends BaseSlot {
+  kind: "state";
+  acc: MarkedSignalAccessor<any>;
+}
+
+type DerivedUserFn = (ctx: { signal: AbortSignal }) => unknown;
+
+interface DerivedSlot extends BaseSlot {
+  kind: "derived";
+  env: ReturnType<typeof signal<DerivedValue<unknown>>>;
+  acc: DerivedAccessor<any>;
+  fn: DerivedUserFn;
+  /** Seeded from a hydration snapshot — skip the first reactive run. */
+  fromSnapshot: boolean;
+}
+
+interface ActionSlot extends BaseSlot {
+  kind: "action";
+  acc: ActionAccessor<any, any>;
+  fn: (payload: any, ctx: { signal: AbortSignal }) => unknown;
+}
+
+interface EffectSlot extends BaseSlot {
+  kind: "effect";
+  fn: EffectFn;
+}
+
+interface OnceSlot extends BaseSlot {
+  kind: "once";
+  fn: EffectOnceFn;
+}
+
+interface ErrorSlot extends BaseSlot {
+  kind: "error";
+  fn: (ctx: ErrorContext) => void;
+}
+
+type FrameSlot = StateSlot | DerivedSlot | ActionSlot | EffectSlot | OnceSlot | ErrorSlot;
+
+/** Per-render bookkeeping while a component executes inside a frame. */
+interface PrimitiveFrame {
+  slots: FrameSlot[];
+  cursor: number;
+  creating: boolean;
+  ssr: boolean;
+  instance: MountedInstance | null;
+  /** Per-kind counters for positional snapshot indexes. */
+  stateIndex: number;
+  derivedIndex: number;
+  actionIndex: number;
+  /** SSR only: async derived results awaiting resolution. */
+  pendingDerived: Array<{ index: number; promise: Promise<void> }> | null;
+  /** SSR only: action stub identities → deterministic manifest id (`a0`…). */
+  actionManifest: Map<Function, string> | null;
+  /** Dev-only: primitive-count-decrease already warned for this instance. */
+  driftWarned?: boolean;
+}
+
+// Shared across duplicate ilha copies in one realm (app + component library),
+// same as RENDER_CTX_STACK: a component bundled against copy B must register
+// primitives into copy A's frame when copy A drives the render.
+const FRAME_STACK = Symbol.for("ilha.primitiveFrameStack");
+
+function frameStack(): PrimitiveFrame[] {
+  const g = globalThis as typeof globalThis & { [FRAME_STACK]?: PrimitiveFrame[] };
+  return (g[FRAME_STACK] ??= []);
+}
+
+function currentFrame(): PrimitiveFrame | undefined {
+  const stack = frameStack();
+  return stack[stack.length - 1];
+}
+
+function withFrame<T>(frame: PrimitiveFrame, fn: () => T): T {
+  frameStack().push(frame);
+  try {
+    return fn();
+  } finally {
+    frameStack().pop();
+  }
+}
+
+function freshFrame(options?: {
+  ssr?: boolean;
+  instance?: MountedInstance | null;
+}): PrimitiveFrame {
+  return {
+    slots: [],
+    cursor: 0,
+    creating: true,
+    ssr: options?.ssr ?? false,
+    instance: options?.instance ?? null,
+    stateIndex: 0,
+    derivedIndex: 0,
+    actionIndex: 0,
+    pendingDerived: options?.ssr ? [] : null,
+    actionManifest: options?.ssr ? new Map() : null,
+  };
+}
+
+/** Dev-only post-pass check: fewer primitive calls than persistent slots means
+ * a conditional primitive registration changed the hook sequence. Detect it
+ * here (calls that merely disappear never reach acquireSlot). */
+function checkFrameDrift(frame: PrimitiveFrame): void {
+  if (!__DEV__ || frame.driftWarned || frame.cursor >= frame.slots.length) return;
+  frame.driftWarned = true;
+  warn(
+    `Primitive call count decreased from ${frame.slots.length} to ${frame.cursor} — ` +
+      `a conditional primitive registration changed the hook sequence after mount. ` +
+      `Call primitives unconditionally in the same order on every render.`,
+  );
+}
+
+const PRIMITIVE_NAMES: Record<SlotKind, string> = {
+  state: "state",
+  derived: "derived",
+  action: "action",
+  effect: "effect",
+  once: "effect.once",
+  error: "onError",
+};
+
+/** Reserve the next slot for a primitive call. Throws outside an island
+ * render; warns in dev on hook count/kind drift during re-renders. */
+function acquireSlot<K extends SlotKind>(kind: K): Extract<FrameSlot, { kind: K }> | undefined {
+  const frame = currentFrame();
+  if (!frame) {
+    throw new Error(
+      `[ilha] ${PRIMITIVE_NAMES[kind]}() called outside an island render. Primitives ` +
+        `are only valid while an island component (or a plain component owned by ` +
+        `one) is rendering.`,
+    );
+  }
+  const index = frame.cursor++;
+  if (frame.creating) return undefined;
+  const existing = frame.slots[index];
+  if (__DEV__) {
+    if (!existing) {
+      warn(
+        `${PRIMITIVE_NAMES[kind]}() at primitive position ${index} has no persistent slot — ` +
+          `the number of primitive calls changed after mount. Keep the same primitive ` +
+          `sequence on every render.`,
+      );
+    } else if (existing.kind !== kind) {
+      warn(
+        `${PRIMITIVE_NAMES[kind]}() at primitive position ${index} was previously registered ` +
+          `as ${PRIMITIVE_NAMES[existing.kind]}(). Primitive calls must keep the same order ` +
+          `and kind on every render.`,
+      );
+    }
+  }
+  return existing && existing.kind === kind
+    ? (existing as Extract<FrameSlot, { kind: K }>)
+    : undefined;
 }
 
 // ---------------------------------------------
-// Dev-mode: track mounted hosts
+// state()
 // ---------------------------------------------
 
+/**
+ * Declare island-local reactive state at this call position. The initializer
+ * applies only when the instance is created — later renders reuse the same
+ * underlying signal, so prop-driven initializers never reset user state.
+ *
+ * A function argument is treated as a lazy initializer:
+ *   const count = state(() => expensiveInitialValue());
+ * To store a function VALUE, return it from the updater wrapper on write:
+ *   setCallback(() => nextCallback);
+ */
+export function state<T>(init?: T | (() => T)): StateAccessor<T> {
+  const frame = currentFrame();
+  const existing = acquireSlot("state");
+  if (existing) return existing.acc as StateAccessor<T>;
+  const f = frame!;
+  if (!f.creating) {
+    // Slot drift after mount (already warned in dev) — degrade gracefully.
+    return ilhaSignal(undefined as unknown as T) as StateAccessor<T>;
+  }
+  const index = f.stateIndex++;
+
+  // A hydration snapshot wins over the initializer (and skips lazy work).
+  const snap = f.ssr ? undefined : f.instance?.stateSnapshot?.s?.[index];
+  const initial: unknown =
+    snap !== undefined ? snap : typeof init === "function" ? (init as () => T)() : init;
+
+  const s = signal(initial);
+  const acc = markSignalAccessor((...args: unknown[]): unknown => {
+    if (args.length === 0) return s();
+    const next = resolveSignalSetter(() => s() as never, args[0] as SignalSetter<never>);
+    s(next as unknown);
+  });
+  f.slots[f.cursor - 1] = { kind: "state", acc };
+  return acc as StateAccessor<T>;
+}
+
+// ---------------------------------------------
+// derived()
+// ---------------------------------------------
+
+/** True for async iterables (incl. async generators). */
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return (
+    value !== null && typeof (value as AsyncIterable<unknown>)[Symbol.asyncIterator] === "function"
+  );
+}
+
+/**
+ * Declare derived state at this call position: synchronous computations,
+ * Promises, or async generators. Reads track their dependencies; async work
+ * races latest-run-wins and aborts stale runs through `ctx.signal`.
+ */
+export function derived<V>(
+  fn: (ctx: { signal: AbortSignal }) => V | Promise<V> | AsyncIterable<V>,
+): DerivedAccessor<V> {
+  const frame = currentFrame();
+  const existing = acquireSlot("derived");
+  const f = frame!;
+  if (existing) {
+    // Refresh the closure so re-renders capture current props.
+    (existing as DerivedSlot).fn = fn as DerivedUserFn;
+    return existing.acc as DerivedAccessor<V>;
+  }
+  if (!f.creating) {
+    return defaultDerivedAccessor() as DerivedAccessor<V>;
+  }
+  const index = f.derivedIndex++;
+
+  const env = signal<DerivedValue<unknown>>({ loading: false, value: undefined, error: undefined });
+
+  let fromSnapshot = false;
+  if (!f.ssr) {
+    const snap = f.instance?.stateSnapshot?.d?.[index];
+    if (snap) {
+      env({ ...snap });
+      fromSnapshot = true;
+    }
+  }
+
+  const accessor = createDerivedAccessor(
+    () => env(),
+    (value) => {
+      const prevSub = setActiveSub(undefined);
+      try {
+        env({ loading: false, value, error: undefined });
+      } finally {
+        setActiveSub(prevSub);
+      }
+    },
+  );
+
+  const slot: DerivedSlot = {
+    kind: "derived",
+    env,
+    acc: accessor as DerivedAccessor<any>,
+    fn: fn as DerivedUserFn,
+    fromSnapshot,
+  };
+
+  if (f.ssr) {
+    // Probe once synchronously: sync results resolve immediately; Promises
+    // and async generators are pulled asynchronously and recorded so
+    // toStringAsync()/hydratable() can await them.
+    const ac = new AbortController();
+    const prevSub = setActiveSub(undefined);
+    let result: unknown;
+    let threw = false;
+    let syncError: unknown;
+    try {
+      result = slot.fn({ signal: ac.signal });
+    } catch (err) {
+      threw = true;
+      syncError = err;
+    } finally {
+      setActiveSub(prevSub);
+    }
+
+    let pull: Promise<void> | null = null;
+    if (threw) {
+      env({
+        loading: false,
+        value: undefined,
+        error: syncError instanceof Error ? syncError : new Error(String(syncError)),
+      });
+    } else if (result instanceof Promise) {
+      env({ loading: true, value: undefined, error: undefined });
+      pull = result.then(
+        (value) => env({ loading: false, value, error: undefined }),
+        (err: unknown) =>
+          env({
+            loading: false,
+            value: undefined,
+            error: err instanceof Error ? err : new Error(String(err)),
+          }),
+      );
+      // Swallow double-reporting; the envelope carries the error.
+      (result as Promise<unknown>).catch(() => {});
+    } else if (isAsyncIterable(result)) {
+      env({ loading: true, value: undefined, error: undefined });
+      const iterable = result;
+      pull = (async () => {
+        const it = iterable[Symbol.asyncIterator]();
+        try {
+          const first = await it.next();
+          env({ loading: false, value: first.done ? undefined : first.value, error: undefined });
+        } finally {
+          await it.return?.(undefined);
+        }
+      })();
+    } else {
+      env({ loading: false, value: result, error: undefined });
+    }
+
+    if (pull) f.pendingDerived!.push({ index, promise: pull.catch(() => {}) });
+  }
+
+  f.slots[f.cursor - 1] = slot;
+  return accessor as DerivedAccessor<V>;
+}
+
+// ---------------------------------------------
+// action()
+// ---------------------------------------------
+
+/**
+ * Declare a reactive operation at this call position. Use plain functions
+ * for ordinary operations; action() adds pending/data/error tracking,
+ * concurrent-invocation bookkeeping, and lifecycle cancellation.
+ */
+export function action<P, R>(
+  fn: (payload: P, ctx: { signal: AbortSignal }) => R,
+): ActionAccessor<P, R> {
+  const frame = currentFrame();
+  const existing = acquireSlot("action");
+  const f = frame!;
+  if (existing) {
+    // Keep the first-render closure: actions may capture mount-time locals
+    // (e.g. `let host` assigned by effect.once), and swapping closures after
+    // rerenders would orphan those assignments.
+    return existing.acc as ActionAccessor<P, R>;
+  }
+  if (!f.creating) {
+    const noop = (() => {}) as ActionAccessor<P, R>;
+    Object.defineProperties(noop, {
+      pending: { get: () => false },
+      data: { get: () => undefined },
+      error: { get: () => undefined },
+    });
+    return noop;
+  }
+  const index = f.actionIndex++;
+  const manifestId = `a${index}`;
+
+  if (f.ssr) {
+    // SSR stub: actions run only after mount; never execute side effects
+    // during render. Inside a capture frame (forwarding-closure registration)
+    // the call is RECORDED for the hydration manifest instead of executed.
+    let warned = false;
+    const invoke = (...callArgs: unknown[]) => {
+      const frame = captureStack[captureStack.length - 1];
+      if (frame) {
+        if (!frame.some((r) => r.k === manifestId)) {
+          frame.push({ k: manifestId, a: callArgs });
+        }
+        return;
+      }
+      if (__DEV__ && !warned) {
+        warned = true;
+        warn(`An action was called during SSR and was ignored. Actions run only after mount.`);
+      }
+    };
+    (invoke as unknown as Record<symbol, unknown>)[SSR_ACTION_STUB] = true;
+    Object.defineProperties(invoke, {
+      pending: { get: () => false, enumerable: true },
+      data: { get: () => undefined, enumerable: true },
+      error: { get: () => undefined, enumerable: true },
+    });
+    f.actionManifest!.set(invoke, manifestId);
+    f.slots[f.cursor - 1] = {
+      kind: "action",
+      acc: invoke as ActionAccessor<any, any>,
+      fn: fn as ActionSlot["fn"],
+    };
+    return invoke as unknown as ActionAccessor<P, R>;
+  }
+
+  const instance = f.instance!;
+  const envelope = signal<{ pending: number; data: unknown; error: Error | undefined }>({
+    pending: 0,
+    data: undefined,
+    error: undefined,
+  });
+  const readEnvelope = () => untrack(() => envelope());
+  let latestRun = 0;
+
+  const invoke = (payload?: unknown): void => {
+    if (currentRenderCtx()) {
+      if (__DEV__)
+        warn(
+          `An action was called during render and was ignored. Call actions from an event handler, effect, or effect.once.`,
+        );
+      return;
+    }
+    if (instance.disposed) {
+      if (__DEV__) warn(`An action was called after unmount and was ignored.`);
+      return;
+    }
+    const run = ++latestRun;
+    const runSignal = instance.unmountController.signal;
+    let result: unknown;
+    let isAsync = false;
+    startBatch();
+    try {
+      result = slot.fn(payload, { signal: runSignal });
+      isAsync = result != null && typeof (result as PromiseLike<unknown>).then === "function";
+      const current = readEnvelope();
+      envelope(
+        isAsync
+          ? { pending: current.pending + 1, data: current.data, error: undefined }
+          : { pending: current.pending, data: result, error: undefined },
+      );
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      envelope({ pending: readEnvelope().pending, data: undefined, error: normalized });
+      instance.reportError(normalized, "action");
+      return;
+    } finally {
+      endBatch();
+    }
+    if (!isAsync) return;
+    void Promise.resolve(result)
+      .then((data) => {
+        if (instance.disposed || runSignal.aborted || run !== latestRun) return;
+        const value = readEnvelope();
+        envelope({ pending: value.pending, data, error: undefined });
+      })
+      .catch((error: unknown) => {
+        if (
+          instance.disposed ||
+          runSignal.aborted ||
+          (error as { name?: string })?.name === "AbortError"
+        ) {
+          return;
+        }
+        const normalized = error instanceof Error ? error : new Error(String(error));
+        if (run === latestRun) {
+          const value = readEnvelope();
+          envelope({ pending: value.pending, data: undefined, error: normalized });
+        }
+        instance.reportError(normalized, "action");
+      })
+      .finally(() => {
+        if (instance.disposed) return;
+        const value = readEnvelope();
+        envelope({ ...value, pending: Math.max(0, value.pending - 1) });
+      });
+  };
+
+  const slot: ActionSlot = {
+    kind: "action",
+    acc: invoke as ActionAccessor<any, any>,
+    fn: fn as ActionSlot["fn"],
+  };
+
+  Object.defineProperties(invoke, {
+    pending: { get: () => envelope().pending > 0, enumerable: true },
+    data: { get: () => envelope().data, enumerable: true },
+    error: { get: () => envelope().error, enumerable: true },
+  });
+  // Manifest identity maps the accessor itself (used directly as an event
+  // handler) AND the raw invoke — same function object here.
+  f.slots[f.cursor - 1] = slot;
+  instance.actionIds.set(slot.acc, manifestId);
+  return invoke as unknown as ActionAccessor<P, R>;
+}
+
+// ---------------------------------------------
+// effect() / effect.once()
+// ---------------------------------------------
+
+/**
+ * Reactive side effect. Inside an island render, registers an ordered effect
+ * slot that tracks signals read in the body, reruns on change, cleans up
+ * before rerun and on unmount, and is client-only. Outside an island render,
+ * behaves as the standalone reactive effect and returns a stop function.
+ */
+export const effect: ((fn: EffectFn) => void | (() => void)) & {
+  once(fn: EffectOnceFn): void;
+} = Object.assign(
+  (fn: EffectFn): void | (() => void) => {
+    const frame = currentFrame();
+    if (!frame) {
+      // Standalone reactive effect (outside islands).
+      let cleanup: void | (() => void);
+      let controller: AbortController | null = null;
+      const runCleanup = () => {
+        if (typeof cleanup === "function") {
+          try {
+            cleanup();
+          } catch (err) {
+            console.error(err);
+          }
+          cleanup = undefined;
+        }
+      };
+      const stop = ilhaEffect(() => {
+        runCleanup();
+        if (controller) controller.abort();
+        controller = new AbortController();
+        startBatch();
+        try {
+          cleanup = fn({ signal: controller.signal });
+        } catch (err) {
+          console.error(err);
+        } finally {
+          endBatch();
+        }
+      });
+      return () => {
+        stop();
+        runCleanup();
+        controller?.abort();
+      };
+    }
+    const existing = acquireSlot("effect");
+    if (existing) {
+      // Refresh the closure so reruns see current props.
+      existing.fn = fn;
+      return;
+    }
+    if (!frame.creating) return;
+    frame.slots[frame.cursor - 1] = { kind: "effect", fn };
+    return;
+  },
+  {
+    once(fn: EffectOnceFn): void {
+      const existing = acquireSlot("once");
+      if (existing) {
+        // First-render closure wins — see the note in action().
+        return;
+      }
+      const f = currentFrame();
+      if (!f) {
+        throw new Error(
+          `[ilha] effect.once() called outside an island render. It registers per-instance ` +
+            `setup and is only valid while an island component is rendering.`,
+        );
+      }
+      if (!f.creating) return;
+      f.slots[f.cursor - 1] = { kind: "once", fn };
+    },
+  },
+);
+
+/**
+ * Register an error handler slot for this island. Handlers run in
+ * declaration order; state, derived values, actions, and props should be
+ * accessed through lexical closure rather than the context object.
+ */
+export function onError(fn: (ctx: ErrorContext) => void): void {
+  const frame = currentFrame();
+  if (!frame) {
+    throw new Error(
+      `[ilha] onError() called outside an island render. Register it while an island ` +
+        `component is rendering.`,
+    );
+  }
+  const existing = acquireSlot("error");
+  if (existing) {
+    existing.fn = fn;
+    return;
+  }
+  const f = currentFrame();
+  if (!f || !f.creating) return;
+  f.slots[f.cursor - 1] = { kind: "error", fn };
+}
+
+// ---------------------------------------------
+// Hydration snapshots (versioned positional format v2)
+// ---------------------------------------------
+
+interface SnapshotV2 {
+  s?: unknown[];
+  d?: DerivedValue<unknown>[];
+}
+
+function parseStateSnapshot(raw: string): (SnapshotV2 & { skipOnce: boolean }) | undefined {
+  const parsed = safeParseSnapshot(raw, STATE_ATTR);
+  if (parsed === undefined) return undefined;
+  const rec = parsed as Record<string, unknown>;
+  if (rec["v"] !== 2) {
+    if (__DEV__)
+      warn(
+        `Unsupported state snapshot version (expected 2) — snapshot ignored. Re-render ` +
+          `the page with the current Ilha version.`,
+      );
+    return undefined;
+  }
+  const out: SnapshotV2 & { skipOnce: boolean } = { skipOnce: rec["_skipOnMount"] === true };
+  if (Array.isArray(rec["s"])) {
+    stripUnsafeKeys(rec["s"]);
+    out.s = rec["s"];
+  }
+  if (Array.isArray(rec["d"])) {
+    stripUnsafeKeys(rec["d"]);
+    out.d = (rec["d"] as unknown[]).map((entry) => {
+      const e = (entry ?? {}) as Record<string, unknown>;
+      const errorValue = e.error;
+      return {
+        loading: e.loading === true,
+        value: e.value,
+        error:
+          errorValue == null
+            ? undefined
+            : errorValue instanceof Error
+              ? errorValue
+              : new Error(String(errorValue)),
+      } satisfies DerivedValue<unknown>;
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------
+// Mounted instance
+// ---------------------------------------------
+
+interface MountedInstance {
+  host: Element;
+  inputSignal: ReturnType<typeof signal<Record<string, unknown>>>;
+  input: Record<string, unknown>;
+  unmountController: AbortController;
+  cleanups: Array<() => void>;
+  reportError: (err: unknown, source: ErrorSource) => void;
+  /** Deterministic action ids keyed by accessor identity (manifest). */
+  actionIds: Map<Function, string>;
+  stateSnapshot?: SnapshotV2;
+  derivedSnapshot?: DerivedValue<unknown>[];
+  hydrated: boolean;
+  disposed: boolean;
+  frame: PrimitiveFrame;
+}
+
+// ---------------------------------------------
+// ilha() — the island constructor
+// ---------------------------------------------
+
+type IlhaFactory = {
+  <P>(component: IslandComponent<P>): Island<P>;
+  <P>(component: IslandComponent<P>, options: { as?: string }): Island<P>;
+  <S extends StandardSchemaV1>(
+    schema: S,
+    component: IslandComponent<StandardSchemaV1.InferOutput<S>>,
+  ): Island<StandardSchemaV1.InferOutput<S>>;
+  <S extends StandardSchemaV1>(
+    schema: S,
+    component: IslandComponent<StandardSchemaV1.InferOutput<S>>,
+    options: { as?: string },
+  ): Island<StandardSchemaV1.InferOutput<S>>;
+};
+
+// Dev-mode: track mounted hosts
 const _mountedHosts = __DEV__ ? new WeakSet<Element>() : null;
 
-// ---------------------------------------------
-// Builder
-// ---------------------------------------------
+export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
+  let schema: StandardSchemaV1 | null = null;
+  let component: IslandComponent<any> | undefined;
+  let options: { as?: string } | undefined;
+  const first = args[0];
+  const second = args[1];
+  if (isStandardSchema(first)) {
+    schema = first;
+    component = second as IslandComponent<any>;
+    options = args[2] as { as?: string } | undefined;
+  } else {
+    component = first as IslandComponent<any>;
+    options = second as { as?: string } | undefined;
+  }
+  if (typeof component !== "function") {
+    throw new Error("[ilha] ilha() requires a component function.");
+  }
+  const configuredSlotTag = options?.as !== undefined ? assertValidSlotTagName(options.as) : "div";
 
-class IlhaBuilder<
-  TInput extends Record<string, unknown>,
-  TStateMap extends Record<string, unknown>,
-  TDerivedMap extends Record<string, unknown> = Record<never, never>,
-  TActionMap extends ActionMap = Record<never, never>,
-> {
-  readonly _cfg: BuilderConfig<TInput, TStateMap, TDerivedMap, TActionMap>;
-
-  constructor(cfg: BuilderConfig<TInput, TStateMap, TDerivedMap, TActionMap>) {
-    this._cfg = cfg;
+  function resolveInput(props?: Partial<any>): Record<string, unknown> {
+    const merged = { ...props } as Record<string, unknown>;
+    if (!schema) return merged;
+    return validateSchema(schema, merged) as Record<string, unknown>;
   }
 
-  input<T extends Record<string, unknown>>(): IlhaBuilder<
-    T,
-    Record<never, never>,
-    Record<never, never>,
-    Record<never, never>
-  >;
-  input<S extends StandardSchemaV1>(
-    schema: S,
-  ): IlhaBuilder<
-    StandardSchemaV1.InferOutput<S> & Record<string, unknown>,
-    Record<never, never>,
-    Record<never, never>,
-    Record<never, never>
-  >;
-  input<T extends Record<string, unknown>>(
-    defaults: T,
-  ): IlhaBuilder<T, Record<never, never>, Record<never, never>, Record<never, never>>;
-  input(
-    initialOrSchema?: StandardSchemaV1 | Record<string, unknown>,
-  ): IlhaBuilder<
-    Record<string, unknown>,
-    Record<never, never>,
-    Record<never, never>,
-    Record<never, never>
-  > {
-    let schema: StandardSchemaV1 | null = null;
-    let defaultInput: Record<string, unknown> | null = null;
-    if (initialOrSchema !== undefined) {
-      if (isStandardSchema(initialOrSchema)) schema = initialOrSchema;
-      else defaultInput = initialOrSchema;
+  // Run the component inside a render context so interpolated islands
+  // record themselves into ctx.slots. See the composition section above.
+  type RenderOut = {
+    html: string;
+    slots: IslandRenderCtx["slots"];
+    binds: BindRecord[];
+    events: JsxEventRecord[];
+  };
+  function renderWithCtx(options: {
+    render: () => string | RawHtml;
+    liveHost?: Element;
+    asyncChildren?: false;
+    manifest?: boolean;
+  }): RenderOut;
+  function renderWithCtx(options: {
+    render: () => string | RawHtml;
+    liveHost?: Element;
+    asyncChildren: true;
+    manifest?: boolean;
+  }): Promise<RenderOut>;
+  function renderWithCtx({
+    render,
+    liveHost,
+    asyncChildren,
+    manifest,
+  }: {
+    render: () => string | RawHtml;
+    liveHost?: Element;
+    asyncChildren?: boolean;
+    manifest?: boolean;
+  }): RenderOut | Promise<RenderOut> {
+    const ctx = pushRenderCtx(liveHost, asyncChildren, manifest);
+    try {
+      const html = unwrapHtml(render());
+      const slots = ctx.slots;
+      const binds = ctx.binds;
+      const events = ctx.events;
+
+      if (ctx.pending && ctx.pending.size > 0) {
+        const pending = ctx.pending;
+        return (async () => {
+          const resolvedHtml = await resolveAsyncChildren(html, pending);
+          return { html: resolvedHtml, slots, binds, events };
+        })();
+      }
+
+      return { html, slots, binds, events };
+    } finally {
+      popRenderCtx();
     }
-    return new IlhaBuilder({
-      schema,
-      defaultInput,
-      states: [],
-      streams: [],
-      deriveds: [],
-      actions: [],
-      ons: [],
-      effects: [],
-      onMounts: [],
-      onErrors: [],
-      transition: null,
-      css: null,
-      as: null,
+  }
+
+  /** Invoke the component inside the given frame + render context. */
+  function runInFrame(frame: PrimitiveFrame, props: Record<string, unknown>): () => RawHtml {
+    return () => withFrame(frame, () => component!(props) as RawHtml);
+  }
+
+  // ─── SSR ────────────────────────────────────────────────────────────────
+
+  function recordEventsManifest(
+    eventsOut: Map<string, EventManifestEntry> | undefined,
+    events: JsxEventRecord[],
+    frame: PrimitiveFrame,
+  ): void {
+    if (!eventsOut || events.length === 0) return;
+    events.forEach((record, index) => {
+      if (record.capture) {
+        eventsOut.set(`${record.type}:${index}`, record.capture);
+        return;
+      }
+      const id = frame.actionManifest?.get(record.handler);
+      if (id) eventsOut.set(`${record.type}:${index}`, id);
     });
   }
 
-  as<Tag extends string>(tag: Tag): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
-    return new IlhaBuilder({ ...this._cfg, as: assertValidSlotTagName(tag) });
-  }
+  function renderToString(
+    props?: Partial<any>,
+    sync = false,
+    eventsOut?: Map<string, EventManifestEntry>,
+    _stateOverride?: unknown,
+    forceAsyncChildren = false,
+  ): string | Promise<string> {
+    void _stateOverride;
+    const input = resolveInput(props);
+    const frame = freshFrame({ ssr: true });
 
-  state<V = undefined, K extends string = string>(
-    key: K,
-    init?: StateInit<TInput, V> | undefined,
-  ): IlhaBuilder<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TActionMap> {
-    const cfg = this._cfg;
-    if (__DEV__ && key.trim() === "") warn("state(): key must not be empty.");
-    if (__DEV__ && cfg.states.some((entry) => entry.key === key)) {
-      warn(`state(): duplicate key "${key}". The later declaration replaces the public accessor.`);
+    const first = forceAsyncChildren
+      ? renderWithCtx({
+          render: runInFrame(frame, input),
+          asyncChildren: true,
+          manifest: eventsOut !== undefined,
+        })
+      : renderWithCtx({ render: runInFrame(frame, input), manifest: eventsOut !== undefined });
+
+    const finish = (firstHtml: RenderOut): string => firstHtml.html;
+
+    const needsAsync = forceAsyncChildren || (frame.pendingDerived?.length ?? 0) > 0;
+
+    if (first instanceof Promise) {
+      return first.then((out) => {
+        recordEventsManifest(eventsOut, out.events, frame);
+        return needsAsync ? awaitPending(out) : out.html;
+      });
     }
-    return new IlhaBuilder({
-      ...cfg,
-      states: [...cfg.states, { key, init: init as StateInit<TInput, unknown> }],
-    } as unknown as BuilderConfig<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TActionMap>);
-  }
+    recordEventsManifest(eventsOut, first.events, frame);
+    if (!needsAsync || sync) return finish(first);
+    return awaitPending(first);
 
-  stream<K extends string, V>(
-    key: K,
-    fn: StreamFn<TInput, V>,
-  ): IlhaBuilder<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TActionMap> {
-    const cfg = this._cfg;
-    if (__DEV__ && key.trim() === "") warn("stream(): key must not be empty.");
-    if (__DEV__ && cfg.states.some((entry) => entry.key === key)) {
-      warn(`stream(): duplicate key "${key}" — a state with this key already exists.`);
-    }
-    if (__DEV__ && cfg.streams.some((entry) => entry.key === key)) {
-      warn(`stream(): duplicate key "${key}". The later declaration replaces the public accessor.`);
-    }
-    // A streamed key IS a state key (same accessor surface, snapshot support);
-    // it just starts undefined and is fed by the generator instead of a
-    // static init. Declaring both keeps buildSignalState/snapshot untouched.
-    const states = cfg.states.some((entry) => entry.key === key)
-      ? cfg.states
-      : [...cfg.states, { key, init: undefined as StateInit<TInput, unknown> }];
-    return new IlhaBuilder({
-      ...cfg,
-      states,
-      streams: [
-        ...cfg.streams.filter((entry) => entry.key !== key),
-        { key, fn: fn as StreamFn<TInput> },
-      ],
-    } as unknown as BuilderConfig<TInput, MergeState<TStateMap, K, V>, TDerivedMap, TActionMap>);
-  }
-
-  derived<K extends string, V>(
-    key: K,
-    fn: DerivedFn<TInput, TStateMap, V>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap & Record<K, V>, TActionMap> {
-    const cfg = this._cfg;
-    if (__DEV__ && key.trim() === "") warn("derived(): key must not be empty.");
-    if (__DEV__ && cfg.deriveds.some((entry) => entry.key === key)) {
-      warn(`derived(): duplicate key "${key}". Use a unique derived key.`);
-    }
-    return new IlhaBuilder({
-      ...cfg,
-      deriveds: [...cfg.deriveds, { key, fn: fn as DerivedFn<TInput, TStateMap, unknown> }],
-    } as unknown as BuilderConfig<TInput, TStateMap, TDerivedMap & Record<K, V>, TActionMap>);
-  }
-
-  action<K extends string, P = undefined, R = void>(
-    key: K,
-    fn: (props: P, ctx: ActionContext<TInput, TStateMap, TDerivedMap>) => R,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap & Record<K, typeof fn>> {
-    if (__DEV__ && key.trim() === "") warn("action(): key must not be empty.");
-    if (__DEV__ && this._cfg.actions.some((entry) => entry.key === key)) {
-      warn(`action(): duplicate key "${key}". Use a unique action key.`);
-    }
-    return new IlhaBuilder({
-      ...this._cfg,
-      actions: [
-        ...this._cfg.actions,
-        {
-          key,
-          fn: fn as (props: unknown, ctx: ActionContext<TInput, TStateMap, TDerivedMap>) => unknown,
-        },
-      ],
-    } as BuilderConfig<TInput, TStateMap, TDerivedMap, TActionMap & Record<K, typeof fn>>);
-  }
-
-  on<S extends string>(
-    selectorOrCombined: S,
-    handler: (
-      ctx: S extends `${string}@${infer E}:${string}`
-        ? HandlerContextFor<TInput, TStateMap, E, TDerivedMap, TActionMap>
-        : S extends `${string}@${infer E}`
-          ? HandlerContextFor<TInput, TStateMap, E, TDerivedMap, TActionMap>
-          : HandlerContext<TInput, TStateMap, TDerivedMap, TActionMap>,
-    ) => void | Promise<void>,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
-    const parsed = parseOnArgs(selectorOrCombined);
-    return new IlhaBuilder({
-      ...this._cfg,
-      ons: [
-        ...this._cfg.ons,
-        {
-          selector: parsed.selector,
-          event: parsed.eventType,
-          options: parsed.options,
-          abortable: parsed.abortable,
-          handler: handler as (
-            ctx: HandlerContext<TInput, TStateMap, TDerivedMap, TActionMap>,
-          ) => void | Promise<void>,
-        },
-      ],
-    });
-  }
-
-  effect(
-    fn: (ctx: EffectContext<TInput, TStateMap, TDerivedMap, TActionMap>) => (() => void) | void,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
-    return new IlhaBuilder({ ...this._cfg, effects: [...this._cfg.effects, { fn }] });
-  }
-
-  onMount(
-    fn: (ctx: OnMountContext<TInput, TStateMap, TDerivedMap, TActionMap>) => (() => void) | void,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
-    return new IlhaBuilder({ ...this._cfg, onMounts: [...this._cfg.onMounts, { fn }] });
-  }
-
-  onError(
-    fn: (ctx: ErrorContext<TInput, TStateMap, TDerivedMap, TActionMap>) => void,
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
-    return new IlhaBuilder({ ...this._cfg, onErrors: [...this._cfg.onErrors, { fn }] });
-  }
-
-  transition(opts: TransitionOptions): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
-    return new IlhaBuilder({ ...this._cfg, transition: opts });
-  }
-
-  css(
-    strings: TemplateStringsArray | string,
-    ...values: (string | number)[]
-  ): IlhaBuilder<TInput, TStateMap, TDerivedMap, TActionMap> {
-    // Accept both tagged-template form and plain-string form. The tagged form
-    // is the intended authoring style; plain-string keeps things flexible for
-    // users who want to compose CSS externally.
-    let source: string;
-    if (typeof strings === "string") {
-      source = strings;
-    } else {
-      let result = "";
-      for (let i = 0; i < strings.length; i++) {
-        result += strings[i];
-        if (i < values.length) result += String(values[i]);
-      }
-      source = result;
-    }
-
-    if (__DEV__ && this._cfg.css !== null) {
-      warn(
-        `css(): called more than once on the same builder chain. ` +
-          `The previous stylesheet has been discarded. ` +
-          `Compose styles into a single .css() call instead.`,
-      );
-    }
-
-    return new IlhaBuilder({ ...this._cfg, css: source });
-  }
-
-  render(
-    fn: (ctx: RenderContext<TInput, TStateMap, TDerivedMap, TActionMap>) => string | RawHtml,
-  ): Island<TInput, TStateMap> {
-    const {
-      schema,
-      defaultInput,
-      states,
-      streams,
-      deriveds,
-      actions,
-      ons,
-      effects,
-      onMounts,
-      onErrors,
-      transition,
-      css: cssSource,
-      as: slotAs,
-    } = this._cfg;
-
-    const stylePrefix = cssSource == null ? "" : buildScopedStyle(cssSource);
-    const configuredSlotTag = slotAs ?? "div";
-
-    function resolveInput(props?: Partial<TInput>): TInput {
-      const merged = {
-        ...(defaultInput ?? {}),
-        ...(props ?? {}),
-      } as Record<string, unknown>;
-      if (!schema) return merged as TInput;
-      return validateSchema(schema, merged) as TInput;
-    }
-
-    // Run fn inside a fresh render context so any interpolated ${Island}
-    // records itself into ctx.slots. Returns the rendered HTML, the
-    // collected slot map, and any bind: bindings emitted by the template.
-    // When liveHost is supplied (client re-render path), already-mounted
-    // child subtrees are reused as-is instead of re-SSR'd.
-    //
-    // When asyncChildren is true and any child island has async derived(),
-    // the returned value is a Promise that resolves once all children have
-    // been awaited and their resolved HTML substituted into the parent output.
-    type RenderOut = {
-      html: string;
-      slots: IslandRenderCtx["slots"];
-      binds: BindRecord[];
-      events: JsxEventRecord[];
-    };
-    function renderWithCtx(options: {
-      render: () => string | RawHtml;
-      liveHost?: Element;
-      asyncChildren?: false;
-      manifest?: boolean;
-    }): RenderOut;
-    function renderWithCtx(options: {
-      render: () => string | RawHtml;
-      liveHost?: Element;
-      asyncChildren: true;
-      manifest?: boolean;
-    }): Promise<RenderOut>;
-    function renderWithCtx({
-      render,
-      liveHost,
-      asyncChildren,
-      manifest,
-    }: {
-      render: () => string | RawHtml;
-      liveHost?: Element;
-      asyncChildren?: boolean;
-      manifest?: boolean;
-    }): RenderOut | Promise<RenderOut> {
-      const ctx = pushRenderCtx(liveHost, asyncChildren, manifest);
-      try {
-        const html = unwrapHtml(render());
-        // slots/binds are fully populated synchronously by render(); capture them
-        // so the render context can be popped within this synchronous frame
-        // (resolveAsyncChildren only does string substitution and never reads
-        // the active render context). This balances the stack eagerly and
-        // avoids interleaving when two async islands render concurrently.
-        const slots = ctx.slots;
-        const binds = ctx.binds;
-        const events = ctx.events;
-
-        if (ctx.pending && ctx.pending.size > 0) {
-          const pending = ctx.pending;
-          return (async () => {
-            const resolvedHtml = await resolveAsyncChildren(html, pending);
-            return { html: resolvedHtml, slots, binds, events };
-          })();
-        }
-
-        return { html, slots, binds, events };
-      } finally {
-        popRenderCtx();
-      }
-    }
-
-    function buildPlainState(input: TInput): IslandState<TStateMap> {
-      const state: Record<string, unknown> = {};
-      for (const entry of states) {
-        const value =
-          typeof entry.init === "function"
-            ? (entry.init as (i: TInput) => unknown)(input)
-            : entry.init;
-        const accessor = markSignalAccessor((...args: unknown[]): unknown => {
-          if (args.length === 0) return value;
-        });
-        state[entry.key] = accessor;
-      }
-      return state as IslandState<TStateMap>;
-    }
-
-    function buildSignalState(
-      input: TInput,
-      snapshot?: Record<string, unknown>,
-    ): IslandState<TStateMap> {
-      const state: Record<string, unknown> = {};
-      for (const entry of states) {
-        const initial =
-          snapshot && entry.key in snapshot
-            ? snapshot[entry.key]
-            : typeof entry.init === "function"
-              ? (entry.init as (i: TInput) => unknown)(input)
-              : entry.init;
-        const s = signal(initial);
-        const accessor = markSignalAccessor((...args: unknown[]): unknown => {
-          if (args.length === 0) return s();
-          s(resolveSignalSetter(() => s(), args[0] as SignalSetter<typeof initial>));
-        });
-        state[entry.key] = accessor;
-      }
-      return state as IslandState<TStateMap>;
-    }
-
-    function buildSsrActions(): {
-      action: IslandActions<TActionMap>;
-      /** SSR action stub keyed by function identity — event handlers that are
-       * action accessors are matched back to their action key for the
-       * hydration manifest. */
-      lookup: Map<Function, string>;
-    } {
-      const out: Record<string, unknown> = {};
-      const lookup = new Map<Function, string>();
-      for (const entry of actions) {
-        let warned = false;
-        const invoke = (...callArgs: unknown[]) => {
-          // Inside a capture frame (event-handler registration), record the
-          // call instead of warning — this is how forwarding closures
-          // (`() => action.remove(id)`) declare their payload.
-          const frame = captureStack[captureStack.length - 1];
-          if (frame) {
-            if (!frame.some((r) => r.k === entry.key)) {
-              frame.push({ k: entry.key, a: callArgs });
-            }
-            return;
-          }
-          if (__DEV__ && !warned) {
-            warned = true;
-            warn(
-              `action.${entry.key}() was called during SSR and was ignored. Actions run only after mount.`,
-            );
-          }
-        };
-        (invoke as unknown as Record<symbol, unknown>)[SSR_ACTION_STUB] = true;
-        Object.defineProperties(invoke, {
-          pending: { get: () => false, enumerable: true },
-          data: { get: () => undefined, enumerable: true },
-          error: { get: () => undefined, enumerable: true },
-        });
-        out[entry.key] = invoke;
-        lookup.set(invoke, entry.key);
-      }
-      return { action: out as IslandActions<TActionMap>, lookup };
-    }
-
-    function renderToString(
-      props?: Partial<TInput>,
-      sync = false,
-      streamOut?: Record<string, unknown>,
-      eventsOut?: Map<string, string | { k: string; a: unknown[] }>,
-      stateOverride?: Record<string, unknown>,
-      forceAsyncChildren = false,
-    ): string | Promise<string> {
-      const input = resolveInput(props);
-      const state = buildSignalState(input, stateOverride);
-      const { action, lookup: actionLookup } = buildSsrActions();
-
-      // Record which event sentinels belong to named actions so hydratable()
-      // can ship a manifest for server-owned islands.
-      const recordEventsManifest = (events: JsxEventRecord[]): void => {
-        if (!eventsOut || events.length === 0) return;
-        events.forEach((record, index) => {
-          if (record.capture) {
-            eventsOut.set(`${record.type}:${index}`, record.capture);
-            return;
-          }
-          const key = actionLookup.get(record.handler);
-          if (key) eventsOut.set(`${record.type}:${index}`, key);
-        });
-      };
-
-      // Stream first-pull (SSR only, async path): consume the generator's
-      // first value so it renders inline instead of as a loading placeholder.
-      // The generator instance is discarded — the client resumes its own via
-      // the same call site. Sync mode (island.toString / nested inline slots)
-      // cannot await, so streamed keys render their initial value there and
-      // hydrate through the parent's async pass. Pulled values are recorded
-      // into `streamOut` when provided so hydratable() can snapshot what was
-      // actually rendered instead of the static init.
-      const pullStreamInitials = async (streamOut?: Record<string, unknown>): Promise<void> => {
-        for (const entry of streams) {
-          const controller = new AbortController();
-          try {
-            const gen = await entry.fn({ input, signal: controller.signal });
-            const first = await gen.next();
-            controller.abort();
-            await gen.return?.(undefined);
-            if (first.done) continue;
-            if (streamOut) streamOut[entry.key] = first.value;
-            const prevSub = setActiveSub(undefined);
-            try {
-              const setter = (state as Record<string, ((v: unknown) => void) | undefined>)[
-                entry.key
-              ];
-              setter?.(first.value);
-            } finally {
-              setActiveSub(prevSub);
-            }
-          } catch {
-            // A stream that fails during SSR degrades to the initial value;
-            // the client resume surfaces errors through reportError.
-          }
-        }
-      };
-
-      const computeDerivedResults = () =>
-        deriveds.map((entry) => {
-          const prevSub = setActiveSub(undefined);
-          try {
-            return {
-              key: entry.key,
-              result: entry.fn({
-                state: state as never,
-                input,
-                signal: new AbortController().signal,
-              }),
-            };
-          } catch (err) {
-            return { key: entry.key, result: Promise.reject(err) };
-          } finally {
-            setActiveSub(prevSub);
-          }
-        });
-
-      // Async mode with streams: seed streamed state BEFORE deriveds run so
-      // downstream deriveds and the render fn see real values. forceAsync
-      // (hydratable) opts in even without own streams so nested streamed
-      // children are awaited instead of sync-inlined with empty state.
-      if (!sync && (streams.length > 0 || forceAsyncChildren)) {
-        return pullStreamInitials(streamOut).then(() => renderToStringTail());
-      }
-      return renderToStringTail();
-
-      function renderToStringTail(): string | Promise<string> {
-        const results = computeDerivedResults();
-
-        // forceAsyncChildren (hydratable) opts into the async pass even with
-        // no own async work so nested streamed children are awaited.
-        const hasAsync = forceAsyncChildren || results.some((r) => r.result instanceof Promise);
-
-        if (!hasAsync || sync) {
-          const envelopes: Record<string, DerivedValue<unknown>> = {};
-          for (const r of results) {
-            if (r.result instanceof Promise) {
-              envelopes[r.key] = { loading: true, value: undefined, error: undefined };
-            } else {
-              envelopes[r.key] = { loading: false, value: r.result as unknown, error: undefined };
-            }
-          }
-          const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
-          const prevSub = setActiveSub(undefined);
-          try {
-            const { html, events } = renderWithCtx({
-              render: () => fn({ state, derived, action, input }),
+    function awaitPending(out: RenderOut): Promise<string> {
+      const pendings = frame.pendingDerived ?? [];
+      if (pendings.length === 0) return Promise.resolve(out.html);
+      return Promise.all(pendings.map((p) => p.promise)).then(() => {
+        // Second pass: envelopes hold resolved values; produce final HTML.
+        frame.creating = false;
+        frame.cursor = 0;
+        const second = forceAsyncChildren
+          ? renderWithCtx({
+              render: runInFrame(frame, input),
+              asyncChildren: true,
               manifest: eventsOut !== undefined,
-            });
-            recordEventsManifest(events);
-            return stylePrefix + html;
-          } finally {
-            setActiveSub(prevSub);
+            })
+          : renderWithCtx({ render: runInFrame(frame, input), manifest: eventsOut !== undefined });
+        const done = (o: RenderOut): string => {
+          recordEventsManifest(eventsOut, o.events, frame);
+          return o.html;
+        };
+        return second instanceof Promise ? second.then(done) : done(second);
+      });
+    }
+  }
+
+  // ─── Client mount ───────────────────────────────────────────────────────
+
+  type MountHandle = {
+    unmount: () => void | Promise<void>;
+    updateProps: (props?: Partial<any>) => void;
+  };
+
+  function mountIsland(host: Element, props?: Partial<any>): () => void {
+    return mountIslandInternal(host, props).unmount;
+  }
+
+  function mountIslandInternal(host: Element, props?: Partial<any>): MountHandle {
+    const noop: MountHandle = { unmount: () => {}, updateProps: () => {} };
+
+    if (__DEV__ && _mountedHosts) {
+      if (_mountedHosts.has(host)) {
+        warn(
+          `mount(): this element is already mounted. Call the previous unmount() first to avoid ` +
+            `memory leaks and duplicate event listeners.\n` +
+            `Element: ${host.outerHTML.slice(0, 120)}`,
+        );
+        return noop;
+      }
+      _mountedHosts.add(host);
+    }
+
+    if (props === undefined) {
+      const rawProps = host.getAttribute(PROPS_ATTR);
+      if (rawProps) {
+        const parsed = safeParseSnapshot(rawProps, PROPS_ATTR);
+        if (parsed !== undefined) {
+          props = reviveSlotProps(parsed as Record<string, unknown>) as Partial<any>;
+        }
+      }
+    }
+
+    const inputSignal = signal(resolveInput(props));
+    const input = new Proxy({} as Record<string, unknown>, {
+      get(_t, key) {
+        return (inputSignal() as Record<PropertyKey, unknown>)[key];
+      },
+      has(_t, key) {
+        return key in (inputSignal() as object);
+      },
+      ownKeys() {
+        const prevSub = setActiveSub(undefined);
+        try {
+          return Reflect.ownKeys(inputSignal() as object);
+        } finally {
+          setActiveSub(prevSub);
+        }
+      },
+      getOwnPropertyDescriptor(_t, key) {
+        const prevSub = setActiveSub(undefined);
+        try {
+          return Reflect.getOwnPropertyDescriptor(inputSignal() as object, key);
+        } finally {
+          setActiveSub(prevSub);
+        }
+      },
+    });
+
+    // Positional hydration snapshot.
+    let snapshotRaw: string | null = host.getAttribute(STATE_ATTR);
+    const snapshot = snapshotRaw ? parseStateSnapshot(snapshotRaw) : undefined;
+    const hydrated = snapshot != null;
+    const shouldSkipOnce = snapshot?.skipOnce === true;
+
+    const cleanups: Array<() => void> = [];
+    const unmountController = new AbortController();
+    cleanups.push(() => unmountController.abort());
+
+    const errorSlots: ErrorSlot[] = [];
+    const reportError = (err: unknown, source: ErrorSource): void => {
+      const error = err instanceof Error ? err : new Error(String(err));
+      if (errorSlots.length === 0) {
+        if (!reportToGlobal(error, source)) console.error(error);
+        return;
+      }
+      for (const slot of errorSlots) {
+        try {
+          slot.fn({ error, source, host });
+        } catch (handlerErr) {
+          console.error(handlerErr);
+        }
+      }
+    };
+
+    const instance: MountedInstance = {
+      host,
+      inputSignal,
+      input,
+      unmountController,
+      cleanups,
+      reportError,
+      actionIds: new Map(),
+      stateSnapshot: snapshot ? { s: snapshot.s, d: snapshot.d } : undefined,
+      hydrated,
+      disposed: false,
+      frame: null as unknown as PrimitiveFrame,
+    };
+    cleanups.push(() => {
+      instance.disposed = true;
+    });
+
+    const frame = freshFrame({ ssr: false, instance });
+    instance.frame = frame;
+
+    // Tracks mounted child slots across re-renders.
+    const mountedSlots = new Map<
+      string,
+      {
+        el: Element;
+        island: AnyIsland;
+        unmount: () => void;
+        updateProps: (props?: Record<string, unknown>) => void;
+      }
+    >();
+
+    function teardownMountedSlot(
+      id: string,
+      entry: {
+        el: Element;
+        unmount: () => void;
+        updateProps: (props?: Record<string, unknown>) => void;
+      },
+    ): void {
+      mountedSlots.delete(id);
+      entry.el.remove();
+      entry.unmount();
+    }
+
+    function slotBelongsToHost(candidate: Element): boolean {
+      let el: Element | null = candidate.parentElement;
+      while (el && el !== host) {
+        if (el.hasAttribute(SLOT_ATTR) || el.hasAttribute("data-ilha")) return false;
+        el = el.parentElement;
+      }
+      return el === host;
+    }
+
+    function buildSlotIndex(): Map<string, Element> {
+      const index = new Map<string, Element>();
+      for (const candidate of host.querySelectorAll(`[${SLOT_ATTR}]`)) {
+        const id = candidate.getAttribute(SLOT_ATTR);
+        if (id === null || index.has(id)) continue;
+        if (slotBelongsToHost(candidate)) index.set(id, candidate);
+      }
+      return index;
+    }
+
+    function pushUpdatedProps(nextSlots: IslandRenderCtx["slots"]): void {
+      for (const [id, entry] of mountedSlots) {
+        const next = nextSlots.get(id);
+        if (next) entry.updateProps(next.props);
+      }
+    }
+
+    function mountSlots(slotMap: IslandRenderCtx["slots"]) {
+      for (const [id, entry] of mountedSlots) {
+        if (!slotMap.has(id)) teardownMountedSlot(id, entry);
+      }
+      for (const [id, entry] of mountedSlots) {
+        const next = slotMap.get(id);
+        if (next && next.island !== entry.island) teardownMountedSlot(id, entry);
+      }
+
+      let slotIndex: Map<string, Element> | null = null;
+      for (const [id, { island: childIsland, props: childProps }] of slotMap) {
+        const existing = mountedSlots.get(id);
+        if (existing) {
+          existing.updateProps(childProps);
+          continue;
+        }
+
+        if (slotIndex === null) slotIndex = buildSlotIndex();
+        const slotEl = slotIndex.get(id) ?? null;
+        if (!slotEl) continue;
+
+        let slotProps = childProps;
+        if (slotProps === undefined) {
+          const rawProps = slotEl.getAttribute(PROPS_ATTR) ?? slotEl.getAttribute("data-props");
+          if (rawProps) {
+            const parsed = safeParseSnapshot(rawProps, `props on [${SLOT_ATTR}="${id}"]`);
+            if (parsed !== undefined) {
+              slotProps = reviveSlotProps(parsed as Record<string, unknown>);
+            }
           }
         }
 
-        return Promise.all(
-          results.map(async (r) => {
-            try {
-              return {
-                key: r.key,
-                envelope: {
-                  loading: false,
-                  value: await Promise.resolve(r.result),
-                  error: undefined,
-                } satisfies DerivedValue<unknown>,
-              };
-            } catch (err) {
-              return {
-                key: r.key,
-                envelope: {
+        const prevSub = setActiveSub(undefined);
+        let handle: {
+          unmount: () => void | Promise<void>;
+          updateProps: (p?: Record<string, unknown>) => void;
+        };
+        try {
+          const internal = (childIsland as unknown as Record<symbol, unknown>)[
+            ISLAND_MOUNT_INTERNAL
+          ] as ((host: Element, props?: Record<string, unknown>) => MountHandle) | undefined;
+          handle = internal
+            ? internal(slotEl, slotProps)
+            : { unmount: childIsland.mount(slotEl, slotProps), updateProps: () => {} };
+        } finally {
+          setActiveSub(prevSub);
+        }
+        mountedSlots.set(id, { el: slotEl, island: childIsland, ...handle });
+      }
+    }
+
+    const nativeOnceFired = new WeakMap<Element, Set<string>>();
+    let stopJsxEvents: () => void = () => {};
+    let stopBindings: () => void = () => {};
+
+    /** Start every reactive scope in declaration order: derived scopes,
+     * effects, then one-shot setups. Client-only. */
+    function startPrimitiveScopes(): void {
+      for (const slot of frame.slots) {
+        if (slot.kind === "derived") {
+          startDerivedScope(slot);
+        } else if (slot.kind === "effect") {
+          startEffectScope(slot);
+        } else if (slot.kind === "once") {
+          startOnceScope(slot);
+        } else if (slot.kind === "error") {
+          errorSlots.push(slot);
+        }
+      }
+    }
+
+    function startDerivedScope(slot: DerivedSlot): void {
+      let ac = new AbortController();
+      let skipFirst = slot.fromSnapshot;
+      const stopScope = alienEffect(() => {
+        ac.abort();
+        ac = new AbortController();
+        const currentAc = ac;
+
+        // Subscribe to props: parent-provided changes refresh closures via
+        // the re-render and recompute prop-driven deriveds.
+        void inputSignal();
+
+        let result: unknown;
+        try {
+          result = slot.fn({ signal: currentAc.signal });
+        } catch (err) {
+          if (skipFirst) {
+            skipFirst = false;
+            return;
+          }
+          writeEnvelope(currentAc, {
+            loading: false,
+            value: undefined,
+            error: err instanceof Error ? err : new Error(String(err)),
+          });
+          return;
+        }
+
+        if (skipFirst) {
+          skipFirst = false;
+          if (result instanceof Promise) (result as Promise<unknown>).catch(() => {});
+          return;
+        }
+
+        if (!(result instanceof Promise)) {
+          if (isAsyncIterable(result)) {
+            const iterable = result;
+            const previous = readEnv();
+            writeEnvelope(currentAc, {
+              loading: true,
+              value: previous.value,
+              error: undefined,
+            });
+            void (async () => {
+              try {
+                for await (const value of iterable) {
+                  const stopped = writeEnvelope(currentAc, {
+                    loading: false,
+                    value,
+                    error: undefined,
+                  });
+                  if (stopped) break;
+                }
+              } catch (err) {
+                writeEnvelope(currentAc, {
                   loading: false,
                   value: undefined,
                   error: err instanceof Error ? err : new Error(String(err)),
-                } satisfies DerivedValue<unknown>,
-              };
-            }
-          }),
-        ).then(async (resolved) => {
-          const envelopes: Record<string, DerivedValue<unknown>> = {};
-          for (const r of resolved) envelopes[r.key] = r.envelope;
-          const derived = buildDerivedAccessors<TDerivedMap>(envelopes);
-          const prevSub = setActiveSub(undefined);
-          try {
-            const { html, events } = await renderWithCtx({
-              render: () => fn({ state, derived, action, input }),
-              asyncChildren: true,
-              manifest: eventsOut !== undefined,
-            });
-            recordEventsManifest(events);
-            return stylePrefix + html;
-          } finally {
-            setActiveSub(prevSub);
+                });
+              }
+            })();
+            return;
           }
-        });
-      }
-    }
-
-    type MountHandle = {
-      unmount: () => void | Promise<void>;
-      // Push new props into an already-mounted island. Used by parent
-      // mountSlots when a parent re-render produces new props for an
-      // already-mounted child slot. The new props are resolved (and
-      // validated against the schema, if any) and written into the input
-      // signal — reactive scopes (render, derived, effect) that read input
-      // keys re-run automatically.
-      updateProps: (props?: Partial<TInput>) => void;
-    };
-
-    function mountIsland(host: Element, props?: Partial<TInput>): () => void {
-      return mountIslandInternal(host, props).unmount;
-    }
-
-    function mountIslandInternal(host: Element, props?: Partial<TInput>): MountHandle {
-      const noop: MountHandle = { unmount: () => {}, updateProps: () => {} };
-
-      if (__DEV__ && _mountedHosts) {
-        if (_mountedHosts.has(host)) {
-          warn(
-            `mount(): this element is already mounted. Call the previous unmount() first to avoid ` +
-              `memory leaks and duplicate event listeners.\n` +
-              `Element: ${host.outerHTML.slice(0, 120)}`,
-          );
-          return noop;
-        }
-        _mountedHosts.add(host);
-      }
-
-      if (props === undefined) {
-        const rawProps = host.getAttribute(PROPS_ATTR);
-        if (rawProps) {
-          const parsed = safeParseSnapshot(rawProps, PROPS_ATTR);
-          if (parsed !== undefined) {
-            props = reviveSlotProps(parsed as Record<string, unknown>) as Partial<TInput>;
-          }
-        }
-      }
-
-      // Input is reactive: stored in a signal whose value is the resolved
-      // input object, and exposed to user code via a Proxy whose getters
-      // read the signal. This lets child islands re-render when a parent
-      // passes them updated state via `Child({ value: state.x() })` and
-      // the parent's render effect re-runs — see updateProps below.
-      const inputSignal = signal(resolveInput(props));
-      const input = new Proxy({} as TInput, {
-        get(_t, key) {
-          return (inputSignal() as Record<PropertyKey, unknown>)[key];
-        },
-        has(_t, key) {
-          return key in (inputSignal() as object);
-        },
-        ownKeys() {
-          // ownKeys is invoked outside a tracking scope (e.g. Object.keys);
-          // peek without subscribing to avoid surprises.
-          const prevSub = setActiveSub(undefined);
-          try {
-            return Reflect.ownKeys(inputSignal() as object);
-          } finally {
-            setActiveSub(prevSub);
-          }
-        },
-        getOwnPropertyDescriptor(_t, key) {
-          const prevSub = setActiveSub(undefined);
-          try {
-            return Reflect.getOwnPropertyDescriptor(inputSignal() as object, key);
-          } finally {
-            setActiveSub(prevSub);
-          }
-        },
-      });
-
-      let snapshotRaw: Record<string, unknown> | undefined;
-      const rawState = host.getAttribute(STATE_ATTR);
-      if (rawState) {
-        const parsed = safeParseSnapshot(rawState, STATE_ATTR);
-        if (parsed !== undefined) snapshotRaw = parsed as Record<string, unknown>;
-      }
-
-      const stateSnapshot = snapshotRaw
-        ? (Object.fromEntries(
-            Object.entries(snapshotRaw).filter(
-              ([k]) => k !== "_derived" && k !== "_skipOnMount" && k !== "_streams",
-            ),
-          ) as Record<string, unknown>)
-        : undefined;
-
-      const derivedSnapshotRaw = snapshotRaw?._derived as
-        | Record<string, DerivedValue<unknown>>
-        | undefined;
-
-      let derivedSnapshot: Record<string, DerivedValue<unknown>> | undefined;
-      if (derivedSnapshotRaw) {
-        derivedSnapshot = {};
-        for (const [k, v] of Object.entries(derivedSnapshotRaw)) {
-          if (v.error && !(v.error instanceof Error)) {
-            derivedSnapshot[k] = { ...v, error: new Error(String(v.error)) };
-          } else {
-            derivedSnapshot[k] = v;
-          }
-        }
-      }
-
-      const hydrated = snapshotRaw != null;
-      const snapshotHasIslandState = stateSnapshot != null && Object.keys(stateSnapshot).length > 0;
-      // _skipOnMount only skips when island .state() was snapshotted (hydration replay).
-      // Layout shells snapshot _skipOnMount without state keys — page onMount must still run
-      // (e.g. seed @ilha/store from loader input before the first client render).
-      const shouldSkipOnMount =
-        hydrated && snapshotRaw?.["_skipOnMount"] === true && snapshotHasIslandState;
-      const state = buildSignalState(input, stateSnapshot);
-      const cleanups: Array<() => void> = [];
-
-      // Per-island AbortController. Aborted on unmount so handler signals
-      // (and any downstream fetches/awaits) get cancelled cleanly.
-      const unmountController = new AbortController();
-      cleanups.push(() => unmountController.abort());
-
-      // Create derived proxy early (envelopes with initial values)
-      const { proxy: derived, setup: setupDerived } = createDerivedProxy<
-        TInput,
-        TStateMap,
-        TDerivedMap
-      >({
-        entries: deriveds as DerivedEntry<TInput, TStateMap>[],
-        state,
-        input,
-        derivedSnapshot,
-      });
-      let stopDerived: () => void = () => {};
-      let action = {} as IslandActions<TActionMap>;
-
-      // Centralized error sink. Errors thrown by .on() handlers (sync or async)
-      // and .effect() runs are routed through here. If any .onError() handlers
-      // are registered, they run in declaration order; otherwise we fall back
-      // to the global sink, then console.error so errors are never silently
-      // swallowed. An error thrown by an onError handler itself is logged (we
-      // don't recurse).
-      function reportError(err: unknown, source: ErrorSource): void {
-        const error = err instanceof Error ? err : new Error(String(err));
-        if (onErrors.length === 0) {
-          // No local handler — try the app-wide sink, else log so errors are
-          // never silently swallowed.
-          if (!reportToGlobal(error, source)) console.error(error);
+          writeEnvelope(currentAc, { loading: false, value: result, error: undefined });
           return;
         }
-        for (const entry of onErrors) {
-          try {
-            entry.fn({ error, source, state, derived, action, input, host });
-          } catch (handlerErr) {
-            console.error(handlerErr);
-          }
-        }
-      }
 
-      const actionEntries = actions as ActionEntry<TInput, TStateMap, TDerivedMap>[];
-      const actionObject: Record<string, unknown> = {};
-      let disposed = false;
-      cleanups.push(() => {
-        disposed = true;
-      });
-      for (const entry of actionEntries) {
-        type Envelope = { pending: number; data: unknown; error: Error | undefined };
-        const envelope = signal<Envelope>({ pending: 0, data: undefined, error: undefined });
-        const readEnvelope = () => untrack(() => envelope());
-        let latestRun = 0;
-        let warnedDuringRender = false;
-        const invoke = (props?: unknown): void => {
-          if (currentRenderCtx()) {
-            if (__DEV__ && !warnedDuringRender) {
-              warnedDuringRender = true;
-              warn(
-                `action.${entry.key}() was called during render and was ignored. Call actions from an event, effect, or mount hook.`,
-              );
-            }
-            return;
-          }
-          if (disposed) {
-            if (__DEV__) warn(`action.${entry.key}() was called after unmount and was ignored.`);
-            return;
-          }
-          const run = ++latestRun;
-          const runSignal = unmountController.signal;
-          const ctx: ActionContext<TInput, TStateMap, TDerivedMap> = {
-            state,
-            derived,
-            input,
-            host,
-            signal: runSignal,
-          };
-          let result: unknown;
-          let isAsync = false;
-          startBatch();
-          try {
-            result = entry.fn(props, ctx);
-            isAsync = result != null && typeof (result as PromiseLike<unknown>).then === "function";
-            const current = readEnvelope();
-            envelope(
-              isAsync
-                ? { pending: current.pending + 1, data: current.data, error: undefined }
-                : { pending: current.pending, data: result, error: undefined },
-            );
-          } catch (error) {
-            const normalized = error instanceof Error ? error : new Error(String(error));
-            envelope({ pending: readEnvelope().pending, data: undefined, error: normalized });
-            reportError(normalized, "action");
-            return;
-          } finally {
-            endBatch();
-          }
-          if (!isAsync) return;
-          void Promise.resolve(result)
-            .then((data) => {
-              if (disposed || runSignal.aborted || run !== latestRun) return;
-              const value = readEnvelope();
-              envelope({ pending: value.pending, data, error: undefined });
-            })
-            .catch((error: unknown) => {
-              if (
-                disposed ||
-                runSignal.aborted ||
-                (error as { name?: string })?.name === "AbortError"
-              ) {
-                return;
-              }
-              const normalized = error instanceof Error ? error : new Error(String(error));
-              if (run === latestRun) {
-                const value = readEnvelope();
-                envelope({ pending: value.pending, data: undefined, error: normalized });
-              }
-              reportError(normalized, "action");
-            })
-            .finally(() => {
-              if (disposed) return;
-              const value = readEnvelope();
-              envelope({ ...value, pending: Math.max(0, value.pending - 1) });
-            });
-        };
-        Object.defineProperties(invoke, {
-          pending: { get: () => envelope().pending > 0, enumerable: true },
-          data: { get: () => envelope().data, enumerable: true },
-          error: { get: () => envelope().error, enumerable: true },
-        });
-        actionObject[entry.key] = invoke;
-      }
-      action = actionObject as IslandActions<TActionMap>;
-
-      // Mount-time enter transition. Routed through reportError so a throwing
-      // or rejecting enter() surfaces via .onError()/global sink instead of an
-      // unhandled rejection.
-      if (transition?.enter) {
-        try {
-          const result = transition.enter(host);
-          if (result instanceof Promise) result.catch((err) => reportError(err, "transition"));
-        } catch (err) {
-          reportError(err, "transition");
-        }
-      }
-
-      // Tracks slots currently mounted into the host: id -> { element, unmount, updateProps }.
-      // mountSlots reconciles this against the fresh slot map from each render.
-      // Preservation of identity across re-renders happens in the render effect
-      // (detach-before-morph, rehome-after-morph). This function's job is:
-      // unmount removed slots, mount newly-added ones, and push fresh props
-      // into slots that were already mounted (so children re-render when the
-      // parent passes them updated state as input).
-      const mountedSlots = new Map<
-        string,
-        {
-          el: Element;
-          island: AnyIsland;
-          unmount: () => void | Promise<void>;
-          updateProps: (props?: Record<string, unknown>) => void;
-        }
-      >();
-      const leavingSlots = new Map<string, { el: Element; token: symbol; stub?: Element }>();
-
-      function teardownMountedSlot(
-        id: string,
-        entry: {
-          el: Element;
-          unmount: () => void | Promise<void>;
-          updateProps: (props?: Record<string, unknown>) => void;
-        },
-      ): void | Promise<void> {
-        mountedSlots.delete(id);
-        const token = Symbol();
-        const result = entry.unmount();
-        const remove = (stub?: Element) => {
-          const leaving = leavingSlots.get(id);
-          if (!leaving || leaving.token !== token) return;
-          leaving.el.remove();
-          stub?.remove();
-          leavingSlots.delete(id);
-        };
-        if (result instanceof Promise) {
-          // Keep the child subtree connected so transition.leave (e.g. WAAPI) can
-          // paint. Replacing with a stub immediately detached the host and made
-          // leave animations invisible. Strip the slot identity and mark the
-          // element as leaving so the morph, the slot index, and a same-id
-          // remount can never adopt it — its deferred remove() would otherwise
-          // delete the NEW island's DOM out from under it.
-          entry.el.removeAttribute(SLOT_ATTR);
-          entry.el.setAttribute(LEAVING_ATTR, "");
-          leavingSlots.set(id, { el: entry.el, token });
-          return result.finally(() => remove());
-        }
-        entry.el.remove();
-      }
-
-      // Returns true if `candidate` is a direct slot of this host — walking up
-      // must not cross another island boundary (`data-ilha` or a parent
-      // `data-ilha-slot`) before reaching host. Nested positional ids like
-      // `p:0` are only unique within one island's render; without treating
-      // ancestor slot hosts as boundaries, a layout sibling (e.g. Toaster at
-      // `p:0`) would steal a page-nested Checkbox slot with the same id.
-      function slotBelongsToHost(candidate: Element): boolean {
-        let el: Element | null = candidate.parentElement;
-        while (el && el !== host) {
-          if (el.hasAttribute(SLOT_ATTR) || el.hasAttribute("data-ilha")) return false;
-          el = el.parentElement;
-        }
-        return el === host;
-      }
-
-      // Single-pass index of all owned slots, keyed by id. Building this once
-      // and reusing it across a mount/rehome loop turns the previous O(n) per
-      // findSlot (and O(n²) per render for keyed lists) into O(n) total.
-      function buildSlotIndex(): Map<string, Element> {
-        const leavingEls = new Set([...leavingSlots.values()].map((l) => l.el));
-        const index = new Map<string, Element>();
-        for (const candidate of host.querySelectorAll(`[${SLOT_ATTR}]`)) {
-          if (leavingEls.has(candidate)) continue;
-          const id = candidate.getAttribute(SLOT_ATTR);
-          if (id === null || index.has(id)) continue;
-          if (slotBelongsToHost(candidate)) index.set(id, candidate);
-        }
-        return index;
-      }
-
-      /** Push live props from a fresh slot map into already-mounted children. */
-      function pushUpdatedProps(nextSlots: IslandRenderCtx["slots"]): void {
-        for (const [id, entry] of mountedSlots) {
-          const next = nextSlots.get(id);
-          if (next) entry.updateProps(next.props);
-        }
-      }
-
-      function mountSlots(slotMap: IslandRenderCtx["slots"]) {
-        // Unmount slots that are no longer present (conditionally removed).
-        for (const [id, entry] of mountedSlots) {
-          if (!slotMap.has(id)) {
-            teardownMountedSlot(id, entry);
-          }
-        }
-
-        // Same slot id, different child island (e.g. conditional `${List}` vs `${Edit}` at p:0).
-        for (const [id, entry] of mountedSlots) {
-          const next = slotMap.get(id);
-          if (next && next.island !== entry.island) {
-            teardownMountedSlot(id, entry);
-          }
-        }
-
-        // Mount new slot ids that aren't yet mounted; push updated props
-        // into slots that are.
-        let slotIndex: Map<string, Element> | null = null;
-        for (const [id, { island: childIsland, props }] of slotMap) {
-          const existing = mountedSlots.get(id);
-          if (existing) {
-            // Already mounted — propagate fresh props so the child can
-            // re-render. Short-circuit happens inside updateProps when the
-            // resolved input is shallow-equal to the previous one.
-            existing.updateProps(props);
-            continue;
-          }
-
-          if (slotIndex === null) slotIndex = buildSlotIndex();
-          const slotEl = slotIndex.get(id) ?? null;
-          if (!slotEl) continue;
-
-          // Props may have been encoded on the slot element during SSR/hydration
-          // (data-ilha-props). Fall back to that if not supplied inline via the
-          // slot map. Data-props is preserved as a secondary source for
-          // hydration scenarios where the map isn't populated.
-          let slotProps = props;
-          if (slotProps === undefined) {
-            const rawProps = slotEl.getAttribute(PROPS_ATTR) ?? slotEl.getAttribute("data-props");
-            if (rawProps) {
-              const parsed = safeParseSnapshot(rawProps, `props on [${SLOT_ATTR}="${id}"]`);
-              if (parsed !== undefined) {
-                slotProps = reviveSlotProps(parsed as Record<string, unknown>);
-              }
-            }
-          }
-
-          // Isolate child island mount from any outer subscriber (e.g. the
-          // parent's render effect, when mountSlots is called mid-re-render).
-          // Without this, the child's pre-effect render call reads its own
-          // signals with the parent as active subscriber, subscribing the
-          // parent to child-internal state and preventing the child's own
-          // render effect from receiving updates.
-          const prevSub = setActiveSub(undefined);
-          let handle: {
-            unmount: () => void | Promise<void>;
-            updateProps: (p?: Record<string, unknown>) => void;
-          };
-          try {
-            // Use the internal mount path so we get a handle that can push
-            // new props on subsequent parent re-renders, not just unmount.
-            const internal = (childIsland as unknown as Record<symbol, unknown>)[
-              ISLAND_MOUNT_INTERNAL
-            ] as
-              | ((
-                  host: Element,
-                  props?: Record<string, unknown>,
-                ) => {
-                  unmount: () => void | Promise<void>;
-                  updateProps: (p?: Record<string, unknown>) => void;
-                })
-              | undefined;
-            handle = internal
-              ? internal(slotEl, slotProps)
-              : { unmount: childIsland.mount(slotEl, slotProps), updateProps: () => {} };
-          } finally {
-            setActiveSub(prevSub);
-          }
-          mountedSlots.set(id, { el: slotEl, island: childIsland, ...handle });
-        }
-      }
-
-      type ListenerEntry = {
-        target: Element;
-        type: string;
-        fn: EventListener;
-        options: AddEventListenerOptions;
-        entry: OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>;
-      };
-      const listeners: ListenerEntry[] = [];
-      const firedOnce = new Set<OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>>();
-      const invocationControllers = new WeakMap<
-        OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>,
-        WeakMap<Element, AbortController>
-      >();
-      const warnedMissingSelectors = new Set<OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>>();
-      const warnedInvalidSelectors = new Set<OnEntry<TInput, TStateMap, TDerivedMap, TActionMap>>();
-
-      function attachListeners() {
-        for (const entry of ons) {
-          if (entry.options.once && firedOnce.has(entry)) continue;
-          let targets: Element[];
-          try {
-            targets =
-              entry.selector === ""
-                ? [host]
-                : Array.from(host.querySelectorAll(entry.selector)).filter((element) =>
-                    templateElementBelongsToHost(host, element),
-                  );
-          } catch {
-            if (__DEV__ && !warnedInvalidSelectors.has(entry)) {
-              warnedInvalidSelectors.add(entry);
-              warn(
-                `on(): selector "${entry.selector}" is not valid CSS. The listener was skipped.`,
-              );
-            }
-            continue;
-          }
-
-          if (
-            __DEV__ &&
-            entry.selector !== "" &&
-            targets.length === 0 &&
-            !warnedMissingSelectors.has(entry)
-          ) {
-            warnedMissingSelectors.add(entry);
-            warn(
-              `on(): selector "${entry.selector}" matched no elements at mount time. ` +
-                `If the element is rendered later, this is expected — otherwise check your selector.`,
-            );
-          }
-
-          targets.forEach((listenerTarget) => {
-            const listener = (event: Event) => {
-              if (entry.options.once) {
-                firedOnce.add(entry);
-                for (const l of listeners.filter((l) => l.entry === entry)) {
-                  l.target.removeEventListener(l.type, l.fn, l.options);
-                }
-                listeners.splice(
-                  0,
-                  listeners.length,
-                  ...listeners.filter((l) => l.entry !== entry),
-                );
-              }
-              const eventTarget = (
-                event.target instanceof Element ? event.target : listenerTarget
-              ) as Element;
-              // For selector-based listeners, pass the matched element (the
-              // listener host), not the deepest event.target — component libs
-              // often wrap label text in inner spans that lack data-* attrs.
-              const handlerTarget = entry.selector === "" ? eventTarget : listenerTarget;
-
-              // Build the signal passed to the handler. Always linked to the
-              // unmount signal; if abortable, also linked to a per-invocation
-              // controller that we abort on the next fire.
-              let handlerSignal: AbortSignal;
-              if (entry.abortable) {
-                let entryMap = invocationControllers.get(entry);
-                if (!entryMap) {
-                  entryMap = new WeakMap();
-                  invocationControllers.set(entry, entryMap);
-                }
-                const prev = entryMap.get(listenerTarget);
-                if (prev) prev.abort();
-                const invocationController = new AbortController();
-                entryMap.set(listenerTarget, invocationController);
-                handlerSignal = anySignal([unmountController.signal, invocationController.signal]);
-              } else {
-                handlerSignal = unmountController.signal;
-              }
-
-              // Batch the synchronous portion of the handler so multiple
-              // state writes propagate as a single update. If the handler
-              // returns a promise, the batch ends after the sync portion;
-              // post-await writes batch themselves implicitly via signal
-              // semantics (or can be wrapped in batch() if needed).
-              let result: void | Promise<void>;
-              startBatch();
-              try {
-                result = entry.handler({
-                  state,
-                  derived,
-                  action,
-                  input,
-                  host,
-                  target: handlerTarget,
-                  event,
-                  signal: handlerSignal,
-                });
-              } catch (err) {
-                reportError(err, "on");
-                endBatch();
-                return;
-              }
-              endBatch();
-              if (result instanceof Promise) {
-                result.catch((err) => {
-                  // AbortError is the expected outcome of cancellation —
-                  // don't surface it. Anything else is a real handler error.
-                  if (err && (err as { name?: string }).name === "AbortError") return;
-                  reportError(err, "on");
-                });
-              }
-            };
-            const opts = { ...entry.options, once: false };
-            listenerTarget.addEventListener(entry.event, listener, opts);
-            listeners.push({
-              target: listenerTarget,
-              type: entry.event,
-              fn: listener,
-              options: opts,
-              entry,
+        const previous = readEnv();
+        writeEnvelope(currentAc, { loading: true, value: previous.value, error: undefined });
+        void (result as Promise<unknown>)
+          .then((value) => {
+            writeEnvelope(currentAc, { loading: false, value, error: undefined });
+          })
+          .catch((err: unknown) => {
+            writeEnvelope(currentAc, {
+              loading: false,
+              value: undefined,
+              error: err instanceof Error ? err : new Error(String(err)),
             });
           });
-        }
-      }
-
-      function detachListeners() {
-        for (const l of listeners) l.target.removeEventListener(l.type, l.fn, l.options);
-        listeners.length = 0;
-      }
-
-      function invokeOnMounts(): void {
-        for (const entry of onMounts) {
-          const prevSub = setActiveSub(undefined);
-          let userCleanup!: (() => void) | void;
-          try {
-            userCleanup = entry.fn({
-              state,
-              derived,
-              action,
-              input,
-              host,
-              hydrated,
-              signal: unmountController.signal,
-            });
-          } catch (err) {
-            reportError(err, "mount");
-          } finally {
-            setActiveSub(prevSub);
-          }
-          if (userCleanup) {
-            const teardown = userCleanup;
-            cleanups.push(() => {
-              try {
-                teardown();
-              } catch (err) {
-                reportError(err, "mount");
-              }
-            });
-          }
-        }
-      }
-
-      const preserveSSRDom = hydrated && host.childNodes.length > 0;
-
-      // Seed external/module state before the first render walk (store is not snapshotted).
-      if (hydrated && onMounts.length > 0 && !shouldSkipOnMount) {
-        invokeOnMounts();
-      }
-
-      // Initial render. If hydrating over existing SSR output, we still need
-      // to walk the render function once to collect the slot map (so mountSlots
-      // knows which islands to mount into the existing [data-ilha-slot]
-      // elements). In that case we pass the host as liveHost so emitIslandSlot
-      // reuses the existing subtrees instead of re-SSR-ing children.
-      const nativeOnceFired = new WeakMap<Element, Set<string>>();
-      const initial = renderWithCtx({
-        render: () => fn({ state, derived, action, input }),
-        liveHost: preserveSSRDom ? host : undefined,
       });
-      if (!preserveSSRDom) {
-        // pi-lens-ignore: ast-grep:no-inner-html — host is this island's render
-        // target; the markup is the island's html``/JSX output, escaped by default.
-        host.innerHTML = stylePrefix + initial.html;
-      }
+      cleanups.push(() => {
+        stopScope();
+        ac.abort();
+      });
 
-      // Reflect properties and bind:this before onMount, but attach native
-      // bind listeners afterward. Component controllers commonly register
-      // their own listeners in onMount; letting those run first preserves the
-      // distinction between a user change and the reactive sync it triggers.
-      const stopInitialBindingReflection = applyTemplateBindings(host, initial.binds, "reflect");
-      let stopBindings = stopInitialBindingReflection;
-      cleanups.push(() => stopBindings());
-      let stopJsxEvents = applyJsxEvents({
+      function readEnv(): DerivedValue<unknown> {
+        const prevSub = setActiveSub(undefined);
+        try {
+          return slot.env();
+        } finally {
+          setActiveSub(prevSub);
+        }
+      }
+      function writeEnvelope(ac: AbortController, patch: DerivedValue<unknown>): boolean {
+        if (ac.signal.aborted) return true;
+        const prevSub = setActiveSub(undefined);
+        try {
+          slot.env(patch);
+        } finally {
+          setActiveSub(prevSub);
+        }
+        return false;
+      }
+    }
+
+    function startEffectScope(slot: EffectSlot): void {
+      let userCleanup: (() => void) | void;
+      let runController: AbortController | null = null;
+      const stopScope = alienEffect(() => {
+        if (userCleanup) {
+          try {
+            userCleanup();
+          } catch (err) {
+            reportError(err, "effect");
+          }
+          userCleanup = undefined;
+        }
+        if (runController) runController.abort();
+        runController = new AbortController();
+        const runSignal = AbortSignal.any([unmountController.signal, runController.signal]);
+        // Props changes rerun prop-closure effects; see startDerivedScope.
+        void inputSignal();
+        startBatch();
+        try {
+          userCleanup = slot.fn({ signal: runSignal });
+        } catch (err) {
+          reportError(err, "effect");
+        } finally {
+          endBatch();
+        }
+      });
+      cleanups.push(() => {
+        stopScope();
+        if (userCleanup) {
+          try {
+            userCleanup();
+          } catch (err) {
+            reportError(err, "effect");
+          }
+        }
+        if (runController) runController.abort();
+      });
+    }
+
+    function startOnceScope(slot: OnceSlot): void {
+      if (shouldSkipOnce) return;
+      const prevSub = setActiveSub(undefined);
+      let userCleanup!: (() => void) | void;
+      try {
+        userCleanup = slot.fn({
+          host,
+          hydrated,
+          signal: unmountController.signal,
+        });
+      } catch (err) {
+        reportError(err, "once");
+      } finally {
+        setActiveSub(prevSub);
+      }
+      if (userCleanup) {
+        const teardown = userCleanup;
+        cleanups.push(() => {
+          try {
+            teardown();
+          } catch (err) {
+            reportError(err, "once");
+          }
+        });
+      }
+    }
+
+    const preserveSSRDom = hydrated && host.childNodes.length > 0;
+
+    // Initial (creation) pass: creates primitive slots, produces HTML.
+    const initial = renderWithCtx({
+      render: runInFrame(frame, input),
+      liveHost: preserveSSRDom ? host : undefined,
+    });
+    if (!preserveSSRDom) {
+      // pi-lens-ignore: ast-grep:no-inner-html — host is this island's render
+      // target; the markup is the island's html``/JSX output, escaped by default.
+      host.innerHTML = initial.html;
+    }
+
+    const stopInitialBindingReflection = applyTemplateBindings(host, initial.binds, "reflect");
+    let stopInitialBindingListeners: (() => void) | null = null;
+    stopBindings = stopInitialBindingReflection;
+    cleanups.push(() => stopBindings());
+    stopJsxEvents = applyJsxEvents({
+      host,
+      records: initial.events,
+      reportError: (error) => reportError(error, "event"),
+      unmountSignal: unmountController.signal,
+      onceFired: nativeOnceFired,
+    });
+    cleanups.push(() => stopJsxEvents());
+
+    mountSlots(initial.slots);
+    cleanups.push(() => mountedSlots.forEach((entry) => entry.unmount()));
+
+    stopInitialBindingListeners = applyTemplateBindings(host, initial.binds, "listen");
+    stopBindings = () => {
+      stopInitialBindingListeners!();
+      stopInitialBindingReflection();
+    };
+
+    let initialized = false;
+    const initialRenderedHtml = initial.html;
+    let lastRendered: string | null = null;
+    let renderEpoch = 0;
+    const stopRender = alienEffect(() => {
+      const epoch = ++renderEpoch;
+      frame.creating = false;
+      frame.cursor = 0;
+      const {
+        html: rendered,
+        slots: newSlotMap,
+        binds: newBinds,
+        events: newEvents,
+      } = renderWithCtx({
+        render: runInFrame(frame, input),
+        liveHost: host,
+      });
+
+      checkFrameDrift(frame);
+
+      // Handler closures may change even when their rendered HTML does not.
+      stopJsxEvents();
+      stopJsxEvents = applyJsxEvents({
         host,
-        records: initial.events,
-        reportError: (error) => reportError(error, "on"),
+        records: newEvents,
+        reportError: (error) => reportError(error, "event"),
         unmountSignal: unmountController.signal,
         onceFired: nativeOnceFired,
       });
-      cleanups.push(() => stopJsxEvents());
 
-      mountSlots(initial.slots);
-      cleanups.push(() => mountedSlots.forEach((entry) => entry.unmount()));
-
-      // Bind after slot islands mount so selector-based handlers see the final DOM.
-      attachListeners();
-
-      if (!hydrated && onMounts.length > 0) {
-        invokeOnMounts();
-      }
-
-      const stopInitialBindingListeners = applyTemplateBindings(host, initial.binds, "listen");
-      stopBindings = () => {
-        stopInitialBindingListeners();
-        stopInitialBindingReflection();
-      };
-
-      for (const entry of effects) {
-        let userCleanup: (() => void) | void;
-        let runController: AbortController | null = null;
-        const stopEffect = effect(() => {
-          if (userCleanup) {
-            try {
-              userCleanup();
-            } catch (err) {
-              reportError(err, "effect");
-            }
-            userCleanup = undefined;
-          }
-          // Abort the previous run's signal so any in-flight async work bails
-          // before we kick off the next run. Race-cancel is the default for
-          // effects (unlike .on(), which requires :abortable opt-in) because
-          // dependency changes invariably make the previous run stale.
-          if (runController) runController.abort();
-          runController = new AbortController();
-          const runSignal = anySignal([unmountController.signal, runController.signal]);
-          // Batch writes inside the effect so multiple state mutations in a
-          // single run propagate atomically.
-          startBatch();
-          try {
-            userCleanup = entry.fn({ state, derived, action, input, host, signal: runSignal });
-          } catch (err) {
-            reportError(err, "effect");
-          } finally {
-            endBatch();
-          }
-        });
-        cleanups.push(() => {
-          stopEffect();
-          if (userCleanup) {
-            try {
-              userCleanup();
-            } catch (err) {
-              reportError(err, "effect");
-            }
-          }
-          if (runController) runController.abort();
-        });
-      }
-
-      // Register derived effects after user effects so that when state
-      // changes, the user effect runs first (potentially resetting state)
-      // and the derived effect sees the final state.
-      stopDerived = setupDerived();
-      cleanups.push(stopDerived);
-
-      // Resume streams. On a hydrated mount the snapshot has already seeded
-      // each streamed key with the SSR value; the generator continues from
-      // live. A repeated equal first push is absorbed by signal equality.
-      for (const entry of streams) {
-        let streamAborted = false;
-        const streamController = new AbortController();
-        const runStream = async (): Promise<void> => {
-          try {
-            const gen = await entry.fn({ input, signal: streamController.signal });
-            while (!streamAborted && !streamController.signal.aborted) {
-              const { done, value } = await gen.next();
-              if (streamAborted || streamController.signal.aborted || done) break;
-              const prevSub = setActiveSub(undefined);
-              try {
-                const setter = (state as Record<string, ((v: unknown) => void) | undefined>)[
-                  entry.key
-                ];
-                setter?.(value);
-              } finally {
-                setActiveSub(prevSub);
-              }
-            }
-          } catch (err) {
-            if (
-              !streamAborted &&
-              !streamController.signal.aborted &&
-              (err as { name?: string })?.name !== "AbortError"
-            ) {
-              reportError(err, "stream");
-            }
-          }
-        };
-        void runStream();
-        cleanups.push(() => {
-          streamAborted = true;
-          streamController.abort();
-        });
-      }
-
-      let initialized = false;
-      // Track the rendered HTML from the initial sync render so the first
-      // effect pass can detect whether state writes during onMount or
-      // synchronous effect setup have produced a divergence that needs a
-      // re-paint. Without this, the DOM stays stuck on the initial-render
-      // value because the effect's first run short-circuits.
-      const initialRenderedHtml = initial.html;
-      // Rendered string the live DOM is known to match — set whenever a morph
-      // (or a first-pass short-circuit with matching DOM) completes. Enables
-      // the identical-output fast path below.
-      let lastRendered: string | null = null;
-      let renderEpoch = 0;
-      const stopRender = effect(() => {
-        const epoch = ++renderEpoch;
-        // Re-render produces empty stubs for every child island site (see
-        // emitIslandSlot). The full strategy for preserving mounted children
-        // across parent re-renders:
-        //
-        //   1. Render a fresh HTML template with empty slot stubs.
-        //   2. In the LIVE host, replace each mounted slot element with an
-        //      empty stub (same [data-ilha-slot] attr). The live element is
-        //      detached and held in a local map.
-        //   3. Morph the stubbed live DOM against the stubbed template. Because
-        //      both sides now have structurally identical empty stubs at slot
-        //      positions, morph can reorder/match them by position without
-        //      walking into the child subtree (which was the source of state
-        //      corruption when children reorder).
-        //   4. After morph, find each stub by id and replace it with the
-        //      preserved live element. Children keep their DOM, listeners,
-        //      state, event bindings — untouched.
-        //
-        // Brand-new slot ids (added in this render) stay as stubs after morph;
-        // mountSlots mounts their islands onto them.
-        const {
-          html: rendered,
-          slots: newSlotMap,
-          binds: newBinds,
-          events: newEvents,
-        } = renderWithCtx({
-          render: () => fn({ state, derived, action, input }),
-          liveHost: host,
-        });
-
-        // Handler closures may change even when their rendered HTML does not.
-        // Refresh them on every reactive render, including all fast paths.
-        stopJsxEvents();
-        stopJsxEvents = applyJsxEvents({
-          host,
-          records: newEvents,
-          reportError: (error) => reportError(error, "on"),
-          unmountSignal: unmountController.signal,
-          onceFired: nativeOnceFired,
-        });
-        const html = stylePrefix + rendered;
-
-        if (!initialized) {
-          initialized = true;
-          // Hydration: listeners/bindings were wired to SSR DOM — never morph
-          // on the first effect pass (layout + page slots both use this path).
-          if (preserveSSRDom) {
-            pushUpdatedProps(newSlotMap);
-            if (rendered === initialRenderedHtml) {
-              lastRendered = rendered;
-              return;
-            }
-            // onMount or other setup changed output — morph to refresh SSR DOM.
-          }
-          // Fast path: render output matches the eager initial render. DOM
-          // and slot map are already in sync — nothing more to do here. The
-          // typical case: no onMount has run yet, or onMount hasn't written
-          // any state.
+      if (!initialized) {
+        initialized = true;
+        if (preserveSSRDom) {
+          pushUpdatedProps(newSlotMap);
           if (rendered === initialRenderedHtml) {
             lastRendered = rendered;
             return;
           }
-          // Client mount: the eager render inlines child SSR, but the first
-          // reactive pass uses liveHost stubs by design. That HTML difference
-          // is expected — remorphing here would disturb already-mounted child
-          // islands (component controllers, bind wiring, etc.). Push fresh
-          // props and skip the destructive morph when the slot set is stable.
-          if (
-            mountedSlots.size > 0 &&
-            mountedSlots.size === newSlotMap.size &&
-            [...newSlotMap.keys()].every((id) => mountedSlots.has(id)) &&
-            isStableInlineSlotMount({
-              initialHtml: initialRenderedHtml,
-              renderedHtml: rendered,
-              slotIds: newSlotMap.keys(),
-            })
-          ) {
-            // Slot set is stable, but live props (functions, children RawHtml)
-            // are not reflected in the stub markup — still push them.
-            pushUpdatedProps(newSlotMap);
-            return;
-          }
-          // Divergence: a state write between the eager initial render and
-          // the first effect pass (typically inside onMount) changed what
-          // the render fn produces. Fall through to do a full morph + slot
-          // reconcile so the DOM and mounted children catch up. The child
-          // islands that were already mounted by the eager mountSlots get
-          // their new props pushed via updateProps.
         }
-
-        // Identical-output fast path: the DOM, listener wiring, and template
-        // bindings all derive from the rendered string, so when a re-render
-        // produces the exact markup the DOM already matches (a dependency
-        // changed without affecting this island's output) there is nothing to
-        // morph or rewire. Slot props are compared as live objects — functions
-        // and other non-serializable props can differ while the serialized
-        // stub markup doesn't — so still push them into mounted children.
+        if (rendered === initialRenderedHtml) {
+          lastRendered = rendered;
+          return;
+        }
         if (
-          rendered === lastRendered &&
+          mountedSlots.size > 0 &&
           mountedSlots.size === newSlotMap.size &&
-          [...newSlotMap].every(([id, next]) => mountedSlots.get(id)?.island === next.island)
+          [...newSlotMap.keys()].every((id) => mountedSlots.has(id)) &&
+          isStableInlineSlotMount({
+            initialHtml: initialRenderedHtml,
+            renderedHtml: rendered,
+            slotIds: newSlotMap.keys(),
+          })
         ) {
           pushUpdatedProps(newSlotMap);
           return;
         }
+      }
 
-        detachListeners();
-        stopBindings();
-        stopJsxEvents();
+      if (
+        rendered === lastRendered &&
+        mountedSlots.size === newSlotMap.size &&
+        [...newSlotMap].every(([id, next]) => mountedSlots.get(id)?.island === next.island)
+      ) {
+        pushUpdatedProps(newSlotMap);
+        return;
+      }
 
-        const prevMountedCount = mountedSlots.size;
-        const leavingPromises: Promise<unknown>[] = [];
+      stopBindings();
+      stopJsxEvents();
 
-        // Unmount slots that are no longer present BEFORE morphInner mutates
-        // the DOM. This ensures unmount hooks (transition.leave, effect
-        // cleanups, etc.) execute while the elements are still connected.
-        for (const [id, entry] of mountedSlots) {
-          if (!newSlotMap.has(id)) {
-            const r = teardownMountedSlot(id, entry);
-            if (r instanceof Promise) leavingPromises.push(r);
-          }
-        }
+      const prevMountedCount = mountedSlots.size;
 
-        for (const [id, entry] of mountedSlots) {
-          const next = newSlotMap.get(id);
-          if (next && next.island !== entry.island) {
-            const r = teardownMountedSlot(id, entry);
-            if (r instanceof Promise) leavingPromises.push(r);
-          }
-        }
+      for (const [id, entry] of mountedSlots) {
+        if (!newSlotMap.has(id)) teardownMountedSlot(id, entry);
+      }
+      for (const [id, entry] of mountedSlots) {
+        const next = newSlotMap.get(id);
+        if (next && next.island !== entry.island) teardownMountedSlot(id, entry);
+      }
 
-        const applyMorph = () => {
-          if (epoch !== renderEpoch) return;
-          // Positional ids (p:N) are reused when a list item is removed: after
-          // a shrink, every surviving p: slot at or after the removed item's
-          // position now represents a DIFFERENT item under the same id, and a
-          // reused host (controller-driven DOM, e.g. Areia checkbox) would
-          // keep the wrong item's subtree. Detect the first position whose
-          // incoming props diverge from what the slot host currently carries
-          // and tear down only from there — earlier positional slots keep
-          // their state, DOM, and focus.
-          if (newSlotMap.size < prevMountedCount) {
-            let divergeFrom = Infinity;
-            for (const [id, entry] of mountedSlots) {
-              if (!id.startsWith("p:")) continue;
-              const next = newSlotMap.get(id);
-              if (!next) continue; // disappearing ids were torn down above
-              const index = Number(id.slice(2));
-              if (Number.isNaN(index) || index >= divergeFrom) continue;
-              const incoming = serializeSlotProps(next.props);
-              const current = entry.el.getAttribute(PROPS_ATTR) ?? "";
-              if (incoming !== current) divergeFrom = index;
-            }
-            for (const [id, entry] of mountedSlots) {
-              if (!newSlotMap.has(id)) continue;
-              if (!entry.el.isConnected) continue;
-              if (id.startsWith("p:") && Number(id.slice(2)) >= divergeFrom) {
-                teardownMountedSlot(id, entry);
-              }
-            }
-          }
-
-          // Surviving slot hosts are reconciled IN PLACE by the slot-aware
-          // morph (matched by slot id, children untouched) — they are never
-          // detached, so a focused element inside a child island keeps focus.
-          // morphInner itself guards focus/selection against genuine reorders.
-          const tpl = document.createElement("template");
-          const morphRootTag = host.tagName.toLowerCase();
-          // pi-lens-ignore: ast-grep:no-inner-html — parse into a detached
-          // <template> for structural comparison; morphInner patches the live DOM.
-          tpl.innerHTML = `<${morphRootTag}>${html}</${morphRootTag}>`;
-          morphInner(host, tpl.content.firstElementChild as Element);
-          lastRendered = rendered;
-
-          // Rehome mounted slots the morph could not keep in place (a slot
-          // host moved to a different parent): the template left a fresh stub
-          // with the same id — swap the live element in.
-          let rehomeIndex: Map<string, Element> | null = null;
+      const applyMorph = () => {
+        if (epoch !== renderEpoch) return;
+        if (newSlotMap.size < prevMountedCount) {
+          let divergeFrom = Infinity;
           for (const [id, entry] of mountedSlots) {
-            if (!newSlotMap.has(id) || entry.el.isConnected) continue;
-            rehomeIndex ??= buildSlotIndex();
-            const stub = rehomeIndex.get(id);
-            if (stub && stub !== entry.el) stub.replaceWith(entry.el);
+            if (!id.startsWith("p:")) continue;
+            const next = newSlotMap.get(id);
+            if (!next) continue;
+            const index = Number(id.slice(2));
+            if (Number.isNaN(index) || index >= divergeFrom) continue;
+            const incoming = serializeSlotProps(next.props);
+            const current = entry.el.getAttribute(PROPS_ATTR) ?? "";
+            if (incoming !== current) divergeFrom = index;
           }
-
-          attachListeners();
-          stopBindings = applyTemplateBindings(host, newBinds);
-          stopJsxEvents = applyJsxEvents({
-            host,
-            records: newEvents,
-            reportError: (error) => reportError(error, "on"),
-            unmountSignal: unmountController.signal,
-            onceFired: nativeOnceFired,
-          });
-          mountSlots(newSlotMap);
-        };
-
-        if (leavingPromises.length > 0) {
-          void Promise.allSettled(leavingPromises).then((results) => {
-            for (const r of results) {
-              if (r.status === "rejected") console.error(r.reason);
+          for (const [id, entry] of mountedSlots) {
+            if (!newSlotMap.has(id)) continue;
+            if (!entry.el.isConnected) continue;
+            if (id.startsWith("p:") && Number(id.slice(2)) >= divergeFrom) {
+              teardownMountedSlot(id, entry);
             }
-            applyMorph();
-          });
-        } else {
-          applyMorph();
+          }
         }
+
+        const tpl = document.createElement("template");
+        const morphRootTag = host.tagName.toLowerCase();
+        // pi-lens-ignore: ast-grep:no-inner-html — parse into a detached
+        // <template> for structural comparison; morphInner patches the live DOM.
+        tpl.innerHTML = `<${morphRootTag}>${rendered}</${morphRootTag}>`;
+        morphInner(host, tpl.content.firstElementChild as Element);
+        lastRendered = rendered;
+
+        let rehomeIndex: Map<string, Element> | null = null;
+        for (const [id, entry] of mountedSlots) {
+          if (!newSlotMap.has(id) || entry.el.isConnected) continue;
+          rehomeIndex ??= buildSlotIndex();
+          const stub = rehomeIndex.get(id);
+          if (stub && stub !== entry.el) stub.replaceWith(entry.el);
+        }
+
+        stopBindings = applyTemplateBindings(host, newBinds);
+        stopJsxEvents = applyJsxEvents({
+          host,
+          records: newEvents,
+          reportError: (error) => reportError(error, "event"),
+          unmountSignal: unmountController.signal,
+          onceFired: nativeOnceFired,
+        });
+        mountSlots(newSlotMap);
+      };
+
+      applyMorph();
+    });
+
+    // Reactive scopes start AFTER the render effect so prop-change rerenders
+    // refresh primitive closures (slot.fn) before derived/effect scopes
+    // recompute against the new values.
+    startPrimitiveScopes();
+
+    let tornDown = false;
+    const unmount = (): void => {
+      if (tornDown) return;
+      tornDown = true;
+      instance.disposed = true;
+      unmountController.abort();
+      ISLAND_MOUNT_HANDLES.delete(host);
+      if (__DEV__ && _mountedHosts) _mountedHosts.delete(host);
+      stopRender();
+      for (const [, entry] of mountedSlots) entry.unmount();
+      for (const c of cleanups) c();
+    };
+
+    const updateProps = (nextProps?: Partial<any>): void => {
+      if (tornDown) return;
+      const next = resolveInput(nextProps);
+      const prev = inputSignal();
+      if (shallowEqualInput(prev, next)) return;
+      inputSignal(next);
+    };
+
+    const handle: MountHandle = { unmount, updateProps };
+    ISLAND_MOUNT_HANDLES.set(
+      host,
+      handle as {
+        unmount: () => void | Promise<void>;
+        updateProps: (props?: Record<string, unknown>) => void;
+      },
+    );
+    return handle;
+  }
+
+  // ─── Island object ──────────────────────────────────────────────────────
+
+  const island = ((props?: Partial<any>): IslandCall => ({
+    [ISLAND_CALL]: true,
+    island: island as AnyIsland,
+    props: props as Record<string, unknown> | undefined,
+    key: undefined,
+  })) as unknown as Island<any>;
+
+  island.toString = (props?: Partial<any>) => renderToString(props, true) as string;
+  island.toStringAsync = (props?: Partial<any>): Promise<string> =>
+    Promise.resolve(renderToString(props, false));
+  island.mount = (host: Element, props?: Partial<any>): (() => void) => mountIsland(host, props);
+
+  (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
+    host: Element,
+    props?: Partial<any>,
+  ): MountHandle => mountIslandInternal(host, props);
+
+  (island as unknown as Record<symbol, unknown>)[ISLAND_SLOT_TAG] = configuredSlotTag;
+
+  (island as unknown as Record<symbol, unknown>)[ISLAND_RENDER_STATE] = async (
+    props?: Record<string, unknown>,
+  ): Promise<string> => {
+    const manifest: Map<string, EventManifestEntry> = new Map();
+    const html = await renderToString(
+      (props ?? undefined) as Partial<any> | undefined,
+      false,
+      manifest,
+      undefined,
+      true,
+    );
+    return serializeServerManifest(manifest) + html;
+  };
+
+  (island as unknown as Record<symbol, unknown>)[ISLAND_SSR_MANIFEST] = (
+    props?: Partial<any>,
+    eventsOut?: Map<string, EventManifestEntry>,
+  ): string | Promise<string> => renderToString(props, false, eventsOut, undefined, true);
+
+  island.key = (key: string): KeyedIsland<any> => {
+    if (typeof key !== "string" || key.trim().length === 0) {
+      throw new Error("island.key() requires a non-empty string.");
+    }
+    if (key.includes(":")) {
+      throw new Error(`island.key() key cannot contain the slot separator ":" (got "${key}").`);
+    }
+    const keyed = ((props?: Partial<any>): IslandCall => ({
+      [ISLAND_CALL]: true,
+      island: island as AnyIsland,
+      props: props as Record<string, unknown> | undefined,
+      key,
+    })) as unknown as KeyedIsland<any>;
+    (keyed as unknown as Record<symbol, boolean>)[ISLAND_CALL] = true;
+    return keyed;
+  };
+
+  (island as unknown as Record<symbol, boolean>)[ISLAND] = true;
+
+  const astroRendererName = (globalThis as unknown as Record<symbol, unknown>)[
+    ASTRO_RENDERER_GLOBAL
+  ];
+  if (typeof astroRendererName === "string") {
+    (island as unknown as Record<symbol, unknown>)[Symbol.for("astro:renderer")] =
+      astroRendererName;
+  }
+
+  island.define = (tagName: string, options?: { observe?: string[] }): void => {
+    if (typeof customElements === "undefined" || typeof HTMLElement === "undefined") {
+      warn(`define("${tagName}"): customElements is unavailable in this environment.`);
+      return;
+    }
+    const CE_RESERVED = new Set([
+      "annotation-xml",
+      "color-profile",
+      "font-face",
+      "font-face-src",
+      "font-face-uri",
+      "font-face-format",
+      "font-face-name",
+      "missing-glyph",
+    ]);
+    if (
+      typeof tagName !== "string" ||
+      !/^[a-z][a-z0-9._-]*-[a-z0-9._-]*$/.test(tagName) ||
+      CE_RESERVED.has(tagName)
+    ) {
+      warn(
+        `define("${tagName}"): not a valid custom element name — it must ` +
+          `be lowercase, start with a letter, and contain a hyphen ` +
+          `(e.g. "my-counter"). Skipping registration.`,
+      );
+      return;
+    }
+    if (customElements.get(tagName)) {
+      warn(`define("${tagName}"): tag is already registered — skipping.`);
+      return;
+    }
+    const observe = options?.observe ?? [];
+
+    class IlhaIslandElement extends HTMLElement {
+      static observedAttributes = observe;
+      _handle: MountHandle | null = null;
+      _props: Record<string, unknown> | undefined;
+      _unmounting = false;
+      _reconnect = false;
+
+      get props(): Record<string, unknown> | undefined {
+        return this._props;
+      }
+      set props(p: Record<string, unknown> | undefined) {
+        this._props = p;
+        if (this._handle && !this._unmounting) this._handle.updateProps(this._mergedProps());
+      }
+
+      _mergedProps(): Partial<any> | undefined {
+        const attrProps: Record<string, unknown> = {};
+        let hasAttrs = false;
+        for (const name of observe) {
+          const v = this.getAttribute(name);
+          if (v !== null) {
+            attrProps[name] = v;
+            hasAttrs = true;
+          }
+        }
+        if (!hasAttrs && this._props === undefined) return undefined;
+        return { ...attrProps, ...this._props } as Partial<any>;
+      }
+
+      connectedCallback(): void {
+        if (this._unmounting) {
+          this._reconnect = true;
+          return;
+        }
+        if (this._handle) return;
+        this._handle = mountIslandInternal(this, this._mergedProps());
+      }
+
+      disconnectedCallback(): void {
+        if (!this._handle || this._unmounting) return;
+        this._unmounting = true;
+        this._reconnect = false;
+        void Promise.resolve(this._handle.unmount()).finally(() => {
+          this._handle = null;
+          this._unmounting = false;
+          if (this._reconnect) {
+            this._reconnect = false;
+            if (this.isConnected) this._handle = mountIslandInternal(this, this._mergedProps());
+          }
+        });
+      }
+
+      attributeChangedCallback(): void {
+        if (this._handle && !this._unmounting) this._handle.updateProps(this._mergedProps());
+      }
+    }
+
+    customElements.define(tagName, IlhaIslandElement);
+  };
+
+  island.hydratable = async (props: Partial<any>, opts: HydratableOptions): Promise<string> => {
+    const { name, as: rawTag = "div", snapshot = false, skipOnMount: explicitSkipOnMount } = opts;
+    const tag = assertValidSlotTagName(rawTag);
+
+    const resolvedProps = props ?? {};
+    // No event-manifest serialization here: @ilha/router owns server-action
+    // manifests via its frame/hydration adapters. hydratable() emits plain
+    // hydration markup only.
+    const innerPromise = renderToString(resolvedProps, false, undefined, undefined, true);
+
+    // Snapshot collection: after the async pass settles, primitive slots hold
+    // resolved envelopes — read them positionally.
+    let stateAttr = "";
+
+    if (snapshot !== false) {
+      const doState = snapshot === true || (snapshot as { state?: boolean }).state !== false;
+      const doDerived = snapshot === true || (snapshot as { derived?: boolean }).derived !== false;
+      const doSkipOnMount = explicitSkipOnMount ?? (doState || doDerived);
+
+      const snapshotData: Record<string, unknown> = { v: 2 };
+      const input = resolveInput(resolvedProps);
+      const probeFrame = freshFrame({ ssr: true });
+      withFrame(probeFrame, () => {
+        void component(input);
       });
 
-      let tornDown = false;
-      // Teardown order matters:
-      //   1. stopRender — prevent re-render loops triggered by step 3.
-      //   2. detachListeners — stop new DOM events from firing.
-      //   3. cleanups (includes stopBindings which writes null into bind:this
-      //      refs; these writes must NOT trigger renders, hence step 1).
-      const unmount = (): void | Promise<void> => {
-        if (tornDown) return;
-        tornDown = true;
-        // Disable actions and abort their signals as soon as teardown starts,
-        // before asynchronous leave transitions or child unmounts settle.
-        disposed = true;
-        unmountController.abort();
-        ISLAND_MOUNT_HANDLES.delete(host);
-        if (__DEV__ && _mountedHosts) _mountedHosts.delete(host);
-        stopRender();
-        detachListeners();
-
-        const pending: Promise<unknown>[] = [];
-        for (const [, entry] of mountedSlots) {
-          const result = entry.unmount();
-          if (result instanceof Promise) pending.push(result);
-        }
-
-        if (transition?.leave) {
+      if (doState) {
+        const states: unknown[] = [];
+        for (const slot of probeFrame.slots) {
+          if (slot.kind !== "state") continue;
+          const prevSub = setActiveSub(undefined);
           try {
-            const result = transition.leave(host);
-            if (result instanceof Promise) pending.push(result);
-          } catch (err) {
-            reportError(err, "transition");
+            states.push((slot.acc as () => unknown)());
+          } finally {
+            setActiveSub(prevSub);
           }
         }
+        snapshotData["s"] = states;
+      }
 
-        const finish = () => {
-          for (const c of cleanups) c();
-        };
-
-        if (pending.length > 0) {
-          return Promise.all(pending)
-            .then(finish)
-            .catch((err) => {
-              reportError(err, "transition");
-              finish();
-            });
+      if (doDerived) {
+        // Await pending probes from the probe frame so snapshots carry values.
+        const probePendings = probeFrame.pendingDerived ?? [];
+        if (probePendings.length > 0) await Promise.all(probePendings.map((p) => p.promise));
+        const derivedEntries: unknown[] = [];
+        for (const slot of probeFrame.slots) {
+          if (slot.kind !== "derived") continue;
+          const prevSub = setActiveSub(undefined);
+          let envelope: DerivedValue<unknown>;
+          try {
+            envelope = { ...(slot as DerivedSlot).env() };
+          } finally {
+            setActiveSub(prevSub);
+          }
+          const entry: Record<string, unknown> = { loading: false, value: envelope.value };
+          if (envelope.error) entry["error"] = envelope.error.message;
+          derivedEntries.push(entry);
         }
-        finish();
-      };
+        snapshotData["d"] = derivedEntries;
+      }
 
-      const updateProps = (nextProps?: Partial<TInput>): void => {
-        if (tornDown) return;
-        const next = resolveInput(nextProps);
-        const prev = inputSignal();
-        // Shallow-equal short-circuit: don't churn reactive subscribers when
-        // the resolved input hasn't actually changed. We compare own keys
-        // and values with Object.is. This keeps repeated parent re-renders
-        // with identical props free of work.
-        if (shallowEqualInput(prev, next)) return;
-        inputSignal(next);
-      };
+      if (doSkipOnMount) snapshotData["_skipOnMount"] = true;
 
-      const handle = { unmount, updateProps };
-      ISLAND_MOUNT_HANDLES.set(
-        host,
-        handle as {
-          unmount: () => void | Promise<void>;
-          updateProps: (props?: Record<string, unknown>) => void;
-        },
-      );
-      return handle;
+      if (__DEV__) {
+        const lossy = findNonJsonSafeValue({ value: snapshotData, path: "snapshot" });
+        if (lossy) {
+          warn(
+            `hydratable("${name}"): state/derived snapshot is not JSON-safe ` +
+              `(${lossy}) — hydration will diverge from SSR. ` +
+              `Keep snapshotted values to plain JSON types.`,
+          );
+        }
+      }
+
+      stateAttr = ` ${STATE_ATTR}='${escapeHtml(JSON.stringify(snapshotData))}'`;
     }
 
-    /**
-     * Dual-mode island invocation:
-     * - When called inside an `html` interpolation (i.e. {@link currentRenderCtx}
-     *   is active), returns an {@link IslandCall} carrying props to be emitted
-     *   as a child slot marker; {@link interpolateValue} consumes this marker.
-     * - When called at the top level with no active render context, returns
-     *   SSR HTML via {@link renderToString} (backward-compatible public API).
-     *
-     * The declared return type omits {@link IslandCall} because TypeScript
-     * cannot narrow based on runtime stack state.
-     */
-    const island = ((props?: Partial<TInput>): string | Promise<string> | IslandCall => {
-      if (currentRenderCtx()) {
-        return {
-          [ISLAND_CALL]: true,
-          island: island as AnyIsland,
-          props: props as Record<string, unknown> | undefined,
-          key: undefined,
-        };
-      }
-      return renderToString(props);
-    }) as unknown as Island<TInput, TStateMap>;
+    const inner = await innerPromise;
 
-    island.toString = (props?: Partial<TInput>) => renderToString(props, true) as string;
+    return `<${tag} data-ilha="${escapeHtml(name)}" ${PROPS_ATTR}='${escapeHtml(JSON.stringify(resolvedProps))}'${stateAttr}>${inner}</${tag}>`;
+  };
 
-    island.toStringAsync = (props?: Partial<TInput>): Promise<string> =>
-      Promise.resolve(renderToString(props, false));
-
-    island.mount = (host: Element, props?: Partial<TInput>): (() => void) =>
-      mountIsland(host, props);
-
-    // Internal hook for parent mountSlots — returns { unmount, updateProps }
-    // so parent re-renders can push new props into already-mounted child
-    // islands. Not exported as part of the public Island interface.
-    (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
-      host: Element,
-      props?: Partial<TInput>,
-    ): MountHandle => mountIslandInternal(host, props);
-
-    (island as unknown as Record<symbol, unknown>)[ISLAND_SLOT_TAG] = configuredSlotTag;
-
-    // Internal: re-render streamed proxy islands entirely on the server.
-    // Client snapshots are never accepted as authoritative state. Optional
-    // props come from the frame handler after running the page's `load`.
-    (island as unknown as Record<symbol, unknown>)[ISLAND_RENDER_STATE] = async (
-      props?: Record<string, unknown>,
-    ): Promise<string> => {
-      const manifest: Map<string, EventManifestEntry> = new Map();
-      const html = await renderToString(
-        (props ?? undefined) as Partial<TInput> | undefined,
-        false,
-        undefined,
-        manifest,
-        undefined,
-        true,
-      );
-      return manifestTemplatePrefix(manifest) + html;
-    };
-
-    // Internal: async SSR that records the event→action manifest for nested
-    // server islands (emitIslandSlot hoists it into the slot markup).
-    (island as unknown as Record<symbol, unknown>)[ISLAND_SSR_MANIFEST] = (
-      props?: Partial<TInput>,
-      eventsOut?: Map<string, EventManifestEntry>,
-    ): string | Promise<string> =>
-      renderToString(props, false, undefined, eventsOut, undefined, true);
-
-    // Create a keyed invocation for stable slot identity across re-renders
-    // (useful in reorderable lists). Returns a callable that, when given
-    // optional props, produces an IslandCall that interpolateValue recognises.
-    island.key = (key: string): KeyedIsland<TInput> => {
-      if (typeof key !== "string" || key.trim().length === 0) {
-        throw new Error("island.key() requires a non-empty string.");
-      }
-      if (key.includes(":")) {
-        throw new Error(`island.key() key cannot contain the slot separator ":" (got "${key}").`);
-      }
-      const keyed = ((props?: Partial<TInput>): IslandCall => ({
-        [ISLAND_CALL]: true,
-        island: island as AnyIsland,
-        props: props as Record<string, unknown> | undefined,
-        key,
-      })) as unknown as KeyedIsland<TInput>;
-      (keyed as unknown as Record<symbol, boolean>)[ISLAND_CALL] = true;
-      return keyed;
-    };
-
-    (island as unknown as Record<symbol, boolean>)[ISLAND] = true;
-
-    // Astro renderer routing: when @ilha/astro is loaded it registers its
-    // renderer name on ASTRO_RENDERER_GLOBAL, so tag this island with Astro's
-    // `astro:renderer` symbol. This makes Astro route the island to ilha's
-    // renderer regardless of the integration's position in `astro.config`, and
-    // prevents a permissive renderer (e.g. Solid) registered first from
-    // claiming it. No tag is applied when no Astro integration is present.
-    const astroRendererName = (globalThis as unknown as Record<symbol, unknown>)[
-      ASTRO_RENDERER_GLOBAL
-    ];
-    if (typeof astroRendererName === "string") {
-      (island as unknown as Record<symbol, unknown>)[Symbol.for("astro:renderer")] =
-        astroRendererName;
-    }
-
-    // Custom-element wrapper: makes the island consumable from plain HTML or
-    // any other framework without touching ilha's mount API. Observed
-    // attributes surface as string input props; richer values go through the
-    // element's `props` property (merged over attribute props).
-    island.define = (tagName: string, options?: { observe?: string[] }): void => {
-      if (typeof customElements === "undefined" || typeof HTMLElement === "undefined") {
-        warn(`define("${tagName}"): customElements is unavailable in this environment.`);
-        return;
-      }
-      // Validate the name ourselves so authors get an ilha-worded soft
-      // failure instead of an uncaught native SyntaxError from
-      // customElements.define. Custom element names must be lowercase,
-      // start with a letter, contain a hyphen, and avoid the SVG/MathML
-      // reserved names.
-      const CE_RESERVED = new Set([
-        "annotation-xml",
-        "color-profile",
-        "font-face",
-        "font-face-src",
-        "font-face-uri",
-        "font-face-format",
-        "font-face-name",
-        "missing-glyph",
-      ]);
-      if (
-        typeof tagName !== "string" ||
-        !/^[a-z][a-z0-9._-]*-[a-z0-9._-]*$/.test(tagName) ||
-        CE_RESERVED.has(tagName)
-      ) {
-        warn(
-          `define("${tagName}"): not a valid custom element name — it must ` +
-            `be lowercase, start with a letter, and contain a hyphen ` +
-            `(e.g. "my-counter"). Skipping registration.`,
-        );
-        return;
-      }
-      if (customElements.get(tagName)) {
-        warn(`define("${tagName}"): tag is already registered — skipping.`);
-        return;
-      }
-      const observe = options?.observe ?? [];
-
-      class IlhaIslandElement extends HTMLElement {
-        static observedAttributes = observe;
-        _handle: MountHandle | null = null;
-        _props: Record<string, unknown> | undefined;
-        // True while an unmount is settling; the handle stays assigned so a
-        // reconnect cannot start a second mount over in-flight teardown.
-        _unmounting = false;
-        _reconnect = false;
-
-        get props(): Record<string, unknown> | undefined {
-          return this._props;
-        }
-        set props(p: Record<string, unknown> | undefined) {
-          this._props = p;
-          if (this._handle && !this._unmounting) this._handle.updateProps(this._mergedProps());
-        }
-
-        _mergedProps(): Partial<TInput> | undefined {
-          const attrProps: Record<string, unknown> = {};
-          let hasAttrs = false;
-          for (const name of observe) {
-            const v = this.getAttribute(name);
-            if (v !== null) {
-              attrProps[name] = v;
-              hasAttrs = true;
-            }
-          }
-          // With no observed attrs and no assigned props, pass undefined so
-          // mount falls back to reading data-ilha-props off the element.
-          if (!hasAttrs && this._props === undefined) return undefined;
-          return { ...attrProps, ...(this._props ?? {}) } as Partial<TInput>;
-        }
-
-        connectedCallback(): void {
-          if (this._unmounting) {
-            // Reconnected while the previous mount is still tearing down —
-            // defer the new mount until teardown settles.
-            this._reconnect = true;
-            return;
-          }
-          if (this._handle) return;
-          this._handle = mountIslandInternal(this, this._mergedProps());
-        }
-
-        disconnectedCallback(): void {
-          if (!this._handle || this._unmounting) return;
-          this._unmounting = true;
-          this._reconnect = false;
-          void Promise.resolve(this._handle.unmount()).finally(() => {
-            this._handle = null;
-            this._unmounting = false;
-            if (this._reconnect) {
-              this._reconnect = false;
-              if (this.isConnected) this._handle = mountIslandInternal(this, this._mergedProps());
-            }
-          });
-        }
-
-        attributeChangedCallback(): void {
-          if (this._handle && !this._unmounting) this._handle.updateProps(this._mergedProps());
-        }
-      }
-
-      customElements.define(tagName, IlhaIslandElement);
-    };
-
-    island.hydratable = async (
-      props: Partial<TInput>,
-      opts: HydratableOptions,
-    ): Promise<string> => {
-      const { name, as: rawTag = "div", snapshot = false, skipOnMount: explicitSkipOnMount } = opts;
-      const tag = assertValidSlotTagName(rawTag);
-
-      const resolvedProps = props ?? {};
-      // Stream values recorded during the render pass — the snapshot must
-      // carry what SSR actually rendered, not the static init (undefined).
-      const streamValues: Record<string, unknown> = {};
-      const eventsManifest = new Map<string, string | { k: string; a: unknown[] }>();
-      const inner = await renderToString(
-        resolvedProps,
-        false,
-        streamValues,
-        eventsManifest,
-        undefined,
-        true,
-      );
-      const encodedProps = escapeHtml(JSON.stringify(resolvedProps));
-
-      let stateAttr = "";
-
-      if (snapshot !== false) {
-        const doState = snapshot === true || (snapshot as { state?: boolean }).state !== false;
-        const doDerived =
-          snapshot === true || (snapshot as { derived?: boolean }).derived !== false;
-        const doSkipOnMount = explicitSkipOnMount ?? (doState || doDerived);
-
-        const snapshotData: Record<string, unknown> = {};
-        const input = resolveInput(resolvedProps);
-        const plainState = buildPlainState(input);
-        // Stream-fed keys override their plain accessors so deriveds compute
-        // from what SSR actually rendered, not the static init.
-        const stateForDerived: Record<string, unknown> = { ...plainState };
-        for (const [k, v] of Object.entries(streamValues)) {
-          stateForDerived[k] = () => v;
-        }
-
-        if (doState) {
-          for (const entry of states) {
-            snapshotData[entry.key] =
-              entry.key in streamValues
-                ? streamValues[entry.key]
-                : (plainState[entry.key as keyof typeof plainState] as () => unknown)();
-          }
-        }
-
-        if (doDerived) {
-          const derivedResults: Record<string, unknown> = {};
-          for (const entry of deriveds) {
-            const prevSub = setActiveSub(undefined);
-            let resultPromise: unknown;
-            let syncError: unknown;
-            let threw = false;
-            try {
-              resultPromise = entry.fn({
-                state: stateForDerived as never,
-                input,
-                signal: new AbortController().signal,
-              });
-            } catch (err) {
-              threw = true;
-              syncError = err;
-            } finally {
-              setActiveSub(prevSub);
-            }
-
-            if (threw) {
-              derivedResults[entry.key] = {
-                loading: false,
-                value: undefined,
-                error: syncError instanceof Error ? syncError.message : String(syncError),
-              };
-              continue;
-            }
-
-            try {
-              const result = await Promise.resolve(resultPromise);
-              derivedResults[entry.key] = { loading: false, value: result, error: undefined };
-            } catch (err) {
-              derivedResults[entry.key] = {
-                loading: false,
-                value: undefined,
-                error: err instanceof Error ? err.message : String(err),
-              };
-            }
-          }
-          snapshotData["_derived"] = derivedResults;
-        }
-
-        if (doSkipOnMount) snapshotData["_skipOnMount"] = true;
-
-        // Mark stream-fed keys so hydration consumers (mount diagnostics,
-        // proxy manifests) can tell live state from static state.
-        if (streams.length > 0) {
-          snapshotData["_streams"] = Object.fromEntries(streams.map((entry) => [entry.key, true]));
-        }
-
-        if (__DEV__) {
-          const lossy = findNonJsonSafeValue({ value: snapshotData, path: "snapshot" });
-          if (lossy) {
-            warn(
-              `hydratable("${name}"): state/derived snapshot is not JSON-safe ` +
-                `(${lossy}) — hydration will diverge from SSR. ` +
-                `Keep snapshotted values to plain JSON types.`,
-            );
-          }
-        }
-
-        stateAttr = ` ${STATE_ATTR}='${escapeHtml(JSON.stringify(snapshotData))}'`;
-      }
-
-      let actionsAttr = "";
-      if (eventsManifest.size > 0) {
-        actionsAttr = ` ${ACTIONS_ATTR}='${escapeHtml(JSON.stringify(Object.fromEntries(eventsManifest)))}'`;
-      }
-
-      return `<${tag} data-ilha="${escapeHtml(name)}" ${PROPS_ATTR}='${encodedProps}'${stateAttr}${actionsAttr}>${inner}</${tag}>`;
-    };
-
-    return island;
-  }
-}
-
-// ---------------------------------------------
-// ilha.from
-// ---------------------------------------------
-
-function ilhaFrom<TInput, TStateMap extends Record<string, unknown>>(
-  selector: string | Element,
-  island: Island<TInput, TStateMap>,
-  props?: Partial<TInput>,
-): (() => void) | null {
-  const host = typeof selector === "string" ? document.querySelector(selector) : selector;
-  if (!host) {
-    console.warn(`[ilha] from(): element not found: ${selector}`);
-    return null;
-  }
-  return island.mount(host, props);
-}
+  return island;
+}) as IlhaFactory;
 
 // ---------------------------------------------
 // ilha.mount — auto-discovery
@@ -5299,109 +4419,32 @@ function mountAll(registry: IslandRegistry, options: MountOptions = {}): MountRe
   };
 }
 
-// ---------------------------------------------
-// Named ilha export
-// ---------------------------------------------
-
-const EMPTY_CFG: BuilderConfig<
-  Record<string, unknown>,
-  Record<never, never>,
-  Record<never, never>
-> = {
-  schema: null,
-  defaultInput: null,
-  states: [],
-  streams: [],
-  deriveds: [],
-  actions: [],
-  ons: [],
-  effects: [],
-  onMounts: [],
-  onErrors: [],
-  transition: null,
-  css: null,
-  as: null,
-};
-
-type RootInput = Record<string, unknown>;
-type RootState = Record<never, never>;
-type RootDerived = Record<never, never>;
-type RootActions = Record<never, never>;
-type RootBuilder = IlhaBuilder<RootInput, RootState, RootDerived, RootActions>;
-type DirectIslandFactory = <TInput extends Record<string, unknown> = RootInput>(
-  fn: (ctx: RenderContext<TInput, RootState, RootDerived, RootActions>) => string | RawHtml,
-) => Island<TInput, RootState>;
-type IlhaRoot = RootBuilder & DirectIslandFactory;
-
-const rootBuilder = new IlhaBuilder(EMPTY_CFG);
-const callableRoot = (<TInput extends Record<string, unknown> = RootInput>(
-  fn: (ctx: RenderContext<TInput, RootState, RootDerived, RootActions>) => string | RawHtml,
-): Island<TInput, RootState> => rootBuilder.input<TInput>().render(fn)) as IlhaRoot;
-
-// Keep `ilha` callable without sacrificing the fluent builder API.
-// Builder methods are installed as own methods so the function retains its
-// normal Function prototype (`call`, `bind`, and friends), while `_cfg` gives
-// those methods the same empty root configuration as `rootBuilder`.
-Object.defineProperty(callableRoot, "_cfg", {
-  value: rootBuilder._cfg,
-  enumerable: false,
+setJsxRuntimeBridge({
+  registerEvent({ type, handler, modifier }: JsxEventRegistration): number | undefined {
+    const ctx = currentRenderCtx();
+    if (!ctx) return undefined;
+    // Forwarding closures get capture-invoked so action(...) calls inside
+    // them are recorded for the hydration manifest. Direct SSR action stubs
+    // are matched by identity in recordEventsManifest — never invoked.
+    const isActionStub = SSR_ACTION_STUB in (handler as object);
+    const capture =
+      ctx.manifest === true && !isActionStub ? captureHandlerActions(handler) : undefined;
+    if (__DEV__ && ctx.manifest === true && !isActionStub && !capture) {
+      warn(
+        `Event handler recorded no action during hydration-manifest rendering. Forwarding ` +
+          `closures may only call actions replayable over RPC (an action() slot or an ` +
+          `exported server action); any other code executes on the server and cannot be ` +
+          `replayed by the client.`,
+      );
+    }
+    const index = ctx.events.length;
+    ctx.events.push({ type, handler, modifier, capture });
+    return index;
+  },
+  slot({ island, props, key }) {
+    return ilhaRaw(emitIslandSlot({ island: island as AnyIsland, props, key }));
+  },
 });
-for (const key of Object.getOwnPropertyNames(IlhaBuilder.prototype)) {
-  if (key === "constructor") continue;
-  const descriptor = Object.getOwnPropertyDescriptor(IlhaBuilder.prototype, key);
-  if (descriptor) Object.defineProperty(callableRoot, key, descriptor);
-}
-
-const ilha = Object.assign(callableRoot, {
-  html: ilhaHtml,
-  raw: ilhaRaw,
-  mount: mountAll,
-  from: ilhaFrom,
-  context: ilhaContext,
-  signal: ilhaSignal,
-  computed: ilhaComputed,
-  // NOTE: no `effect` here — the builder's .effect() method owns that name on
-  // `ilha`. The top-level effect is available as a named import.
-  morph,
-  batch,
-  untrack,
-  onUncaughtError,
-});
-
-/** @internal Used by the separate JSX runtime to register a native event handler. */
-export function __ilhaJsxEvent({
-  type,
-  handler,
-  modifier,
-}: {
-  type: string;
-  handler: NativeEventHandler;
-  modifier?: NativeEventModifier;
-}): number | undefined {
-  const ctx = currentRenderCtx();
-  if (!ctx) return undefined;
-  // Forwarding closures get capture-invoked so `action.x(...)` calls inside
-  // them are recorded for the hydration manifest. Direct SSR action stubs are
-  // matched by identity in recordEventsManifest — never invoked.
-  const isActionStub = SSR_ACTION_STUB in (handler as object);
-  const capture = ctx.manifest && !isActionStub ? captureHandlerActions(handler) : undefined;
-  const index = ctx.events.length;
-  ctx.events.push({ type, handler, modifier, capture });
-  return index;
-}
-
-/** @internal Used by the separate JSX runtime entry to preserve island slot composition. */
-export function __ilhaJsxSlot({
-  island,
-  props,
-  key,
-}: {
-  island: unknown;
-  props: Record<string, unknown> | undefined;
-  key: string | undefined;
-}): RawHtml {
-  return ilhaRaw(emitIslandSlot({ island: island as AnyIsland, props, key }));
-}
 
 /**
  * Morph an element's children toward `html`, patching in place: surviving
@@ -5432,11 +4475,7 @@ export function morph(host: Element, html: string): void {
 
 export const html = ilhaHtml;
 export const raw = ilhaRaw;
-export const css = ilhaCss;
 export const mount = mountAll;
-export const from = ilhaFrom;
 export const context = ilhaContext;
 export { ilhaSignal as signal };
 export { ilhaComputed as computed };
-export { ilhaEffect as effect };
-export { ilha };

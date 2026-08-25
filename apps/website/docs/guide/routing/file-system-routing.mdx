@@ -171,18 +171,27 @@ Export a `load` function from any page file. The pages plugin detects it automat
 import { loader, type InferLoader } from "@ilha/router";
 import { ilha } from "ilha";
 
+// Loader results arrive in a `load` envelope; InferLoader types the value.
+type LoaderProps<T> = {
+  load: {
+    loading: boolean;
+    value: T;
+    error: Error | undefined;
+  };
+};
+
 async function fetchUser(id?: string, _signal?: AbortSignal) {
   return { name: "Ada" };
 }
 // ---cut---
 export const load = loader(async ({ params, signal }) => {
-  const user = await fetchUser(params.id, { signal });
+  const user = await fetchUser(params.id, signal);
   return { user };
 });
 
-export default ilha<InferLoader<typeof load>>(({ input }) => (
-  <h1>{input.load.value.user.name}</h1>
-));
+export default ilha<LoaderProps<InferLoader<typeof load>>>(
+  ({ load }) => <h1>{load.value.user.name}</h1>,
+);
 ```
 
 See [Loaders](/guide/routing/loaders) for the full loader contract.
@@ -199,6 +208,13 @@ import { loader, type InferLoader } from "@ilha/router";
 import { ilha } from "ilha";
 
 type Stats = { views: number };
+type LoaderProps<T> = {
+  load: {
+    loading: boolean;
+    value: T;
+    error: Error | undefined;
+  };
+};
 const Dashboard = (props: {
   stats: Stats;
   loading: boolean;
@@ -212,19 +228,30 @@ export const load = loader.client(async ({ signal }) => {
   return { stats };
 });
 
-export default ilha<InferLoader<typeof load>>(({ input }) => (
-  <Dashboard
-    stats={input.load.value.stats}
-    loading={input.load.loading}
-  />
-));
+export default ilha<LoaderProps<InferLoader<typeof load>>>(
+  ({ load }) => (
+    <Dashboard
+      stats={load.value.stats}
+      loading={load.loading}
+    />
+  ),
+);
 ```
 
 ### The `input.load` envelope
 
 Client-loader results arrive in an envelope shaped like ilha's derived one:
 
-```ts
+```ts twoslash
+type PageInput = {
+  load: {
+    loading: boolean;
+    value: { stats: unknown } | undefined;
+    error: Error | undefined;
+  };
+};
+declare const input: PageInput;
+
 input.load.value; // → { stats }
 input.load.loading; // false once the loader has settled
 input.load.error; // undefined when no error

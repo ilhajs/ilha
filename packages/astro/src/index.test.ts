@@ -4,17 +4,17 @@ mock.module("virtual:@ilha/astro/options", () => ({
   default: (id: string) => id.includes("/ilha/"),
 }));
 
-import { ilha, __ilhaJsxSlot, html } from "ilha";
+import { ilha, html, state } from "ilha";
+import { __ilhaJsxSlot } from "ilha/internal";
 
 import hydrate from "./client";
 import ilhaIntegration, { getRenderer, getViteConfig } from "./index";
 import renderer from "./server";
 
-const Counter = ilha
-  .input<{ label: string }>()
-  .state("count", 0)
-  .on("button@click", ({ state }) => state.count(state.count() + 1))
-  .render(({ input, state }) => html`<button>${input.label}:${state.count()}</button>`);
+const Counter = ilha<{ label: string }>(({ label }) => {
+  const count = state(0);
+  return html`<button onclick=${() => count((v) => v + 1)}>${label}:${count()}</button>`;
+});
 
 // Stand-in for a non-island component library export (e.g. Areia's `Button`):
 // a plain function that returns ilha `RawHtml` via the `html` tag, with no

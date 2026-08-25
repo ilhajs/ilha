@@ -1,12 +1,11 @@
 import {
-  __ilhaJsxEvent,
-  __ilhaJsxSlot,
   html,
   raw,
   type NativeEventHandler,
   type NativeEventModifier,
   type RawHtml,
 } from "./index";
+import { __ilhaJsxEvent, __ilhaJsxSlot } from "./internal";
 export type { JSX } from "./jsx-types";
 
 type JsxChild = unknown;

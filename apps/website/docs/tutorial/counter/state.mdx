@@ -1,16 +1,13 @@
 ---
 title: "Tutorial: State"
-description: Tutorial — define reactive state properties that trigger UI updates with the .state() builder method.
+description: Tutorial — define reactive state primitives that trigger UI updates with the state() function.
 seo:
-  title: Add counter state with .state() - Ilha
+  title: Add counter state with state() - Ilha
 ---
 
 import { example } from "./state.examples";
 
-Ilha uses Signals to make your components reactive. Use the `.state()` builder method
-to define state - any property declared here will automatically trigger UI updates when it changes.
-Pass the property name and its initial value. All state properties are then available
-inside `.render()` via the `state` property.
+Ilha uses signals to make components reactive. Use the `state()` primitive to define state — any value you declare here automatically triggers a UI update when it changes. The component returns JSX directly, and the state accessor is read inside it.
 
 <Preview code={example} size="lg" />
 

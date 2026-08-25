@@ -1,0 +1,113 @@
+---
+title: Compose islands
+description: Nest islands as children, pass props between them, and keep keyed identity across reorders.
+---
+
+Compose islands the way you compose function components. A child island is interpolated as a function call or a JSX element:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Child = ilha<{ value: string }>(({ value }) => (
+  <span>{value}</span>
+));
+const value = "v";
+
+<Child value={value} />;
+Child({ value });
+Child.key("stable")({ value });
+```
+
+## Nested islands
+
+Primitive state belongs to the child island instance, not its parent. Mounting a child island inside a parent render creates an independent boundary with its own frame and lifecycle:
+
+```tsx twoslash
+import { ilha, state } from "ilha";
+
+const Counter = ilha(() => {
+  const count = state(0);
+  return <button>{count()}</button>;
+});
+
+const App = ilha(() => (
+  <section>
+    <Counter />
+    <Counter />
+  </section>
+));
+```
+
+Each `<Counter />` is a separate island instance with its own state. When the parent rerenders, mounted children keep their DOM, listeners, and state; only their props are pushed through.
+
+## Passing props
+
+Pass props to a child the same way you would to any component. When the parent rerenders with new props, the child rerruns with those current values:
+
+```tsx twoslash
+import { ilha, state } from "ilha";
+
+const Badge = ilha<{ label: string }>(({ label }) => (
+  <span>{label}</span>
+));
+
+const App = ilha(() => {
+  const label = state("New");
+  return <Badge label={label()} />;
+});
+```
+
+A child's `state()` initializer applies when that child instance is created. Later prop changes rerender the child but do not reset its state.
+
+## Keyed islands
+
+In lists that reorder, insert, or remove items, use `key()` to give each child a stable identity. The key keeps the child instance (and its state, DOM, and focus) across reorders:
+
+```tsx twoslash
+import { ilha, state } from "ilha";
+
+const Item = ilha<{ text: string }>(({ text }) => {
+  const open = state(false);
+  return (
+    <li>
+      {text} — {open() ? "open" : "closed"}
+    </li>
+  );
+});
+
+const List = ilha(() => {
+  const items = state(["a", "b", "c"]);
+  return (
+    <ul>
+      {items().map((text) => (
+        <li key={text}>{Item.key(text)({ text })}</li>
+      ))}
+    </ul>
+  );
+});
+```
+
+Keys must be unique within a single parent render and cannot contain the `:` slot separator. Ilha preserves keyed identity across reorder, insertion, and removal.
+
+## Slot wrapper tag
+
+Each nested island is wrapped in a slot element (default `div`). Choose the wrapper tag with the child's `{ as }` constructor option — for valid structure like `<li>` inside `<ul>`:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Item = ilha(
+  ({ label }: { label: string }) => <li>{label}</li>,
+  { as: "li" },
+);
+```
+
+## Composition and plain components
+
+A plain function component is transparent: it belongs to the containing island, and its primitives share that island's frame. Only `ilha()`-wrapped components are independent boundaries.
+
+## Related
+
+- [Create an island](/guide/island/create)
+- [Local state](/guide/island/state)
+- [Render and hydrate](/guide/island/render)

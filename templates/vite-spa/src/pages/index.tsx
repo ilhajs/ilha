@@ -1,7 +1,6 @@
 import { loader, type InferLoader } from "@ilha/router";
-import { store } from "@ilha/store";
 import { Badge, Button, Checkbox, Input, LayerCard } from "areia";
-import { ilha } from "ilha";
+import { action, derived, effect, ilha, state } from "ilha";
 import { each } from "quando";
 
 type Todo = { id: string; text: string; completed: boolean };
@@ -20,62 +19,56 @@ export const load = loader.client(({ head }) => {
   };
 });
 
-const todos = store({ draft: "", items: [] as Todo[] })
-  .derived("pending", ({ get }) => (get().items ?? []).filter((t) => !t.completed))
-  .action("addItem", (event: SubmitEvent, { get }) => {
-    event.preventDefault();
-    const text = get().draft.trim();
-    if (!text) return;
-    const item = { id: crypto.randomUUID(), text, completed: false };
-    return { items: [...get().items, item], draft: "" };
-  })
-  .action("deleteItem", (index: number, { get }) => {
-    return { items: get().items.filter((_, i) => i !== index) };
-  })
-  .action("toggleItem", (index: number, { get }) => {
-    return {
-      items: get().items.map((item, i) =>
-        i === index ? { ...item, completed: !item.completed } : item,
-      ),
-    };
-  })
-  .build();
+export default ilha(({ todos }: InferLoader<typeof load>) => {
+  const items = state([] as Todo[]);
+  const draft = state("");
+  const pending = derived(() => items().filter((t) => !t.completed));
 
-export default ilha
-  .input<InferLoader<typeof load>>()
-  .onMount(({ input }) => {
-    todos.items(input.load.value.todos);
-  })
-  .render(() => {
-    return (
-      <div class="flex flex-col gap-4">
-        <LayerCard>
-          <LayerCard.Title>
-            <span>To Do</span>
-            <Badge>{todos.pending()?.length}</Badge>
-          </LayerCard.Title>
-          <LayerCard.Content>
-            <form onsubmit={todos.addItem}>
-              <div class="flex items-center gap-2">
-                <Input placeholder="Add a new todo" class="w-full" bind:value={todos.draft} />
-                <Button type="submit">Add</Button>
-              </div>
-            </form>
-            <div class="flex flex-col gap-2">
-              {each(todos.items())
-                .as((todo, index) => (
-                  <div key={todo.id} class="flex items-center justify-between gap-2">
-                    <Checkbox
-                      label={todo.text}
-                      bind:checked={todos.bind((s) => s.items[index]?.completed ?? false)}
-                    />
-                    <Button onclick={() => todos.deleteItem(index)}>Delete</Button>
-                  </div>
-                ))
-                .else(<p>No todos.</p>)}
-            </div>
-          </LayerCard.Content>
-        </LayerCard>
-      </div>
-    );
+  // Seed from the loader once per mounted instance.
+  effect.once(() => {
+    items(todos?.load.value.todos ?? []);
   });
+
+  const addItem = action((event: SubmitEvent) => {
+    event.preventDefault();
+    const text = draft().trim();
+    if (!text) return;
+    items((current) => [...current, { id: crypto.randomUUID(), text, completed: false }]);
+    draft("");
+  });
+  const deleteItem = action((index: number) => {
+    items((current) => current.filter((_, i) => i !== index));
+  });
+
+  return (
+    <div class="flex flex-col gap-4">
+      <LayerCard>
+        <LayerCard.Title>
+          <span>To Do</span>
+          <Badge>{pending().length}</Badge>
+        </LayerCard.Title>
+        <LayerCard.Content>
+          <form onsubmit={addItem}>
+            <div class="flex items-center gap-2">
+              <Input placeholder="Add a new todo" class="w-full" bind:value={draft} />
+              <Button type="submit">Add</Button>
+            </div>
+          </form>
+          <div class="flex flex-col gap-2">
+            {each(items())
+              .as((todo, index) => (
+                <div key={todo.id} class="flex items-center justify-between gap-2">
+                  <Checkbox
+                    label={todo.text}
+                    bind:checked={items.select((current) => current[index]?.completed ?? false)}
+                  />
+                  <Button onclick={() => deleteItem(index)}>Delete</Button>
+                </div>
+              ))
+              .else(<p>No todos.</p>)}
+          </div>
+        </LayerCard.Content>
+      </LayerCard>
+    </div>
+  );
+});

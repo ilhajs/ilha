@@ -18,9 +18,9 @@ import {
 // Shared Page islands
 // ─────────────────────────────────────────────
 
-const HomePage = ilha.render(() => `<p>home</p>`);
-const AboutPage = ilha.render(() => `<p>about</p>`);
-const UserPage = ilha.render(() => `<p>user</p>`);
+const HomePage = ilha(() => `<p>home</p>`);
+const AboutPage = ilha(() => `<p>about</p>`);
+const UserPage = ilha(() => `<p>user</p>`);
 
 // ─────────────────────────────────────────────
 // Helpers

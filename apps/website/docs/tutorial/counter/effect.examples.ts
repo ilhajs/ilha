@@ -1,30 +1,32 @@
-export const example = `import { ilha } from "ilha";
-import { Button, Input, Label } from "areia";
+export const example = `import { ilha, state, derived, action, effect } from "ilha";
+import { Button, Input } from "areia";
 
-export default ilha
-  .state("count", 0)
-  .derived("doubled", ({ state }) => state.count() * 2)
-  .action("increase", (_, { state }) => {
-    state.count((count) => count + 1);
-  })
-  .effect(({ state }) => {
-    if (state.count() > 3) {
-      state.count(0);
-    }
-  })
-  .render(({ state, derived, action }) => (
+export default ilha(() => {
+  const count = state(0);
+  const doubled = derived(() => count() * 2);
+
+  const increase = action(() => {
+    count((value) => value + 1);
+  });
+
+  effect(() => {
+    if (count() > 3) count(0);
+  });
+
+  return (
     <>
-      <p>Count: {state.count()}</p>
-      <p>Doubled: {derived.doubled()}</p>
+      <p>Count: {count()}</p>
+      <p>Doubled: {doubled()}</p>
       <Input
         id="count"
         type="number"
         label="Current count"
-        bind:value={state.count}
+        bind:value={count}
       />
-      <Button variant="primary" onclick={action.increase}>
+      <Button variant="primary" onclick={increase}>
         Increase
       </Button>
     </>
-  ));
+  );
+});
 `;

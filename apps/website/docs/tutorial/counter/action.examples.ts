@@ -1,17 +1,20 @@
-export const example = `import { ilha } from "ilha";
+export const example = `import { ilha, state, action } from "ilha";
 import { Button } from "areia";
 
-export default ilha
-  .state("count", 0)
-  .action("increase", (_, { state }) => {
-    state.count((count) => count + 1);
-  })
-  .render(({ state, action }) => (
+export default ilha(() => {
+  const count = state(0);
+
+  const increase = action(() => {
+    count((value) => value + 1);
+  });
+
+  return (
     <>
-      <p>Count: {state.count()}</p>
-      <Button variant="primary" onclick={action.increase}>
+      <p>Count: {count()}</p>
+      <Button variant="primary" onclick={increase}>
         Increase
       </Button>
     </>
-  ));
+  );
+});
 `;

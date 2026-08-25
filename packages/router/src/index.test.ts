@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 
-import { ilha, ISLAND_MOUNT_INTERNAL, mount as ilhaMount, html } from "ilha";
+import { ilha, mount as ilhaMount, html, state, derived, effect } from "ilha";
+import { ISLAND_MOUNT_INTERNAL } from "ilha/internal";
 import { jsx, jsxs } from "ilha/jsx-runtime";
 
 import {
@@ -33,25 +34,6 @@ import {
 // Helpers
 // ─────────────────────────────────────────────
 
-// Simple schema helper for tests - creates a StandardSchemaV1 compatible schema
-function createSchema<T>(): {
-  "~standard": {
-    version: 1;
-    vendor: "test";
-    types: { input: T; output: T };
-    validate: (value: unknown) => { value: T };
-  };
-} {
-  return {
-    "~standard": {
-      version: 1 as const,
-      vendor: "test",
-      types: undefined as unknown as { input: any; output: any },
-      validate: (value: unknown) => ({ value: value as any }),
-    },
-  } as any;
-}
-
 function makeEl(inner = ""): Element {
   const el = document.createElement("div");
   el.innerHTML = inner;
@@ -79,13 +61,13 @@ function detached() {
 // Shared Page islands
 // ─────────────────────────────────────────────
 
-const HomePage = ilha.render(() => `<p>home</p>`);
-const AboutPage = ilha.render(() => `<p>about</p>`);
-const UserPage = ilha.render(() => {
+const HomePage = ilha(() => `<p>home</p>`);
+const AboutPage = ilha(() => `<p>about</p>`);
+const UserPage = ilha(() => {
   const { params } = useRoute();
   return `<p>user:${params().id ?? "none"}</p>`;
 });
-const NotFound = ilha.render(() => `<p>404</p>`);
+const NotFound = ilha(() => `<p>404</p>`);
 
 // shared registry used across hydratable tests
 const registry: Record<string, typeof HomePage> = {
@@ -661,7 +643,7 @@ describe("rou3 pattern syntax", () => {
   });
 
   it("**:slug — named catch-all captures rest of path", () => {
-    const CatchAll = ilha.render(() => {
+    const CatchAll = ilha(() => {
       const { params } = useRoute();
       return `<p>slug:${(params() as any).slug ?? ""}</p>`;
     });
@@ -676,7 +658,7 @@ describe("rou3 pattern syntax", () => {
   });
 
   it("multiple :param segments", () => {
-    const Page = ilha.render(() => {
+    const Page = ilha(() => {
       const { params } = useRoute();
       const p = params() as any;
       return `<p>${p.org}/${p.repo}</p>`;
@@ -686,7 +668,7 @@ describe("rou3 pattern syntax", () => {
   });
 
   it("static segment takes priority over :param", () => {
-    const Special = ilha.render(() => `<p>special</p>`);
+    const Special = ilha(() => `<p>special</p>`);
     const html = router()
       .route("/user/me", Special)
       .route("/user/:id", UserPage)
@@ -851,7 +833,7 @@ describe("SSR renderHydratable()", () => {
 
   it("falls back to plain SSR and warns when island is not in registry", async () => {
     const warn = spyOn(console, "warn").mockImplementation(() => {});
-    const Unregistered = ilha.render(() => `<p>unregistered</p>`);
+    const Unregistered = ilha(() => `<p>unregistered</p>`);
     const html = await router().route("/", Unregistered).renderHydratable("/", registry);
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("[ilha-router]"));
@@ -863,21 +845,29 @@ describe("SSR renderHydratable()", () => {
 
   it("does not include data-ilha when falling back to plain SSR", async () => {
     const warn = spyOn(console, "warn").mockImplementation(() => {});
-    const Unregistered = ilha.render(() => `<p>x</p>`);
+    const Unregistered = ilha(() => `<p>x</p>`);
     const html = await router().route("/", Unregistered).renderHydratable("/", {});
     expect(html).not.toContain("data-ilha");
     warn.mockRestore();
   });
 
   it("snapshot option is forwarded — data-ilha-state present", async () => {
-    const Stateful = ilha.state("count", 0).render(() => `<p>count</p>`);
+    const Stateful = ilha(() => {
+      const count = state(0);
+      void count;
+      return `<p>count</p>`;
+    });
     const reg = { Stateful };
     const html = await router().route("/", Stateful).renderHydratable("/", reg, { snapshot: true });
     expect(html).toContain("data-ilha-state");
   });
 
   it("snapshot: false omits data-ilha-state", async () => {
-    const Stateful = ilha.state("count", 0).render(() => `<p>count</p>`);
+    const Stateful = ilha(() => {
+      const count = state(0);
+      void count;
+      return `<p>count</p>`;
+    });
     const reg = { Stateful };
     const html = await router()
       .route("/", Stateful)
@@ -1110,16 +1100,16 @@ describe("SSR full-Page HTML template", () => {
 
 describe("defineLayout()", () => {
   it("returns the same function reference (identity)", () => {
-    const layout = (children: typeof HomePage) => ilha.render(() => children.toString());
+    const layout = (children: typeof HomePage) => ilha(() => children.toString());
     const result = defineLayout(layout);
     expect(result).toBe(layout);
   });
 
   it("wraps Page content when the returned layout is called", () => {
     const layout = defineLayout((children) =>
-      ilha.render(() => `<layout>${children.toString()}</layout>`),
+      ilha(() => `<layout>${children.toString()}</layout>`),
     );
-    const Page = ilha.render(() => `<p>content</p>`);
+    const Page = ilha(() => `<p>content</p>`);
     const wrapped = layout(Page);
     expect(wrapped.toString()).toContain("<layout>");
     expect(wrapped.toString()).toContain("<p>content</p>");
@@ -1129,13 +1119,11 @@ describe("defineLayout()", () => {
     // Regression: wrapLayout's children wrapper lost the ilha.islandCall brand,
     // so `${children}` in a layout template fell through interpolateValue's
     // generic-function branch and rendered "[object Object]".
-    const Page = ilha.render(() => html`<p>page content</p>`);
-    const layout = defineLayout((children) =>
-      ilha.render(() => html`<div id="shell">${children}</div>`),
-    );
+    const Page = ilha(() => html`<p>page content</p>`);
+    const layout = defineLayout((children) => ilha(() => html`<div id="shell">${children}</div>`));
 
     const Wrapped = wrapLayout(layout, Page as never);
-    const out = String(Wrapped());
+    const out = Wrapped.toString();
 
     expect(out).not.toContain("[object Object]");
     expect(out).toContain('data-ilha-slot="k:page"');
@@ -1143,7 +1131,7 @@ describe("defineLayout()", () => {
   });
 
   it("returned island has .toString and .mount", () => {
-    const layout = defineLayout((children) => ilha.render(() => children.toString()));
+    const layout = defineLayout((children) => ilha(() => children.toString()));
     const wrapped = layout(HomePage);
     expect(typeof wrapped.toString).toBe("function");
     expect(typeof wrapped.mount).toBe("function");
@@ -1151,11 +1139,10 @@ describe("defineLayout()", () => {
 
   it("composes with wrapLayout — output is identical to satisfies LayoutHandler pattern", () => {
     // defineLayout should produce the same result as the manual satisfies cast
-    const fn = (children: typeof HomePage) =>
-      ilha.render(() => `<shell>${children.toString()}</shell>`);
+    const fn = (children: typeof HomePage) => ilha(() => `<shell>${children.toString()}</shell>`);
 
     const viaDefine = defineLayout(fn);
-    const Page = ilha.render(() => `<p>Page</p>`);
+    const Page = ilha(() => `<p>Page</p>`);
 
     const wrappedViaDefine = viaDefine(Page);
     const wrappedDirect = fn(Page);
@@ -1164,13 +1151,9 @@ describe("defineLayout()", () => {
   });
 
   it("nested defineLayout calls compose inside-out", () => {
-    const outer = defineLayout((children) =>
-      ilha.render(() => `<outer>${children.toString()}</outer>`),
-    );
-    const inner = defineLayout((children) =>
-      ilha.render(() => `<inner>${children.toString()}</inner>`),
-    );
-    const Page = ilha.render(() => `<p>Page</p>`);
+    const outer = defineLayout((children) => ilha(() => `<outer>${children.toString()}</outer>`));
+    const inner = defineLayout((children) => ilha(() => `<inner>${children.toString()}</inner>`));
+    const Page = ilha(() => `<p>Page</p>`);
 
     // outer wraps inner wraps Page — outermost last in call chain
     const wrapped = outer(inner(Page));
@@ -1570,9 +1553,9 @@ describe("router.runLoader()", () => {
 // ─────────────────────────────────────────────
 
 describe("renderHydratable() with loader", () => {
-  const Greeter = ilha
-    .input<{ load?: { value?: { name?: string } } }>()
-    .render(({ input }) => `<p>hello ${input.load?.value?.name ?? "stranger"}</p>`);
+  const Greeter = ilha<{ load?: { value?: { name?: string } } }>(
+    ({ load }) => `<p>hello ${load?.value?.name ?? "stranger"}</p>`,
+  );
 
   it("feeds loader output into the island as input", async () => {
     const load = loader(async () => ({ name: "world" }));
@@ -1581,9 +1564,9 @@ describe("renderHydratable() with loader", () => {
   });
 
   it("serializes composed attachLoader data on SSR hydratable (mirrors ilha:loaders)", async () => {
-    const Page = ilha
-      .input<{ load: { value: { root: boolean; nested: boolean; page: boolean } } }>()
-      .render(({ input }) => `<p>${String(input.load.value.page)}</p>`);
+    const Page = ilha<{ load: { value: { root: boolean; nested: boolean; page: boolean } } }>(
+      ({ load }) => `<p>${String(load.value.page)}</p>`,
+    );
     const composed = composeLoaders([
       loader(async () => ({ root: true })),
       loader(async () => ({ nested: true })),
@@ -1600,9 +1583,9 @@ describe("renderHydratable() with loader", () => {
   });
 
   it("loader receives params from the matched route", async () => {
-    const UserIsland = ilha
-      .input<{ load?: { value?: { id?: string } } }>()
-      .render(({ input }) => `<p>u:${input.load?.value?.id ?? "?"}</p>`);
+    const UserIsland = ilha<{ load?: { value?: { id?: string } } }>(
+      ({ load }) => `<p>u:${load?.value?.id ?? "?"}</p>`,
+    );
     const load = loader(async ({ params }) => ({ id: params.id }));
     const html = await router()
       .route("/user/:id", UserIsland, load)
@@ -1662,9 +1645,9 @@ describe("renderHydratable() with loader", () => {
 // ─────────────────────────────────────────────
 
 describe("renderResponse()", () => {
-  const Greeter = ilha
-    .input<{ load?: { value?: { name?: string } } }>()
-    .render(({ input }) => `<p>hi ${input.load?.value?.name ?? "anon"}</p>`);
+  const Greeter = ilha<{ load?: { value?: { name?: string } } }>(
+    ({ load }) => `<p>hi ${load?.value?.name ?? "anon"}</p>`,
+  );
 
   it("returns { kind: 'html' } for successful renders", async () => {
     const load = loader(async () => ({ name: "bob" }));
@@ -1676,10 +1659,13 @@ describe("renderResponse()", () => {
   });
 
   it("does not expose state or derived snapshots by default", async () => {
-    const Secret = ilha
-      .state("token", "server-secret")
-      .derived("private", () => "derived-secret")
-      .render(() => "<p>safe</p>");
+    const Secret = ilha(() => {
+      const token = state("server-secret");
+      const secret = derived(() => "derived-secret");
+      void token;
+      void secret;
+      return "<p>safe</p>";
+    });
     const res = await router().route("/", Secret).renderResponse("/", { Secret });
     expect(res.kind).toBe("html");
     if (res.kind === "html") {
@@ -1730,12 +1716,12 @@ describe("renderResponse()", () => {
   it("collects head() from layout and page during async hydratable SSR", async () => {
     const warn = spyOn(console, "warn").mockImplementation(() => {});
 
-    const Page = ilha.render(() => {
+    const Page = ilha(() => {
       head({ title: "Home" });
       return html` <p>page</p> `;
     });
     const Layout = defineLayout((children) =>
-      ilha.render(() => {
+      ilha(() => {
         head({ titleTemplate: (t) => (t ? `${t} · App` : "App") });
         return html`<main>${children()}</main>`;
       }),
@@ -1755,16 +1741,16 @@ describe("renderResponse()", () => {
   });
 
   it("updates document.title on client navigation when pages call head()", async () => {
-    const Home = ilha.render(() => {
+    const Home = ilha(() => {
       head({ title: "Home" });
       return html` <p>home</p> `;
     });
-    const Learn = ilha.render(() => {
+    const Learn = ilha(() => {
       head({ title: "Learn" });
       return html` <p>learn</p> `;
     });
     const Layout = defineLayout((children) =>
-      ilha.render(() => {
+      ilha(() => {
         head({ titleTemplate: (t) => (t ? `${t} · App` : "App") });
         return html`<main>${children()}</main>`;
       }),
@@ -1797,11 +1783,11 @@ describe("renderResponse()", () => {
   });
 
   it("removes route-specific managed meta on client navigation", async () => {
-    const Home = ilha.render(() => {
+    const Home = ilha(() => {
       head({ title: "Home", meta: [{ name: "description", content: "Home page" }] });
       return html` <p>home</p> `;
     });
-    const About = ilha.render(() => {
+    const About = ilha(() => {
       head({ title: "About" });
       return html` <p>about</p> `;
     });
@@ -1835,17 +1821,16 @@ describe("renderResponse()", () => {
   it("does not cross-contaminate head() between concurrent SSR renders", async () => {
     const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-    const SlowPage = ilha
-      .derived("ready", async () => {
+    const SlowPage = ilha(() => {
+      const ready = derived(async () => {
         await delay(5);
         return "slow";
-      })
-      .render(({ derived }) => {
-        head({ title: "Slow" });
-        return html`<p>${derived.ready()}</p>`;
       });
+      head({ title: "Slow" });
+      return html`<p>${ready()}</p>`;
+    });
 
-    const FastPage = ilha.render(() => {
+    const FastPage = ilha(() => {
       head({ title: "Fast" });
       return html` <p>fast</p> `;
     });
@@ -1931,9 +1916,7 @@ describe("SPA client loaders", () => {
   });
 
   it("runs a .route() loader in the browser and passes its data to the island", async () => {
-    const GreetPage = ilha.render(
-      ({ input }: any) => `<p>hello:${input?.load?.value?.name ?? "nobody"}</p>`,
-    );
+    const GreetPage = ilha((input: any) => `<p>hello:${input?.load?.value?.name ?? "nobody"}</p>`);
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -1951,7 +1934,7 @@ describe("SPA client loaders", () => {
   });
 
   it("passes route params to the local loader", async () => {
-    const IdPage = ilha.render(({ input }: any) => `<p>id:${input?.load?.value?.id ?? "?"}</p>`);
+    const IdPage = ilha((input: any) => `<p>id:${input?.load?.value?.id ?? "?"}</p>`);
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -1969,7 +1952,7 @@ describe("SPA client loaders", () => {
   });
 
   it(".clientLoader() attaches a browser loader to a registered pattern", async () => {
-    const CPage = ilha.render(({ input }: any) => `<p>c:${input?.load?.value?.v ?? "?"}</p>`);
+    const CPage = ilha((input: any) => `<p>c:${input?.load?.value?.v ?? "?"}</p>`);
     unmount = router()
       .route("/", HomePage)
       .route("/c", CPage)
@@ -1987,9 +1970,7 @@ describe("SPA client loaders", () => {
   });
 
   it("browser-local regular loaders expose the load envelope too", async () => {
-    const LPage = ilha.render(
-      ({ input }: any) => `<p>L:${input?.load?.value?.fromServer ?? "-"}</p>`,
-    );
+    const LPage = ilha((input: any) => `<p>L:${input?.load?.value?.fromServer ?? "-"}</p>`);
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -2020,7 +2001,7 @@ describe("SPA client loaders", () => {
   it("client loader wins over a server loader on the same route", async () => {
     const serverLoad = mock(async () => ({ v: "server" }));
     const clientLoad = mock(async () => ({ v: "client" }));
-    const VPage = ilha.render(({ input }: any) => `<p>v:${input?.load?.value?.v ?? "?"}</p>`);
+    const VPage = ilha((input: any) => `<p>v:${input?.load?.value?.v ?? "?"}</p>`);
     unmount = router()
       .route("/", HomePage)
       .route("/v", VPage, loader(serverLoad))
@@ -2038,8 +2019,8 @@ describe("SPA client loaders", () => {
   it("composed clientLoaders (layout + page) merge into island input", async () => {
     const layoutLoad = mock(async () => ({ fromLayout: "L", shared: "layout" }));
     const pageLoad = mock(async () => ({ fromPage: "P", shared: "page" }));
-    const MergedPage = ilha.render(
-      ({ input }: any) =>
+    const MergedPage = ilha(
+      (input: any) =>
         `<p>L:${input?.load?.value?.fromLayout ?? "-"}|P:${input?.load?.value?.fromPage ?? "-"}|S:${input?.load?.value?.shared ?? "-"}</p>`,
     );
     const composed = composeLoaders([loader(layoutLoad), loader(pageLoad)]);
@@ -2076,8 +2057,8 @@ describe("SPA client loaders", () => {
         headers: { "content-type": "application/json" },
       });
     });
-    const ServerPage = ilha.render(
-      ({ input }: any) =>
+    const ServerPage = ilha(
+      (input: any) =>
         `<p>L:${input?.load?.value?.fromLayout ?? "-"}|P:${input?.load?.value?.fromPage ?? "-"}|S:${input?.load?.value?.shared ?? "-"}</p>`,
     );
     unmount = router()
@@ -2097,8 +2078,8 @@ describe("SPA client loaders", () => {
 
   it("layout clientLoad only on route (no page clientLoad) still feeds layout keys", async () => {
     const layoutOnly = mock(async () => ({ fromLayout: "only-layout" }));
-    const LayoutOnlyPage = ilha.render(
-      ({ input }: any) =>
+    const LayoutOnlyPage = ilha(
+      (input: any) =>
         `<p>L:${input?.load?.value?.fromLayout ?? "-"}|P:${input?.load?.value?.fromPage ?? "-"}</p>`,
     );
     unmount = router()
@@ -2118,8 +2099,8 @@ describe("SPA client loaders", () => {
   it("mixed: layout clientLoad + page server loader on same route — client uses clientLoader only (page server load not merged)", async () => {
     const layoutClient = mock(async () => ({ fromLayout: "L" }));
     const pageServer = mock(async () => ({ fromPage: "P" }));
-    const MixedPage = ilha.render(
-      ({ input }: any) =>
+    const MixedPage = ilha(
+      (input: any) =>
         `<p>L:${input?.load?.value?.fromLayout ?? "-"}|P:${input?.load?.value?.fromPage ?? "-"}</p>`,
     );
     unmount = router()
@@ -2140,7 +2121,7 @@ describe("SPA client loaders", () => {
   });
 
   it("follows a local loader redirect() on the client", async () => {
-    const FromPage = ilha.render(() => `<p>from</p>`);
+    const FromPage = ilha(() => `<p>from</p>`);
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -2160,7 +2141,7 @@ describe("SPA client loaders", () => {
 
   it("blocks a cross-origin local loader redirect by default", async () => {
     const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
-    const ExtPage = ilha.render(() => `<p>ext</p>`);
+    const ExtPage = ilha(() => `<p>ext</p>`);
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -2209,7 +2190,7 @@ describe("navigation feedback + revalidation", () => {
   it("navigating() is true while a client loader is in flight, false after", async () => {
     let resolve!: () => void;
     const gate = new Promise<void>((r) => (resolve = r));
-    const SlowPage = ilha.render(() => `<p>slow</p>`);
+    const SlowPage = ilha(() => `<p>slow</p>`);
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -2239,7 +2220,7 @@ describe("navigation feedback + revalidation", () => {
 
   it("invalidate() re-runs the current route's loader and re-renders", async () => {
     let n = 0;
-    const CountPage = ilha.render(({ input }: any) => `<p>n:${input?.load?.value?.n ?? "?"}</p>`);
+    const CountPage = ilha((input: any) => `<p>n:${input?.load?.value?.n ?? "?"}</p>`);
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -2264,7 +2245,7 @@ describe("navigation feedback + revalidation", () => {
 
   it("loader head entries update document.title on client navigation", async () => {
     document.title = "before";
-    const HeadPage = ilha.render(() => `<p>headpage</p>`);
+    const HeadPage = ilha(() => `<p>headpage</p>`);
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -2283,9 +2264,9 @@ describe("navigation feedback + revalidation", () => {
   });
 
   it("a loader error renders through the route's errorBoundary on the client", async () => {
-    const FailPage = ilha.render(() => `<p>fail</p>`);
+    const FailPage = ilha(() => `<p>fail</p>`);
     const boundary = (err: { status?: number; message: string }) =>
-      ilha.render(() => `<p>boundary:${err.status}:${err.message}</p>`);
+      ilha(() => `<p>boundary:${err.status}:${err.message}</p>`);
     unmount = router()
       .route("/", HomePage)
       .route(
@@ -2311,9 +2292,9 @@ describe("navigation feedback + revalidation", () => {
   });
 
   it("a loader error renders through the errorBoundary during SSR renderResponse", async () => {
-    const FailPage = ilha.render(() => `<p>fail</p>`);
+    const FailPage = ilha(() => `<p>fail</p>`);
     const boundary = (err: { status?: number; message: string }) =>
-      ilha.render(() => `<p>ssr-boundary:${err.status}</p>`);
+      ilha(() => `<p>ssr-boundary:${err.status}</p>`);
     const r = router()
       .route(
         "/fails",
@@ -2332,7 +2313,7 @@ describe("navigation feedback + revalidation", () => {
   });
 
   it("router({ viewTransitions: true }) works without startViewTransition support", async () => {
-    const VtPage = ilha.render(() => `<p>vt</p>`);
+    const VtPage = ilha(() => `<p>vt</p>`);
     unmount = router({ viewTransitions: true }).route("/", HomePage).route("/vt", VtPage).mount(el);
     navigate("/vt");
     await flush();
@@ -2445,14 +2426,12 @@ describe("wrapError / wrapLayout hydration", () => {
   }
 
   it("wrapError preserves interactivity — state updates work on direct mount", async () => {
-    const Counter = ilha
-      .state("count", 0)
-      .on("[data-inc]@click", ({ state }) => {
-        state.count(state.count() + 1);
-      })
-      .render(({ state }) => `<button data-inc>count:${state.count()}</button>`);
+    const Counter = ilha(() => {
+      const count = state(0);
+      return html`<button data-inc onclick=${() => count((v) => v + 1)}>count:${count()}</button>`;
+    });
 
-    const ErrorPage = ilha.render(() => `<p>error</p>`);
+    const ErrorPage = ilha(() => `<p>error</p>`);
     const Wrapped = wrapError((_err, _route) => ErrorPage, Counter);
 
     // SSR the wrapped island
@@ -2476,14 +2455,12 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("wrapError preserves interactivity after hydration via ilha.mount", async () => {
-    const Counter = ilha
-      .state("count", 0)
-      .on("[data-inc]@click", ({ state }) => {
-        state.count(state.count() + 1);
-      })
-      .render(({ state }) => `<button data-inc>count:${state.count()}</button>`);
+    const Counter = ilha(() => {
+      const count = state(0);
+      return html`<button data-inc onclick=${() => count((v) => v + 1)}>count:${count()}</button>`;
+    });
 
-    const ErrorPage = ilha.render(() => `<p>error</p>`);
+    const ErrorPage = ilha(() => `<p>error</p>`);
     const Wrapped = wrapError((_err, _route) => ErrorPage, Counter);
 
     const reg: Record<string, typeof Counter> = { Counter: Wrapped };
@@ -2496,7 +2473,7 @@ describe("wrapError / wrapLayout hydration", () => {
     el = makeEl(ssrHtml);
 
     // ilha.mount discovers and activates [data-ilha] elements
-    const { unmount } = ilha.mount(reg, { root: el });
+    const { unmount } = ilhaMount(reg, { root: el });
 
     // Click the button — state should update (interactivity check)
     const btn = el.querySelector("[data-inc]");
@@ -2510,11 +2487,9 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("wrapError ISLAND_MOUNT_INTERNAL forwards updateProps to inner page", () => {
-    const Greeter = ilha
-      .input<{ name: string }>()
-      .render(({ input }) => `<p>hello ${input.name}</p>`);
+    const Greeter = ilha<{ name: string }>(({ name }) => `<p>hello ${name}</p>`);
 
-    const ErrorPage = ilha.render(() => `<p>error</p>`);
+    const ErrorPage = ilha(() => `<p>error</p>`);
     const Wrapped = wrapError((_err, _route) => ErrorPage, Greeter);
 
     el = makeEl(Wrapped.toString());
@@ -2542,13 +2517,13 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("wrapError ISLAND_MOUNT_INTERNAL falls back to errorIsland when page.mount throws", () => {
-    const Broken = ilha.render(() => `<p>broken</p>`);
+    const Broken = ilha(() => `<p>broken</p>`);
     // Break the internal mount to force the catch branch
     (Broken as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = () => {
       throw new Error("mount failed");
     };
 
-    const ErrorPage = ilha.render(() => `<p>error-fallback</p>`);
+    const ErrorPage = ilha(() => `<p>error-fallback</p>`);
     const Wrapped = wrapError((_err, _route) => ErrorPage, Broken);
 
     el = makeEl(Wrapped.toString());
@@ -2575,29 +2550,31 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("wrapLayout forwards mount/hydratable so page state and nested child islands hydrate", async () => {
-    const Child = ilha
-      .input()
-      .onMount(({ host }) => {
+    const Child = ilha(() => {
+      effect.once(({ host }) => {
         host.setAttribute("data-child-live", "1");
-      })
-      .render(() => html` <span data-child>child</span> `);
+      });
+      return html` <span data-child>child</span> `;
+    });
 
-    const Page = ilha
-      .state("todos", [{ done: true }, { done: false }])
-      .render(() => html`<div>${Child()}</div>`);
+    const Page = ilha(() => {
+      state([{ done: true }, { done: false }]);
+      return html`<div>${Child()}</div>`;
+    });
 
     const Layout = defineLayout((children) =>
-      ilha.render(
-        () =>
-          html`<nav>nav</nav>
-            <main>${children()}</main>`,
+      ilha(
+        () => html`<nav>nav</nav>
+          <main>${children()}</main>`,
       ),
     );
 
     const Wrapped = wrapLayout(Layout, Page);
     const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
 
-    expect(ssr).toContain("todos");
+    // Positional v2 snapshot carries the state values (no keyed "todos" literal).
+    expect(ssr).toContain("data-ilha-state");
+    expect(ssr).toContain("&quot;done&quot;:true");
     expect(ssr).toContain("<nav>nav</nav>");
 
     el = makeEl(ssr);
@@ -2609,24 +2586,28 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("wrapLayout hydrates interactive layout child slots (p:*) and page (k:page)", async () => {
-    const LayoutToggle = ilha
-      .state("on", false)
-      .on("[data-layout-toggle]@click", ({ state }) => {
-        state.on(!state.on());
-      })
-      .render(
-        ({ state }) => html`<button data-layout-toggle>${state.on() ? "on" : "off"}</button>`,
-      );
+    const LayoutToggle = ilha(() => {
+      const on = state(false);
+      effect.once(({ host, signal }) => {
+        host
+          .querySelector("[data-layout-toggle]")
+          ?.addEventListener("click", () => on(!on()), { signal });
+      });
+      return html`<button data-layout-toggle>${on() ? "on" : "off"}</button>`;
+    });
 
-    const Page = ilha
-      .state("count", 0)
-      .on("[data-page-inc]@click", ({ state }) => {
-        state.count(state.count() + 1);
-      })
-      .render(({ state }) => html`<button data-page-inc>${state.count()}</button>`);
+    const Page = ilha(() => {
+      const count = state(0);
+      effect.once(({ host, signal }) => {
+        host
+          .querySelector("[data-page-inc]")
+          ?.addEventListener("click", () => count((v) => v + 1), { signal });
+      });
+      return html`<button data-page-inc>${count()}</button>`;
+    });
 
     const Layout = defineLayout((children) =>
-      ilha.render(
+      ilha(
         () => html`
           <aside>${LayoutToggle()}</aside>
           <main>${children()}</main>
@@ -2656,18 +2637,16 @@ describe("wrapError / wrapLayout hydration", () => {
 
   it("wrapLayout layout onMount runs when outer snapshot has _skipOnMount", async () => {
     const Layout = defineLayout((children) =>
-      ilha
-        .onMount(({ host }) => {
+      ilha(() => {
+        effect.once(({ host }) => {
           host.setAttribute("data-layout-mounted", "1");
-        })
-        .render(
-          () =>
-            html`<nav>nav</nav>
-              <main>${children()}</main>`,
-        ),
+        });
+        return html`<nav>nav</nav>
+          <main>${children()}</main>`;
+      }),
     );
 
-    const Page = ilha.render(() => html` <p>page</p> `);
+    const Page = ilha(() => html` <p>page</p> `);
     const Wrapped = wrapLayout(Layout, Page);
     const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
 
@@ -2682,14 +2661,16 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("wrapLayout page onMount runs when k:page already has data-ilha-state (_derived only)", async () => {
-    const Layout = defineLayout((children) => ilha.render(() => html`<main>${children()}</main>`));
+    const Layout = defineLayout((children) => ilha(() => html`<main>${children()}</main>`));
 
-    const Page = ilha
-      .derived("ready", () => true)
-      .onMount(({ host }) => {
+    const Page = ilha(() => {
+      const ready = derived(() => true);
+      void ready;
+      effect.once(({ host }) => {
         host.setAttribute("data-page-mounted", "1");
-      })
-      .render(() => html` <p data-page-body>page</p> `);
+      });
+      return html` <p data-page-body>page</p> `;
+    });
 
     const Wrapped = wrapLayout(Layout, Page);
     const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
@@ -2709,10 +2690,10 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("nested wrapLayout renderHydratable fills outer k:page with layout tree and inner k:page with page", async () => {
-    const Page = ilha.render(() => html` <p data-page-marker>page</p> `);
+    const Page = ilha(() => html` <p data-page-marker>page</p> `);
 
     const InnerLayout = defineLayout((children) =>
-      ilha.render(
+      ilha(
         () => html`
           <div data-inner-layout>
             <section>${children()}</section>
@@ -2722,7 +2703,7 @@ describe("wrapError / wrapLayout hydration", () => {
     );
 
     const OuterLayout = defineLayout((children) =>
-      ilha.render(() => html` <div data-outer-layout class="h-dvh">${children()}</div> `),
+      ilha(() => html` <div data-outer-layout class="h-dvh">${children()}</div> `),
     );
 
     const Wrapped = wrapLayout(OuterLayout, wrapLayout(InnerLayout, Page));
@@ -2756,7 +2737,7 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("nested wrapLayout hydratable ignores </div> and nested <pre> in twoslash when locating k:page close", async () => {
-    const Page = ilha.render(
+    const Page = ilha(
       () => html`
         <article>
           <pre class="shiki twoslash">
@@ -2776,7 +2757,7 @@ describe("wrapError / wrapLayout hydration", () => {
     );
 
     const InnerLayout = defineLayout((children) =>
-      ilha.render(
+      ilha(
         () => html`
           <div data-inner-layout>
             <section>${children()}</section>
@@ -2786,7 +2767,7 @@ describe("wrapError / wrapLayout hydration", () => {
     );
 
     const OuterLayout = defineLayout((children) =>
-      ilha.render(() => html` <div data-outer-layout>${children()}</div> `),
+      ilha(() => html` <div data-outer-layout>${children()}</div> `),
     );
 
     const Wrapped = wrapLayout(OuterLayout, wrapLayout(InnerLayout, Page));
@@ -2801,14 +2782,17 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("wrapLayout mount wires page handlers through outer hydratable shell", async () => {
-    const Page = ilha
-      .state("count", 0)
-      .on("[data-inc]@click", ({ state }) => {
-        state.count(state.count() + 1);
-      })
-      .render(({ state }) => html`<button data-inc>${state.count()}</button>`);
+    const Page = ilha(() => {
+      const count = state(0);
+      effect.once(({ host, signal }) => {
+        host
+          .querySelector("[data-inc]")
+          ?.addEventListener("click", () => count((v) => v + 1), { signal });
+      });
+      return html`<button data-inc>${count()}</button>`;
+    });
 
-    const Layout = defineLayout((children) => ilha.render(() => html`<main>${children()}</main>`));
+    const Layout = defineLayout((children) => ilha(() => html`<main>${children()}</main>`));
 
     const Wrapped = wrapLayout(Layout, Page);
     const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
@@ -2824,19 +2808,15 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("nested wrapLayout passes full merged loader input to leaf when each layout passes a subset", async () => {
-    const Page = ilha
-      .input<{ a: number; b: number; c: number }>()
-      .render(({ input }) => html`<p data-abc>${input.a}-${input.b}-${input.c}</p>`);
+    const Page = ilha<{ a: number; b: number; c: number }>(
+      ({ a, b, c }) => html`<p data-abc>${a}-${b}-${c}</p>`,
+    );
 
     const Inner = defineLayout((children) =>
-      ilha
-        .input<{ b: number }>()
-        .render(({ input }) => html`<div>${children({ b: input.b })}</div>`),
+      ilha<{ b: number }>(({ b }) => html`<div>${children({ b })}</div>`),
     );
     const Outer = defineLayout((children) =>
-      ilha
-        .input<{ a: number }>()
-        .render(({ input }) => html`<div>${children({ a: input.a })}</div>`),
+      ilha<{ a: number }>(({ a }) => html`<div>${children({ a })}</div>`),
     );
 
     const Wrapped = wrapLayout(Outer, wrapLayout(Inner, Page));
@@ -2852,17 +2832,17 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("wrapLayout page slot keeps full merged loader input when layout passes a subset to Children", async () => {
-    const Page = ilha
-      .input<{ authSession: { id: string }; todos: string[] }>()
-      .onMount(({ input }) => {
-        if (!input.todos?.length) throw new Error("missing page loader keys on slot");
-      })
-      .render(({ input }) => html`<p data-todos>${input.todos.join(",")}</p>`);
+    const Page = ilha<{ authSession: { id: string }; todos: string[] }>(({ todos }) => {
+      effect.once(() => {
+        if (!todos?.length) throw new Error("missing page loader keys on slot");
+      });
+      return html`<p data-todos>${todos.join(",")}</p>`;
+    });
 
     const Layout = defineLayout((children) =>
-      ilha
-        .input<{ authSession: { id: string } }>()
-        .render(({ input }) => html`<main>${children({ authSession: input.authSession })}</main>`),
+      ilha<{ authSession: { id: string } }>(
+        ({ authSession }) => html`<main>${children({ authSession })}</main>`,
+      ),
     );
 
     const Wrapped = wrapLayout(Layout, Page);
@@ -2883,15 +2863,14 @@ describe("wrapError / wrapLayout hydration", () => {
   it("wrapLayout hydrates page with loader props on k:page (no innerHTML wipe)", async () => {
     // SSR onMount is client-only, so loader props must flow into the render
     // directly from `input` (not via an onMount-seeded module store).
-    const Page = ilha.input<{ todos: string[] }>().render(
-      ({ input }) =>
-        html`<ul>
-          ${input.todos.map((t) => html`<li>${t}</li>`)}
-        </ul>`,
+    const Page = ilha<{ todos: string[] }>(
+      ({ todos }) => html`<ul>
+        ${todos.map((t) => html`<li>${t}</li>`)}
+      </ul>`,
     );
 
     const Layout = defineLayout((children) =>
-      ilha.render(({ input }) => html`<main>${children(input)}</main>`),
+      ilha((input: Record<string, unknown>) => html`<main>${children(input)}</main>`),
     );
 
     const Wrapped = wrapLayout(Layout, Page);
@@ -2913,15 +2892,18 @@ describe("wrapError / wrapLayout hydration", () => {
   });
 
   it("wrapLayout page .on handlers on k:page stay wired after hydrate (no first-pass morph)", async () => {
-    const Page = ilha
-      .state("n", 0)
-      .on("[data-bump]@click", ({ state }) => {
-        state.n(state.n() + 1);
-      })
-      .render(({ state }) => html`<button data-bump>${state.n()}</button>`);
+    const Page = ilha(() => {
+      const n = state(0);
+      effect.once(({ host, signal }) => {
+        host
+          .querySelector("[data-bump]")
+          ?.addEventListener("click", () => n((v) => v + 1), { signal });
+      });
+      return html`<button data-bump>${n()}</button>`;
+    });
 
     const Layout = defineLayout((children) =>
-      ilha.render(({ input }) => html`<main>${children(input)}</main>`),
+      ilha((input: Record<string, unknown>) => html`<main>${children(input)}</main>`),
     );
 
     const Wrapped = wrapLayout(Layout, Page);
@@ -3062,10 +3044,10 @@ describe("SSR compound render-part regression (Areia Resizable pattern)", () => 
   const R = Resizable as any;
 
   it("compound render-part children render inside parent, not as siblings", async () => {
-    const Page = ilha.render(() => html` <article>page</article> `);
+    const Page = ilha(() => html` <article>page</article> `);
 
     const Layout = defineLayout((children) =>
-      ilha.render(() =>
+      ilha(() =>
         jsxs("main", {
           children: [
             jsxs(R, {
@@ -3126,8 +3108,8 @@ describe("same-pattern navigation re-runs loaders (SPA / client loader)", () => 
     setLocation("/");
   });
 
-  const TablePage = ilha.render(
-    ({ input }: any) =>
+  const TablePage = ilha(
+    (input: any) =>
       `<p>table:${input?.load?.value?.table ?? "?"}|page:${input?.load?.value?.page ?? "-"}</p>`,
   );
 
@@ -3235,8 +3217,8 @@ describe("same-pattern navigation re-runs loaders (hydrate / server loader)", ()
   };
 
   it("re-fetches loader data from the endpoint on param-only and search-only navigations", async () => {
-    const TablePage = ilha.render(
-      ({ input }: any) =>
+    const TablePage = ilha(
+      (input: any) =>
         `<p>table:${input?.load?.value?.table ?? "?"}|page:${input?.load?.value?.page ?? "-"}</p>`,
     );
     const reg = { home: HomePage, table: TablePage };

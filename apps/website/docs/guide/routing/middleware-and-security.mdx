@@ -87,7 +87,7 @@ setLoaderGuard((request) =>
 setFrameAuth({
   trustedOrigins: ["https://app.example.com"],
   csrf: (request) =>
-    request.headers.get("x-csrf") === process.env.CSRF_SECRET,
+    request.headers.get("x-csrf") === "my-csrf-secret",
 });
 ```
 

@@ -17,10 +17,10 @@ You almost never import the client or server entrypoints yourself — `ilha()` r
 
 ## `ilha()` integration
 
-```ts
+```ts twoslash
 // astro.config.mjs
 import { defineConfig } from "astro/config";
-import { ilha } from "@ilha/astro";
+import ilha from "@ilha/astro";
 
 export default defineConfig({
   integrations: [ilha()],
@@ -31,4 +31,4 @@ export default defineConfig({
 
 ## Related
 
-[Astro](/guide/astro) · [Hydratable](/guide/island/hydratable)
+[Astro](/guide/astro) · [SSR and hydration](/guide/island/render#emit-hydration-markup)

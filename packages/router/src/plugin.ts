@@ -19,6 +19,7 @@ import {
 } from "./server-island-registry";
 import {
   generateServerIslandModule,
+  rewriteServerActions,
   loadServerModuleScan,
   SERVER_ISLAND_PREFIX,
   serverIslandPublicId,
@@ -396,7 +397,6 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
         const root = userConfig.root ? resolve(userConfig.root) : process.cwd();
         const singletonPeers = [
           "ilha",
-          "@ilha/store",
           "@ilha/router",
           "alien-signals",
           // Auto-detected app deps that bridge ilha (e.g. `areia`) — they must
@@ -447,7 +447,6 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
                 // render their JSX in one ilha and mount via another, and nothing
                 // hydrates. Pre-bundling it pins it to the shared `ilha` chunk.
                 "ilha/jsx-dev-runtime",
-                "@ilha/store",
                 "alien-signals",
               ]),
             ],
@@ -479,6 +478,11 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
           // bundlers dedupe it to the same module — so this also covers
           // default-export islands. Skipped for client stubs (browser graph).
           if (scan && scan.islands.length > 0 && !code.startsWith("// oxidejs:client-stub")) {
+            if (Object.keys(scan.rpcActions).length > 0) {
+              lines.unshift(
+                `import { __ilhaServerAction } from "@ilha/router/server-island-registry";`,
+              );
+            }
             lines.unshift(`import * as __ilhaSelf from ${JSON.stringify(file)};`);
             lines.unshift(
               `import { registerServerIsland } from "@ilha/router/server-island-registry";`,
@@ -498,8 +502,10 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
               );
             }
           }
-          if (lines.length === 0) return null;
-          return `${code}\n${lines.join("\n")}`;
+          const base = rewriteServerActions(code, scan?.rpcActions ?? {});
+          if (base === code && lines.length === 0) return null;
+          if (lines.length === 0) return base;
+          return `${base}\n${lines.join("\n")}`;
         }
         if (id.startsWith("\0") || id.includes("node_modules")) return null;
         if (serverFile) return null;

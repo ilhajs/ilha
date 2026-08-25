@@ -79,7 +79,7 @@ import { navigating } from "@ilha/router";
 import { ilha } from "ilha";
 
 const Spinner = ilha(() =>
-  navigating() ? <div class="bar" /> : null,
+  navigating() ? <div class="bar" /> : "",
 );
 ```
 
@@ -87,8 +87,11 @@ const Spinner = ilha(() =>
 
 Re-runs the current route's loader and re-renders the view with fresh data — call it after a mutation. Resolves when the view has updated. No-op on the server or when no router is mounted.
 
-```ts
+```ts twoslash
 import { invalidate } from "@ilha/router";
+
+const api = { deleteItem: async (_id: string) => {} };
+const id = "42";
 
 await api.deleteItem(id);
 await invalidate(); // current page refetches and re-renders
@@ -98,8 +101,12 @@ await invalidate(); // current page refetches and re-renders
 
 By default the router uses the HTML5 History API (`location.pathname`). That needs a server or host that serves your SPA shell for every URL. When that is not possible — `file://`, Electron, or hosts without SPA fallback — use **hash mode** so the route lives in `location.hash`:
 
-```ts
+```ts twoslash
 import { setHistoryMode, router } from "@ilha/router";
+import { ilha } from "ilha";
+
+const HomePage = ilha(() => "<p>home</p>");
+const AboutPage = ilha(() => "<p>about</p>");
 
 setHistoryMode("hash"); // once, before .mount() / .hydrate() / prime()
 

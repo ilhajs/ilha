@@ -9,7 +9,6 @@ export async function load({ request }: { request: Request }) {
   return { path };
 }
 
-export default ilha.render(({ input }: { input: AboutInput }) => {
-  const path = input.path ?? "unknown";
-  return `<section><h1>About</h1><p data-path>rendered for ${path}</p></section>`;
+export default ilha(({ path }: AboutInput) => {
+  return `<section><h1>About</h1><p data-path>rendered for ${path ?? "unknown"}</p></section>`;
 });

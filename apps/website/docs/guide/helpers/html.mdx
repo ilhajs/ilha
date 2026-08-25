@@ -96,12 +96,13 @@ html`<div class="card">
 Signal accessors can be interpolated without calling them. ilha detects signal accessors and calls them automatically, then escapes the result:
 
 ```ts twoslash
-import { ilha, html } from "ilha";
+import { ilha, html, state } from "ilha";
 
-const Island = ilha
-  .state("label", "<b>hello</b>")
+const Island = ilha(() => {
+  const label = state("<b>hello</b>");
   // [!code highlight]
-  .render(({ state }) => html` <p>${state.label}</p> `);
+  return html` <p>${label}</p> `;
+});
 ```
 
 Both forms are equivalent. The no-call shorthand is purely a convenience.
@@ -111,25 +112,26 @@ Both forms are equivalent. The no-call shorthand is purely a convenience.
 Use lowercase `on*` attributes with function interpolations inside an island render:
 
 ```ts twoslash
-import { ilha, html } from "ilha";
+import { ilha, html, state } from "ilha";
 
-const Form = ilha.state("name", "").render(
-  ({ state }) => html`
+const Form = ilha(() => {
+  const name = state("");
+  return html`
     <form
       onsubmit=${(event: SubmitEvent) => {
         event.preventDefault();
-        console.log(state.name());
+        console.log(name());
       }}
     >
       <input
-        bind:value=${state.name}
+        bind:value=${name}
         onselect=${(event: Event) =>
           console.log(event.currentTarget)}
       />
       <button type="submit">Save</button>
     </form>
-  `,
-);
+  `;
+});
 ```
 
 The same syntax works with `onclick`, `oninput`, `onchange`, `onreset`, and other native event names. The handler receives the native DOM event and a second context argument containing a lifecycle `signal`.
@@ -162,14 +164,18 @@ Functions never become inline HTML attributes during SSR. Ilha emits inert marku
 
 Keep the function as an event-attribute interpolation. You can compose an attribute-only nested template when the attribute is conditional:
 
-```ts
+```ts twoslash
+import { html } from "ilha";
+
+const enabled = true;
+const handler = () => {};
 const events = enabled ? html` onclick=${handler}` : "";
 html`<button class="save" ${events}>Save</button>`;
 ```
 
-Ilha cannot register handlers hidden inside serialized attribute objects or `raw()` strings. Those paths produce plain markup. For broader composition, use [`.on()`](/guide/island/on) with a stable selector.
+Ilha cannot register handlers hidden inside serialized attribute objects or `raw()` strings. Those paths produce plain markup. For host-level listeners or delegated selectors, attach them with [`effect.once()`](/guide/island/effect) using native DOM APIs.
 
-Use [`bind:*`](/guide/island/bindings) for signal synchronization. Use [`.on()`](/guide/island/on) for selectors, host listeners, its full handler context, or combined modifiers.
+Use [`bind:*`](/guide/island/bindings) for signal synchronization. Use [`effect.once()`](/guide/island/effect) to attach host listeners with native DOM APIs when handlers do not sit on one rendered element.
 
 ## List rendering
 
@@ -222,4 +228,4 @@ In practice you rarely need to access `.value` directly — ilha handles unwrapp
 ## Notes
 
 - html is purely a runtime helper with no compiler step. It works in any JavaScript environment including Node, Bun, Deno, and the browser.
-- Do not use html for CSS or attribute values where HTML escaping is not appropriate. Use the [css](/guide/helpers/css) tag for stylesheets and plain template literals for everything else.
+- Do not use html for CSS or attribute values where HTML escaping is not appropriate — use CSS files, CSS Modules, or plain template literals for stylesheets.

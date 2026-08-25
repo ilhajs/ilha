@@ -6,4 +6,4 @@ export async function load() {
   return { note: "hello-from-server-load" };
 }
 
-export default ilha.render(({ input }: any) => `<p data-note>${input?.note ?? "-"}</p>`);
+export default ilha(({ note }: { note?: string }) => `<p data-note>${note ?? "-"}</p>`);
