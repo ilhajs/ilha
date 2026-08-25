@@ -17,7 +17,6 @@ setServerManifestSerializer({
 
 const deleteTask = __ilhaServerAction("x:deleteTask", async (id: string) => `deleted:${id}`);
 const toggleTask = __ilhaServerAction("x:toggleTask", async (id: string) => `toggled:${id}`);
-const executed: string[] = [];
 
 test("direct server-export closures record instead of executing", async () => {
   const List = ilha(() => {
@@ -28,7 +27,9 @@ test("direct server-export closures record instead of executing", async () => {
       </li>
     </ul>`;
   });
-  const rs = (List as unknown as Record<symbol, any>)[Symbol.for("ilha.renderState")];
+  const rs = (List as unknown as Record<symbol, (props?: unknown) => Promise<string>>)[
+    Symbol.for("ilha.renderState")
+  ];
   const out = await rs({});
   console.log("OUT:", out.slice(0, 260));
   expect(manifests[manifests.length - 1]).toMatchObject({

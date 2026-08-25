@@ -14,6 +14,8 @@ Reactive signals are the primitive that powers state in ilha. In addition to `st
 | `batch()`    | Group multiple writes into a single propagation pass         |
 | `untrack()`  | Read a signal without subscribing the surrounding scope      |
 
+Two parallel vocabularies exist on purpose: **island-local** primitives (`state()` / `derived()` / `action()` / `effect()` / `effect.once()` / `onError()`) live inside `ilha()` components, persist across rerenders, and are snapshot-restored on hydration. The **standalone** helpers above (`signal()` / `computed()` / `context()` / `batch()` / `untrack()` / `persist()` / module-scope `effect()`) live at module scope for shared state and one-off machinery. Calling `signal()` or `computed()` inside an island render creates a fresh value on every rerender — use `state()` and `derived()` there instead (a dev warning tells you when you do).
+
 ---
 
 ## `signal(initial)`

@@ -36,6 +36,8 @@ import {
 
 function makeEl(inner = ""): Element {
   const el = document.createElement("div");
+  // pi-lens-ignore: ast-grep:no-inner-html, slop — test fixture only; the markup
+  // is an author-controlled literal simulating attacker payloads.
   el.innerHTML = inner;
   document.body.appendChild(el);
   return el;
@@ -1289,6 +1291,17 @@ describe("composeLoaders()", () => {
     expect(result).toEqual({ user: "Page-user", extra: 1 });
   });
 
+  it("composed merge cannot swap the result prototype", async () => {
+    const composed = composeLoaders([
+      async () => JSON.parse('{"__proto__":{"polluted":1}}'),
+      async () => ({ y: 2 }),
+    ]);
+    const result = await composed(ctx());
+    expect((result as Record<string, unknown>).y).toBe(2);
+    expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
   it("merges three loaders (root layout, nested layout, page) with page winning collisions", async () => {
     const root = async () => ({ root: true, shared: "root" });
     const nested = async () => ({ nested: true, shared: "nested" });
@@ -1798,6 +1811,8 @@ describe("renderResponse()", () => {
     if (res.kind !== "html") return;
 
     setLocation("/");
+    // pi-lens-ignore: ast-grep:no-inner-html, slop — test sets header markup from
+    // an author-controlled render head literal.
     document.head.innerHTML = res.head?.headTags ?? "";
     const el = makeEl(res.html);
     const unmount = router()

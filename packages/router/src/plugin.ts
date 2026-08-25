@@ -8,9 +8,12 @@ import { fileToPattern, generate, resolveGeneratedPaths, SERVER_PAGE_RE } from "
 import type { PagesMode } from "./codegen";
 import { runWithIslandRequest } from "./request-scope";
 import {
+  forwardIdentityHeaders,
+  frameEnvelope,
   FrameError,
   getFrameAuth,
   getFrameGuard,
+  isSafeFramePath,
   isTrustedOrigin,
   renderServerIsland,
   setFrameAuth,
@@ -474,7 +477,7 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             );
           }
           // Self-register island renderers for the production frame endpoint
-          // (see `@ilha/router/frame`). The self-import is a live binding —
+          // (the `@ilha/router/ssr` handler). The self-import is a live binding —
           // bundlers dedupe it to the same module — so this also covers
           // default-export islands. Skipped for client stubs (browser graph).
           if (scan && scan.islands.length > 0 && !code.startsWith("// oxidejs:client-stub")) {
@@ -566,7 +569,7 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
         // Server-island frame endpoint: re-renders a proxy island from a
         // state snapshot. Reads through the module graph on every call, so
         // edits to .server files apply without restart. Production serves
-        // the same contract in production via `@ilha/router/frame` middleware.
+        // the same contract via the `@ilha/router/ssr` handler.
         server.middlewares.use(async (req, res, next) => {
           if ((req.url ?? "").split("?")[0] !== "/__ilha/frame") return next();
           if (req.method !== "POST") {
@@ -601,12 +604,10 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             return;
           }
           // Guard hook (see IlhaPagesOptions.frameGuard): island state is
-          // world-readable through frames unless gated.
-          const identityHeaders = new Headers();
-          for (const name of ["cookie", "authorization"]) {
-            const v = req.headers[name];
-            if (typeof v === "string") identityHeaders.set(name, v);
-          }
+          // world-readable through frames unless gated. Identity headers are
+          // forwarded (cookie, auth, UA — same three as production) so the
+          // guard can authenticate the synthetic request.
+          const identityHeaders = forwardIdentityHeaders(req.headers);
           try {
             const denied = await getFrameGuard()?.(
               new Request(`http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`, {
@@ -668,15 +669,17 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             // path when provided (path-only, no foreign origin). Backslash is
             // rejected too — WHATWG URLs treat `\` as `/` for http(s), so a
             // `\evil.com` prefix would smuggle a new authority into the
-            // scoped request URL past the `//` check.
-            let framePath = "/__ilha/frame";
-            if (
-              typeof body.path === "string" &&
-              body.path.startsWith("/") &&
-              !body.path.includes("//") &&
-              !body.path.includes("\\") &&
-              body.path.length <= 2048
-            ) {
+            // scoped request URL past the `//` check. A supplied-but-invalid
+            // path fails closed (400), matching the production handler.
+            let framePath = "/";
+            if (typeof body.path === "string") {
+              if (!isSafeFramePath(body.path)) {
+                const env = frameEnvelope(400, { error: "frame failed" });
+                res.statusCode = env.status;
+                for (const [k, v] of Object.entries(env.headers)) res.setHeader(k, v);
+                res.end(env.body);
+                return;
+              }
               framePath = body.path;
             }
             // Server pages run `load` via pageRouter — make sure the generated
@@ -692,11 +695,7 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             // page, forwarding identity headers (cookie, auth, UA).
             // Client-supplied `x-forwarded-for` is NOT forwarded — it is
             // spoofable and must not be trusted by loaders for IP checks.
-            const headers = new Headers();
-            for (const name of ["cookie", "authorization", "user-agent"]) {
-              const value = req.headers[name];
-              if (typeof value === "string") headers.set(name, value);
-            }
+            const headers = forwardIdentityHeaders(req.headers);
             const requestOrigin = `http://${req.headers.host ?? "localhost"}`;
             const request = new Request(new URL(framePath, requestOrigin), {
               method: "POST",
@@ -705,25 +704,26 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             const html = await renderServerIsland(body.id ?? "", request, (r, fn) =>
               runWithIslandRequest(r, fn),
             );
-            res.setHeader("cache-control", "no-store");
-            res.setHeader("content-type", "application/json;charset=utf-8");
-            res.end(JSON.stringify({ html: String(html) }));
+            const env = frameEnvelope(200, { html: String(html) });
+            res.statusCode = env.status;
+            for (const [k, v] of Object.entries(env.headers)) res.setHeader(k, v);
+            res.end(env.body);
           } catch (err) {
             if (err instanceof FrameError && err.redirect) {
-              res.statusCode = err.status;
-              res.setHeader("cache-control", "no-store");
-              res.setHeader("content-type", "application/json;charset=utf-8");
-              res.end(JSON.stringify({ redirect: err.redirect }));
+              const env = frameEnvelope(err.status, { redirect: err.redirect });
+              res.statusCode = env.status;
+              for (const [k, v] of Object.entries(env.headers)) res.setHeader(k, v);
+              res.end(env.body);
               return;
             }
             const status = err instanceof FrameError ? err.status : 400;
             if (!(err instanceof FrameError) || err.status >= 500) {
               console.error("[ilha-router] frame render failed:", err);
             }
-            res.statusCode = status;
-            res.setHeader("cache-control", "no-store");
-            res.setHeader("content-type", "application/json;charset=utf-8");
-            res.end(JSON.stringify({ error: "frame failed" }));
+            const env = frameEnvelope(status, { error: "frame failed" });
+            res.statusCode = env.status;
+            for (const [k, v] of Object.entries(env.headers)) res.setHeader(k, v);
+            res.end(env.body);
           }
         });
 

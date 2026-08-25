@@ -126,7 +126,7 @@ If the signal is already aborted before your async work completes, the result is
 
 ## SSR behavior
 
-During SSR, derived functions are called once. `await Isle.toStringAsync(props)` waits for async values before rendering. `Isle.toString(props)` renders them in the `loading` state immediately.
+During SSR, derived functions are called once. `await Island.toStringAsync(props)` waits for async values before rendering. `Island.toString(props)` renders them in the `loading` state immediately.
 
 ```ts twoslash
 import { ilha } from "ilha";

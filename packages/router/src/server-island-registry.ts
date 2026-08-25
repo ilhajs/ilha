@@ -5,10 +5,11 @@
  * shares one instance — same pattern as `request-scope.ts`.
  *
  * `.server` modules self-register when the plugin appends registration code
- * to their server-graph copy; the production `/__ilha/frame` handler (see
- * `@ilha/router/frame`) consumes the registry to re-render an island from a
- * client state snapshot. Server pages additionally register their `load` and
- * route pattern so frame handlers can run the loader with matched params.
+ * to their server-graph copy; the production `/__ilha/frame` handler (the
+ * `@ilha/router/ssr` default export) consumes the registry to re-render an
+ * island from a client state snapshot. Server pages additionally register
+ * their `load` and route pattern so frame handlers can run the loader with
+ * matched params.
  */
 
 import { setServerManifestSerializer } from "ilha/internal";
@@ -57,7 +58,7 @@ const GUARD_KEY = Symbol.for("ilha.frameGuard");
 
 /**
  * Install a guard consulted by every `/__ilha/frame` request (dev middleware
- * and the production `@ilha/router/frame` handler share this slot — both read
+ * and the production `@ilha/router/ssr` handler share this slot — both read
  * it from `globalThis`). Return a `Response` to reject; return nothing to
  * allow. Island state is world-readable through frames unless you gate them,
  * so apps serving private data should install a session check here.
@@ -165,6 +166,61 @@ export function isTrustedOrigin(request: Request, policy: FrameAuthPolicy | unde
   return origin === `https://${host}` || origin === `http://${host}`;
 }
 
+/**
+ * Path-only route context for frame/loader scoped requests. Leading slash,
+ * no `//` or backslash (WHATWG URLs treat `\` as `/` for http(s), so a
+ * `\evil.com` prefix would smuggle a foreign authority past a plain `//`
+ * check), bounded length. `false` for anything else.
+ */
+export function isSafeFramePath(path: string): boolean {
+  return (
+    path.startsWith("/") && !path.includes("//") && !path.includes("\\") && path.length <= 2048
+  );
+}
+
+/** Identity headers forwarded onto scoped render/loader requests. */
+const FORWARD_IDENTITY_HEADERS = ["cookie", "authorization", "user-agent"] as const;
+
+/**
+ * Copy identity headers (cookie, authorization, user-agent) onto a fresh
+ * `Headers`. Accepts a `Headers` or a Node `IncomingHttpHeaders`-style plain
+ * object. Client-supplied `x-forwarded-for` is deliberately NOT forwarded —
+ * it is spoofable and must not be trusted by loaders for IP checks.
+ */
+export function forwardIdentityHeaders(
+  source: Headers | Record<string, string | string[] | undefined>,
+): Headers {
+  const out = new Headers();
+  const read = (name: string): string | null | undefined => {
+    const s = source as { get?: (n: string) => string | null | undefined };
+    if (typeof s.get === "function") return s.get(name);
+    const v = (source as Record<string, string | string[] | undefined>)[name];
+    return Array.isArray(v) ? v[0] : v;
+  };
+  for (const name of FORWARD_IDENTITY_HEADERS) {
+    const v = read(name);
+    if (v !== null && v !== undefined) out.set(name, v);
+  }
+  return out;
+}
+
+/** No-store JSON envelope shared by dev and production frame handlers. */
+export interface FrameEnvelope {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
+export function frameEnvelope(status: number, body: Record<string, unknown>): FrameEnvelope {
+  return {
+    status,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/json;charset=utf-8",
+    },
+    body: JSON.stringify(body),
+  };
+}
+
 export type FrameLoaderRunner = (
   path: string,
   request?: Request,
@@ -252,9 +308,6 @@ export function registerServerIsland(
 export function getServerIslandEntry(id: string): ServerIslandEntry | undefined {
   return registry().get(id);
 }
-
-/** Back-compat alias used by tests. */
-export const getServerIslandRenderer = getServerIslandEntry;
 
 /** Client-facing frame failure. `redirect` carries a loader redirect target. */
 export class FrameError extends Error {

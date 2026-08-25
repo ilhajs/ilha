@@ -1,5 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
 
+// The integration registers extensionless entrypoints (@ilha/astro/client,
+// @ilha/astro/server) — see package.json exports.
 mock.module("virtual:@ilha/astro/options", () => ({
   default: (id: string) => id.includes("/ilha/"),
 }));
@@ -58,8 +60,8 @@ describe("@ilha/astro integration", () => {
 
   it("points the renderer at the client/server entrypoints", () => {
     const r = getRenderer();
-    expect(r.clientEntrypoint).toBe("@ilha/astro/client.js");
-    expect(r.serverEntrypoint).toBe("@ilha/astro/server.js");
+    expect(r.clientEntrypoint).toBe("@ilha/astro/client");
+    expect(r.serverEntrypoint).toBe("@ilha/astro/server");
   });
 });
 
@@ -170,6 +172,8 @@ describe("@ilha/astro client hydration", () => {
     const { html: markup } = await renderer.renderToStaticMarkup(Counter, { label: "Clicks" }, {}, {
       displayName: "Counter",
     } as never);
+    // test host only; markup is renderer output, not user input.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     el.innerHTML = markup;
     document.body.appendChild(el);
 
@@ -202,6 +206,8 @@ describe("@ilha/astro client hydration", () => {
 
     const el = document.createElement("div");
     el.setAttribute("ssr", "");
+    // test host only; markup is renderer output, not user input.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     el.innerHTML = markup;
     document.body.appendChild(el);
 
@@ -232,6 +238,8 @@ describe("@ilha/astro client hydration", () => {
 
     const el = document.createElement("div");
     el.setAttribute("ssr", "");
+    // test host only; markup is renderer output, not user input.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     el.innerHTML = markup;
     document.body.appendChild(el);
 
@@ -268,6 +276,8 @@ describe("@ilha/astro client hydration", () => {
     const { html: markup } = await renderer.renderToStaticMarkup(Button, { label: "Save" }, {}, {
       displayName: "Button",
     } as never);
+    // test host only; markup is renderer output, not user input.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     el.innerHTML = markup;
     document.body.appendChild(el);
 
@@ -299,6 +309,8 @@ describe("@ilha/astro client hydration", () => {
     const { html: markup } = await renderer.renderToStaticMarkup(Widget, { label: "Hi" }, {}, {
       displayName: "Widget",
     } as never);
+    // test host only; markup is renderer output, not user input.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     el.innerHTML = markup;
     document.body.appendChild(el);
 

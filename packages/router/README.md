@@ -246,7 +246,7 @@ If the active island is not found in the registry, falls back to plain SSR and e
 
 | Option     | Type      | Default | Description                                           |
 | ---------- | --------- | ------- | ----------------------------------------------------- |
-| `snapshot` | `boolean` | `true`  | Embed island state as `data-ilha-state` for hydration |
+| `snapshot` | `boolean` | `false` | Embed island state as `data-ilha-state` for hydration |
 
 ---
 
@@ -396,10 +396,17 @@ router()
 Attaches the route's `+error` boundary so **loader** errors render through it — on the server (`renderResponse` returns the boundary's HTML with the error status) and on client navigations. Render errors are already handled by `wrapError` inside the island; this closes the gap for errors thrown before rendering starts. The FS-routing codegen wires the nearest `+error.ts` automatically; manual routers can call it directly. A throwing boundary falls back to the minimal inline error.
 
 ```ts
+import { router } from "@ilha/router";
+import { ilha, html } from "ilha";
+
 router()
   .route("/user/:id", userPage, userLoader)
   .errorBoundary("/user/:id", (err, route) =>
-    ilha.render(() => `<h1>${err.status ?? 500}</h1><p>${err.message}</p>`),
+    ilha(
+      () =>
+        html`<h1>${err.status ?? 500}</h1>
+          <p>${err.message}</p>`,
+    ),
   );
 ```
 
@@ -443,8 +450,9 @@ Reactive — `true` while a client navigation (loader fetch + view swap) is in f
 
 ```ts
 import { navigating } from "@ilha/router";
+import { ilha, html } from "ilha";
 
-const Spinner = ilha.render(() => (navigating() ? `<div class="bar" />` : ""));
+const Spinner = ilha(() => (navigating() ? html`<div class="bar" />` : ""));
 ```
 
 ---
@@ -574,10 +582,11 @@ Returns reactive signal accessors for the current route state. Safe to call insi
 
 ```ts
 import { useRoute } from "@ilha/router";
+import { ilha, html } from "ilha";
 
-const MyPage = ilha.render(() => {
+const MyPage = ilha(() => {
   const { path, params, search, hash } = useRoute();
-  return `<p>user id: ${params().id}</p>`;
+  return html`<p>user id: ${params().id}</p>`;
 });
 ```
 
@@ -685,10 +694,10 @@ A typed helper that returns the layout function as-is. Use it instead of the `sa
 ```ts
 // src/pages/+layout.ts
 import { defineLayout } from "@ilha/router";
-import ilha, { html } from "ilha";
+import { ilha, html } from "ilha";
 
 export default defineLayout((children) =>
-  ilha.render(
+  ilha(
     () => html`
       <nav>
         <a href="/">Home</a>
@@ -714,7 +723,7 @@ import { wrapError } from "@ilha/router";
 const safe = wrapError(myErrorHandler, myPage);
 ```
 
-> **Note:** Error boundaries wrap the _page island's render_, not the loader. Loader errors (thrown via `error()`) are surfaced through `.renderResponse()` — they do not currently route through `+error.ts` boundaries. Use `.renderResponse()` to handle loader errors at the HTTP layer.
+> **Note:** Error boundaries wrap the _page island's render_, not the loader. Loader errors (thrown via `error()`) route through the nearest `+error.ts` / `.errorBoundary()` boundary — on the server `renderResponse` returns the boundary's HTML with the error status, and on client navigations the boundary renders in place. `wrapError` covers render/mount throws inside the island only.
 
 ---
 
@@ -900,10 +909,10 @@ A `+layout.ts` wraps every page in its directory and all subdirectories. Layouts
 ```ts
 // src/pages/+layout.ts
 import { defineLayout } from "@ilha/router";
-import ilha, { html } from "ilha";
+import { ilha, html } from "ilha";
 
 export default defineLayout((children) =>
-  ilha.render(
+  ilha(
     () => html`
       <nav>
         <a href="/">Home</a>
@@ -920,10 +929,10 @@ Alternatively, using the explicit type annotation:
 ```ts
 // src/pages/+layout.ts — using satisfies (equivalent)
 import type { LayoutHandler } from "@ilha/router/vite";
-import ilha, { html } from "ilha";
+import { ilha, html } from "ilha";
 
 export default ((children) =>
-  ilha.render(
+  ilha(
     () => html`
       <nav>
         <a href="/">Home</a>
@@ -953,14 +962,14 @@ A page file can export a `load` function declared with the `loader()` helper. Th
 ```ts
 // src/pages/user/[id].ts
 import { loader } from "@ilha/router";
-import ilha from "ilha";
+import { ilha, html } from "ilha";
 
 export const load = loader(async ({ params }) => {
   const user = await fetchUser(params.id);
   return { user };
 });
 
-export default ilha.input<{ user: User }>().render((input) => `<h1>${input.user.name}</h1>`);
+export default ilha<{ user: User }>(({ user }) => html`<h1>${user.name}</h1>`);
 ```
 
 The `load` export must be declared with the `loader()` helper so the Vite plugin can identify it via export name.
@@ -989,14 +998,14 @@ A page or layout can export a `clientLoad` function that runs **in the browser**
 ```ts
 // src/pages/dashboard.ts
 import { loader } from "@ilha/router";
-import ilha from "ilha";
+import { ilha } from "ilha";
 
 export const clientLoad = loader(async ({ signal }) => {
   const stats = await fetch("/api/stats", { signal }).then((r) => r.json());
   return { stats };
 });
 
-export default ilha.input<{ stats: Stats }>().render(/* … */);
+export default ilha<{ stats: Stats }>(({ stats }) => html`<pre>${JSON.stringify(stats)}</pre>`);
 ```
 
 Rules and caveats:
@@ -1014,17 +1023,17 @@ A `+error.ts` catches any error thrown during rendering of pages in its director
 ```ts
 // src/pages/+error.ts
 import type { ErrorHandler } from "@ilha/router/vite";
-import ilha from "ilha";
+import { ilha, html } from "ilha";
 
 export default ((error, route) =>
-  ilha.render(
-    () => `
-    <div class="error">
-      <h1>${error.status ?? 500}</h1>
-      <p>${error.message}</p>
-      <p>Path: ${route.path}</p>
-    </div>
-  `,
+  ilha(
+    () => html`
+      <div class="error">
+        <h1>${error.status ?? 500}</h1>
+        <p>${error.message}</p>
+        <p>Path: ${route.path}</p>
+      </div>
+    `,
   )) satisfies ErrorHandler;
 ```
 

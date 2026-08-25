@@ -107,6 +107,62 @@ const Island = ilha(() => {
 
 Both forms are equivalent. The no-call shorthand is purely a convenience.
 
+## URL attributes
+
+Full-value URL attributes get the same scheme filter as JSX. If the interpolated value is the _entire_ attribute value, an unsafe scheme (`javascript:`, `vbscript:`, script-capable `data:` subtypes such as `data:text/html` or `data:image/svg+xml`) drops the attribute:
+
+```ts twoslash
+import { html } from "ilha";
+
+const url = "javascript:alert(1)";
+
+html`<a href=${url}>x</a>`;
+// → <a>x</a>   (attribute dropped, like JSX)
+```
+
+Safe targets pass through unchanged: `https:`/`http:` URLs, relative paths, `mailto:`, and image `data:` URIs like `data:image/png;base64,…`. `srcdoc` is dropped outright, matching JSX — attribute escaping cannot neutralize it because the browser re-decodes entities into live markup.
+
+`raw()` in a URL attribute passes through unescaped, as in JSX — it is the author-owned escape hatch for values the filter rejects (for example a vetted SVG data URI). This only works when the interpolation is the whole value; partial values (`href="/u/${id}"`) are plain escaped interpolation and cannot be scheme-checked.
+
+## Unquoted attribute values
+
+An unquoted attribute whose value contains a character the HTML tokenizer treats as a terminator (whitespace, `=`, backtick) is re-emitted quoted and escaped. What used to be an attribute-injection hole is now one parsed attribute:
+
+```ts twoslash
+import { html } from "ilha";
+
+const value = "x onmouseover=alert(1) y";
+
+html`<a href=${value}>x</a>`;
+// → <a href="x onmouseover=alert(1) y">x</a>  (no onmouseover attribute)
+```
+
+Benign unquoted values keep the author's literal form (`<a href=/path>` stays `<a href=/path>`).
+
+## Script and style data
+
+HTML escaping is the wrong encoding inside `<script>` and `<style>` content: entities are not decoded by the JS/CSS tokenizer, and a stray `</script>` or `</style>` truncates the element. Use the `json()` and `css()` helpers for executable-element data — they escape `<` so the value can never close the block or open the `<!--` escape hatch:
+
+```ts twoslash
+import { html, css, json } from "ilha";
+
+const payload = { name: "</script><img src=x>" };
+
+html`<script>
+  const d = ${json(payload)};
+</script>`;
+// → <script>const d = {"name":"\u003C/script>\u003Cimg src=x"};</script>
+
+const cssSource = "a{content:'</style>'}";
+
+html`<style>
+  ${css(cssSource)}
+</style>`;
+// → <style>a{content:'\3C /style>'}</style>
+```
+
+`json()` takes any `JSON.stringify`-able value and escapes `<` as `\u003C`; the JS engine decodes it inside string literals, so data round-trips exactly. `css()` takes a string and escapes `<` as the CSS hex escape `\3C`. Like `raw()`, both are for element _content_ only — interpolating them into an attribute is author error.
+
 ## Native event handlers
 
 Use lowercase `on*` attributes with function interpolations inside an island render:
@@ -228,4 +284,6 @@ In practice you rarely need to access `.value` directly — ilha handles unwrapp
 ## Notes
 
 - html is purely a runtime helper with no compiler step. It works in any JavaScript environment including Node, Bun, Deno, and the browser.
-- Do not use html for CSS or attribute values where HTML escaping is not appropriate — use CSS files, CSS Modules, or plain template literals for stylesheets.
+- Full-value attribute interpolation (`href=${…}` / `href="${…}"`) applies the same URL/style policy as JSX. Values assembled from several interpolations (`href="/u/${a}/${b}"`) stay plain escaped interpolation — scheme-checking cannot span partial values, so keep user input out of URL pieces.
+- Style objects (`style=${{ color: "red" }}`) serialize through the same allowlisted property list as JSX.
+- For stylesheets and script bodies, use `json()` / `css()` (see above) rather than raw string interpolation.

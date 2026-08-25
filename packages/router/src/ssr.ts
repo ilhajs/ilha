@@ -19,11 +19,14 @@
 
 import { runWithIslandRequest } from "./request-scope";
 import {
+  forwardIdentityHeaders,
+  frameEnvelope,
   FrameError,
   getFrameAuth,
   getFrameGuard,
   getFrameLoaderRunner,
   getLoaderGuard,
+  isSafeFramePath,
   isTrustedOrigin,
   renderServerIsland,
 } from "./server-island-registry";
@@ -36,13 +39,8 @@ export const LOADER_ENDPOINT = "/__ilha/loader";
 export const MAX_BODY = 16 * 1024;
 
 export function json(status: number, body: Record<string, unknown>): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "cache-control": "no-store",
-      "content-type": "application/json;charset=utf-8",
-    },
-  });
+  const env = frameEnvelope(status, body);
+  return new Response(env.body, { status: env.status, headers: env.headers });
 }
 
 /**
@@ -118,12 +116,7 @@ async function ssr(request: Request): Promise<Response | undefined> {
     }
     // Path-only: leading slash, no `//` or backslash (a WHATWG URL turns
     // `\` into `/`, which would smuggle a foreign authority), bounded length.
-    if (
-      !target.startsWith("/") ||
-      target.includes("//") ||
-      target.includes("\\") ||
-      target.length > 2048
-    ) {
+    if (!isSafeFramePath(target)) {
       return json(400, { kind: "error", status: 400, message: "bad request" });
     }
     try {
@@ -195,16 +188,10 @@ async function ssr(request: Request): Promise<Response | undefined> {
     // past the plain `//` check. A supplied-but-invalid path fails closed
     // (400) instead of silently re-rendering at "/".
     if (typeof body.path === "string") {
-      if (
-        body.path.startsWith("/") &&
-        !body.path.includes("//") &&
-        !body.path.includes("\\") &&
-        body.path.length <= 2048
-      ) {
-        path = body.path;
-      } else {
+      if (!isSafeFramePath(body.path)) {
         return json(400, { error: "frame failed" });
       }
+      path = body.path;
     }
   } catch {
     return json(400, { error: "frame failed" });
@@ -225,11 +212,7 @@ async function ssr(request: Request): Promise<Response | undefined> {
     // path with identity headers (cookie, auth, UA) forwarded. Client-supplied
     // `x-forwarded-for` is NOT forwarded — it is spoofable and must not be
     // trusted by loaders for IP checks.
-    const headers = new Headers();
-    for (const name of ["cookie", "authorization", "user-agent"]) {
-      const value = request.headers.get(name);
-      if (value !== null) headers.set(name, value);
-    }
+    const headers = forwardIdentityHeaders(request.headers);
     const scoped = new Request(new URL(path, origin), {
       method: "POST",
       headers,

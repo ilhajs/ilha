@@ -197,7 +197,7 @@ describe("__ilhaServerIsland", () => {
           calls.push("remove");
         },
       },
-    }) as { mount: (host: Element) => () => void };
+    });
 
     const host = makeHost(
       `<ul data-ilha="Tasks" data-ilha-state='{"tasks":[1]}' data-ilha-actions='{"click:0":"remove"}'>` +
@@ -231,7 +231,7 @@ describe("__ilhaServerIsland", () => {
     }
     const Island = __ilhaServerIsland("t.server.tsx#T", "div", {
       streams: { count: (signal) => gen(signal) },
-    }) as { mount: (host: Element) => () => void };
+    });
 
     const host = makeHost(`<div data-ilha="T"></div>`);
     const unmount = Island.mount(host.firstElementChild!);
@@ -247,7 +247,7 @@ describe("__ilhaServerIsland", () => {
     const calls: string[] = [];
     const Island = __ilhaServerIsland("x.server.tsx#X", "div", {
       actions: { hit: () => calls.push("hit") },
-    }) as { mount: (host: Element) => () => void };
+    });
 
     const host = makeHost(
       `<div data-ilha-actions='{"click:0":"hit"}'>` +
@@ -291,7 +291,7 @@ describe("__ilhaServerIsland nested client islands", () => {
       actions: { toggle: (id) => actions.push(id) },
       frame: () =>
         `<div data-ilha-slot="p:0" data-ilha-client-ref="${ref}" data-ilha-props='{"checked":false}'></div>`,
-    }) as { mount: (host: Element) => () => void };
+    });
     const host = document.createElement("div");
     host.innerHTML = `<div data-ilha-slot="p:0" data-ilha-client-ref="${ref}" data-ilha-props='{"checked":true,"onCheckedChange":{"__ilha":"action","k":"toggle","a":["task-1"]}}'></div>`;
     document.body.appendChild(host);
@@ -323,7 +323,7 @@ describe("__ilhaServerIsland frames", () => {
       actions: { ping: () => calls.push("ping") },
       frame: () =>
         `<div data-ilha-actions='{"click:0":"ping"}'><p>count=${++frameCount}</p><button data-ilha-on="click:0">go</button></div>`,
-    }) as { mount: (host: Element) => () => void };
+    });
 
     const host = document.createElement("div");
     host.innerHTML = `<div data-ilha="T" data-ilha-state='{"count":1}' data-ilha-actions='{"click:0":"ping"}'><p>count=1</p><button data-ilha-on="click:0">go</button></div>`;
@@ -359,7 +359,7 @@ describe("__ilhaServerIsland stale-args regression", () => {
           `<button data-ilha-on="click:0">del</button>`
         );
       },
-    }) as { mount: (host: Element) => () => void };
+    });
 
     // Empty host, no state attr → bootstrap frame fetch on mount.
     const host = document.createElement("div");

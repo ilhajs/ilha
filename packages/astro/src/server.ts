@@ -69,7 +69,7 @@ function wrapPlainAsIsland(Component: PlainComponent, merged: Record<string, unk
 // `rawValue()`) then fail, falling through to `[object Object]`. Coerce to a
 // primitive string first so the RawHtml payload is always plain.
 function toRawHtml(value: unknown): { value: string } {
-  return { [RAW]: true, value: String(value) } as unknown as { value: string };
+  return raw(String(value));
 }
 
 // A rendered Astro template expression (e.g. `trigger={<div>…</div>}` in an

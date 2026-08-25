@@ -206,6 +206,8 @@ Synchronous SSR:
 Counter.toString(); // → string
 ```
 
+If the island declares async `derived()` values, `toString()` renders their loading state — use `await toStringAsync()` instead (a dev warning tells you when this happens).
+
 ### `await island.toStringAsync(props?)`
 
 Async SSR — awaits async derived values and pulls the first value from async-generator derived values:

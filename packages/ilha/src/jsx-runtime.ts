@@ -1,6 +1,9 @@
 import {
   html,
+  isSafeUrl,
+  isUrlAttributeName,
   raw,
+  serializeStyle,
   type NativeEventHandler,
   type NativeEventModifier,
   type RawHtml,
@@ -11,6 +14,13 @@ export type { JSX } from "./jsx-types";
 type JsxChild = unknown;
 type JsxProps = Record<string, unknown> | null | undefined;
 type JsxType = string | ((props: Record<string, unknown>) => unknown);
+
+// nd: build a TemplateStringsArray from a fresh local chunk array. `html` only
+// reads `strings.length` and `strings[i]`; raw mirrors content so a future read
+// of `.raw` is consistent. `chunks` is always freshly built per call.
+function toTemplateStrings(chunks: string[]): TemplateStringsArray {
+  return Object.assign(chunks, { raw: chunks });
+}
 
 const RAW = Symbol.for("ilha.raw");
 const SIGNAL_ACCESSOR = Symbol.for("ilha.signalAccessor");
@@ -73,17 +83,6 @@ const VOID_ELEMENTS = new Set([
   "track",
   "wbr",
 ]);
-const SAFE_CSS_PROP_RE = /^(-{2}[a-zA-Z][a-zA-Z0-9-]*|-?[a-zA-Z][a-zA-Z0-9-]*)$/;
-const URL_ATTRS = new Set(["href", "src", "action", "formaction", "cite", "data", "poster"]);
-const SAFE_URL_RE =
-  /^(?!javascript:|data:text\/html|data:text\/xml|data:application\/xhtml\+xml|data:image\/svg|vbscript:)/i;
-
-// HTML parsers strip ASCII control chars (tab/newline/CR and friends) anywhere
-// inside a URL before resolving its scheme, so "java\tscript:" reaches the
-// browser as "javascript:". Normalize the same way before testing SAFE_URL_RE.
-function isSafeUrl(value: string): boolean {
-  return SAFE_URL_RE.test(value.replace(/[\u0000-\u0020]/g, ""));
-}
 
 function isRawHtml(v: unknown): v is RawHtml {
   return !!(v && typeof v === "object" && RAW in v);
@@ -138,23 +137,6 @@ function extractJsxSlotKey(props: JsxProps, keyArg?: string | number): string | 
     (typeof fromProps === "string" || typeof fromProps === "number" ? fromProps : undefined);
   if (rawKey == null) return undefined;
   return normalizeJsxSlotKey(rawKey);
-}
-
-function serializeStyle(value: Record<string, unknown>): string {
-  return Object.entries(value)
-    .map(([k, v]) => {
-      if (!SAFE_CSS_PROP_RE.test(k)) return "";
-      const prop = k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
-      const str = String(v);
-      // Drop the whole declaration instead of silently rewriting the value —
-      // a mangled value is harder to debug than a missing one. Quotes are
-      // fine (fonts, content strings); `;{}<>` could smuggle in extra
-      // declarations or markup-looking text, so those reject.
-      if (/[<>{};]/.test(str) || /expression\(/i.test(str) || /javascript:/i.test(str)) return "";
-      return `${prop}:${str}`;
-    })
-    .filter(Boolean)
-    .join(";");
 }
 
 function pushJsxAttr({
@@ -219,8 +201,7 @@ function pushJsxAttr({
   // Coerce non-string values (boxed strings, objects with toString) before
   // the scheme check so they cannot smuggle an unsafe URL past it.
   if (
-    (URL_ATTRS.has(securityName) ||
-      /:(href|src|action|formaction|cite|data|poster)$/.test(securityName)) &&
+    isUrlAttributeName(securityName) &&
     !isSafeUrl(typeof value === "string" ? value : String(value))
   ) {
     return;
@@ -287,7 +268,10 @@ function renderJsxElement({
     }
     chunks[chunks.length - 1] += `</${type}>`;
   }
-  return html(chunks as unknown as TemplateStringsArray, ...values);
+  // chunks/values alternate one-to-one (each attribute pushes a value
+  // then an opening-quote chunk; children push a value then an empty chunk),
+  // so the array is a valid TemplateStringsArray even though TS can't see it.
+  return html(toTemplateStrings(chunks), ...values);
 }
 
 export function jsx(
@@ -342,7 +326,9 @@ export const jsxs = jsx;
 export function Fragment(props: { children?: JsxChild } | null, ...children: JsxChild[]): RawHtml {
   const normalizedChildren = normalizeJsxChildren(props, children);
   const chunks = ["", ...normalizedChildren.map(() => "")];
-  return html(chunks as unknown as TemplateStringsArray, ...normalizedChildren);
+  // One empty chunk precedes every child value, keeping the chunks/values
+  // alternation valid for the html`` call below.
+  return html(toTemplateStrings(chunks), ...normalizedChildren);
 }
 
 export function jsxDEV(

@@ -14,7 +14,7 @@ import { basename } from "node:path";
 export interface ScannedServerIsland {
   /** Export binding name, or `"default"` for `export default ilha…`. */
   name: string;
-  /** Slot tag from `.as()` — must match what SSR emits. */
+  /** Slot tag from the `{ as }` option — must match what SSR emits. */
   as: string;
   /** Stream key → referenced module export used as its transport. */
   streams: Record<string, string>;
@@ -70,11 +70,8 @@ const EXPORT_RE =
   /(?:^|\n)\s*export\s+(?:declare\s+)?(?:async\s+)?(?:function\s*\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/g;
 const ISLAND_EXPORT_RE = /(?:^|\n)\s*export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*ilha\b/g;
 const DEFAULT_ISLAND_RE = /export\s+default\s+ilha\b/;
-// Slot tag option: legacy `.as("span")` and current `{ as: "span" }` constructor option.
-const AS_RES = [
-  /\.as\(\s*["'`]([a-z][a-z0-9-]*)["'`]\s*\)/,
-  /\{\s*as:\s*["'`]([a-z][a-z0-9-]*)["'`]\s*[,}]?/,
-];
+// Slot tag option: current `{ as: "span" }` constructor option.
+const AS_RES = [/\{\s*as:\s*["'`]([a-z][a-z0-9-]*)["'`]\s*[,}]?/];
 
 export function clientRefPublicId(spec: string, imported: string): string {
   return createHash("sha256").update(`${spec}#${imported}`).digest("base64url");
@@ -167,15 +164,14 @@ export function scanServerIslands(source: string): ServerModuleScan {
   }
   const candidates = new Set(exports);
 
-  // Rewrite exported oxidejs-style actions (`export const x = action(fn)`)
-  // into capture-aware shims so event closures can call them directly:
-  // during hydration-manifest rendering the shim records {k:"x:x", a:args}
-  // instead of executing the mutation. Identity `action()` wrappers are
-  // dropped — the shim preserves the (payload, ctx) signature.
-  // Detect exported oxidejs-style actions (`export const x = action(fn)`).
-  // The actual rewrite happens on the TRANSFORMED module code at SSR
-  // transform time (see rewriteServerActions) — replacing here would
-  // clobber upstream JSX/TS compilation.
+  // Detect exported oxidejs-style actions (`export const x = action(fn)`) and
+  // rewrite them into capture-aware shims so event closures can call them
+  // directly: during hydration-manifest rendering the shim records
+  // {k:"x:x", a:args} instead of executing the mutation. Identity action()
+  // wrappers are dropped — the shim preserves the (payload, ctx) signature.
+  // The rewrite is only applied to the TRANSFORMED module code at SSR
+  // transform time (see rewriteServerActions) — replacing here would clobber
+  // upstream JSX/TS compilation.
   const rpcActions: Record<string, string> = {};
   for (const match of source.matchAll(
     /export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*action\s*\(/g,

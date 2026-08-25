@@ -226,8 +226,9 @@ function shallowEqualInput(a: unknown, b: unknown): boolean {
 // effect (e.g. an effect.once in the parent wrote new props) and we must reconcile.
 function parseHtmlFragment(html: string): DocumentFragment {
   const tpl = document.createElement("template");
-  // pi-lens-ignore: ast-grep:no-inner-html — parse into a detached <template>
-  // (no script execution, not the live document) to inspect the rendered tree.
+  // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
+  // parse into a detached <template> (no script execution, not the live
+  // document) to inspect the rendered tree.
   tpl.innerHTML = html;
   return tpl.content;
 }
@@ -266,11 +267,11 @@ const SLOT_TAG_NAME_RE = /^[a-z][a-z0-9-]*$/i;
 function assertValidSlotTagName(tag: string): string {
   const trimmed = tag.trim();
   if (trimmed.length === 0) {
-    throw new Error("island.as() requires a non-empty HTML tag name.");
+    throw new Error("The { as } option requires a non-empty HTML tag name.");
   }
   if (!SLOT_TAG_NAME_RE.test(trimmed)) {
     throw new Error(
-      `island.as() tag must be a valid HTML element name (got "${tag}"). ` +
+      `The { as } option tag must be a valid HTML element name (got "${tag}"). ` +
         `Use names like "span", "div", or "li".`,
     );
   }
@@ -346,7 +347,7 @@ function slotPropsForAttr(
       // `{ __ilha: "action" }` markers so server islands can revive them.
       const action =
         captureActions && !isRawHtmlValue(value)
-          ? captureHandlerActions(value as unknown as NativeEventHandler)
+          ? captureHandlerActions(value as NativeEventHandler)
           : undefined;
       if (action) (out ??= {})[key] = { __ilha: "action", ...action };
       continue;
@@ -354,7 +355,7 @@ function slotPropsForAttr(
     if (typeof value === "symbol") continue;
     const encoded = encodeSlotPropValue(value);
     if (encoded === undefined && value !== undefined && value !== null) continue;
-    (out ??= {})[key] = encoded as unknown;
+    (out ??= {})[key] = encoded;
   }
   return out;
 }
@@ -388,7 +389,7 @@ function encodeSlotPropValue(value: unknown, seen?: WeakSet<object>): unknown {
   const encoded: Record<string, unknown> = {};
   for (const key of Object.keys(obj)) {
     const next = encodeSlotPropValue(obj[key], visited);
-    if (next !== undefined || obj[key] === null) encoded[key] = next as unknown;
+    if (next !== undefined || obj[key] === null) encoded[key] = next;
   }
   return encoded;
 }
@@ -822,6 +823,66 @@ const ESC: Record<string, string> = {
 };
 function escapeHtml(value: unknown): string {
   return String(value).replace(/[&<>"']/g, (c) => ESC[c]!);
+}
+
+// ---------------------------------------------
+// Shared URL / style safety policy
+// ---------------------------------------------
+//
+// One implementation shared by the JSX runtime (jsx-runtime.ts) and the
+// html`` template path (ilhaHtml) so both authoring styles apply the same
+// scheme filtering and style serialization. If they diverge, a value that is
+// safe in one style can become an injection vector in the other.
+const SAFE_CSS_PROP_RE = /^(-{2}[a-zA-Z][a-zA-Z0-9-]*|-?[a-zA-Z][a-zA-Z0-9-]*)$/;
+const URL_ATTRS = new Set(["href", "src", "action", "formaction", "cite", "data", "poster"]);
+const SAFE_URL_RE =
+  /^(?!javascript:|data:text\/html|data:text\/xml|data:application\/xhtml\+xml|data:image\/svg|vbscript:)/i;
+
+// HTML parsers strip ASCII control chars (tab/newline/CR and friends) anywhere
+// inside a URL before resolving its scheme, so "java\tscript:" reaches the
+// browser as "javascript:". Normalize the same way before testing SAFE_URL_RE.
+function isSafeUrl(value: string): boolean {
+  return SAFE_URL_RE.test(value.replace(/[\u0000-\u0020]/g, ""));
+}
+
+function isUrlAttributeName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return URL_ATTRS.has(lower) || /:(href|src|action|formaction|cite|data|poster)$/.test(lower);
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype;
+}
+
+// Serialize a style object through the same allowlisted property list the JSX
+// runtime uses. Unsafe values (markup-looking text, javascript:/expression())
+// drop the whole declaration instead of silently rewriting it.
+function serializeStyle(value: Record<string, unknown>): string {
+  return Object.entries(value)
+    .map(([k, v]) => {
+      if (!SAFE_CSS_PROP_RE.test(k)) return "";
+      const prop = k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
+      const str = String(v);
+      if (/[<>{};]/.test(str) || /expression\(/i.test(str) || /javascript:/i.test(str)) return "";
+      return `${prop}:${str}`;
+    })
+    .filter(Boolean)
+    .join(";");
+}
+
+// Escape data for a `<script>` element body: `<` becomes \u003C so neither
+// `</script` nor the `<!--` script-escape hatch can truncate the block. The JS
+// engine decodes `\u003C` inside string literals, so values round-trip
+// exactly.
+function serializeScriptJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003C");
+}
+
+// Escape text for a `<style>` element body: `<` becomes the CSS hex escape
+// `\3C ` (the space terminates the escape and is valid in CSS strings, URLs
+// and selector text).
+function escapeStyleText(text: string): string {
+  return text.replace(/</g, "\\3C ");
 }
 
 function dedentString(str: string): string {
@@ -1371,12 +1432,10 @@ function createSelectAccessor(
     }
     const previousRoot = root();
     const previousSelected = read(previousRoot);
-    const value = resolveSignalSetter(() => previousSelected, args[0] as SignalSetter<unknown>);
+    const value = resolveSignalSetter(() => previousSelected, args[0]);
     const next =
-      path.length === 0 && selector
-        ? (value as unknown)
-        : (setAtPath({ object: previousRoot, path, value }) as unknown);
-    if (!Object.is(previousRoot, next)) root((() => next) as SignalSetter<unknown>);
+      path.length === 0 && selector ? value : setAtPath({ object: previousRoot, path, value });
+    if (!Object.is(previousRoot, next)) root(() => next);
   }) as MarkedSignalAccessor<unknown>;
 }
 
@@ -1386,6 +1445,40 @@ function createSelectAccessor(
 
 function ilhaRaw(value: string): RawHtml {
   return { [RAW]: true, value };
+}
+
+/**
+ * Serialize a JSON-safe value into executable `<script>` content safely. `<`
+ * is escaped as `\u003C`, so a value can never close the script block or open
+ * the `<!--` escape hatch. Use it for script-element data:
+ *
+ * ```ts
+ * html`<script>const d = ${json(payload)};</script>`
+ * ```
+ *
+ * Like `raw()`, `json()` is for element *content* only — interpolating it into
+ * an attribute is author error. It does not protect against values that are
+ * not valid JSON (functions, symbols, undefined, cyclic objects are dropped
+ * or throw, matching `JSON.stringify`).
+ */
+export function json(value: unknown): RawHtml {
+  return ilhaRaw(serializeScriptJson(value));
+}
+
+/**
+ * Escape text for a `<style>` element body. `<` becomes the CSS hex escape
+ * `\3C `, so the value can never close the style block or open the `<!--`
+ * escape hatch while surviving CSS parsing:
+ *
+ * ```ts
+ * html`<style>${css(cssSource)}</style>`
+ * ```
+ *
+ * Like `raw()`, `css()` is for element *content* only — interpolating it into
+ * an attribute is author error.
+ */
+export function css(value: string): RawHtml {
+  return ilhaRaw(escapeStyleText(value));
 }
 
 // ---------------------------------------------
@@ -1437,13 +1530,48 @@ const BIND_VALID_KINDS = new Set<BindKind>(["value", "checked", "files", "open",
 // quote) at the end of a static chunk. The `$` anchor prevents matching text
 // outside the currently interpolated attribute.
 const BIND_PREFIX_RE = /\bbind:([a-zA-Z]+)\s*=\s*("|')?$/;
-const EVENT_PREFIX_RE = /(?:^|\s)on([a-z][a-z0-9-]*)(?::([a-z][a-z0-9-]*))?\s*=\s*("|')?$/;
+// HTML attribute names are ASCII case-insensitive, so `onLoad` and `onload`
+// name the same event attribute. Match any case and normalize the captured
+// name to lowercase before registration (addEventListener event types are
+// lowercase). Modifiers (:once, …) are matched case-insensitively too and
+// lowercased before the allowlist lookup.
+const EVENT_PREFIX_RE =
+  /(?:^|\s)on([a-zA-Z][a-zA-Z0-9-]*)(?::([a-zA-Z][a-zA-Z0-9-]*))?\s*=\s*("|')?$/;
 const NATIVE_EVENT_MODIFIERS = new Set<NativeEventModifier>([
   "abortable",
   "once",
   "capture",
   "passive",
 ]);
+
+// Full-value attribute interpolation: `name=${…}` or `name="${…}"` at the end
+// of a static chunk — the interpolation occupies the entire attribute value.
+// Anchored like BIND_PREFIX_RE/EVENT_PREFIX_RE so mid-value assembly
+// (`href="/u/${a}/${b}"`) is left to plain escaped interpolation (documented
+// limitation: URL policy cannot span multiple interpolations).
+const FULL_VALUE_ATTR_RE = /(?:^|\s)([a-zA-Z_:][a-zA-Z0-9:._-]*)\s*=\s*("|')?$/;
+
+// Terminators the HTML5 tokenizer honours in *unquoted* attribute values that
+// escapeHtml does not neutralize (escapeHtml already handles `"` `'` `<` `>`).
+// A value containing any of these must be re-emitted in quotes.
+const UNQUOTED_HAZARD_RE = /[\s=]|`/;
+
+// Resolve interpolated values the way interpolateValue does (signals are
+// dereferenced, plain functions are called) before attribute policy applies.
+function resolveTemplateValue(v: unknown): unknown {
+  if (isSignalAccessor(v)) return v();
+  if (typeof v === "function") return (v as () => unknown)();
+  return v;
+}
+
+// Extract the open tag name containing `index` in `source`, for dev warnings.
+function openTagName(source: string, index: number): string {
+  const open = source.lastIndexOf("<", index);
+  if (open === -1) return "element";
+  return (
+    source.slice(open).match(/^<\s*([a-zA-Z][a-zA-Z0-9:._-]*)/)?.[1] ?? "element"
+  ).toLowerCase();
+}
 
 function isEventAttributePosition(source: string, index: number): boolean {
   let open = -1;
@@ -1631,7 +1759,7 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
     const eventMatchStart = eventMatch ? chunk.length - eventMatch[0]!.length : -1;
     if (!eventMatch && typeof value === "function") {
       const ambiguous = chunk.match(
-        /(?:^|\s)on([a-z][a-z0-9-]*)(?::[a-z][a-z0-9-]*)?\s*=\s*(?:(?:"[^"]*)|(?:'[^']*)|(?:[^\s"'=<>`]+))$/,
+        /(?:^|\s)on([a-zA-Z][a-zA-Z0-9-]*)(?::[a-zA-Z][a-zA-Z0-9-]*)?\s*=\s*(?:(?:"[^"]*)|(?:'[^']*)|(?:[^\s"'=<>`]+))$/,
       );
       const start = ambiguous ? chunk.length - ambiguous[0]!.length : -1;
       if (ambiguous && isEventAttributePosition(result + chunk, result.length + start)) {
@@ -1652,11 +1780,12 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
       (eventAttributeFragment ||
         isEventAttributePosition(result + chunk, result.length + eventMatchStart))
     ) {
-      const eventName = eventMatch[1]!;
-      const rawModifier = eventMatch[2];
-      const modifier = NATIVE_EVENT_MODIFIERS.has(rawModifier as NativeEventModifier)
-        ? (rawModifier as NativeEventModifier)
-        : undefined;
+      const eventName = eventMatch[1]!.toLowerCase();
+      const rawModifier = eventMatch[2]?.toLowerCase();
+      const modifier =
+        rawModifier !== undefined && NATIVE_EVENT_MODIFIERS.has(rawModifier as NativeEventModifier)
+          ? (rawModifier as NativeEventModifier)
+          : undefined;
       const openQuote = (eventMatch[3] ?? null) as '"' | "'" | null;
       const nextChunk = strings[i + 1] ?? "";
       const occupiesWholeAttribute = openQuote
@@ -1798,6 +1927,124 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
       );
     }
 
+    // Full-value attribute interpolation. Mirrors pushJsxAttr (jsx-runtime.ts)
+    // so html`` and JSX apply one URL/style policy: unsafe URL schemes and
+    // srcdoc are dropped, style objects serialize through the allowlist, and
+    // hazardous unquoted values are re-emitted quoted. Benign unquoted values
+    // keep the author's literal form so valid templates render byte-identical.
+    const attrMatch = chunk.match(FULL_VALUE_ATTR_RE);
+    if (attrMatch && isEventAttributePosition(result + chunk, result.length + attrMatch.index!)) {
+      const attrName = attrMatch[1]!;
+      const openQuote = (attrMatch[2] ?? null) as '"' | "'" | null;
+      if (openQuote) stripLeadingQuote = openQuote;
+      const cleanPrefix = chunk.slice(0, attrMatch.index!).replace(/\s+$/, "");
+
+      // Defence-in-depth: HTML attribute names are ASCII case-insensitive, so
+      // any `on*` name that reaches the generic path despite the
+      // (case-insensitive) event regex — odd punctuation like `on_x`, or a
+      // non-function value — is still event-content markup to the browser.
+      // Never serialize it inline and never invoke a function value during
+      // SSR: drop it, matching JSX, which silently drops every non-function
+      // `on*` prop.
+      if (attrName.length > 2 && /^on/i.test(attrName)) {
+        if (__DEV__) {
+          warn(
+            `Drop ${attrName} from <${openTagName(result + chunk, result.length + attrMatch.index!)}> — ` +
+              `event attributes need a handler function in the full-value form: ` +
+              `on${attrName.slice(2)}=\${handler}.`,
+          );
+        }
+        result += cleanPrefix;
+        continue;
+      }
+
+      // srcdoc decodes HTML entities back into live markup, so escaping does
+      // not neutralize it — drop it entirely (JSX parity).
+      if (attrName.toLowerCase() === "srcdoc") {
+        if (__DEV__) {
+          warn(
+            `Drop ${attrName} from <${openTagName(result + chunk, result.length + attrMatch.index!)}> — ` +
+              `srcdoc re-decodes escaped markup and is not allowed in html templates.`,
+          );
+        }
+        result += cleanPrefix;
+        continue;
+      }
+
+      // Author-owned raw markup in an attribute (island slots, etc.) keeps the
+      // existing default path exactly — full chunk preserved, quote pairing
+      // untouched, so stripLeadingQuote must stay unset.
+      if (isIsland(value) || isIslandCall(value)) {
+        stripLeadingQuote = null;
+        result += chunk + interpolateValue(value);
+        continue;
+      }
+
+      if (isUrlAttributeName(attrName)) {
+        // raw() URL values pass through unescaped — author-owned escape hatch,
+        // same effective behavior as JSX's raw() in a URL attribute.
+        if (isRawHtml(value)) {
+          result += cleanPrefix + ` ${attrName}="${(value as RawHtml).value}"`;
+          continue;
+        }
+        const resolved = resolveTemplateValue(value);
+        // JSX drops null/undefined/false attribute values.
+        if (resolved == null || resolved === false) {
+          result += cleanPrefix;
+          continue;
+        }
+        const url = String(resolved);
+        if (!isSafeUrl(url)) {
+          if (__DEV__) {
+            warn(
+              `Dropped unsafe ${attrName} value from <${openTagName(result + chunk, result.length + attrMatch.index!)}> ` +
+                `(javascript:/vbscript:/data:html/svg schemes are blocked).`,
+            );
+          }
+          result += cleanPrefix;
+          continue;
+        }
+        const quotedUrl = openQuote !== null || UNQUOTED_HAZARD_RE.test(url);
+        result +=
+          cleanPrefix + ` ${attrName}=` + (quotedUrl ? `"${escapeHtml(url)}"` : escapeHtml(url));
+        continue;
+      }
+
+      if (attrName.toLowerCase() === "style") {
+        if (!isRawHtml(value)) {
+          const resolved = resolveTemplateValue(value);
+          if (isPlainObject(resolved)) {
+            result += cleanPrefix + ` style="${escapeHtml(serializeStyle(resolved))}"`;
+            continue;
+          }
+        }
+        // Strings, numbers, signals (and raw) fall through to the generic path.
+      }
+
+      if (isRawHtml(value)) {
+        stripLeadingQuote = null;
+        result += chunk + interpolateValue(value);
+        continue;
+      }
+      const resolved = resolveTemplateValue(value);
+      if (resolved == null || resolved === false) {
+        result += cleanPrefix;
+        continue;
+      }
+      if (resolved === true) {
+        // Boolean true renders a bare attribute (JSX parity).
+        result += cleanPrefix + ` ${attrName}`;
+        continue;
+      }
+      const generic = String(resolved);
+      if (openQuote !== null || UNQUOTED_HAZARD_RE.test(generic)) {
+        result += cleanPrefix + ` ${attrName}="${escapeHtml(generic)}"`;
+      } else {
+        result += cleanPrefix + ` ${attrName}=${escapeHtml(generic)}`;
+      }
+      continue;
+    }
+
     result += chunk + interpolateValue(value);
   }
   // Emit any remaining specs (e.g. if the final static chunk had no `>`).
@@ -1865,6 +2112,12 @@ const ilhaContext = Object.assign(ilhaContextFn, {
  * so when the signal changes, dependents re-run as if it were local state.
  */
 export function ilhaSignal<T>(initial: T): SignalAccessor<T> {
+  if (currentFrame()?.creating && __DEV__) {
+    warn(
+      "signal() created during an island render resets on every rerender — " +
+        "use state() for island-local state.",
+    );
+  }
   const s = signal(initial);
   return markSignalAccessor((...args: unknown[]): unknown => {
     if (args.length === 0) return s();
@@ -1885,6 +2138,12 @@ export function ilhaSignal<T>(initial: T): SignalAccessor<T> {
  * ```
  */
 function ilhaComputed<T>(fn: () => T): SignalAccessor<T> {
+  if (currentFrame()?.creating && __DEV__) {
+    warn(
+      "computed() created during an island render resets on every rerender — " +
+        "use derived() for island-local derived values.",
+    );
+  }
   const c = computed(fn);
   return markSignalAccessor((...args: unknown[]): unknown => {
     if (args.length > 0) {
@@ -2131,6 +2390,10 @@ function defaultDerivedAccessor(): DerivedAccessor<unknown> {
 // Bind
 // ---------------------------------------------
 
+// The contract type for `bind:*` template plumbing: a signal accessor the
+// template can read/write. `ExternalSignal<T>` is an alias of
+// `SignalAccessor<T>` — one type, two names (kept for template-syntax
+// documentation and back-compat).
 export type ExternalSignal<T = unknown> = SignalAccessor<T>;
 
 const BIND_SENTINEL_ATTR = "data-ilha-bind";
@@ -2505,9 +2768,7 @@ export type SignalAccessor<T> = MarkedSignalAccessor<T>;
 export type StateAccessor<T> = MarkedSignalAccessor<T>;
 
 /** A function component body: receives current props, returns HTML. */
-export interface IslandComponent<P> {
-  (props: P): string | RawHtml;
-}
+export type IslandComponent<P> = (props: P) => string | RawHtml;
 
 // ---------------------------------------------
 // Hydratable options
@@ -2856,6 +3117,8 @@ export function state<T>(init?: T | (() => T)): StateAccessor<T> {
   const f = frame!;
   if (!f.creating) {
     // Slot drift after mount (already warned in dev) — degrade gracefully.
+    // SAFETY: a fresh standalone signal is a valid state accessor stand-in
+    // once slot persistence is gone; the accessor shape is identical.
     return ilhaSignal(undefined as unknown as T) as StateAccessor<T>;
   }
   const index = f.stateIndex++;
@@ -2863,13 +3126,13 @@ export function state<T>(init?: T | (() => T)): StateAccessor<T> {
   // A hydration snapshot wins over the initializer (and skips lazy work).
   const snap = f.ssr ? undefined : f.instance?.stateSnapshot?.s?.[index];
   const initial: unknown =
-    snap !== undefined ? snap : typeof init === "function" ? (init as () => T)() : init;
+    snap === undefined ? (typeof init === "function" ? (init as () => T)() : init) : snap;
 
   const s = signal(initial);
   const acc = markSignalAccessor((...args: unknown[]): unknown => {
     if (args.length === 0) return s();
-    const next = resolveSignalSetter(() => s() as never, args[0] as SignalSetter<never>);
-    s(next as unknown);
+    const next = resolveSignalSetter(() => s(), args[0]);
+    s(next);
   });
   f.slots[f.cursor - 1] = { kind: "state", acc };
   return acc as StateAccessor<T>;
@@ -3050,6 +3313,8 @@ export function action<P, R>(
         warn(`An action was called during SSR and was ignored. Actions run only after mount.`);
       }
     };
+    // SAFETY: SSR_ACTION_STUB is a Symbol.for brand this module sets and the
+    // SSR manifest capture path checks; the Record cast is internal branding.
     (invoke as unknown as Record<symbol, unknown>)[SSR_ACTION_STUB] = true;
     Object.defineProperties(invoke, {
       pending: { get: () => false, enumerable: true },
@@ -3062,6 +3327,9 @@ export function action<P, R>(
       acc: invoke as ActionAccessor<any, any>,
       fn: fn as ActionSlot["fn"],
     };
+    // SAFETY: invoke is a closure branded with ISLAND_ACCESSOR / action
+    // symbols and registered in f.slots; the cast widens it to the public
+    // accessor shape (pending/data/error accessors + invoke signature).
     return invoke as unknown as ActionAccessor<P, R>;
   }
 
@@ -3152,6 +3420,8 @@ export function action<P, R>(
   // handler) AND the raw invoke — same function object here.
   f.slots[f.cursor - 1] = slot;
   instance.actionIds.set(slot.acc, manifestId);
+  // SAFETY: invoke is the same closure object stored in the slot; the cast
+  // restores the public action accessor type for the caller.
   return invoke as unknown as ActionAccessor<P, R>;
 }
 
@@ -3164,6 +3434,11 @@ export function action<P, R>(
  * slot that tracks signals read in the body, reruns on change, cleans up
  * before rerun and on unmount, and is client-only. Outside an island render,
  * behaves as the standalone reactive effect and returns a stop function.
+ *
+ * @returns Inside an island render, `void` (an effect slot is registered and
+ * cleaned up automatically). At module scope, a stop function that disposes
+ * the effect and runs its final cleanup. The union return type is deliberate:
+ * the same call shape cannot be discriminated at the call site.
  */
 export const effect: ((fn: EffectFn) => void | (() => void)) & {
   once(fn: EffectOnceFn): void;
@@ -3360,7 +3635,7 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
   if (typeof component !== "function") {
     throw new Error("[ilha] ilha() requires a component function.");
   }
-  const configuredSlotTag = options?.as !== undefined ? assertValidSlotTagName(options.as) : "div";
+  const configuredSlotTag = options?.as === undefined ? "div" : assertValidSlotTagName(options.as);
 
   function resolveInput(props?: Partial<any>): Record<string, unknown> {
     const merged = { ...props } as Record<string, unknown>;
@@ -3447,10 +3722,8 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
     props?: Partial<any>,
     sync = false,
     eventsOut?: Map<string, EventManifestEntry>,
-    _stateOverride?: unknown,
     forceAsyncChildren = false,
   ): string | Promise<string> {
-    void _stateOverride;
     const input = resolveInput(props);
     const frame = freshFrame({ ssr: true });
 
@@ -3473,7 +3746,15 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
       });
     }
     recordEventsManifest(eventsOut, first.events, frame);
-    if (!needsAsync || sync) return finish(first);
+    if (!needsAsync || sync) {
+      if (sync && (frame.pendingDerived?.length ?? 0) > 0 && __DEV__) {
+        warn(
+          "toString() rendered async derived values in their loading state — " +
+            "call await toStringAsync() when the island may resolve async derived.",
+        );
+      }
+      return finish(first);
+    }
     return awaitPending(first);
 
     function awaitPending(out: RenderOut): Promise<string> {
@@ -3562,7 +3843,7 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
     });
 
     // Positional hydration snapshot.
-    let snapshotRaw: string | null = host.getAttribute(STATE_ATTR);
+    const snapshotRaw: string | null = host.getAttribute(STATE_ATTR);
     const snapshot = snapshotRaw ? parseStateSnapshot(snapshotRaw) : undefined;
     const hydrated = snapshot != null;
     const shouldSkipOnce = snapshot?.skipOnce === true;
@@ -3598,6 +3879,9 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
       stateSnapshot: snapshot ? { s: snapshot.s, d: snapshot.d } : undefined,
       hydrated,
       disposed: false,
+      // SAFETY: the frame is attached right after construction by
+      // runInFrame/mountIslandInternal; null here is the "not yet mounted"
+      // pre-state that freshFrame() replaces before any render runs.
       frame: null as unknown as PrimitiveFrame,
     };
     cleanups.push(() => {
@@ -3695,6 +3979,8 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
           updateProps: (p?: Record<string, unknown>) => void;
         };
         try {
+          // SAFETY: ISLAND_MOUNT_INTERNAL is a Symbol.for brand this module sets
+          // on every island function; the Record cast is internal branding.
           const internal = (childIsland as unknown as Record<symbol, unknown>)[
             ISLAND_MOUNT_INTERNAL
           ] as ((host: Element, props?: Record<string, unknown>) => MountHandle) | undefined;
@@ -3908,8 +4194,9 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
       liveHost: preserveSSRDom ? host : undefined,
     });
     if (!preserveSSRDom) {
-      // pi-lens-ignore: ast-grep:no-inner-html — host is this island's render
-      // target; the markup is the island's html``/JSX output, escaped by default.
+      // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
+      // host is this island's render target; the markup is the island's
+      // html``/JSX output, escaped by default.
       host.innerHTML = initial.html;
     }
 
@@ -4040,8 +4327,9 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
 
         const tpl = document.createElement("template");
         const morphRootTag = host.tagName.toLowerCase();
-        // pi-lens-ignore: ast-grep:no-inner-html — parse into a detached
-        // <template> for structural comparison; morphInner patches the live DOM.
+        // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
+        // parse into a detached <template> for structural comparison;
+        // morphInner patches the live DOM.
         tpl.innerHTML = `<${morphRootTag}>${rendered}</${morphRootTag}>`;
         morphInner(host, tpl.content.firstElementChild as Element);
         lastRendered = rendered;
@@ -4107,6 +4395,9 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
 
   // ─── Island object ──────────────────────────────────────────────────────
 
+  // SAFETY: the callable carries the ISLAND_CALL / ISLAND symbol brands that
+  // interpolateValue and the JSX runtime check; the cast widens the closure
+  // to the public Island interface (callable + toString/toStringAsync/mount).
   const island = ((props?: Partial<any>): IslandCall => ({
     [ISLAND_CALL]: true,
     island: island as AnyIsland,
@@ -4119,13 +4410,19 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
     Promise.resolve(renderToString(props, false));
   island.mount = (host: Element, props?: Partial<any>): (() => void) => mountIsland(host, props);
 
+  // SAFETY: ISLAND_MOUNT_INTERNAL is a Symbol.for brand this module defines;
+  // the Record cast is internal branding, read by mountIslandInternal callers.
   (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
     host: Element,
     props?: Partial<any>,
   ): MountHandle => mountIslandInternal(host, props);
 
+  // SAFETY: ISLAND_SLOT_TAG is a Symbol.for brand read by the nested-slot
+  // emission path; the Record cast is internal branding.
   (island as unknown as Record<symbol, unknown>)[ISLAND_SLOT_TAG] = configuredSlotTag;
 
+  // SAFETY: ISLAND_RENDER_STATE is a Symbol.for brand consumed by the router's
+  // server-island frame renderer; the Record cast is internal branding.
   (island as unknown as Record<symbol, unknown>)[ISLAND_RENDER_STATE] = async (
     props?: Record<string, unknown>,
   ): Promise<string> => {
@@ -4134,16 +4431,17 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
       (props ?? undefined) as Partial<any> | undefined,
       false,
       manifest,
-      undefined,
       true,
     );
     return serializeServerManifest(manifest) + html;
   };
 
+  // SAFETY: ISLAND_SSR_MANIFEST is a Symbol.for brand consumed by the
+  // router's server-island frame renderer; the Record cast is internal branding.
   (island as unknown as Record<symbol, unknown>)[ISLAND_SSR_MANIFEST] = (
     props?: Partial<any>,
     eventsOut?: Map<string, EventManifestEntry>,
-  ): string | Promise<string> => renderToString(props, false, eventsOut, undefined, true);
+  ): string | Promise<string> => renderToString(props, false, eventsOut, true);
 
   island.key = (key: string): KeyedIsland<any> => {
     if (typeof key !== "string" || key.trim().length === 0) {
@@ -4152,16 +4450,24 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
     if (key.includes(":")) {
       throw new Error(`island.key() key cannot contain the slot separator ":" (got "${key}").`);
     }
+    // SAFETY: keyed is the same ISLAND_CALL-branded closure; the cast restores
+    // the KeyedIsland public type (callable + branded), matching Island.key's
+    // documented contract.
     const keyed = ((props?: Partial<any>): IslandCall => ({
       [ISLAND_CALL]: true,
       island: island as AnyIsland,
       props: props as Record<string, unknown> | undefined,
       key,
     })) as unknown as KeyedIsland<any>;
+    // SAFETY: keyed is the same ISLAND_CALL-branded closure; re-stamping the
+    // symbol on the returned callable keeps the brand on the exact object the
+    // caller receives.
     (keyed as unknown as Record<symbol, boolean>)[ISLAND_CALL] = true;
     return keyed;
   };
 
+  // SAFETY: ISLAND is the public island-function brand interpolateValue and
+  // the JSX runtime check; the Record cast is internal branding.
   (island as unknown as Record<symbol, boolean>)[ISLAND] = true;
 
   const astroRendererName = (globalThis as unknown as Record<symbol, unknown>)[
@@ -4273,7 +4579,7 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
     // No event-manifest serialization here: @ilha/router owns server-action
     // manifests via its frame/hydration adapters. hydratable() emits plain
     // hydration markup only.
-    const innerPromise = renderToString(resolvedProps, false, undefined, undefined, true);
+    const innerPromise = renderToString(resolvedProps, false, undefined, true);
 
     // Snapshot collection: after the async pass settles, primitive slots hold
     // resolved envelopes — read them positionally.
@@ -4455,20 +4761,23 @@ export function morph(host: Element, html: string): void {
   if (typeof document === "undefined") return;
   const openTag = host.localName ?? "div";
   const tpl = document.createElement("template");
-  // pi-lens-ignore: ast-grep:no-inner-html — parse into a detached <template>
-  // (no script execution, not the live document) before morphing in place.
+  // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
+  // parse into a detached <template> (no script execution, not the live
+  // document) before morphing in place.
   tpl.innerHTML = `<${openTag}>${html}</${openTag}>`;
   const next = tpl.content.firstElementChild;
   if (!next || next.localName !== host.localName) {
-    // pi-lens-ignore: ast-grep:no-inner-html — host is this island's render
-    // target; markup is the island's html``/JSX output, escaped by default.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
+    // host is this island's render target; markup is the island's
+    // html``/JSX output, escaped by default.
     host.innerHTML = html;
     return;
   }
   try {
     morphInner(host, next);
   } catch {
-    // pi-lens-ignore: ast-grep:no-inner-html — fallback render write to host.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
+    // fallback render write to host.
     host.innerHTML = html;
   }
 }
@@ -4479,3 +4788,8 @@ export const mount = mountAll;
 export const context = ilhaContext;
 export { ilhaSignal as signal };
 export { ilhaComputed as computed };
+
+// Shared URL/style policy — consumed by the JSX runtime (jsx-runtime.ts) and
+// available to advanced template authors who want the same checks in custom
+// builders.
+export { isSafeUrl, isUrlAttributeName, serializeStyle };

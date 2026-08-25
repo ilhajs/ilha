@@ -7,11 +7,11 @@ A map of the public `@ilha/astro` API. The full guide lives at [Astro](/guide/as
 
 ## Exports and entry points
 
-| Import path             | Use it for                                    |
-| ----------------------- | --------------------------------------------- |
-| `@ilha/astro`           | `ilha()` integration and `getRenderer()`.     |
-| `@ilha/astro/client.js` | Client hydration entry (registered by Astro). |
-| `@ilha/astro/server.js` | Server renderer entry (registered by Astro).  |
+| Import path          | Use it for                                    |
+| -------------------- | --------------------------------------------- |
+| `@ilha/astro`        | `ilha()` integration and `getRenderer()`.     |
+| `@ilha/astro/client` | Client hydration entry (registered by Astro). |
+| `@ilha/astro/server` | Server renderer entry (registered by Astro).  |
 
 You almost never import the client or server entrypoints yourself — `ilha()` registers them through Astro's renderer API.
 

@@ -82,7 +82,7 @@ Hydration is driven by Ilha's `data-ilha-*` attributes, so every Astro client di
 ```
 server                              client
 ──────────────────────────────────  ────────────────────────────────────
-.renderToStaticMarkup(island)       @ilha/astro/client.js
+.renderToStaticMarkup(island)       @ilha/astro/client
   → island.hydratable(props, …)       → find [data-ilha] inside <astro-island>
   → data-ilha-state snapshot          → island.mount(host)
   → data-ilha-props on host           → astro:unmount → unmount()
@@ -138,11 +138,11 @@ If client re-invocation fails, the integration throws a sanitized `[@ilha/astro]
 
 ## Import paths
 
-| Import path             | Use it for                                      |
-| ----------------------- | ----------------------------------------------- |
-| `@ilha/astro`           | Astro integration (`ilha()` / `getRenderer()`). |
-| `@ilha/astro/client.js` | Client hydration entry (registered by Astro).   |
-| `@ilha/astro/server.js` | Server renderer entry (registered by Astro).    |
+| Import path          | Use it for                                      |
+| -------------------- | ----------------------------------------------- |
+| `@ilha/astro`        | Astro integration (`ilha()` / `getRenderer()`). |
+| `@ilha/astro/client` | Client hydration entry (registered by Astro).   |
+| `@ilha/astro/server` | Server renderer entry (registered by Astro).    |
 
 You almost never import the client or server entrypoints yourself. `ilha()` registers them through Astro's renderer API.
 

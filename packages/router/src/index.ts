@@ -5,6 +5,7 @@ import { ISLAND_MOUNT_HANDLES, ISLAND_MOUNT_INTERNAL } from "ilha/internal";
 
 import { getAdapter, getHistoryMode } from "./hash";
 import { matchSegments, parsePattern, safeDecode } from "./route-match";
+import { parseSnapshotAttr } from "./snapshot";
 
 export { setHistoryMode, getHistoryMode } from "./hash";
 export type { HistoryMode } from "./hash";
@@ -201,8 +202,12 @@ export function composeLoaders<Ls extends readonly Loader<any>[]>(
   return async (ctx) => {
     // Run all loaders in parallel. They share the same ctx/signal.
     const results = await Promise.all(loaders.map((l) => l(ctx)));
-    // Shallow merge — later results win.
-    return Object.assign({}, ...results) as MergeLoaders<Ls>;
+    // Shallow merge — later results win. Spread uses CreateDataProperty, so a
+    // loader result carrying an own `__proto__` data key cannot swap the merged
+    // object's prototype (Object.assign would invoke the `__proto__` setter).
+    let merged: Record<string, unknown> = {};
+    for (const r of results) merged = { ...merged, ...r };
+    return merged as MergeLoaders<Ls>;
   };
 }
 
@@ -356,6 +361,26 @@ type InternalMountHandle = {
   updateProps: (props?: Record<string, unknown>) => void;
 };
 
+/** Branded read of ilha's optional mount-handle hook (absent on plain islands). */
+function readMountInternal(
+  island: Island<any>,
+): ((host: Element, props?: Record<string, unknown>) => InternalMountHandle) | undefined {
+  // SAFETY: ISLAND_MOUNT_INTERNAL is a Symbol.for brand ilha places on islands;
+  // callers guard the result with a typeof function check before invoking.
+  return (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
+    | ((host: Element, props?: Record<string, unknown>) => InternalMountHandle)
+    | undefined;
+}
+
+/** Branded write of ilha's mount-handle hook — mirrors the core island contract. */
+function writeMountInternal(
+  island: Island<any>,
+  hook: (host: Element, props?: Record<string, unknown>) => InternalMountHandle,
+): void {
+  // SAFETY: re-assigning the same symbol slot keeps ilha's own hook contract.
+  (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = hook;
+}
+
 function layoutHtmlWithEmptyKPage(
   wrappedLayout: Island<any>,
   props: Record<string, unknown>,
@@ -364,7 +389,7 @@ function layoutHtmlWithEmptyKPage(
   // islands returned by wrapLayout(); unwrapped islands lack them and fall
   // through to the `if (!handler)` and `?? wrappedLayout` fallbacks below.
   const handler = (wrappedLayout as unknown as Record<symbol, LayoutHandler>)[WRAP_LAYOUT_HANDLER];
-  if (!handler) return wrappedLayout.toString(props as never);
+  if (!handler) return wrappedLayout.toString(props);
   // SAFETY: WRAP_LAYOUT_LEAF is brand-set only on wrapLayout() output; a plain
   // page island lacks it and the `?? wrappedLayout` fallback keeps it as leaf.
   const leaf =
@@ -382,7 +407,7 @@ function layoutHtmlWithEmptyKPage(
   // SAFETY: the symbol brand is the runtime marker interpolateValue checks to
   // treat shellChild as an in-template island slot instead of a plain callable.
   (shellChild as unknown as Record<symbol, boolean>)[ISLAND_CALL] = true;
-  return handler(shellChild).toString(props as never);
+  return handler(shellChild).toString(props);
 }
 
 async function wrapLayoutSlotMarkup(
@@ -420,7 +445,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any>): Island<any
     const merged = layoutInputRef.merged;
     const slotProps =
       merged && typeof merged === "object" ? { ...merged, ...(props ?? {}) } : props;
-    return rawKeyedPage(slotProps as never);
+    return rawKeyedPage(slotProps);
   }) as unknown as Island<any>;
   Object.assign(KeyedPage, { toString: page.toString.bind(page) });
   // SAFETY: the IslandCall symbol brand is checked by interpolateValue to
@@ -458,34 +483,33 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any>): Island<any
     if (mountHost.hasAttribute("data-ilha-state")) {
       const outerState = outer.getAttribute("data-ilha-state");
       if (outerState) {
-        try {
-          applyOuterSnapshot(JSON.parse(outerState) as Record<string, unknown>);
+        const outerParsed = parseSnapshotAttr(outerState);
+        if (outerParsed) {
+          applyOuterSnapshot(outerParsed);
           return;
-        } catch {
-          // fall through — still clear layout _skipOnMount on the slot snapshot
         }
+        // fall through — still clear layout _skipOnMount on the slot snapshot
       }
       const slotState = mountHost.getAttribute("data-ilha-state");
       if (slotState) {
-        try {
-          const snapshot = JSON.parse(slotState) as Record<string, unknown>;
+        const snapshot = parseSnapshotAttr(slotState);
+        if (snapshot) {
           delete snapshot._skipOnMount;
           mountHost.setAttribute("data-ilha-state", JSON.stringify(snapshot));
-        } catch {
-          // keep existing slot attribute
         }
+        // keep existing slot attribute on malformed/oversized payloads
       }
       return;
     }
 
     const outerState = outer.getAttribute("data-ilha-state");
     if (outerState) {
-      try {
-        applyOuterSnapshot(JSON.parse(outerState) as Record<string, unknown>);
+      const outerParsed = parseSnapshotAttr(outerState);
+      if (outerParsed) {
+        applyOuterSnapshot(outerParsed);
         return;
-      } catch {
-        // fall through — still mark SSR slot below
       }
+      // fall through — still mark SSR slot below
     }
     // k:page is mounted via mountSlots (leaf internal), not Wrapped.mount — mark
     // hydration so ilha keeps SSR children and runs onMount before first render.
@@ -495,35 +519,22 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any>): Island<any
   }
 
   function wrapLeafPageMountHooks(leaf: Island<any>): void {
-    // SAFETY: ISLAND_MOUNT_INTERNAL is the mount-handle hook ilha places on
-    // every island; wrapLayout captures it only when present (typeof guard).
-    const leafInternal = (leaf as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
-      | ((
-          host: Element,
-          props?: Record<string, unknown>,
-        ) => {
-          unmount: () => void | Promise<void>;
-          updateProps: (p?: Record<string, unknown>) => void;
-        })
-      | undefined;
+    const leafInternal = readMountInternal(leaf);
     if (typeof leafInternal !== "function") return;
 
     // SAFETY: re-assigning the same symbol slot keeps ilha's own hook contract;
     // the wrapper defers to the captured leafInternal for the actual mount.
-    (leaf as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
-      host: Element,
-      props?: Record<string, unknown>,
-    ) => {
+    writeMountInternal(leaf, (host: Element, props?: Record<string, unknown>) => {
       const outer = host.closest("[data-ilha]");
       if (outer && outer !== host) preparePageMountHost(outer, host);
       return leafInternal(host, props);
-    };
+    });
 
     const leafMount = leaf.mount.bind(leaf);
     leaf.mount = (host: Element, props?: Record<string, unknown>) => {
       const outer = host.closest("[data-ilha]");
       if (outer && outer !== host) preparePageMountHost(outer, host);
-      return leafMount(host, props as never);
+      return leafMount(host, props);
     };
   }
 
@@ -541,16 +552,11 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any>): Island<any
   >();
   // SAFETY: ISLAND_MOUNT_INTERNAL is ilha's optional mount-handle hook; the
   // typeof guard keeps a plain-mount fallback when the island lacks it.
-  const pageInternalBase = (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
-    | ((host: Element, props?: Record<string, unknown>) => InternalMountHandle)
-    | undefined;
+  const pageInternalBase = readMountInternal(page);
   if (typeof pageInternalBase === "function") {
     // SAFETY: the handle-tracking wrapper replaces the island's internal mount
     // hook with an equivalent that records the page host before delegating.
-    (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
-      host: Element,
-      props?: Record<string, unknown>,
-    ): InternalMountHandle => {
+    writeMountInternal(page, (host: Element, props?: Record<string, unknown>) => {
       const handle = pageInternalBase(host, props);
       const entry = { handle, mountProps: props };
       pageHandles.set(host, entry);
@@ -566,7 +572,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any>): Island<any
           handle.updateProps(p);
         },
       };
-    };
+    });
   }
 
   /**
@@ -593,15 +599,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any>): Island<any
   const layoutMount = Wrapped.mount.bind(Wrapped);
   // SAFETY: ISLAND_MOUNT_INTERNAL is ilha's optional mount-handle hook; the
   // typeof check below keeps the fallback path (plain mount) when absent.
-  const layoutInternal = (Wrapped as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
-    | ((
-        host: Element,
-        props?: Record<string, unknown>,
-      ) => {
-        unmount: () => void | Promise<void>;
-        updateProps: (p?: Record<string, unknown>) => void;
-      })
-    | undefined;
+  const layoutInternal = readMountInternal(Wrapped);
 
   function prepareLayoutMountHost(host: Element): void {
     preparePageMountHost(host, pageMountHost(host));
@@ -612,19 +610,15 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any>): Island<any
     // — the stateless shell's own effect.once() must still run.
     const raw = host.getAttribute("data-ilha-state");
     if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as Record<string, unknown> | null;
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          const s = parsed["s"];
-          const d = parsed["d"];
-          const hasState = (Array.isArray(s) && s.length > 0) || (Array.isArray(d) && d.length > 0);
-          if (!hasState && parsed["_skipOnMount"] === true) {
-            delete parsed["_skipOnMount"];
-            host.setAttribute("data-ilha-state", JSON.stringify(parsed));
-          }
+      const parsed = parseSnapshotAttr(raw);
+      if (parsed) {
+        const s = parsed["s"];
+        const d = parsed["d"];
+        const hasState = (Array.isArray(s) && s.length > 0) || (Array.isArray(d) && d.length > 0);
+        if (!hasState && parsed["_skipOnMount"] === true) {
+          delete parsed["_skipOnMount"];
+          host.setAttribute("data-ilha-state", JSON.stringify(parsed));
         }
-      } catch {
-        // leave the attribute as-is on malformed payloads
       }
     }
   }
@@ -633,9 +627,9 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any>): Island<any
   // and the keyed page slot (k:page). preparePageMountHost copies outer SSR
   // state onto k:page and clears _skipOnMount so the page onMount still runs.
   Wrapped.mount = (host: Element, props?: Record<string, unknown>) => {
-    setLayoutMergedInput(props as Record<string, unknown> | undefined);
+    setLayoutMergedInput(props);
     prepareLayoutMountHost(host);
-    const unmount = layoutMount(host, props as never);
+    const unmount = layoutMount(host, props);
     // Replace the core handle registered during mount with one whose
     // updateProps flows through the layout tree (merged-input ref + page
     // slot) — so a router adopting this host can update it in place.
@@ -649,23 +643,20 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any>): Island<any
 
   // SAFETY: installing the enhanced mount hook keeps ilha's slot reconciliation
   // working on wrapped layouts via the same symbol-contract as the core island.
-  (Wrapped as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
-    host: Element,
-    props?: Record<string, unknown>,
-  ): InternalMountHandle => {
-    setLayoutMergedInput(props as Record<string, unknown> | undefined);
+  writeMountInternal(Wrapped, (host: Element, props?: Record<string, unknown>) => {
+    setLayoutMergedInput(props);
     prepareLayoutMountHost(host);
     const base: InternalMountHandle =
       typeof layoutInternal === "function"
         ? layoutInternal(host, props)
-        : { unmount: layoutMount(host, props as never), updateProps: () => {} };
+        : { unmount: layoutMount(host, props), updateProps: () => {} };
     const enhanced: InternalMountHandle = {
       unmount: base.unmount,
       updateProps: layoutUpdateProps(host, base.updateProps),
     };
     ISLAND_MOUNT_HANDLES.set(host, enhanced);
     return enhanced;
-  };
+  });
 
   Wrapped.hydratable = async (
     props?: Record<string, unknown>,
@@ -743,15 +734,12 @@ export function wrapError(handler: ErrorHandler, page: Island<any>): Island<any>
   // ISLAND_MOUNT_INTERNAL is for slot-based child mounting.
   // SAFETY: installing the slot-mount hook on Wrapper keeps the symbol
   // contract ilha's mountSlots resolves for child islands.
-  (Wrapper as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
-    host: Element,
-    props?: Record<string, unknown>,
-  ) => {
+  writeMountInternal(Wrapper, (host: Element, props?: Record<string, unknown>) => {
     try {
       // Forward to page's internal mount for full handle (unmount + updateProps)
       // SAFETY: read of the page's own mount hook mirrors the caller above;
       // absent on plain islands, where page.mount below is the fallback.
-      const pageInternal = (page as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL];
+      const pageInternal = readMountInternal(page);
       if (typeof pageInternal === "function") {
         return pageInternal(host, props);
       }
@@ -770,7 +758,7 @@ export function wrapError(handler: ErrorHandler, page: Island<any>): Island<any>
       // would need to re-navigate to recover from an error state.
       return { unmount: errorIsland.mount(host, props), updateProps: () => {} };
     }
-  };
+  });
 
   Wrapper.hydratable = async (
     props?: Record<string, unknown>,
@@ -1130,12 +1118,7 @@ async function fetchLoaderData(
   const localMatch = matchRoute(_routes, pathOnly);
   const localLoader = localMatch?.data?.clientLoader ?? localMatch?.data?.loader;
   if (localLoader) {
-    return runLocalLoader(
-      localLoader,
-      localMatch?.params as Record<string, string> | undefined,
-      pathWithSearch,
-      signal,
-    );
+    return runLocalLoader(localLoader, localMatch?.params, pathWithSearch, signal);
   }
 
   const url = `${LOADER_ENDPOINT}?path=${encodeURIComponent(pathWithSearch)}`;
@@ -1162,7 +1145,7 @@ async function fetchLoaderData(
       !localMatch?.data?.clientLoader &&
       parsed.data &&
       typeof parsed.data === "object" &&
-      !("load" in (parsed.data as object))
+      !("load" in parsed.data)
     ) {
       return { ...parsed, data: envelopLoad(parsed.data) };
     }
@@ -1222,11 +1205,9 @@ function mountIslandWithHandle(
   host: Element,
   props?: Record<string, unknown>,
 ): RouteMountHandle {
-  // SAFETY: ISLAND_MOUNT_INTERNAL is ilha's optional mount-handle hook; the
+  // SAFETY: readMountInternal is ilha's optional mount-handle hook; the
   // typeof guard falls back to a plain mount when the island lacks it.
-  const internal = (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] as
-    | ((host: Element, props?: Record<string, unknown>) => InternalMountHandle)
-    | undefined;
+  const internal = readMountInternal(island);
   if (typeof internal === "function") {
     const h = internal(host, props);
     return { unmount: () => void h.unmount(), updateProps: (p) => h.updateProps(p) };
@@ -1237,11 +1218,12 @@ function mountIslandWithHandle(
 /**
  * Same-island fast path: fetch fresh loader data and push it into the mounted
  * island via `updateProps` — ilha's fine-grained morph reconciles the DOM, so
- * focus, caret, selection, and scroll survive (the reason persistQuery-driven
- * filter inputs don't blur while typing). Returns "updated" when applied (or
- * redirected), "remount" when the caller must run the full teardown + mount
- * path (loader error / not-found need boundary DOM; the full path re-fetches,
- * accepted for these rare cases). Throws AbortError when superseded.
+ * focus, caret, selection, and scroll survive (the reason same-route param
+ * updates on filter inputs don't blur while typing). Returns "updated" when
+ * applied (or redirected), "remount" when the caller must run the full
+ * teardown + mount path (loader error / not-found need boundary DOM; the full
+ * path re-fetches, accepted for these rare cases). Throws AbortError when
+ * superseded.
  */
 async function updateRouteInPlace(
   handle: RouteMountHandle,
@@ -1331,7 +1313,7 @@ async function mountRouteWithHydration(
     const escaped = escapeHtml(loaderResult.message);
     await withViewSwap(() => {
       // pi-lens-ignore: ast-grep:no-inner-html
-      host.innerHTML = `<div data-router-view data-router-error="${loaderResult.status}">${escaped}</div>`;
+      host.innerHTML = `<div data-router-view data-router-error="${escapeHtml(loaderResult.status)}">${escaped}</div>`;
     });
     return noopRouteHandle();
   }
@@ -1411,7 +1393,7 @@ function mountLoaderErrorBoundary(
       },
     );
     // pi-lens-ignore: ast-grep:no-inner-html
-    host.innerHTML = `<div data-router-view data-router-error="${status}">${errorIsland.toString()}</div>`;
+    host.innerHTML = `<div data-router-view data-router-error="${escapeHtml(status)}">${errorIsland.toString()}</div>`;
     const ehHost = host.firstElementChild;
     return ehHost ? errorIsland.mount(ehHost) : () => {};
   } catch (e) {
@@ -1419,7 +1401,7 @@ function mountLoaderErrorBoundary(
     // minimal inline error.
     console.error("[ilha-router] error boundary threw while rendering a loader error:", e);
     // pi-lens-ignore: ast-grep:no-inner-html
-    host.innerHTML = `<div data-router-view data-router-error="${status}"></div>`;
+    host.innerHTML = `<div data-router-view data-router-error="${escapeHtml(status)}"></div>`;
     return () => {};
   }
 }
@@ -1719,7 +1701,7 @@ function extractParams(matchParams: Record<string, string> | undefined): Record<
   const params: Record<string, string> = {};
   if (matchParams) {
     for (const [k, v] of Object.entries(matchParams)) {
-      params[k] = safeDecode(v as string);
+      params[k] = safeDecode(v);
     }
   }
   return params;
@@ -1735,7 +1717,7 @@ function syncRouteFromURL(url: string | URL, routes: RouteRegistry = _routes): v
   const match = matchRoute(routes, parsed.pathname);
 
   routePath(parsed.pathname);
-  routeParams(extractParams(match?.params as Record<string, string> | undefined));
+  routeParams(extractParams(match?.params));
   routeSearch(parsed.search);
   routeHash(parsed.hash);
   activeIsland(match?.data?.island ?? null);
@@ -1747,7 +1729,7 @@ function syncRouteFromLocation(): void {
   const match = matchRoute(_routes, loc.pathname);
 
   routePath(loc.pathname);
-  routeParams(extractParams(match?.params as Record<string, string> | undefined));
+  routeParams(extractParams(match?.params));
   routeSearch(loc.search);
   routeHash(loc.hash);
   activeIsland(match?.data?.island ?? null);
@@ -2328,6 +2310,10 @@ function serializeAttrs(attrs: Record<string, string>): string {
 function isSafeUrl(value: string): boolean {
   const v = value.trim();
   if (v === "") return true;
+  // Reject backslashes and URL-ignored control chars — the WHATWG parser
+  // treats `\` as `/` and drops tab/newline/CR, so `\evil.com` re-parses as
+  // an external origin and bypasses the protocol-relative check below.
+  if (/[\\\u0000-\u0020]/.test(v)) return false;
   // Relative and in-page targets are fine, but protocol-relative URLs are external.
   if (v.startsWith("//")) return false;
   if (v.startsWith("#") || v.startsWith("/") || v.startsWith("./")) return true;
@@ -2430,7 +2416,15 @@ export function serializeHead(entries: HeadInput[]): SerializedHead {
 function isSafeRefreshTarget(content: string): boolean {
   const match = /url\s*=\s*(['"]?)([^'";\s]+)\1/i.exec(content);
   if (!match) return true;
-  return isSafeUrl(match[2] ?? "");
+  const target = match[2] ?? "";
+  // Meta refresh must stay same-origin (it navigates the whole document).
+  // serializeHead has no document URL at hand, so only relative path targets
+  // are provably same-origin; absolute and smuggled (`\`, control chars)
+  // targets are dropped. External resources like script/link keep their own
+  // (broader) policy in isSafeUrl.
+  if (/[\\\u0000-\u0020]/.test(target)) return false;
+  if (target.startsWith("//")) return false;
+  return target.startsWith("/") || target.startsWith("./");
 }
 
 // ─────────────────────────────────────────────
@@ -2521,16 +2515,22 @@ function isDevEnv(): boolean {
 
 /**
  * Validate a loader redirect target. Relative paths always pass; same-origin
- * absolute URLs collapse to a path; cross-origin targets are rejected unless
- * `allowExternal`. Protocol-relative (`//host`) and unparsable targets are
- * always rejected.
+ * absolute URLs collapse to a path; cross-origin targets (including
+ * protocol-relative `//host` URLs) are rejected unless `allowExternal` is set.
+ * Non-http(s) schemes, backslash/control-char smuggling, and unparsable
+ * targets are always rejected.
  */
 export function resolveRedirectTarget(
   to: string,
   base: URL,
   allowExternal: boolean,
 ): { ok: true; to: string } | { ok: false } {
-  if (to.startsWith("/") && !to.startsWith("//")) return { ok: true, to };
+  // Reject control characters and backslashes outright. The WHATWG URL parser
+  // treats `\` as `/` for special schemes and ignores tab/newline/CR inside
+  // paths, so `\evil.com` re-parses as an external origin — an open-redirect
+  // vector that the string prefix checks below could never see. CR/LF would
+  // also corrupt a `Location` header. Legit targets percent-encode these.
+  if (/[\\\u0000-\u0020]/.test(to)) return { ok: false };
   try {
     const u = new URL(to, base);
     if (!/^https?:$/.test(u.protocol)) return { ok: false };
@@ -2619,7 +2619,7 @@ async function executeLoader(
       head?: SerializedHead;
     } = {
       kind: "data",
-      data: (data ?? {}) as Record<string, unknown>,
+      data: data ?? {},
     };
     if (headEntries.length > 0) out.head = serializeHead(headEntries);
     return out;
@@ -2630,7 +2630,10 @@ async function executeLoader(
     // paths, …) is logged server-side and redacted from the client-visible
     // payload outside dev; only `LoaderError` messages are meant for users.
     console.error("[ilha-router] loader failed:", e);
-    const status = typeof e?.status === "number" ? e.status : 500;
+    // Clamp to a real 4xx/5xx so a thrown error's arbitrary numeric `.status`
+    // (e.g. 600 or a string) can never crash Response construction later.
+    const status =
+      typeof e?.status === "number" && e.status >= 400 && e.status <= 599 ? e.status : 500;
     const message = isDevEnv() ? (e?.message ?? "Loader failed") : "Internal error";
     return { kind: "error", status, message };
   }
@@ -2641,7 +2644,7 @@ async function executeLoader(
 // ─────────────────────────────────────────────
 
 export function router(options: RouterOptions = {}): RouterBuilder {
-  const mode = (options.mode ?? "spa") as RouterMode;
+  const mode = options.mode ?? "spa";
   const defaultInterceptLinks = options.interceptLinks !== false;
   const allowExternalRedirects = options.allowExternalRedirects === true;
   const loaderTimeout = options.loaderTimeout;
@@ -2854,8 +2857,9 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         let viewHandle: RouteMountHandle | null = null;
 
         // Adopt the SSR-hydrated island mounted by ilha.mount() so the very
-        // first same-island navigation updates in place too (the persistQuery
-        // typing case) instead of remounting and blurring the input.
+        // first same-island navigation updates in place too (the same-route
+        // param-update typing case) instead of remounting and blurring the
+        // input.
         const adoptHydratedHandle = (): RouteMountHandle | null => {
           const el = viewHost.querySelector("[data-ilha]");
           if (!el) return null;
@@ -3125,11 +3129,11 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           const escaped = escapeHtml(result.message);
           await withViewSwap(() => {
             // pi-lens-ignore: ast-grep:no-inner-html
-            viewHost.innerHTML = `<div data-router-error="${result.status}">${escaped}</div>`;
+            viewHost.innerHTML = `<div data-router-error="${escapeHtml(result.status)}">${escaped}</div>`;
           });
           return;
         }
-        const props = (result.kind === "data" ? result.data : {}) as Record<string, unknown>;
+        const props = result.kind === "data" ? result.data : {};
 
         if (sameIsland && mountedHandle?.updateProps) {
           // Loader head entries keep title/meta in sync; skip when empty so a
@@ -3323,7 +3327,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
         return { kind: "data" as const, data: {} };
       }
 
-      const params = extractParams(match.params as Record<string, string> | undefined);
+      const params = extractParams(match.params);
       const renderReq = req ?? defaultRequest(parsed);
       const abort = loaderAbort(req, loaderTimeout);
       const headStore: HeadStore = { entries: [] };
@@ -3486,7 +3490,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
               kind: "error",
               status: result.status,
               message: result.message,
-              html: `<div data-router-view data-router-error="${result.status}">${html}</div>`,
+              html: `<div data-router-view data-router-error="${escapeHtml(result.status)}">${html}</div>`,
               head: serializeHead(headStore.entries),
             };
           } catch (e) {
@@ -3495,7 +3499,7 @@ export function router(options: RouterOptions = {}): RouterBuilder {
           }
         }
         const escapedMessage = escapeHtml(result.message);
-        const html = `<div data-router-view data-router-error="${result.status}">${escapedMessage}</div>`;
+        const html = `<div data-router-view data-router-error="${escapeHtml(result.status)}">${escapedMessage}</div>`;
         return {
           kind: "error",
           status: result.status,

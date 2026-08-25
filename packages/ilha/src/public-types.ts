@@ -4,9 +4,11 @@ import {
   ilha,
   action,
   batch,
+  css,
   derived,
   effect,
   html,
+  json,
   onError,
   onUncaughtError,
   persist,
@@ -19,6 +21,7 @@ import {
   type EffectOnceContext,
   type ErrorContext,
   type ErrorSource,
+  type ExternalSignal,
   type HydratableOptions,
   type Island,
   type IslandComponent,
@@ -26,10 +29,20 @@ import {
   type NativeEventHandler,
   type PersistOptions,
   type PersistStorage,
+  type RawHtml,
   type SignalAccessor,
   type StateAccessor,
 } from "./index";
 import { jsx, Fragment } from "./jsx-runtime";
+
+// ─── json() / css() safe content helpers ─────────────────────────────────
+
+export const typeCheckedJson: RawHtml = json({ a: "</script>", b: [1, 2] });
+void typeCheckedJson;
+export const typeCheckedCss: RawHtml = css("a{color:red}");
+void typeCheckedCss;
+// @ts-expect-error css() accepts a string only — it is an escapement, not a serializer
+css(42);
 
 // ─── Signal accessors ─────────────────────────────────────────────────────
 
@@ -39,6 +52,16 @@ export const typeCheckedNativeHandler: NativeEventHandler<InputEvent> = (event, 
   void inputEvent;
   void abortSignal;
 };
+
+// ExternalSignal is an alias of SignalAccessor — the contract type for
+// `bind:*` template plumbing. Verify the alias is bidirectional.
+// SAFETY: null-as assertions are type-level only; nothing is constructed or
+// dereferenced at runtime.
+const aliasCheckA: SignalAccessor<number> = null as unknown as ExternalSignal<number>;
+// SAFETY: same type-level check in the reverse direction.
+const aliasCheckB: ExternalSignal<number> = null as unknown as SignalAccessor<number>;
+void aliasCheckA;
+void aliasCheckB;
 
 export const typeCheckedExternalSignal: SignalAccessor<number> = signal(0);
 typeCheckedExternalSignal((previous) => previous + 1);
@@ -361,12 +384,17 @@ const typeCheckedMorphHost = document.createElement("div");
 morph(typeCheckedMorphHost, "<p>morphed</p>");
 
 // Standalone effect returns a stop function; island effect() registers a slot.
+// The union return type is deliberate: the same call shape cannot be
+// discriminated at the call site, so document it instead of masking it.
 export const typeCheckedStandaloneEffect: () => void = effect(() => {}) as () => void;
 export const TypeCheckedStandaloneEffectInside = ilha(() => {
   const stopOrVoid: void | (() => void) = effect(() => {});
   void stopOrVoid;
   return html`<p>ok</p>`;
 });
+// The standalone cast is intentional: at module scope effect() always returns
+// a stop function (see the JSDoc @returns contract on `effect`).
+void typeCheckedStandaloneEffect;
 
 // island() call returns the IslandCall composition rather than HTML
 export const typeCheckedComposition: ReturnType<typeof TypeCheckedMethodsIsland> =

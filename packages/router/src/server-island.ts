@@ -17,10 +17,13 @@
 
 import { morph } from "ilha";
 
+import { parseSnapshotAttr } from "./snapshot";
+
 /** Symbol.for keeps brands stable across duplicate ilha copies in one realm. */
 const ISLAND = Symbol.for("ilha.island");
 const ISLAND_SLOT_TAG = Symbol.for("ilha.islandSlotTag");
 const ISLAND_MOUNT_INTERNAL = Symbol.for("ilha.islandMountInternal");
+const ISLAND_CALL = Symbol.for("ilha.islandCall");
 
 const STATE_ATTR = "data-ilha-state";
 const EVENT_SENTINEL_ATTR = "data-ilha-on";
@@ -50,16 +53,10 @@ export interface ServerIslandHandle {
   updateProps: (props?: Record<string, unknown>) => void;
 }
 
-/** Defensive snapshot parse — mirrors core's guards in miniature. */
+/** Defensive snapshot parse — reuses the shared guarded parser (size cap,
+ * plain-object check, depth cap, prototype-key stripping). */
 function parseSnapshot(raw: string): Record<string, unknown> | undefined {
-  if (raw.length > 256 * 1024) return undefined;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
+  return parseSnapshotAttr(raw);
 }
 
 function assertValidTag(tag: string): string {
@@ -123,10 +120,6 @@ function hydrateServerIsland(
       });
   };
 
-  // Reconnect event sentinels to named actions via the hydration manifest.
-  // Re-run after every frame: morph may introduce new sentinel elements.
-  // Elements patched in place keep their listeners, so wired elements are
-  // tracked and skipped — otherwise actions would fire twice per click.
   // Reconnect event sentinels to named actions via the hydration manifest.
   // Frames re-render the island, so sentinel indexes and per-item args change
   // between renders — listeners are detached and rebuilt from scratch after
@@ -305,16 +298,34 @@ function hydrateServerIsland(
  * generated virtual modules — not by application code.
  *
  * @param id - Stable identity (`<relative-path>#<export>`), for diagnostics.
- * @param as - Slot tag declared by the server island's `.as()` (default div).
+ * @param as - Slot tag declared by the server island's `{ as }` option (default div).
  * @param wiring - Stream/action transports wired to tacho stubs by codegen.
  */
+interface IslandCallShape {
+  [ISLAND_CALL]: true;
+  island: ServerIslandCallable;
+  props?: Record<string, unknown>;
+  key: string;
+}
+
+export type ServerIslandCallable = Record<symbol, unknown> &
+  ((props?: Record<string, unknown>) => string) & {
+    mount: (host: Element) => () => void;
+    toString: () => string;
+    key: (slotKey: string) => (props?: Record<string, unknown>) => IslandCallShape;
+  };
+
 export function __ilhaServerIsland(
   id: string,
   as: string,
   wiring: ServerIslandWiring = {},
-): unknown {
+): ServerIslandCallable {
   const slotTag = assertValidTag(as);
 
+  // SAFETY: the callable only gains `.toString`/`.key`/`.mount` members at
+  // runtime below; the assert declares the runtime-finished surface so
+  // consumers can call them without a cast. Not assignable structurally until
+  // the members are set, so the single typed bridge here is required.
   const island = ((props?: Record<string, unknown>): string => {
     // Client composition interpolates proxies through emitIslandSlot's sync
     // path, which calls toString() for inline HTML. A proxy cannot render —
@@ -322,15 +333,18 @@ export function __ilhaServerIsland(
     // hydration (or the frame bootstrap) fills the DOM.
     void props;
     return "";
-  }) as Record<symbol, unknown> & ((props?: Record<string, unknown>) => string);
+  }) as unknown as ServerIslandCallable;
 
   island[ISLAND] = true;
   island[ISLAND_SLOT_TAG] = slotTag;
+  // SAFETY: the island object is a brand-shaped callable; assigning the
+  // render-shim members via a record view is the intended bridge contract.
   (island as unknown as Record<string, unknown>).toString = (): string => "";
 
-  // Builder parity for layout composition: wrapLayout calls page.key("page").
+  // wrapLayout composition calls page.key("page").
   // Returns the IslandCall shape ilha's interpolateValue recognises.
   const ISLAND_CALL = Symbol.for("ilha.islandCall");
+  // SAFETY: see above — `.key` is a brand member on the callable island.
   (island as unknown as Record<string, unknown>).key = (slotKey: string) => {
     if (typeof slotKey !== "string" || slotKey.trim().length === 0 || slotKey.includes(":")) {
       throw new Error('server island key() requires a non-empty key without ":".');
@@ -343,10 +357,13 @@ export function __ilhaServerIsland(
     });
   };
 
+  // SAFETY: symbol-keyed internal mount hooks are exposed on the island object
+  // for ilha's mount machinery to discover.
   (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
     host: Element,
   ): ServerIslandHandle => hydrateServerIsland(host, id, wiring);
 
+  // SAFETY: `.mount` mirrors the core island method surface on the proxy.
   (island as unknown as Record<string, unknown>).mount = (host: Element): (() => void) =>
     hydrateServerIsland(host, id, wiring).unmount;
 

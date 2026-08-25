@@ -112,8 +112,12 @@ A `.server.tsx` file in the pages directory makes the whole route server-rendere
 ```tsx twoslash
 // src/pages/about.server.tsx
 import { ilha } from "ilha";
-
-export async function load({ params, request }: any) {
+// @noErrors
+import type { FrameLoaderContext } from "@ilha/router/server-island-registry";
+export async function load({
+  params,
+  request,
+}: FrameLoaderContext) {
   return { path: new URL(request.url).pathname, id: params.id };
 }
 

@@ -123,6 +123,20 @@ describe("ilha JSX runtime", () => {
     expect(normalizeHtml(<p>hello</p>)).toBe("<p>hello</p>");
   });
 
+  it("renders multi-attribute, multi-child elements byte-identically (TemplateStringsArray path)", () => {
+    // Exercises the jsx -> renderJsxElement -> html(toTemplateStrings(chunks)) path
+    // for a tag carrying several attributes and several children, pinning the
+    // chunks/values alternation the helper documents.
+    const out = jsx(
+      "div",
+      { className: "a b", "data-id": "42" },
+      undefined,
+      "child-one",
+      "child-two",
+    );
+    expect(out.value).toBe('<div class="a b" data-id="42">child-onechild-two</div>');
+  });
+
   it("escapes interpolated strings", () => {
     const val = '<script>alert("xss")</script>';
     expect((<p>{val}</p>).value).toBe("<p>&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;</p>");

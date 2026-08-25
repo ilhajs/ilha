@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 import {
-  getServerIslandRenderer,
+  getServerIslandEntry,
   isTrustedOrigin,
   registerServerIsland,
   renderServerIsland,
@@ -237,8 +237,8 @@ describe("@ilha/router/ssr", () => {
   });
 
   test("registry lookup round-trips", () => {
-    expect(getServerIslandRenderer("missing")).toBeUndefined();
-    const entry = getServerIslandRenderer("test-island-id");
+    expect(getServerIslandEntry("missing")).toBeUndefined();
+    const entry = getServerIslandEntry("test-island-id");
     expect(typeof entry?.render).toBe("function");
   });
 

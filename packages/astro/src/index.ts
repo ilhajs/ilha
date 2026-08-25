@@ -18,6 +18,8 @@ const ASTRO_RENDERER_GLOBAL = Symbol.for("ilha.astroRenderer");
 const rendererName = "@ilha/astro";
 
 function setRendererMarker(): void {
+  // SAFETY: ASTRO_RENDERER_GLOBAL is a Symbol.for key this module owns; the
+  // Record cast is the cross-realm globalThis branding surface.
   (globalThis as unknown as Record<symbol, unknown>)[ASTRO_RENDERER_GLOBAL] = rendererName;
 }
 
@@ -72,8 +74,8 @@ function optionsPlugin(options: IlhaIntegrationOptions) {
 export function getRenderer(): AstroRenderer {
   return {
     name: "@ilha/astro",
-    clientEntrypoint: "@ilha/astro/client.js",
-    serverEntrypoint: "@ilha/astro/server.js",
+    clientEntrypoint: "@ilha/astro/client",
+    serverEntrypoint: "@ilha/astro/server",
   };
 }
 

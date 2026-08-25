@@ -34,11 +34,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./client.js": {
+    "./client": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js"
     },
-    "./server.js": {
+    "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
     }

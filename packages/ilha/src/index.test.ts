@@ -27,7 +27,7 @@ import { jsx } from "./jsx-runtime";
 
 // Test adapter standing in for @ilha/router's manifest serializer: captures
 // the manifest data core collects instead of asserting on markup ownership.
-let capturedManifests: Array<Record<string, unknown>> = [];
+const capturedManifests: Array<Record<string, unknown>> = [];
 setServerManifestSerializer({
   template(manifest) {
     const entry = { ...Object.fromEntries(manifest) };
@@ -1426,6 +1426,37 @@ describe("top-level helpers", () => {
   });
 });
 
+// ─── nested select accessors (selector + variadic path) ──────────────────
+
+describe("select() nested accessors", () => {
+  it("variadic path reads and writes the nested property, preserving siblings", () => {
+    const root = signal({ profile: { name: "a", age: 1 }, other: { x: 1 } });
+    const name = root.select("profile", "name");
+    expect(name()).toBe("a");
+    name("b");
+    expect(root().profile.name).toBe("b");
+    expect(root().profile.age).toBe(1);
+    expect(root().other).toEqual({ x: 1 });
+  });
+
+  it("selector form reads and writes through the tracked path", () => {
+    const root = signal({ user: { name: "Ilha" }, count: 0 });
+    const name = root.select((s) => s.user.name);
+    expect(name()).toBe("Ilha");
+    name("new");
+    expect(root().user.name).toBe("new");
+    expect(root().count).toBe(0);
+  });
+
+  it("variadic path writes into an array element without touching siblings", () => {
+    const root = signal({ todos: [{ text: "a" }, { text: "b" }] });
+    const firstText = root.select("todos", 0, "text");
+    firstText("A");
+    expect(root().todos[0].text).toBe("A");
+    expect(root().todos[1].text).toBe("b");
+  });
+});
+
 // ─── raw rendering boundary (morph identity) ──────────────────────────────
 
 describe("raw rendering boundary", () => {
@@ -1437,6 +1468,99 @@ describe("raw rendering boundary", () => {
   });
 });
 
+// ─── authoring guidance (dev warnings) ────────────────────────────────────
+
+describe("authoring guidance", () => {
+  it("signal() created during an island render warns and suggests state()", () => {
+    const warnings = captureWarnings(() => {
+      const Island = ilha(() => {
+        const s = signal(0);
+        return html`<p>${s()}</p>`;
+      });
+      Island.toString();
+    });
+    expect(warnings.some((w) => w.includes("signal()") && w.includes("state()"))).toBe(true);
+  });
+
+  it("computed() created during an island render warns and suggests derived()", () => {
+    const warnings = captureWarnings(() => {
+      const Island = ilha(() => {
+        const s = signal(0);
+        const d = computed(() => s() * 2);
+        return html`<p>${d()}</p>`;
+      });
+      Island.toString();
+    });
+    expect(warnings.some((w) => w.includes("computed()") && w.includes("derived()"))).toBe(true);
+  });
+
+  it("module-scope signal()/computed() never warns", () => {
+    const warnings = captureWarnings(() => {
+      const s = signal(0);
+      const d = computed(() => s() * 2);
+      void d();
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  it("signal() inside effect.once() (post-mount) never warns", () => {
+    const warnings = captureWarnings(() => {
+      const Island = ilha(() => {
+        effect.once(() => {
+          const s = signal(0);
+          void s();
+        });
+        return html`<p>ok</p>`;
+      });
+      const host = document.createElement("div");
+      Island.mount(host);
+      cleanup(host);
+    });
+    expect(warnings.filter((w) => w.includes("signal()"))).toEqual([]);
+  });
+
+  it("sync toString() with async derived warns and suggests toStringAsync", () => {
+    const warnings = captureWarnings(() => {
+      const Island = ilha(() => {
+        const data = derived(async () => {
+          await new Promise((r) => setTimeout(r, 1));
+          return "resolved";
+        });
+        return html`<p>${data() ?? "loading"}</p>`;
+      });
+      Island.toString();
+    });
+    expect(warnings.some((w) => w.includes("toString()") && w.includes("toStringAsync"))).toBe(
+      true,
+    );
+  });
+
+  it("toStringAsync with async derived and sync toString without async derived never warn", async () => {
+    const asyncWarnings = captureWarnings(() => {
+      const Island = ilha(() => {
+        const data = derived(async () => {
+          await new Promise((r) => setTimeout(r, 1));
+          return "resolved";
+        });
+        return html`<p>${data() ?? "loading"}</p>`;
+      });
+      void Island.toStringAsync();
+    });
+    expect(asyncWarnings.filter((w) => w.includes("toString()"))).toEqual([]);
+
+    const syncWarnings = captureWarnings(() => {
+      const Island = ilha(() => {
+        const data = derived(() => 42);
+        return html`<p>${data()}</p>`;
+      });
+      Island.toString();
+    });
+    expect(syncWarnings.filter((w) => w.includes("toString()"))).toEqual([]);
+  });
+});
+
 function renderState(island: unknown): Promise<string> {
-  return (island as Record<symbol, any>)[Symbol.for("ilha.renderState")]({});
+  return (island as Record<symbol, (props?: unknown) => Promise<string>>)[
+    Symbol.for("ilha.renderState")
+  ]({});
 }

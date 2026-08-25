@@ -21,6 +21,7 @@ import {
   navigate,
   Redirect,
   redirect,
+  resolveRedirectTarget,
   router,
   serializeHead,
   wrapLayout,
@@ -36,6 +37,8 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
 
   function makeEl(inner = ""): Element {
     const el = document.createElement("div");
+    // pi-lens-ignore: ast-grep:no-inner-html, slop — test fixture only; the markup
+    // is an author-controlled literal simulating attacker payloads.
     el.innerHTML = inner;
     document.body.appendChild(el);
     return el;
@@ -179,7 +182,11 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       const r = router().route("/", Page, load);
       const html = await r.renderHydratable("http://localhost/", { index: Page });
       expect(html).not.toContain("<script>alert");
-      expect(html).toContain("&quot;&gt;&lt;script&gt;");
+      // Post-fix: redirect targets are normalized through the URL parser, so
+      // the payload is percent-encoded (canonical URL data) rather than kept
+      // raw-and-HTML-escaped. Either way no live markup can survive.
+      expect(html).toContain("%3E%3Cscript%3E");
+      expect(html).not.toContain("></script>");
     });
 
     it("blocks cross-origin redirects by default (renderResponse)", async () => {
@@ -231,6 +238,56 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       const res = await r.runLoader("http://localhost/");
       expect(res).toEqual({ kind: "redirect", to: "/login", status: 307 });
     });
+
+    it("rejects backslash-smuggled authority targets", async () => {
+      const load = loader(async () => {
+        redirect("/\\evil.example/phish");
+      });
+      const r = router().route("/", Page, load);
+      const res = await r.runLoader("http://localhost/");
+      expect(res.kind).toBe("error");
+      if (res.kind === "error") expect(res.status).toBe(500);
+    });
+
+    it("respond() never emits a backslash or CRLF Location header", async () => {
+      const backslash = loader(async () => {
+        redirect("/\\evil.example");
+      });
+      const crlf = loader(async () => {
+        redirect("/x\r\nX-Evil: 1");
+      });
+      const r1 = router().route("/", Page, backslash);
+      const res1 = await r1.respond("http://localhost/", { index: Page });
+      expect(res1.status).toBe(500);
+      expect(res1.headers.get("location")).toBeNull();
+
+      const r2 = router().route("/", Page, crlf);
+      const res2 = await r2.respond("http://localhost/", { index: Page });
+      expect(res2.status).toBe(500);
+      expect(res2.headers.get("location")).toBeNull();
+    });
+
+    it("resolveRedirectTarget rejects control-char-padded external targets", () => {
+      const base = new URL("https://app.com/");
+      expect(resolveRedirectTarget("/\t/evil.example", base, false)).toEqual({ ok: false });
+      expect(resolveRedirectTarget("/\\evil.example", base, false)).toEqual({ ok: false });
+      expect(resolveRedirectTarget(" /\\evil.example", base, false)).toEqual({ ok: false });
+    });
+
+    it("resolveRedirectTarget: relative, same-origin absolute, and opted-in external", () => {
+      const base = new URL("https://app.com/");
+      expect(resolveRedirectTarget("/login", base, false)).toEqual({ ok: true, to: "/login" });
+      expect(resolveRedirectTarget("https://app.com/dest?a=1", base, false)).toEqual({
+        ok: true,
+        to: "/dest?a=1",
+      });
+      expect(resolveRedirectTarget("https://other.example/x", base, false)).toEqual({ ok: false });
+      expect(resolveRedirectTarget("https://other.example/x", base, true)).toEqual({
+        ok: true,
+        to: "https://other.example/x",
+      });
+      expect(resolveRedirectTarget("javascript:alert(1)", base, false)).toEqual({ ok: false });
+    });
   });
 
   describe("sentinel status validation", () => {
@@ -281,6 +338,50 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       ]);
       expect(unsafe.headTags).not.toContain("refresh");
       expect(unsafe.headTags).not.toContain("evil.example");
+    });
+
+    it("drops backslash-smuggled and external refresh targets; keeps external script/link", () => {
+      const out = serializeHead([
+        { meta: [{ "http-equiv": "refresh", content: "0; url=/\\evil.example" }] },
+        { meta: [{ "http-equiv": "refresh", content: "0; url=https://evil.example/x" }] },
+        { meta: [{ "http-equiv": "refresh", content: "0; url=/home" }] },
+        { script: [{ src: "/\\evil.example/app.js" }] },
+        { script: [{ src: "https://evil.example/ok.js" }] },
+        { link: [{ rel: "stylesheet", href: "https://evil.example/app.css" }] },
+      ]);
+      // Both external refresh targets dropped; only the relative one survives.
+      expect(out.headTags.match(/http-equiv="refresh"/g) ?? []).toHaveLength(1);
+      expect(out.headTags).not.toContain("/\\evil.example/app.js");
+      // External HTTPS script/link remain supported (context policy).
+      expect(out.headTags).toContain("https://evil.example/ok.js");
+      expect(out.headTags).toContain("https://evil.example/app.css");
+    });
+  });
+
+  describe("loader error status validation", () => {
+    it("clamps loader error status outside 400-599 to 500", async () => {
+      const load = loader(async () => {
+        throw Object.assign(new Error("boom"), { status: 600 });
+      });
+      const r = router().route("/", Page, load);
+      const res = await r.respond("http://localhost/", { index: Page });
+      expect(res.status).toBe(500);
+      const html = await res.text();
+      expect(html).toContain('data-router-error="500"');
+      expect(html).not.toContain('data-router-error="600"');
+    });
+
+    it("escapes loader error status attribute and message", async () => {
+      const load = loader(async () => {
+        throw Object.assign(new Error("<x>"), { status: 418 });
+      });
+      const r = router().route("/", Page, load);
+      const res = await r.respond("http://localhost/", { index: Page });
+      expect(res.status).toBe(418);
+      const html = await res.text();
+      expect(html).toContain('data-router-error="418"');
+      expect(html).not.toContain("<x>");
+      expect(html).toContain("&lt;x&gt;");
     });
   });
 
@@ -581,6 +682,8 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
 
   function makeEl(inner = ""): Element {
     const el = document.createElement("div");
+    // pi-lens-ignore: ast-grep:no-inner-html, slop — test fixture only; the markup
+    // is an author-controlled literal simulating attacker payloads.
     el.innerHTML = inner;
     document.body.appendChild(el);
     return el;
@@ -919,6 +1022,8 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
 
   function makeEl(inner = ""): Element {
     const el = document.createElement("div");
+    // pi-lens-ignore: ast-grep:no-inner-html, slop — test fixture only; the markup
+    // is an author-controlled literal simulating attacker payloads.
     el.innerHTML = inner;
     document.body.appendChild(el);
     return el;
