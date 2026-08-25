@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
-import { effect, ilha, html, mount, raw, signal, state, type Island } from "./index";
+import { effect, ilha, html, mount, raw, state, type Island } from "./index";
 import { jsx, jsxs } from "./jsx-runtime";
+import { signal } from "./test-signal";
 
 const RAW = Symbol.for("ilha.raw");
 

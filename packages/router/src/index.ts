@@ -413,7 +413,7 @@ function layoutHtmlWithEmptyKPage(
   // SAFETY: shellChild is a callable given the IslandCall symbol brand so the
   // layout's interpolation treats it as a slot marker — it is never mounted.
   const shellChild = ((partial?: Record<string, unknown>) =>
-    rawKeyed({ ...props, ...(partial ?? {}) })) as unknown as Island<any>;
+    rawKeyed({ ...props, ...partial })) as unknown as Island<any>;
   Object.assign(shellChild, { toString: () => "" });
   // SAFETY: the symbol brand is the runtime marker interpolateValue checks to
   // treat shellChild as an in-template island slot instead of a plain callable.
@@ -454,8 +454,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any>): Island<any
   // interpolations treat it as a slot marker; it is never mounted directly.
   const KeyedPage = ((props?: Record<string, unknown>) => {
     const merged = layoutInputRef.merged;
-    const slotProps =
-      merged && typeof merged === "object" ? { ...merged, ...(props ?? {}) } : props;
+    const slotProps = merged && typeof merged === "object" ? { ...merged, ...props } : props;
     return rawKeyedPage(slotProps);
   }) as unknown as Island<any>;
   Object.assign(KeyedPage, { toString: page.toString.bind(page) });
@@ -601,7 +600,7 @@ export function wrapLayout(layout: LayoutHandler, page: Island<any>): Island<any
       setLayoutMergedInput(p);
       for (const [pageHost, entry] of pageHandles) {
         if (layoutHost.contains(pageHost)) {
-          entry.handle.updateProps({ ...(entry.mountProps ?? {}), ...(p ?? {}) });
+          entry.handle.updateProps({ ...entry.mountProps, ...p });
         }
       }
       coreUpdate?.(p);
@@ -2247,7 +2246,7 @@ function applyHeadEntriesToDocument(entries: HeadInput[]): void {
     keepManaged.add(el);
   }
 
-  for (const el of [...document.head.querySelectorAll(`[${ILHA_HEAD_ATTR}]`)]) {
+  for (const el of document.head.querySelectorAll(`[${ILHA_HEAD_ATTR}]`)) {
     if (!keepManaged.has(el)) el.remove();
   }
 
@@ -2324,6 +2323,7 @@ function isSafeUrl(value: string): boolean {
   // Reject backslashes and URL-ignored control chars — the WHATWG parser
   // treats `\` as `/` and drops tab/newline/CR, so `\evil.com` re-parses as
   // an external origin and bypasses the protocol-relative check below.
+  // oxlint-disable-next-line no-control-regex -- intentional: HTML parsers strip these control chars from URLs
   if (/[\\\u0000-\u0020]/.test(v)) return false;
   // Relative and in-page targets are fine, but protocol-relative URLs are external.
   if (v.startsWith("//")) return false;
@@ -2433,6 +2433,7 @@ function isSafeRefreshTarget(content: string): boolean {
   // are provably same-origin; absolute and smuggled (`\`, control chars)
   // targets are dropped. External resources like script/link keep their own
   // (broader) policy in isSafeUrl.
+  // oxlint-disable-next-line no-control-regex -- intentional: CR/LF/backslash are redirect-vector chars
   if (/[\\\u0000-\u0020]/.test(target)) return false;
   if (target.startsWith("//")) return false;
   return target.startsWith("/") || target.startsWith("./");
@@ -2541,6 +2542,7 @@ export function resolveRedirectTarget(
   // paths, so `\evil.com` re-parses as an external origin — an open-redirect
   // vector that the string prefix checks below could never see. CR/LF would
   // also corrupt a `Location` header. Legit targets percent-encode these.
+  // oxlint-disable-next-line no-control-regex -- intentional: CRLF would corrupt the Location header
   if (/[\\\u0000-\u0020]/.test(to)) return { ok: false };
   try {
     const u = new URL(to, base);

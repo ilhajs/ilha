@@ -11,8 +11,8 @@ import {
   json,
   onError,
   onUncaughtError,
+  context,
   persist,
-  signal,
   state,
   untrack,
   type ActionAccessor,
@@ -63,12 +63,12 @@ const aliasCheckB: ExternalSignal<number> = null as unknown as SignalAccessor<nu
 void aliasCheckA;
 void aliasCheckB;
 
-export const typeCheckedExternalSignal: SignalAccessor<number> = signal(0);
+export const typeCheckedExternalSignal: SignalAccessor<number> = context("types.signal.num", 0);
 typeCheckedExternalSignal((previous) => previous + 1);
 // @ts-expect-error updater must return the signal value type
 typeCheckedExternalSignal(() => "wrong");
 
-const typeCheckedNestedSignal = signal({ profile: { name: "Ilha", age: 1 } });
+const typeCheckedNestedSignal = context("types.signal", { profile: { name: "Ilha", age: 1 } });
 const typeCheckedSelectedByFunction: SignalAccessor<string> = typeCheckedNestedSignal.select(
   (state) => state.profile.name,
 );
@@ -86,12 +86,15 @@ void typeCheckedSelectedByFunction;
 void typeCheckedWrongSelectedPath;
 
 const nextCallback = () => "next";
-const typeCheckedFunctionSignal = signal<() => string>(() => "initial");
+const typeCheckedFunctionSignal = context<() => string>("types.signal.fn", () => "initial");
 // @ts-expect-error function values must be returned from an updater wrapper
 typeCheckedFunctionSignal(nextCallback);
 typeCheckedFunctionSignal(() => nextCallback);
 
-const typeCheckedNullableFunctionSignal = signal<(() => string) | null>(null);
+const typeCheckedNullableFunctionSignal = context<(() => string) | null>(
+  "types.signal.fnnull",
+  null,
+);
 // @ts-expect-error function members of unions must also use an updater wrapper
 typeCheckedNullableFunctionSignal(nextCallback);
 typeCheckedNullableFunctionSignal(() => nextCallback);

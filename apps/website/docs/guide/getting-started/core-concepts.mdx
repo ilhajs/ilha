@@ -52,20 +52,26 @@ ilha uses signals for reactive state. A signal is a value you can read and updat
 A state accessor works as both a getter and setter:
 
 ```ts twoslash
-import { signal } from "ilha";
+import { state } from "ilha";
+import { ilha } from "ilha";
 
-const count = signal(0);
-count(); // read
-count(5); // write
+const Counter = ilha(() => {
+  const count = state(0);
+  count(); // read
+  count(5); // write
+  return null as unknown as string;
+});
 ```
 
 Inside JSX, render the signal value directly:
 
 ```tsx twoslash
-import { signal } from "ilha";
+import { ilha, state } from "ilha";
 
-const count = signal(0);
-<p>{count()}</p>;
+const App = ilha(() => {
+  const count = state(0);
+  return <p>{count()}</p>;
+});
 ```
 
 ## Function-component primitives

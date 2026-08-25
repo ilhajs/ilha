@@ -2,11 +2,12 @@ import { describe, expect, it } from "bun:test";
 
 import { z } from "zod";
 
-import { ilha, html, raw, signal, state } from "./index";
+import { ilha, html, raw, state } from "./index";
 import * as jsxDevRuntime from "./jsx-dev-runtime";
 import { jsx, jsxs } from "./jsx-runtime";
 import * as jsxRuntime from "./jsx-runtime";
 import type { JSX as IlhaJSX } from "./jsx-types";
+import { signal } from "./test-signal";
 
 function normalizeHtml(s: string | { value: string }): string {
   const str = typeof s === "object" ? s.value : s;

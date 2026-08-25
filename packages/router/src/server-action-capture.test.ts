@@ -9,7 +9,7 @@ import { __ilhaServerAction } from "./server-island-registry";
 const manifests: Array<Record<string, unknown>> = [];
 setServerManifestSerializer({
   template(manifest) {
-    const entry = { ...Object.fromEntries(manifest) };
+    const entry = Object.fromEntries(manifest);
     manifests.push(entry);
     return `<template data-ilha-actions='${JSON.stringify(entry).replace(/'/g, "&#39;")}'></template>`;
   },

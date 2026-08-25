@@ -114,8 +114,8 @@ function detectIlhaConsumers(root: string): string[] {
   const appPkg = readJson(join(root, "package.json"));
   if (!appPkg) return [];
   const deps = {
-    ...((appPkg.dependencies as Record<string, string>) ?? {}),
-    ...((appPkg.devDependencies as Record<string, string>) ?? {}),
+    ...(appPkg.dependencies as Record<string, string>),
+    ...(appPkg.devDependencies as Record<string, string>),
   };
   const found: string[] = [];
   for (const name of Object.keys(deps)) {

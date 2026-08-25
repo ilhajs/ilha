@@ -96,9 +96,9 @@ import { pageRouter, registry } from "ilha:pages/client";
 pageRouter.hydrate(registry);`;
 
 export const ILHA_STORE_CODE = `// src/lib/cart.ts
-import { signal, persist } from "ilha";
+import { context, persist } from "ilha";
 
-export const cart = signal([] as Item[]);
+export const cart = context("cart.items", [] as Item[]);
 persist(cart, "cart");
 
 export const add = (product: Item) =>

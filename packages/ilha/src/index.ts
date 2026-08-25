@@ -1,11 +1,4 @@
-import {
-  signal,
-  computed,
-  effect as alienEffect,
-  setActiveSub,
-  startBatch,
-  endBatch,
-} from "alien-signals";
+import { signal, effect as alienEffect, setActiveSub, startBatch, endBatch } from "alien-signals";
 
 import {
   ISLAND_MOUNT_HANDLES,
@@ -226,9 +219,9 @@ function shallowEqualInput(a: unknown, b: unknown): boolean {
 // effect (e.g. an effect.once in the parent wrote new props) and we must reconcile.
 function parseHtmlFragment(html: string): DocumentFragment {
   const tpl = document.createElement("template");
-  // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
   // parse into a detached <template> (no script execution, not the live
   // document) to inspect the rendered tree.
+  // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
   tpl.innerHTML = html;
   return tpl.content;
 }
@@ -842,6 +835,7 @@ const SAFE_URL_RE =
 // inside a URL before resolving its scheme, so "java\tscript:" reaches the
 // browser as "javascript:". Normalize the same way before testing SAFE_URL_RE.
 function isSafeUrl(value: string): boolean {
+  // oxlint-disable-next-line no-control-regex -- intentional: mirrors the HTML parser stripping control chars from URLs
   return SAFE_URL_RE.test(value.replace(/[\u0000-\u0020]/g, ""));
 }
 
@@ -1923,7 +1917,7 @@ function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml 
     if (m && __DEV__) {
       warn(
         `bind:${m[1]} requires a signal accessor — got ${typeof value}. ` +
-          `Use ilha.signal() or a .state() accessor.`,
+          `Use state(), derived(), or a context() accessor.`,
       );
     }
 
@@ -2067,18 +2061,23 @@ function unwrapHtml(v: string | RawHtml): string {
 // Context registry
 // ---------------------------------------------
 
-type ContextSignal<T> = { (): T; (value: SignalSetter<T>): void };
+// Same accessor shape as state()/signal accessors; marked with SIGNAL_ACCESSOR
+// so context signals work in render subscription, bind:* syntax, and .select().
+type ContextSignal<T> = SignalAccessor<T>;
 const contextRegistry = new Map<string, ContextSignal<unknown>>();
 
 function ilhaContextFn<T>(key: string, initial: T): ContextSignal<T> {
   if (contextRegistry.has(key)) return contextRegistry.get(key) as ContextSignal<T>;
   const s = signal(initial);
-  const accessor = (...args: unknown[]): unknown => {
+  // Marked as a signal accessor so context signals work everywhere a local
+  // state accessor does: render subscription, bind:* template syntax,
+  // .select() paths, and standalone effect()/persist().
+  const accessor = markSignalAccessor((...args: unknown[]): unknown => {
     if (args.length === 0) return s();
     s(resolveSignalSetter(() => s(), args[0] as SignalSetter<T>));
-  };
-  contextRegistry.set(key, accessor as ContextSignal<unknown>);
-  return accessor as ContextSignal<T>;
+  });
+  contextRegistry.set(key, accessor as unknown as ContextSignal<unknown>);
+  return accessor as unknown as ContextSignal<T>;
 }
 
 // The registry is module-level and otherwise append-only; long-lived SPAs or
@@ -2102,14 +2101,8 @@ const ilhaContext = Object.assign(ilhaContextFn, {
 
 /**
  * Create a free-standing reactive signal that lives outside any island.
- * Useful for sharing state across islands without prop drilling, or for
- * binding form inputs to module-level state via the `bind:value=${signal}`
- * template syntax.
- *
- * The returned accessor is a getter when called with no arguments and a
- * setter when called with one. Reading it inside a `.derived()`, `.effect()`,
- * or during an island render automatically subscribes the surrounding reactive scope —
- * so when the signal changes, dependents re-run as if it were local state.
+ * Internal: used by state()'s slot-drift fallback. The public way to create
+ * free-standing shared state is `context(key, initial)`.
  */
 export function ilhaSignal<T>(initial: T): SignalAccessor<T> {
   if (currentFrame()?.creating && __DEV__) {
@@ -2122,35 +2115,6 @@ export function ilhaSignal<T>(initial: T): SignalAccessor<T> {
   return markSignalAccessor((...args: unknown[]): unknown => {
     if (args.length === 0) return s();
     s(resolveSignalSetter(() => s(), args[0] as SignalSetter<T>));
-  }) as SignalAccessor<T>;
-}
-
-/**
- * Create a free-standing read-only reactive value derived from other signals.
- * The computation is lazy and cached: `fn` re-runs only when a signal it read
- * changed and the computed is read again. Reading it inside a `.derived()`,
- * `.effect()`, an island render, or top-level `effect()` subscribes that scope —
- * dependents re-run when the computed's value changes.
- *
- * ```ts
- * const items = ilha.signal([1, 2, 3]);
- * const total = ilha.computed(() => items().reduce((a, b) => a + b, 0));
- * ```
- */
-function ilhaComputed<T>(fn: () => T): SignalAccessor<T> {
-  if (currentFrame()?.creating && __DEV__) {
-    warn(
-      "computed() created during an island render resets on every rerender — " +
-        "use derived() for island-local derived values.",
-    );
-  }
-  const c = computed(fn);
-  return markSignalAccessor((...args: unknown[]): unknown => {
-    if (args.length > 0) {
-      if (__DEV__) warn("computed() values are read-only — the write was ignored.");
-      return;
-    }
-    return c();
   }) as SignalAccessor<T>;
 }
 
@@ -4194,9 +4158,9 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
       liveHost: preserveSSRDom ? host : undefined,
     });
     if (!preserveSSRDom) {
-      // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
       // host is this island's render target; the markup is the island's
       // html``/JSX output, escaped by default.
+      // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
       host.innerHTML = initial.html;
     }
 
@@ -4327,9 +4291,9 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
 
         const tpl = document.createElement("template");
         const morphRootTag = host.tagName.toLowerCase();
-        // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
         // parse into a detached <template> for structural comparison;
         // morphInner patches the live DOM.
+        // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
         tpl.innerHTML = `<${morphRootTag}>${rendered}</${morphRootTag}>`;
         morphInner(host, tpl.content.firstElementChild as Element);
         lastRendered = rendered;
@@ -4761,23 +4725,23 @@ export function morph(host: Element, html: string): void {
   if (typeof document === "undefined") return;
   const openTag = host.localName ?? "div";
   const tpl = document.createElement("template");
-  // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
   // parse into a detached <template> (no script execution, not the live
   // document) before morphing in place.
+  // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
   tpl.innerHTML = `<${openTag}>${html}</${openTag}>`;
   const next = tpl.content.firstElementChild;
   if (!next || next.localName !== host.localName) {
-    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     // host is this island's render target; markup is the island's
     // html``/JSX output, escaped by default.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     host.innerHTML = html;
     return;
   }
   try {
     morphInner(host, next);
   } catch {
-    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     // fallback render write to host.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     host.innerHTML = html;
   }
 }
@@ -4786,8 +4750,6 @@ export const html = ilhaHtml;
 export const raw = ilhaRaw;
 export const mount = mountAll;
 export const context = ilhaContext;
-export { ilhaSignal as signal };
-export { ilhaComputed as computed };
 
 // Shared URL/style policy — consumed by the JSX runtime (jsx-runtime.ts) and
 // available to advanced template authors who want the same checks in custom

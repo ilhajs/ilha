@@ -9,7 +9,7 @@ import "../happydom.ts";
 const capturedManifests: Array<Record<string, unknown>> = [];
 setServerManifestSerializer({
   template(manifest) {
-    const entry = { ...Object.fromEntries(manifest) };
+    const entry = Object.fromEntries(manifest);
     capturedManifests.push(entry);
     return `<template data-ilha-actions='${JSON.stringify(entry).replace(/'/g, "&#39;")}'></template>`;
   },

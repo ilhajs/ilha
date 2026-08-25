@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { ilha, state, derived, action, effect, onError, signal, html } from "./index";
+import { ilha, state, derived, action, effect, onError, html } from "./index";
+import { signal } from "./test-signal";
 import "../happydom.ts";
 
 test("basic counter island", async () => {

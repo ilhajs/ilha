@@ -110,9 +110,11 @@ Calling `label()` explicitly works the same way inside JSX.
 To update a nested slice of an object or array without replacing the whole value, use `.select()`. Both a selector function and a property path are supported, and both stay writable:
 
 ```tsx twoslash
-import { signal } from "ilha";
+import { context } from "ilha";
 
-const user = signal({ profile: { name: "Ilha" } });
+const user = context("shared.user", {
+  profile: { name: "Ilha" },
+});
 const nameA = user.select((value) => value.profile.name);
 const nameB = user.select("profile", "name");
 ```
@@ -121,7 +123,7 @@ The selector (or path) must traverse nested state. Writes update only that path 
 
 ## Sharing state across islands
 
-`state()` is local to one island instance. To share a value across multiple islands, use a standalone [`signal()` or `context()`](/guide/island/signals) instead.
+`state()` is local to one island instance. To share a value across multiple islands, use a [`context()` signal](/guide/island/signals) instead.
 
 ## Related
 

@@ -5,7 +5,6 @@ import { z } from "zod";
 import {
   action,
   batch,
-  computed,
   context,
   derived,
   effect,
@@ -17,20 +16,20 @@ import {
   onUncaughtError,
   persist,
   raw,
-  signal,
   state,
   type Island,
   untrack,
 } from "./index";
 import { ISLAND_MOUNT_INTERNAL, setServerManifestSerializer } from "./internal";
 import { jsx } from "./jsx-runtime";
+import { signal } from "./test-signal";
 
 // Test adapter standing in for @ilha/router's manifest serializer: captures
 // the manifest data core collects instead of asserting on markup ownership.
 const capturedManifests: Array<Record<string, unknown>> = [];
 setServerManifestSerializer({
   template(manifest) {
-    const entry = { ...Object.fromEntries(manifest) };
+    const entry = Object.fromEntries(manifest);
     capturedManifests.push(entry);
     return `<template data-ilha-actions='${JSON.stringify(entry).replace(/'/g, "&#39;")}'></template>`;
   },
@@ -88,6 +87,7 @@ beforeEach(() => {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  context.clear();
 });
 
 // ─── Primitive ordering / slots ───────────────────────────────────────────
@@ -1335,12 +1335,11 @@ describe("mount() registry and define()", () => {
 // ─── top-level helpers ────────────────────────────────────────────────────
 
 describe("top-level helpers", () => {
-  it("signal/computed reactivity", () => {
+  it("context accessor reactivity", () => {
     const s = signal(1);
-    const d = computed(() => s() * 10);
     let seen = 0;
     const stop = effect(() => {
-      void d();
+      void s();
       seen++;
     }) as () => void;
     expect(seen).toBe(1);
@@ -1385,7 +1384,7 @@ describe("top-level helpers", () => {
       getItem: (k: string) => store.get(k) ?? null,
       setItem: (k: string, v: string) => void store.set(k, v),
     };
-    const s = signal(1);
+    const s = context("test.persist.key", 1);
     const stop = persist(s, "key", { storage });
     expect(Number(store.get("key"))).toBe(1);
     s(42);
@@ -1430,7 +1429,10 @@ describe("top-level helpers", () => {
 
 describe("select() nested accessors", () => {
   it("variadic path reads and writes the nested property, preserving siblings", () => {
-    const root = signal({ profile: { name: "a", age: 1 }, other: { x: 1 } });
+    const root = context("test.select.profile", {
+      profile: { name: "a", age: 1 },
+      other: { x: 1 },
+    });
     const name = root.select("profile", "name");
     expect(name()).toBe("a");
     name("b");
@@ -1440,7 +1442,7 @@ describe("select() nested accessors", () => {
   });
 
   it("selector form reads and writes through the tracked path", () => {
-    const root = signal({ user: { name: "Ilha" }, count: 0 });
+    const root = context("test.select.user", { user: { name: "Ilha" }, count: 0 });
     const name = root.select((s) => s.user.name);
     expect(name()).toBe("Ilha");
     name("new");
@@ -1449,7 +1451,7 @@ describe("select() nested accessors", () => {
   });
 
   it("variadic path writes into an array element without touching siblings", () => {
-    const root = signal({ todos: [{ text: "a" }, { text: "b" }] });
+    const root = context("test.select.todos", { todos: [{ text: "a" }, { text: "b" }] });
     const firstText = root.select("todos", 0, "text");
     firstText("A");
     expect(root().todos[0].text).toBe("A");
@@ -1471,54 +1473,6 @@ describe("raw rendering boundary", () => {
 // ─── authoring guidance (dev warnings) ────────────────────────────────────
 
 describe("authoring guidance", () => {
-  it("signal() created during an island render warns and suggests state()", () => {
-    const warnings = captureWarnings(() => {
-      const Island = ilha(() => {
-        const s = signal(0);
-        return html`<p>${s()}</p>`;
-      });
-      Island.toString();
-    });
-    expect(warnings.some((w) => w.includes("signal()") && w.includes("state()"))).toBe(true);
-  });
-
-  it("computed() created during an island render warns and suggests derived()", () => {
-    const warnings = captureWarnings(() => {
-      const Island = ilha(() => {
-        const s = signal(0);
-        const d = computed(() => s() * 2);
-        return html`<p>${d()}</p>`;
-      });
-      Island.toString();
-    });
-    expect(warnings.some((w) => w.includes("computed()") && w.includes("derived()"))).toBe(true);
-  });
-
-  it("module-scope signal()/computed() never warns", () => {
-    const warnings = captureWarnings(() => {
-      const s = signal(0);
-      const d = computed(() => s() * 2);
-      void d();
-    });
-    expect(warnings).toEqual([]);
-  });
-
-  it("signal() inside effect.once() (post-mount) never warns", () => {
-    const warnings = captureWarnings(() => {
-      const Island = ilha(() => {
-        effect.once(() => {
-          const s = signal(0);
-          void s();
-        });
-        return html`<p>ok</p>`;
-      });
-      const host = document.createElement("div");
-      Island.mount(host);
-      cleanup(host);
-    });
-    expect(warnings.filter((w) => w.includes("signal()"))).toEqual([]);
-  });
-
   it("sync toString() with async derived warns and suggests toStringAsync", () => {
     const warnings = captureWarnings(() => {
       const Island = ilha(() => {

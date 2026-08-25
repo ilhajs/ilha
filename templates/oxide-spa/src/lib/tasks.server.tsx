@@ -1,5 +1,5 @@
 import { Button, Checkbox } from "areia";
-import { action as islandAction, derived, ilha } from "ilha";
+import { derived, ilha } from "ilha";
 import { action, useRequest } from "oxidejs";
 import { each } from "quando";
 import { Publisher } from "tacho";

@@ -1,154 +1,46 @@
 ---
 title: Signals
-description: Create reactive signals and computed values, share state across islands, batch writes, and read values without creating dependencies.
+description: Understand Ilha's signal model — island-local state with state() and derived(), shared state with context(), and batch/untrack control helpers.
 ---
 
-Reactive signals are the primitive that powers state in ilha. In addition to `state()` (local to an island), ilha exports several helpers for cross-island sharing, derived values, side effects, performance, and control:
+Ilha is alien-signals native. Every reactive value in Ilha — `state()`, `derived()`, `context()` — is an accessor over the same tiny signal engine, so one mental model covers all of them. You can also use alien-signals' own helpers (`signal`, `computed`, `effect`) inside islands; they participate in Ilha's reactive graph.
 
-| Helper       | Purpose                                                      |
-| ------------ | ------------------------------------------------------------ |
-| `signal()`   | Create a free-standing signal for one-off shared state       |
-| `computed()` | Create a free-standing read-only value derived from signals  |
-| `context()`  | Create a named global signal accessible from anywhere by key |
-| `effect()`   | Run a reactive side effect outside any island                |
-| `batch()`    | Group multiple writes into a single propagation pass         |
-| `untrack()`  | Read a signal without subscribing the surrounding scope      |
+You rarely need them, though. Reach for Ilha's primitives first:
 
-Two parallel vocabularies exist on purpose: **island-local** primitives (`state()` / `derived()` / `action()` / `effect()` / `effect.once()` / `onError()`) live inside `ilha()` components, persist across rerenders, and are snapshot-restored on hydration. The **standalone** helpers above (`signal()` / `computed()` / `context()` / `batch()` / `untrack()` / `persist()` / module-scope `effect()`) live at module scope for shared state and one-off machinery. Calling `signal()` or `computed()` inside an island render creates a fresh value on every rerender — use `state()` and `derived()` there instead (a dev warning tells you when you do).
+| Primitive            | Where            | Purpose                                             |
+| -------------------- | ---------------- | --------------------------------------------------- |
+| `state(initial)`     | Inside an island | Island-local reactive state                         |
+| `derived(fn)`        | Inside an island | Sync, async, or streamed values computed from state |
+| `action(fn)`         | Inside an island | Operations with `.pending` / `.data` / `.error`     |
+| `effect(fn)`         | Both             | Reactive side effects                               |
+| `context(key, init)` | Module scope     | Named global signal shared across islands           |
+| `batch(fn)`          | Anywhere         | Group writes into one propagation pass              |
+| `untrack(fn)`        | Anywhere         | Read without subscribing                            |
 
 ---
 
-## `signal(initial)`
+## Island-local: `state()` and `derived()`
 
-Creates a free-standing reactive signal that lives outside any island. Useful for sharing state across multiple islands without prop drilling, or for binding form inputs to module-level state.
-
-### Basic usage
-
-```ts twoslash
-import { signal } from "ilha";
-
-const count = signal(0);
-
-count(); // → 0  (read)
-count(5); // → sets to 5 (write)
-count((previous) => previous + 1); // → updates from the latest value
-```
-
-The updater form also works with `context()` and nested `.select()` accessors. If a signal stores a function, return the replacement function from an updater: `callback(() => nextCallback)`.
-
-Reading the signal while an island renders, or inside `derived()` or `effect()`, automatically subscribes that scope, so when the signal changes, dependents re-run as if it were local state.
-
-### Sharing state between islands
-
-Because `signal()` returns a plain accessor, you can import it into any island. When one island writes to it, all others that read it re-render automatically:
+Inside an island, use `state()` for local state and `derived()` for computed values. Slots persist across rerenders and are snapshot-restored on hydration:
 
 ```tsx twoslash
-import { action, ilha, signal } from "ilha";
+import { derived, ilha, state } from "ilha";
 
-const cartCount = signal(0);
-
-const CartButton = ilha(() => {
-  const addToCart = action(() =>
-    cartCount((count) => count + 1),
-  );
-  return <button onclick={addToCart}>Add to cart</button>;
+const CartBadge = ilha(() => {
+  const items = state<string[]>([]);
+  const count = derived(() => items().length);
+  return <span>{count()}</span>;
 });
-
-const CartBadge = ilha(() => <span>{cartCount()}</span>); // [!code highlight]
 ```
 
-Both islands share the same `cartCount` signal. Clicking the button in `CartButton` updates the badge in `CartBadge` without any wiring between them.
+See [State](/guide/island/state) and [Derived](/guide/island/derived).
 
-### Using signals in `bind:` bindings
+## Shared across islands: `context(key, initial)`
 
-Pass a signal directly into a `bind:` attribute to sync a form element with module-level state:
+`context()` creates a **named global signal**. Identical keys always return the same instance, which makes it useful for app-wide singletons (theme, locale, cart):
 
 ```tsx twoslash
-import { ilha, signal } from "ilha";
-
-const query = signal("");
-
-const SearchInput = ilha(() => (
-  <input
-    type="search"
-    value={query()}
-    oninput={(event) => query(event.currentTarget.value)} // [!code highlight]
-  />
-));
-
-const SearchResults = ilha(() => <p>Results for: {query()}</p>);
-```
-
-When the user types, `query` updates and `SearchResults` re-renders automatically — no wiring between islands needed.
-
----
-
-## `computed(fn)`
-
-Creates a free-standing, read-only value derived from other signals. `fn` is lazy and cached — it re-runs only when a signal it read has changed and the computed is read again.
-
-```ts twoslash
-import { signal, computed } from "ilha";
-
-const items = signal([1, 2, 3]);
-const total = computed(() =>
-  items().reduce((a, b) => a + b, 0),
-);
-
-total(); // → 6  (runs fn once, caches the result)
-total(); // → 6  (cached, fn does not re-run)
-items([1, 2, 3, 4]);
-total(); // → 10 (a dependency changed, fn re-runs)
-```
-
-Reading a computed while an island renders, inside `derived()`/`effect()`, or inside a standalone [`effect()`](#effectfn) subscribes that scope, so dependents re-run when the computed's resolved value changes:
-
-```tsx twoslash
-import { ilha, signal, computed } from "ilha";
-
-const base = signal(1);
-const doubled = computed(() => base() * 2);
-
-const Island = ilha(() => <p>{doubled()}</p>);
-```
-
-### Read-only
-
-Writing to a computed is ignored and logs a dev warning — use [`signal()`](#signalinitial) if you need a writable value:
-
-```ts twoslash
-import { computed } from "ilha";
-
-const c = computed(() => 1);
-(c as (v: number) => void)(99); // ignored, dev warning logged
-c(); // → 1
-```
-
----
-
-## `context(key, initial)`
-
-Creates a **named global signal** — a reactive signal shared across all islands. Identical keys always return the same signal instance, which makes it useful for app-wide singletons (theme, locale, current user) where you want registry semantics.
-
-```ts twoslash
-import { context } from "ilha";
-
-const theme = context("app.theme", "light");
-
-theme(); // → "light"
-theme("dark"); // → sets to "dark"
-```
-
-### `signal()` vs `context()`
-
-Both return the same accessor shape and can be used with `bind:` template syntax. Reach for `signal()` when you hold the reference yourself and import it where needed. Reach for `context()` when you want a name-keyed registry so the same signal can be looked up from anywhere by string key — for example, when the consumer lives in a different package or module from where the signal is defined.
-
-### Sharing state between islands
-
-Any island that calls `context()` with the same key gets the same signal. When one island writes to it, all others that read it re-render automatically:
-
-```tsx twoslash
-import { action, ilha, context } from "ilha";
+import { action, context, ilha } from "ilha";
 
 const cartCount = context("cart.count", 0);
 
@@ -162,9 +54,27 @@ const CartButton = ilha(() => {
 const CartBadge = ilha(() => <span>{cartCount()}</span>); // [!code highlight]
 ```
 
-### Using context in `bind:` bindings
+Both islands share the same signal. Clicking the button updates the badge without any wiring between them.
 
-Pass a context signal directly into a `bind:` attribute to sync a form element across islands:
+### Accessor shape
+
+Every accessor reads when called bare and writes when called with a value:
+
+```ts twoslash
+import { context } from "ilha";
+
+const count = context("ui.count", 0);
+
+count(); // → 0  (read)
+count(5); // sets to 5 (write)
+count((previous) => previous + 1); // updates from the latest value
+```
+
+The updater form works on all accessors. If a signal stores a function, return the replacement from an updater: `callback(() => nextCallback)`.
+
+### Use context in `bind:` bindings
+
+Context accessors work anywhere a local state accessor does, including `bind:` template syntax:
 
 ```tsx twoslash
 import { ilha, context } from "ilha";
@@ -182,9 +92,9 @@ const SearchInput = ilha(() => (
 const SearchResults = ilha(() => <p>Results for: {query()}</p>);
 ```
 
-### Initializing with a type
+### Initialization is first-write-wins
 
-The second argument sets the initial value and infers the signal type. The type is fixed at first call — subsequent calls with the same key return the existing signal regardless of what initial value is passed:
+The type and initial value are fixed at first call. Later calls with the same key return the existing signal:
 
 ```tsx twoslash
 import { context } from "ilha";
@@ -193,7 +103,7 @@ const count = context("ui.count", 0); // creates signal<number>
 const same = context("ui.count", 999); // returns same signal, ignores 999
 ```
 
-This means context initialization is effectively first-write-wins. Define context signals in a shared module to ensure consistent initialization across your app:
+Define context signals in a shared module to keep initialization consistent:
 
 ```ts twoslash
 // contexts.ts
@@ -206,25 +116,6 @@ export const userId = context(
 );
 export const sidebar = context("ui.sidebar", true);
 ```
-
-### Reading context inside effects and derived
-
-Context signals are reactive — reading them inside [`effect()`](/guide/island/effect) or [`derived()`](/guide/island/derived) creates a dependency just like reading local state:
-
-```tsx twoslash
-import { effect, ilha, context } from "ilha";
-
-const theme = context("app.theme", "light");
-
-const Island = ilha(() => {
-  effect(() => {
-    document.documentElement.dataset["theme"] = theme();
-  });
-  return <div>content</div>;
-});
-```
-
-Whenever `theme` is updated anywhere in the app, this effect re-runs.
 
 ### SSR behavior
 
@@ -256,32 +147,47 @@ first(); // → 5, unaffected by the delete
 second(); // → 0
 ```
 
----
+## Using alien-signals directly
+
+Because Ilha is built on [alien-signals](https://github.com/stackblitz-labs/alien-signals), its primitives are available inside islands too:
+
+```ts twoslash
+import { computed, signal } from "alien-signals";
+
+const base = signal(1);
+const doubled = computed(() => base() * 2);
+
+doubled(); // → 2
+base(3);
+doubled(); // → 6
+```
+
+Reading these inside an island render subscribes the island just like `state()`. Prefer `state()` / `derived()` / `context()` in application code — the raw engine is an escape hatch for library authors who want to share reactive state with non-Ilha code.
 
 ## `effect(fn)`
 
 Runs a free-standing reactive effect outside any island. `fn` runs once immediately and re-runs whenever a signal it read changes.
 
 ```ts twoslash
-import { signal, effect } from "ilha";
+import { context, effect } from "ilha";
 
-const cart = signal({ count: 0 });
+const cart = context("cart.items", { count: 0 });
 
 const stop = effect(() => {
   document.title = `${cart().count} items`;
 });
 ```
 
-Import `effect` from `"ilha"` as a named export — `import { effect } from "ilha"`. Inside an island render, `effect()` registers an island effect slot; outside an island, it runs standalone. This page documents the standalone form. The top-level `effect()` documented here is a standalone helper for code that runs outside any island.
+Inside an island render, `effect()` registers an island effect slot; outside an island, it runs standalone. This page documents the standalone form.
 
 ### Cleanup and stopping
 
 `fn` may return a cleanup function, invoked before each re-run and once more when the effect is stopped:
 
 ```ts twoslash
-import { signal, effect } from "ilha";
+import { context, effect } from "ilha";
 
-const delay = signal(1000);
+const delay = context("ui.delay", 1000);
 
 const stop = effect(() => {
   const id = setInterval(() => console.log("tick"), delay());
@@ -293,15 +199,15 @@ stop(); // disposes the effect and runs the final cleanup
 
 ### Implicit batching
 
-Multiple synchronous signal writes inside the effect body produce a single propagation pass, the same as inside `effect()`:
+Multiple synchronous signal writes inside the effect body produce a single propagation pass:
 
 ```ts twoslash
-import { signal, effect } from "ilha";
+import { batch, context } from "ilha";
 
-const a = signal(0);
-const b = signal(0);
+const a = context("t.a", 0);
+const b = context("t.b", 0);
 
-effect(() => {
+batch(() => {
   a(a() + 1);
   b(b() + 1); // both writes flush together
 });
@@ -318,10 +224,10 @@ Runs `fn` as an atomic batch — multiple signal writes inside the callback prod
 Without batch, each write triggers its own propagation pass:
 
 ```ts twoslash
-import { signal } from "ilha";
+import { context } from "ilha";
 
-const a = signal(0);
-const b = signal(0);
+const a = context("b.a", 0);
+const b = context("b.b", 0);
 
 a(1); // → effects re-run
 b(2); // → effects re-run again
@@ -330,10 +236,10 @@ b(2); // → effects re-run again
 With batch, both writes flush together:
 
 ```ts twoslash
-import { signal, batch } from "ilha";
+import { batch, context } from "ilha";
 
-const a = signal(0);
-const b = signal(0);
+const a = context("c.a", 0);
+const b = context("c.b", 0);
 
 batch(() => {
   a(10);
@@ -350,9 +256,9 @@ batch(() => {
 Nested `batch()` calls are safe and only flush when the outermost batch ends:
 
 ```ts twoslash
-import { signal, batch } from "ilha";
+import { batch, context } from "ilha";
 
-const count = signal(0);
+const count = context("d.count", 0);
 
 batch(() => {
   batch(() => {
@@ -373,10 +279,10 @@ Runs `fn` with reactive tracking suspended. Reading signals inside `fn` returns 
 The canonical pattern: an effect should re-run when `tracked` changes, but read `peeked` only as a one-off value:
 
 ```tsx twoslash
-import { effect, ilha, signal, untrack } from "ilha";
+import { context, effect, ilha, untrack } from "ilha";
 
-const tracked = signal(0);
-const peeked = signal("hello");
+const tracked = context("u.tracked", 0);
+const peeked = context("u.peeked", "hello");
 
 const Island = ilha(() => {
   effect(() => {
@@ -393,20 +299,20 @@ const Island = ilha(() => {
 `untrack()` returns whatever `fn` returns, so it also works for peeking at derived values or any other reactive read:
 
 ```ts twoslash
-import { signal, untrack } from "ilha";
+import { context, untrack } from "ilha";
 
-const s = signal(42);
+const s = context("u.s", 42);
 const value = untrack(() => s()); // → 42, no subscription created
 ```
 
-## `persist(signal, key)`
+## `persist(accessor, key)`
 
 Keep a standalone signal in sync with `localStorage`. On call it reads the key and writes the stored value into the signal, then subscribes and writes every change back — so a refresh and other tabs both stay in sync.
 
 ```ts twoslash
-import { signal, persist } from "ilha";
+import { context, persist } from "ilha";
 
-const cart = signal([] as string[]);
+const cart = context("store.cart", [] as string[]);
 persist(cart, "cart");
 ```
 
@@ -416,9 +322,7 @@ It is a no-op on the server (returns an inert unsubscribe), and it returns an un
 
 ## Notes
 
-- `signal()` vs `context()` — both return the same accessor shape and can be used with `bind:` template syntax. Use `signal()` for one-off shared state where you hold the reference; use `context()` when you want a name-keyed registry.
 - Keys are global strings. Use namespaced keys like `"app.theme"` or `"cart.count"` to avoid accidental collisions across different parts of your app.
 - Use `context.delete(key)` or `context.clear()` to release entries — useful in HMR, tests, or long-lived SPAs that mint dynamic keys. See [Releasing entries](#releasing-entries--contextdelete-and-contextclear).
 - Context signals are not included in [`.hydratable()` snapshots](/guide/island/render#configure-hydration). If you need server-rendered context values on the client, pass them as island props and initialize the context signal inside [`effect.once()`](/guide/island/effect).
-- `computed()` values are read-only; they cannot be used as `bind:` targets. Use `signal()` for writable bindings.
 - Inside an island render, `effect()` registers an island effect slot; outside an island, it runs standalone. See [`effect(fn)`](#effectfn) above.
