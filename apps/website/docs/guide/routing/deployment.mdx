@@ -28,9 +28,9 @@ The `@ilha/router/ssr` middleware serves:
 - `POST /__ilha/frame` — server-island and server-page re-renders
 - `GET /__ilha/loader` — loader data for regular-page client navigations
 
-Any host that runs an oxidejs fetch handler serves these. See [Server rendering](/guide/routing/server-rendering) and [Middleware and security](/guide/routing/middleware-and-security).
+Any host that runs an oxidejs fetch handler serves these. See [Server islands](/guide/routing/server-islands) and [Middleware and security](/guide/routing/middleware-and-security).
 
-If you host the router in your own fetch handler instead, use the manual render methods — `render()`, `renderHydratable()`, `renderResponse()`, or `respond()` — described in [Server rendering](/guide/routing/server-rendering).
+If you host the router in your own fetch handler instead, use the manual render methods — `render()`, `renderHydratable()`, `renderResponse()`, or `respond()` — described in [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed).
 
 ## Registering guards in production
 
@@ -41,7 +41,7 @@ import {
   setFrameAuth,
   setFrameGuard,
   setLoaderGuard,
-} from "@ilha/router/server-island-registry";
+} from "@ilha/router/ssr";
 
 function isSignedIn(_request: Request) {
   return true;
@@ -77,8 +77,8 @@ Hash mode (`setHistoryMode("hash")`) is another static-host option when you cann
 
 ## Related
 
-| Topic                             | Guide                                                             |
-| --------------------------------- | ----------------------------------------------------------------- |
-| Guards in production              | [Middleware and security](/guide/routing/middleware-and-security) |
-| SSR render methods                | [Server rendering](/guide/routing/server-rendering)               |
-| Plugin `mode` and virtual modules | [File-system routing](/guide/routing/file-system-routing)         |
+| Topic                             | Guide                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------ |
+| Guards in production              | [Middleware and security](/guide/routing/middleware-and-security)                    |
+| SSR render methods                | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
+| Plugin `mode` and virtual modules | [File-system routing](/guide/routing/file-system-routing)                            |

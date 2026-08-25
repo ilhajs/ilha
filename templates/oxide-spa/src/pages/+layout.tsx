@@ -1,11 +1,12 @@
 import { isActive, defineLayout, head } from "@ilha/router";
 import { LinkButton } from "areia";
-import { Toaster } from "areia/sonner";
 import { ilha } from "ilha";
 
 export default defineLayout((Children) =>
   ilha(({ input }) => {
-    head({ titleTemplate: (title) => `${title} · Ilha + Oxide` });
+    head({
+      titleTemplate: (title) => `${title} · Ilha + Vite`,
+    });
     return (
       <div class="mt-2 flex flex-col gap-2">
         <nav class="container mx-auto flex max-w-xl items-center gap-2">
@@ -19,7 +20,6 @@ export default defineLayout((Children) =>
         <main class="container mx-auto max-w-xl">
           <Children {...input} />
         </main>
-        <Toaster />
       </div>
     );
   }),

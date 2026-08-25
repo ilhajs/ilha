@@ -1,6 +1,6 @@
 {
   "name": "ilha",
-  "version": "0.11.1",
+  "version": "0.12.0",
   "description": "A tiny, framework-free island architecture library",
   "keywords": [
     "framework-free",
@@ -29,6 +29,7 @@
   ],
   "type": "module",
   "sideEffects": false,
+  "main": "./dist/index.js",
   "module": "./dist/index.js",
   "browser": {
     "process": false
@@ -46,13 +47,17 @@
     "./jsx-dev-runtime": {
       "types": "./dist/jsx-dev-runtime.d.ts",
       "import": "./dist/jsx-dev-runtime.js"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "import": "./dist/internal.js"
     }
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc && tsdown",
+    "build": "tsc -p tsconfig.build.json && tsdown",
     "cleanup": "rimraf dist node_modules",
     "test": "bun test"
   },

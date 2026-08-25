@@ -1,16 +1,20 @@
+import { loader } from "@ilha/router";
 import { LayerCard, LinkButton } from "areia";
-import { ilha, raw } from "ilha";
-import { each } from "quando";
+import { each, ilha } from "ilha";
 
-const LINK_ICON =
-  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWxpbmstaWNvbiBsdWNpZGUtbGluayI+PHBhdGggZD0iTTEwIDEzYTUgNSAwIDAgMCA3LjU0LjU0bDMtM2E1IDUgMCAwIDAtNy4wNy03LjA3bC0xLjcyIDEuNzEiLz48cGF0aCBkPSJNMTQgMTFhNSA1IDAgMCAwLTcuNTQtLjU0bC0zIDNhNSA1IDAgMCAwIDcuMDcgNy4wN2wxLjcxLTEuNzEiLz48L3N2Zz4=";
+export const load = loader.client(({ head }) => {
+  head({ title: "Learn" });
+});
+
+const LINK_ICON = "/link.svg";
+const BOOK_ICON = "/book.svg";
 
 const LEARN_ITEMS = [
   {
     title: "Documentation",
     description: "Learn how to use Ilha.",
     href: "https://ilha.build/docs",
-    icon: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWJvb2staWNvbiBsdWNpZGUtYm9vayI+PHBhdGggZD0iTTQgMTkuNXYtMTVBMi41IDIuNSAwIDAgMSA2LjUgMkgxOWExIDEgMCAwIDEgMSAxdjE4YTEgMSAwIDAgMS0xIDFINi41YTEgMSAwIDAgMSAwLTVIMjAiLz48L3N2Zz4=",
+    icon: BOOK_ICON,
   },
   {
     title: "Discord",
@@ -33,7 +37,7 @@ export default ilha(() => (
       {each(LEARN_ITEMS).as((item) => (
         <LinkButton
           href={item.href}
-          icon={<img src={raw(item.icon)} alt={item.title} class="size-6" />}
+          icon={<img src={item.icon} alt="" class="size-6" />}
           class="w-full"
           external
         >

@@ -17,21 +17,22 @@ bun add ilha
 ## Quick Start
 
 ```ts
-import ilha, { html } from "ilha";
+import { ilha, state, action, html, mount } from "ilha";
 
-const Counter = ilha
-  .state("count", 0)
-  .action("increment", (_, { state }) => {
-    state.count((count) => count + 1);
-  })
-  .render(
-    ({ state, action }) => html`
-      <div>
-        <p>Count: ${state.count()}</p>
-        <button onclick=${action.increment}>Increment</button>
-      </div>
-    `,
-  );
+const Counter = ilha(() => {
+  const count = state(0);
+
+  const increment = action(() => {
+    count((value) => value + 1);
+  });
+
+  return html`
+    <div>
+      <p>Count: ${count()}</p>
+      <button onclick=${increment}>Increment</button>
+    </div>
+  `;
+});
 
 // SSR
 Counter.toString(); // → '<div><p>Count: 0</p><button>Increment</button></div>'
@@ -44,936 +45,329 @@ Counter.mount(document.getElementById("app"));
 
 ## Core Concepts
 
-Islands are **self-contained reactive components** that know how to render themselves to an HTML string (SSR) and mount themselves into the DOM (client). Create one directly with `ilha(renderFn)`, or use the fluent builder when it needs local capabilities.
+Islands are **function components** that know how to render themselves to an HTML string (SSR) and mount themselves into the DOM (client). Create one by passing the component to `ilha()`.
 
-State is managed with signals — when a signal changes, only the affected island re-renders using a minimal DOM morph. No virtual DOM diffing, no framework overhead.
+An island reruns when a reactive value it reads during rendering changes. Reactive primitives — `state()`, `derived()`, `action()`, `effect()`, `effect.once()`, and `onError()` — are registered by call order and persist across rerenders. Declare them at the component's top level in a stable order.
 
 ### Choose the smallest component form
 
-Ilha has two runtime modes with three authoring forms:
-
-| Form                                      | Use it when                                                                      |
-| ----------------------------------------- | -------------------------------------------------------------------------------- |
-| `const View = () => JSX`                  | You need reusable markup inside another island                                   |
-| `const View = ilha(() => JSX)`            | The component needs its own reactive scope, lifecycle, mount, or hydration       |
-| `ilha.state(...).action(...).render(...)` | The island needs local state, derived values, actions, input, or lifecycle hooks |
-
-Start with a plain component:
+| Form                           | Ownership                                                           |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `const View = () => JSX`       | The containing island owns rendering, events, and cleanup           |
+| `const View = ilha(() => JSX)` | `View` owns an independent reactive scope, lifecycle, and hydration |
 
 ```tsx
-const Status = () => <p>Ready</p>;
+const Label = ilha<{ label: string }>(({ label }) => <span>{label}</span>);
 ```
 
-Promote it without changing its markup when it needs an island boundary:
+A plain function component stays transparent: its rendering, events, and cleanup belong to the containing island. Wrap it with `ilha()` when it needs independent ownership.
+
+## Primitives
+
+### `state(init?)`
+
+Island-local reactive state. Returns a signal accessor — a function that reads or writes depending on how you call it:
 
 ```tsx
-const Status = ilha(() => <p>Ready</p>);
+const Counter = ilha(() => {
+  const count = state(0);
+  return <p>{count()}</p>;
+});
+
+count(); // read
+count(5); // write
+count((previous) => previous + 1); // update from the latest value
 ```
 
-Expand it into the builder when it needs local capabilities:
+A function argument is a lazy initializer. To store a function value, return it from an updater wrapper: `callback(() => nextCallback)`.
+
+A state initializer applies only when the instance is created. Later prop changes rerender the component but do not reset state:
 
 ```tsx
-const Status = ilha.state("message", "Ready").render(({ state }) => <p>{state.message()}</p>);
+const Counter = ilha<{ start: number }>(({ start }) => {
+  const count = state(start);
+  return <p>{count()}</p>;
+});
 ```
 
-Both `ilha(() => JSX)` and the builder return a complete `Island`. A plain function remains transparent: its rendering, events, and cleanup belong to the containing island.
+### `derived(fn)`
 
----
+Compute a value from state or props. Supports synchronous values, promises, and async generators, with a built-in `{ loading, value, error }` envelope:
 
-## Builder API
+```tsx
+const UserCard = ilha<{ userId: string }>(({ userId }) => {
+  const user = derived(async ({ signal }) => {
+    const res = await fetch(`/api/users/${userId}`, { signal });
+    return res.json();
+  });
 
-Use the `ilha` builder when an island needs capabilities such as typed input, state, derived values, actions, effects, or lifecycle hooks.
-
-### `ilha.input<T>()` / `ilha.input(schema)`
-
-Declares the island's external input type. Two forms:
-
-**1. Type-only (no runtime validation):**
-
-```ts
-const MyIsland = ilha
-  .input<{ name: string }>()
-  .render(({ input }) => `<p>Hello, ${input.name}!</p>`);
+  if (user.loading) return <p>Loading…</p>;
+  if (user.error) return <p>Error: {user.error.message}</p>;
+  return <p>{user()?.name}</p>;
+});
 ```
 
-**2. With a [Standard Schema](https://standardschema.dev/) validator** (Zod, Valibot, ArkType, etc.) — runs validation at render time and uses the schema's inferred output type:
+Async generators stream: each yielded value feeds the envelope. Stale runs abort via the passed `signal`.
 
-```ts
+### `action(fn)`
+
+Define a reusable operation with reactive execution state. Use it when you render `pending`, `data`, or `error`, or when you need unmount cancellation:
+
+```tsx
+const save = action(async (form: FormData, { signal }) => {
+  const response = await fetch("/save", { method: "POST", body: form, signal });
+  return response.json();
+});
+
+save(payload);
+save.pending;
+save.data;
+save.error;
+```
+
+Direct action references work as native event handlers (`onclick={save}`). Use plain functions for ordinary operations.
+
+### `effect(fn)` and `effect.once(fn)`
+
+`effect()` runs a reactive side effect that reruns when its dependencies change, with cleanup before rerun and on unmount:
+
+```tsx
+const App = ilha(() => {
+  effect(() => {
+    document.title = count();
+    return () => {
+      /* cleanup */
+    };
+  });
+  return <p>{count()}</p>;
+});
+```
+
+`effect.once()` runs once after mount for one-time setup. It receives `{ host, signal, hydrated }` and supports cleanup. `effect()` and `effect.once()` are client-only; SSR never invokes them.
+
+### `onError(fn)`
+
+Register a per-island error handler. Context: `{ error, source, host }` with sources `"effect"`, `"once"`, `"event"`, and `"action"`. Fall back to the global [`onUncaughtError()`](#onuncaughterrorfn) for app-wide sinks.
+
+## Typed props and validation
+
+Pass a [Standard Schema](https://standardschema.dev)-compatible validator as the first `ilha()` argument to validate, coerce, and default props at runtime:
+
+```tsx
 import { z } from "zod";
 
-const MyIsland = ilha
-  .input(z.object({ name: z.string().default("World") }))
-  .render(({ input }) => `<p>Hello, ${input.name}!</p>`);
-
-MyIsland.toString({ name: "Ilha" }); // → '<p>Hello, Ilha!</p>'
-```
-
-Async schemas are not supported.
-
----
-
-### `.state(key, init?)`
-
-Declares a reactive state signal. The initial value can be a static value or a function receiving the resolved `input`.
-
-```ts
-ilha
-  .state("count", 0)
-  .state("name", "anonymous")
-  .state("double", ({ count }) => count * 2) // init from input
-  .render(({ state }) => `<p>${state.count()}</p>`);
-```
-
-State accessors are **getters and setters** — call without arguments to read, call with a value to write:
-
-```ts
-state.count(); // → 0  (read)
-state.count(5); // → sets to 5 (write)
-```
-
-Inside `html\`\``, you can interpolate signal accessors directly **without calling them** —`ilha` detects signal accessors and calls them for you, also applying HTML escaping:
-
-```ts
-html`<p>${state.count}</p>`; // same as html`<p>${state.count()}</p>`
-```
-
----
-
-### `.derived(key, fn)`
-
-Declares an async (or sync) derived value. The function receives `{ state, input, signal }` where `signal` is an `AbortSignal` that aborts on re-run. Re-runs automatically when any reactive dependency changes.
-
-```ts
-ilha
-  .state("userId", 1)
-  .derived("user", async ({ state, signal }) => {
-    const res = await fetch(`/api/users/${state.userId()}`, { signal });
-    return res.json();
-  })
-  .render(({ derived }) => {
-    if (derived.user.loading) return `<p>Loading…</p>`;
-    if (derived.user.error) return `<p>Error: ${derived.user.error.message}</p>`;
-    return `<p>${derived.user().name}</p>`;
-  });
-```
-
-Read with `derived.name()` like state. Each accessor also exposes `loading`, `value`, and `error` for async work. Write `derived.name(value)` for optimistic UI.
-
----
-
-### `.action(key, fn)`
-
-Declares a reusable synchronous or asynchronous operation. Define actions before consumers, then call them from lowercase native event handlers:
-
-```tsx
-const Counter = ilha
-  .state("count", 0)
-  .action("increment", (amount: number, { state }) => {
-    state.count((count) => count + amount);
-    return state.count();
-  })
-  .render(({ state, action }) => (
-    <button onclick={() => action.increment(1)}>{state.count()}</button>
-  ));
-```
-
-Async actions expose reactive `pending`, `data`, and `error` properties. Action callbacks receive state, derived values, input, host, and an abort signal.
-
----
-
-### `.on(selector, handler)`
-
-Prefer lowercase native event props for handlers owned by one rendered element. Use `.on()` when you need a CSS selector, an island-host listener, the full handler context, or combined modifiers.
-
-The selector string uses the format `"cssSelector@eventName"`. Omit the selector part to target the island host itself.
-
-```ts
-ilha
-  .state("count", 0)
-  .on("@click", ({ state }) => state.count((count) => count + 1)) // host click
-  .on("button.inc@click", ({ state }) => state.count((count) => count + 1)) // child click
-  .on("input@input", ({ state, event }) => {
-    state.query((event.target as HTMLInputElement).value);
-  })
-  .render(({ state }) => html`<div><button class="inc">+</button></div>`);
-```
-
-**Event modifiers** — append after a `:` separator:
-
-| Modifier    | Description                                                               |
-| ----------- | ------------------------------------------------------------------------- |
-| `once`      | Listener fires only once                                                  |
-| `capture`   | Capture phase                                                             |
-| `passive`   | `{ passive: true }`                                                       |
-| `abortable` | `ctx.signal` aborts when the same listener fires again on the same target |
-
-Multiple modifiers can be combined: `@click:once:capture`.
-
-The handler receives a `HandlerContext`:
-
-```ts
-{
-  state: IslandState; // reactive state signals
-  derived: IslandDerived; // derived values
-  input: TInput; // resolved input props
-  host: Element; // island root element
-  target: Element; // element that fired the event (typed per event name)
-  event: Event; // the native event (typed per event name)
-  signal: AbortSignal; // aborts on unmount, and on next fire if `:abortable`
-}
-```
-
-**Cancelling async work with `ctx.signal`** — pass it to `fetch` or any abort-aware API to cancel stale requests when the island unmounts:
-
-```ts
-ilha
-  .state("results", [])
-  .on("button@click", async ({ state, signal }) => {
-    const res = await fetch("/api/data", { signal });
-    state.results(await res.json());
-  })
-  .render(
-    () =>
-      html`<button>Load</button>
-        <ul></ul>`,
-  );
-```
-
-**Race-cancellation with `:abortable`** — when the same listener fires again on the same target, the previous invocation's signal aborts. Useful for search-as-you-type and other patterns where only the latest invocation should win:
-
-```ts
-ilha
-  .on("input@input:abortable", async ({ state, event, signal }) => {
-    const q = (event.target as HTMLInputElement).value;
-    const res = await fetch(`/search?q=${q}`, { signal }); // earlier requests cancelled
-    if (signal.aborted) return;
-    state.results(await res.json());
-  })
-  .render(
-    () =>
-      html`<input />
-        <ul></ul>`,
-  );
-```
-
-Race-cancellation is scoped per-target — clicking button A doesn't cancel an in-flight handler on button B.
-
-**Implicit batching** — multiple synchronous state writes in a single handler produce one re-render, not one per write:
-
-```ts
-.on("@click", ({ state }) => {
-  state.a(1);
-  state.b(2);
-  state.c(3); // → one render, not three
-})
-```
-
-`AbortError` rejections from cancelled async work are filtered out automatically — they do not reach `.onError()` or `console.error`.
-
----
-
-### `.effect(fn)`
-
-Registers a reactive effect that runs after mount and re-runs when any signal it reads changes. Optionally returns a cleanup function.
-
-```ts
-ilha
-  .state("title", "Hello")
-  .effect(({ state }) => {
-    document.title = state.title();
-    return () => {
-      document.title = "";
-    }; // cleanup on unmount or re-run
-  })
-  .render(({ state }) => `<p>${state.title()}</p>`);
-```
-
-The handler receives an `EffectContext`:
-
-```ts
-{
-  state: IslandState;
-  derived: IslandDerived;
-  input: TInput;
-  host: Element;
-  signal: AbortSignal; // aborts when the effect re-runs OR the island unmounts
-}
-```
-
-Reading `derived.name()` subscribes the effect. Writing `derived.name(value)` does not — use writes for optimistic UI without pinning the effect to every derived update.
-
-**Cancelling async work with `ctx.signal`** — unlike `.on()`, race-cancellation is the **default** behaviour for effects (no opt-in modifier needed) because dependency changes invariably make the previous run stale. Pass `signal` to async work to bail out of stale invocations without needing a manual cleanup function:
-
-```ts
-ilha
-  .state("userId", 1)
-  .state("user", null)
-  .effect(({ state, signal }) => {
-    (async () => {
-      try {
-        const res = await fetch(`/api/users/${state.userId()}`, { signal });
-        if (signal.aborted) return;
-        state.user(await res.json());
-      } catch (err) {
-        if (err && (err as Error).name === "AbortError") return;
-        throw err;
-      }
-    })();
-  })
-  .render(({ state }) => html`<p>${state.user?.name ?? "Loading…"}</p>`);
-```
-
-Both the user-supplied cleanup function (if any) and the signal abort fire when the effect re-runs, so you can mix patterns.
-
-**Implicit batching** — multiple synchronous state writes inside an effect run produce a single propagation pass.
-
----
-
-### `.onMount(fn)`
-
-Runs once after the island is mounted into the DOM. **Client-only** — SSR never invokes it (matching `.on()` and `.effect()`), so server-rendered markup must not depend on onMount side effects. Receives `{ state, derived, input, host, hydrated }` where `hydrated` is `true` when the island was mounted over existing SSR content. Optionally returns a cleanup function called on unmount.
-
-```ts
-ilha
-  .onMount(({ host, hydrated }) => {
-    console.log("mounted", hydrated ? "(hydrated)" : "(fresh)");
-    return () => console.log("unmounted");
-  })
-  .render(() => `<div>hello</div>`);
-```
-
-`.onMount()` is skipped when `snapshot.skipOnMount` is set via `.hydratable()`.
-
----
-
-### `.onError(fn)`
-
-Registers an error handler that catches errors thrown by `.on()` handlers (sync throws and async rejections) and `.effect()` runs (sync throws). Multiple `.onError()` calls compose — all run in declaration order. If no `.onError()` is registered, errors fall back to `console.error` so they are never silently swallowed.
-
-```ts
-ilha
-  .state("count", 0)
-  .on("@click", ({ state }) => {
-    if (state.count() > 5) throw new Error("too many clicks");
-    state.count((count) => count + 1);
-  })
-  .onError(({ error, source }) => {
-    console.error(`[${source}] ${error.message}`);
-    Sentry.captureException(error);
-  })
-  .render(({ state }) => `<button>${state.count()}</button>`);
-```
-
-The handler receives an `ErrorContext`:
-
-```ts
-{
-  error: Error; // always wrapped to Error if a non-Error was thrown
-  source: "on" | "effect";
-  state: IslandState;
-  derived: IslandDerived;
-  input: TInput;
-  host: Element;
-}
-```
-
-`AbortError` rejections from `.on()` handlers are **not** routed to `.onError()` — they are the expected outcome of cancellation (via `:abortable` race-cancel or unmount) and would otherwise pollute error tracking.
-
-An error thrown inside an `.onError()` handler does not break other registered handlers; it is logged to `console.error` and execution continues with the next handler.
-
----
-
-### `.css(strings, ...values)`
-
-Attaches scoped styles to the island. Accepts a tagged template literal or a plain string. The CSS is automatically wrapped in a `@scope` rule bounded to the island host, so styles are contained within the island and do not leak into child islands.
-
-```ts
-import { css } from "ilha";
-
-const Card = ilha.state("active", false).css`
-    .title { font-weight: 700; }
-    button { background: teal; color: white; }
-  `.render(
-  ({ state }) => html`
-    <div>
-      <p class="title">Hello</p>
-      <button>Toggle</button>
-    </div>
-  `,
-);
-```
-
-Interpolations are supported:
-
-```ts
-const accent = "teal";
-
-ilha.css`button { background: ${accent}; }`.render(() => `<button>Go</button>`);
-```
-
-You can also pass a plain string (e.g. from an external `.css` file):
-
-```ts
-import styles from "./card.css?raw";
-
-ilha.css(styles).render(() => `<div class="card">…</div>`);
-```
-
-**SSR output** — a `<style data-ilha-css>` tag is prepended as the first child of the island's rendered HTML:
-
-```html
-<style data-ilha-css>
-  @scope (:scope) to ([data-ilha]) {
-    .title {
-      font-weight: 700;
-    }
-  }
-</style>
-<div>…</div>
-```
-
-**Client mount** — the style element is injected once as the first child of the host and preserved across re-renders (morph never replaces it). During hydration, the SSR-emitted `<style>` node is reused and not duplicated.
-
-**`.hydratable()` integration** — the style tag is included inside the `data-ilha` wrapper regardless of the `snapshot` option.
-
-> **Note:** Calling `.css()` more than once on the same builder chain is not supported. In dev mode a warning is logged and only the last stylesheet is used. Compose all your styles into a single `.css()` call.
-
----
-
-### Composing Islands
-
-Child islands are interpolated directly inside a parent's html template. During SSR the child's HTML is rendered inline; during client mount the child is activated independently inside its own host element.
-
-```ts
-const Icon = ilha(() => `<svg>…</svg>`);
-
-const Card = ilha(
-  () => html`
-    <div class="card">
-      ${Icon}
-      <p>Card content</p>
-    </div>
-  `,
-);
-```
-
-**Passing props** — use JSX props when composing a child island:
-
-```tsx
-const Badge = ilha
-  .input(z.object({ label: z.string(), color: z.string().default("teal") }))
-  .render(({ input }) => <span style={{ background: input.color }}>{input.label}</span>);
-
-const Card = ilha(() => (
-  <div>
-    <Badge label="New" color="coral" />
-    <p>Content</p>
-  </div>
+const Greeting = ilha(z.object({ name: z.string().default("World") }), ({ name }) => (
+  <p>Hello, {name}!</p>
 ));
 ```
 
-Props (including JSX `children` and function callbacks) stay on the **live slot map** during parent render/mount. `data-ilha-props` only carries JSON-safe scalars for hydration hints — never rely on it for children or handlers. Nested islands under layout shells (`defineLayout` / `wrapLayout`) use the same path as page-level composition.
+Validation runs during SSR, hydration, mount, and prop updates.
 
-**Keyed children** — use `.key()` when a child may reorder or appear conditionally. Keys must be unique within a parent render:
+## Composing Islands
 
-```ts
-const List = ilha(
-  () =>
-    html`<ul>
-      ${items.map((item) => html`<li>${Item.key(item.id)({ name: item.name })}</li>`)}
-    </ul>`,
-);
-```
-
----
-
-### `.transition(opts)`
-
-Attaches enter/leave transition callbacks called on mount and unmount respectively.
-
-```ts
-ilha
-  .transition({
-    enter: async (host) => {
-      host.animate([{ opacity: 0 }, { opacity: 1 }], 300).finished;
-    },
-    leave: async (host) => {
-      await host.animate([{ opacity: 1 }, { opacity: 0 }], 300).finished;
-    },
-  })
-  .render(() => `<div>content</div>`);
-```
-
-The `leave` transition is awaited before cleanup runs.
-
----
-
-### `.render(fn)` and `ilha(fn)`
-
-`.render()` finalises a configured builder and returns an `Island`. The render function receives `{ state, derived, action, input }` and returns a string or `RawHtml`.
-
-```ts
-const MyIsland = ilha.state("x", 1).render(({ state }) => html`<p>${state.x()}</p>`);
-```
-
-For an island without builder configuration, `ilha(fn)` is shorthand for `ilha.render(fn)`:
+Nest islands as JSX components. Child islands render inline during SSR and mount independently on the client — a state change in a child does not re-render the parent:
 
 ```tsx
-const StaticIsland = ilha(() => <p>Hello</p>);
-const Label = ilha<{ label: string }>(({ input }) => <p>{input.label}</p>);
+const Badge = ilha<{ label: string }>(({ label }) => <strong>{label}</strong>);
+
+const Page = ilha(() => <Badge label="New" />);
 ```
 
----
-
-## Island Interface
-
-Every island produced by `.render()` or `ilha(fn)` exposes:
-
-### `island.toString(props?)`
-
-Render the island to an HTML string synchronously. If `.derived()` entries have async functions, they render in `loading: true` state.
-
-Use `await island(props)` instead when asynchronous derived values must settle before rendering. Always include `await` when using the callable form so a possible `Promise<string>` is never mistaken for a string.
-
-```ts
-MyIsland.toString(); // always sync
-MyIsland.toString({ name: "Ilha" }); // with props
-await MyIsland.toStringAsync({ name: "Ilha" }); // async SSR — awaits async derived values
-await MyIsland({ name: "Ilha" }); // callable async form (also used for JSX/html slot composition)
-```
-
----
-
-### `island.mount(host, props?)`
-
-Mounts the island into a DOM element. Reads `data-ilha-props` and `data-ilha-state` from the host element automatically — no need to pass props when hydrating SSR output.
-
-Returns an `unmount` function.
-
-```ts
-const unmount = MyIsland.mount(document.getElementById("app"));
-unmount(); // → stops effects, removes listeners, runs leave transition
-```
-
-In dev mode, double-mounting the same element logs a warning and returns a no-op.
-
----
-
-### `island.hydratable(props, options)`
-
-Async method that renders the island wrapped in a `data-ilha` hydration container. Used for SSR+hydration pipelines.
-
-```ts
-const html = await MyIsland.hydratable(
-  { name: "Ilha" },
-  {
-    name: "MyIsland", // registry key for client-side activation
-    as: "div", // wrapper tag (default: "div")
-    snapshot: true, // embed state + derived as data-ilha-state
-    skipOnMount: false, // skip onMount on hydration (default: true when snapshot)
-  },
-);
-// → '<div data-ilha="MyIsland" data-ilha-props="…" data-ilha-state="…">…</div>'
-```
-
-**`snapshot` option:**
-
-| Value                             | Behaviour                                     |
-| --------------------------------- | --------------------------------------------- |
-| `false`                           | No snapshot — onMount always runs             |
-| `true`                            | Snapshots both state and derived values       |
-| `{ state: true, derived: false }` | Fine-grained control over what is snapshotted |
-
----
-
-## Top-level Helpers
-
-### `ilha.mount(registry, options?)` / `mount(registry, options?)`
-
-Auto-discovers all `[data-ilha]` elements in the DOM and mounts the corresponding island from the registry.
-
-```ts
-import { mount } from "ilha";
-
-const { unmount } = mount(
-  { counter: Counter, card: Card },
-  {
-    root: document.getElementById("app"), // default: document.body
-    lazy: true, // use IntersectionObserver (mount on visibility)
-  },
-);
-
-unmount(); // → unmounts all discovered islands
-```
-
----
-
-### `ilha.from(selector, island, props?)` / `from(selector, island, props?)`
-
-Mounts a single island into the first element matching `selector`. Returns the `unmount` function, or `null` if the element is not found.
-
-```ts
-import { from } from "ilha";
-
-const unmount = from("#hero", HeroIsland, { title: "Welcome" });
-```
-
----
-
-### `signal(initial)`
-
-Creates a free-standing reactive signal that lives outside any island. Useful for sharing state across multiple islands without prop drilling, or for binding form inputs to module-level state.
-
-```ts
-import { signal } from "ilha";
-
-const count = signal(0);
-
-count(); // → 0  (read)
-count(5); // → sets to 5 (write)
-```
-
-Reading the signal inside any reactive scope — `.render()`, `.derived()`, `.effect()` — automatically subscribes that scope, so when the signal changes, dependents re-run as if it were local state.
-
-```ts
-import ilha, { signal, html } from "ilha";
-
-const username = signal("anonymous");
-
-const Header = ilha(() => html`<header>Hi, ${username()}!</header>`);
-const Footer = ilha(() => html`<footer>Logged in as ${username()}</footer>`);
-
-// Both islands re-render when `username` changes from anywhere.
-username("alice");
-```
-
-Works naturally with `bind:` template syntax for two-way form bindings against module-level state.
-
----
-
-### `context(key, initial)`
-
-Creates a **global context signal** — a named reactive signal shared across all islands. Identical keys always return the same signal instance, which makes it useful for app-wide singletons (theme, locale, current user) where you want the registry semantics.
-
-```ts
-import { context } from "ilha";
-
-const theme = context("app.theme", "light");
-
-theme(); // → "light"
-theme("dark"); // → sets to "dark"
-```
-
-Safe to call in both SSR and browser environments.
-
-> **`signal()` vs `context()`** — both return the same accessor shape and can be used with `bind:` template syntax. Use `signal()` for one-off shared state where you'd hold the reference yourself; use `context()` when you want a name-keyed registry so the same signal can be looked up from anywhere by string key.
->
-> **SSR caveat** — `context()` is process-global, not request-scoped. It is safe to read in SSR **only for app-wide singletons** (theme, locale, feature flags). Per-request state (current user, session) must not live in `context()`: concurrent SSR requests would leak it across requests. Pass per-request data through island props / loaders or use `@ilha/router`'s request-scope instead.
-
----
-
-### `batch(fn)`
-
-Runs `fn` as an atomic batch — multiple signal writes inside the callback produce a single propagation pass, so dependents see the final state and run once instead of once per write. Returns whatever `fn` returns.
-
-```ts
-import { signal, batch } from "ilha";
-
-const a = signal(0);
-const b = signal(0);
-
-// Without batch: each write triggers a propagation pass.
-a(1); // → effects re-run
-b(2); // → effects re-run
-
-// With batch: both writes flush together.
-batch(() => {
-  a(10);
-  b(20);
-}); // → effects re-run once
-```
-
-`.on()` handlers and `.effect()` runs are batched implicitly, so you only need `batch()` when triggering multiple writes from outside an island — e.g. from a top-level event listener, a `setTimeout` callback, or a WebSocket message handler. Nested `batch()` calls are safe and only flush when the outermost batch ends.
-
----
-
-### `untrack(fn)`
-
-Runs `fn` with reactive tracking suspended. Reading signals inside `fn` returns their current value without subscribing the surrounding scope. Use this in effects or deriveds when you want to peek at state without causing a re-run on its changes.
-
-```ts
-import ilha, { signal, untrack } from "ilha";
-
-const tracked = signal(0);
-const peeked = signal("hello");
-
-ilha
-  .effect(() => {
-    // Re-runs when `tracked` changes, but NOT when `peeked` changes.
-    console.log(
-      tracked(),
-      untrack(() => peeked()),
-    );
-  })
-  .render(() => `<p>x</p>`);
-```
-
-Returns whatever `fn` returns.
-
----
-
-### `html\`\`` tagged template
-
-XSS-safe HTML template tag. Interpolated values are HTML-escaped by default. Pass `raw()` to opt out of escaping.
-
-```ts
-import { html, raw } from "ilha";
-
-const name = "<script>alert(1)</script>";
-html`<p>${name}</p>`; // → <p>&lt;script&gt;…</p>  (escaped)
-html`<p>${raw("<b>hi</b>")}</p>`; // → <p><b>hi</b></p>      (raw)
-```
-
-Interpolation rules:
-
-| Value type           | Behaviour                                   |
-| -------------------- | ------------------------------------------- |
-| `string` / `number`  | HTML-escaped                                |
-| `null` / `undefined` | Omitted (empty string)                      |
-| `raw(str)`           | Inserted as-is (no escaping)                |
-| `html\`…\``          | Inserted as-is (already safe)               |
-| Signal accessor      | Called and escaped                          |
-| Island / Island call | Emitted as `data-ilha-slot` host element    |
-| Array                | Each item processed recursively (no commas) |
-
-**Template bindings** — use `bind:property=${signal}` inside `html\`\`` to create two-way bindings between form elements and signals:
-
-```ts
-ilha.state("name", "").render(
-  ({ state }) => html`
-    <input bind:value=${state.name} />
-    <p>Hello, ${state.name()}!</p>
-  `,
-);
-```
-
-Supported bindings:
-
-| Binding              | Element                                           | Bound property      | Trigger event |
-| -------------------- | ------------------------------------------------- | ------------------- | ------------- |
-| `bind:value`         | `<input>`, `<textarea>`, `<select>`               | `value`             | `input`       |
-| `bind:valueAsNumber` | `<input type="number">`                           | `valueAsNumber`     | `input`       |
-| `bind:valueAsDate`   | `<input type="date">`                             | `valueAsDate`       | `input`       |
-| `bind:checked`       | `<input type="checkbox">`                         | `checked`           | `change`      |
-| `bind:group`         | `<input type="radio">`, `<input type="checkbox">` | `checked` / `value` | `change`      |
-| `bind:open`          | `<details>`                                       | `open`              | `toggle`      |
-| `bind:files`         | `<input type="file">`                             | `files`             | `change`      |
-| `bind:this`          | Any element                                       | element reference   | —             |
-
-`bind:group` connects multiple inputs to a single signal — radio buttons hold the selected `value`, checkboxes hold an array of checked values. `bind:this` writes the DOM element into a signal on mount and `null` on unmount. External signals from `signal()` or `context()` work as binding targets too, enabling shared state across islands.
-
-**List rendering pattern:**
-
-```ts
-const items = ["apple", "banana", "cherry"];
-html`<ul>
-  ${items.map((item) => html`<li>${item}</li>`)}
-</ul>`;
-```
-
----
-
-### `raw(value)`
-
-Marks a string as trusted raw HTML, bypassing escaping when used inside `html\`\``.
-
-```ts
-import { raw } from "ilha";
-
-raw("<strong>bold</strong>"); // → passes through unescaped
-```
-
----
-
-### `css\`\`` tagged template
-
-A passthrough tagged template for CSS strings. Functionally identical to a plain template literal — no runtime transformation occurs. Its purpose is purely to enable editor tooling (LSP syntax highlighting, Prettier formatting) to recognise the contents as CSS.
-
-```ts
-import { css } from "ilha";
-
-const styles = css`
-  button {
-    background: teal;
-    color: white;
-  }
-  .label {
-    font-weight: 700;
-  }
-`;
-
-ilha.css(styles).render(() => `<button class="label">Go</button>`);
-```
-
-Interpolations work as normal string concatenation:
-
-```ts
-const accent = "coral";
-const styles = css`
-  button {
-    background: ${accent};
-  }
-`;
-```
-
-> **Note:** `css` (the named export) is the plain passthrough tag for tooling. `ilha.css` is the builder chain method that attaches styles to an island. They are intentionally separate.
-
----
-
-## JSX Runtime
-
-Prefer JSX over the `html` tag? `ilha` ships a JSX runtime (`ilha/jsx-runtime`) that produces the same XSS-safe output — JSX expressions evaluate to the same `RawHtml` values the `html` tag returns, so the two syntaxes are interchangeable and can be mixed freely.
-
-### Setup
-
-Enable the automatic JSX transform in `tsconfig.json` (works with TypeScript, Bun, Vite, esbuild, etc.):
-
-```jsonc
-{
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "jsxImportSource": "ilha",
-  },
-}
-```
-
-### Usage
+Each nested island is wrapped in a slot element (default `div`). Choose the wrapper tag with the child's `{ as }` constructor option:
 
 ```tsx
-import ilha from "ilha";
-
-const Counter = ilha
-  .state("count", 0)
-  .action("increment", (_, { state }) => {
-    state.count((count) => count + 1);
-  })
-  .render(({ state, action }) => (
-    <div>
-      <p>Count: {state.count}</p>
-      <button onclick={action.increment}>Increment</button>
-    </div>
-  ));
+const Row = ilha(({ label }) => <li>{label}</li>, { as: "li" });
 ```
 
-Interpolated children follow the same rules as the `html` tag — strings are escaped, signal accessors are auto-called, islands become hydration slots, arrays are flattened. Use `raw()` to opt out of escaping, and `<></>` (Fragment) to group siblings without a wrapper element.
-
-### Attributes
-
-| Feature               | Behaviour                                                                                                          |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `class` / `className` | Accepts a string, an array (`["a", cond && "b"]`), or an object (`{ active: isActive }`)                           |
-| `htmlFor`             | Alias for `for`                                                                                                    |
-| `style`               | Accepts a string or an object (`{ backgroundColor: "teal" }` → `background-color:teal`)                            |
-| Boolean attributes    | `true` renders the bare attribute, `false`/`null`/`undefined` omit it                                              |
-| `bind:*`              | Two-way bindings, same as in `html` templates — pass a signal accessor: `<input bind:value={state.name} />`        |
-| `key`                 | Keys a child island for reorder-safe rendering (same as `.key()`). Keys must be non-empty and must not contain `:` |
-
-Lowercase native event props such as `onclick={handler}` attach with `addEventListener` during island mount; executable handlers never become inline SSR attributes. `srcdoc` is stripped, and URL attributes (`href`, `src`, `action`, …) with unsafe schemes such as `javascript:` are dropped.
-
-### Islands as components
-
-Islands are callable JSX components, so props and keys work as expected. Unlike transparent plain components, each island keeps its own reactive scope and lifecycle:
+For keyed child islands in lists, create a keyed component with `Island.key()` before rendering it so identity — state, DOM, and focus — survives reorders:
 
 ```tsx
-const Badge = ilha
-  .input<{ label: string }>()
-  .render(({ input }) => <span class="badge">{input.label}</span>);
-
-const Card = ilha(() => (
-  <div class="card">
-    <Badge label="New" />
-    <p>Card content</p>
-  </div>
-));
+const Item = ilha<{ label: string }>(({ label }) => <li>{label}</li>);
 
 const List = ilha(() => (
   <ul>
-    {items.map((item) => (
-      <li>
-        <Item key={item.id} name={item.name} />
-      </li>
-    ))}
+    {items.map((item) => {
+      const Keyed = Item.key(item.id);
+      return <Keyed label={item.label} />;
+    })}
   </ul>
 ));
 ```
 
----
+Keys must be unique within a parent render and cannot contain `:`.
 
-## SSR + Hydration
+## Island Interface
 
-The recommended SSR + hydration pattern uses `.hydratable()` on the server and `ilha.mount()` on the client.
+### `island.toString(props?)`
 
-### Server
-
-```ts
-import { MyIsland } from "./islands";
-
-const html = await MyIsland.hydratable({ count: 42 }, { name: "my-island", snapshot: true });
-
-return `<!doctype html><html><body>${html}</body></html>`;
-```
-
-### Client
+Synchronous SSR:
 
 ```ts
-import { mount } from "ilha";
-import { MyIsland } from "./islands";
-
-mount({ MyIsland });
+Counter.toString(); // → string
 ```
 
-The client reads `data-ilha-state` to restore signal values from the snapshot, skipping a needless re-render and calling `.onMount()` only if `skipOnMount` is not set.
+If the island declares async `derived()` values, `toString()` renders their loading state — use `await toStringAsync()` instead (a dev warning tells you when this happens).
 
-### State snapshot flow
+### `await island.toStringAsync(props?)`
 
-```
-server                                    client
-──────────────────────────────────────    ──────────────────────────────────────────
-.hydratable({ count: 42 }, {              mount({ MyIsland })
-  name: "my-island",                        → reads data-ilha-state
-  snapshot: true                            → restores signals from snapshot
-})                                          → skips onMount (skipOnMount: true)
-→ data-ilha-state='{"count":42}'            → attaches event listeners
-                                            → starts effects + derived watchers
+Async SSR — awaits async derived values and pulls the first value from async-generator derived values:
+
+```ts
+const html = await Counter.toStringAsync();
 ```
 
----
+### `island.mount(host, props?)`
+
+Mount into a DOM element. Returns an unmount function that stops listeners, effects, and other active behavior:
+
+```ts
+const unmount = Counter.mount(document.getElementById("app"));
+```
+
+### `await island.hydratable(props, options)`
+
+Emit hydration markup with serialized props and an optional state snapshot. `name` must match the client registry key:
+
+```ts
+// Server
+const html = await Counter.hydratable({}, { name: "Counter", snapshot: true });
+```
+
+```ts
+// Client
+mount({ Counter });
+```
+
+Snapshots are positional: state and derived values restore by primitive order. Malformed or incompatible snapshots are ignored safely.
+
+### `island.key(key)`
+
+Create a keyed child invocation for stable slot identity in lists (see [Composing Islands](#composing-islands)).
+
+### `island.define(tagName, options?)`
+
+Register the island as a custom element, usable from plain HTML or any framework:
+
+```ts
+Counter.define("x-counter", { observe: ["start"] });
+```
+
+## Top-level Helpers
+
+### `mount(registry, options?)`
+
+Auto-discover and mount `[data-ilha="Name"]` hosts:
+
+```ts
+mount({ Counter, Badge });
+```
+
+Pass `{ root, lazy }` to scope discovery to a root element or defer mounting until hosts scroll into view.
+
+### `signal(initial)`
+
+Create a free-standing signal for shared state. Same accessor shape as `state()` but lives outside any island:
+
+```ts
+const count = signal(0);
+count(); // read
+count(5); // write
+```
+
+### `computed(fn)`
+
+Create a lazy, cached, read-only value derived from signals:
+
+```ts
+const total = computed(() => price() * qty());
+```
+
+### `effect(fn)`
+
+Run a standalone reactive effect outside any island; returns a stop function:
+
+```ts
+const stop = effect(() => {
+  document.title = `${count()} items`;
+});
+```
+
+Inside an island render, `effect()` registers an island effect slot instead.
+
+### `context(key, initial)`
+
+Get or create a keyed, app-wide shared signal:
+
+```ts
+const theme = context("app.theme", "light");
+```
+
+### `batch(fn)` / `untrack(fn)`
+
+`batch()` groups multiple writes into one propagation pass. `untrack()` reads signals without subscribing the surrounding scope:
+
+```ts
+batch(() => {
+  a(1);
+  b(2);
+});
+
+const value = untrack(() => secret());
+```
+
+### `persist(accessor, key)`
+
+Keep a standalone signal in sync with `localStorage`:
+
+```ts
+persist(cart, "cart");
+```
+
+### `onUncaughtError(fn)`
+
+Register an app-wide error sink for islands with no local `onError()`:
+
+```ts
+const stop = onUncaughtError((error, source) => telemetry.capture(error, { source }));
+```
+
+### `html` / `raw`
+
+`html\`…\``is an XSS-safe tagged template that accepts signals, arrays, and nested templates.`raw(str)` opts into trusted markup:
+
+```ts
+import { html, raw } from "ilha";
+
+html`<p>${count()}</p>`;
+html`<button>${raw(icon)}</button>`;
+```
+
+## Bindings
+
+Use `bind:*` inside JSX or `html`` for two-way form synchronization:
+
+```tsx
+<input bind:value={name} />
+<input type="checkbox" bind:checked={done} />
+```
+
+Supported kinds: `bind:value`, `bind:checked`, `bind:group`, `bind:open`, `bind:files`, and `bind:this`. Native event props keep modifiers `:once`, `:capture`, `:passive`, and `:abortable`.
+
+## Security
+
+JSX children and attributes are escaped by default. Use `raw()` only for trusted markup you control. `srcdoc` is always dropped, disallowed URL schemes are stripped, and unsafe inline styles are rejected.
 
 ## TypeScript
 
-Key exported types:
+Configure JSX with the automatic runtime:
 
-```ts
-import type {
-  Island,
-  IslandState,
-  IslandDerived,
-  DerivedValue,
-  KeyedIsland,
-  HydratableOptions,
-  OnMountContext,
-  HandlerContext,
-  HandlerContextFor,
-  ErrorContext,
-  ErrorSource,
-  ExternalSignal,
-  MountOptions,
-  MountResult,
-} from "ilha";
+```json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "ilha"
+  }
+}
 ```
 
----
-
-## License
-
-MIT
+Build tools resolve `ilha/jsx-runtime` in production and `ilha/jsx-dev-runtime` in development.

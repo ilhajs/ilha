@@ -1,129 +1,126 @@
 ---
-title: .effect()
-description: Register reactive side effects that run after mount and re-run when signal dependencies change.
+title: Side effects
+description: Register reactive side effects that run after mount and re-run when their signal dependencies change.
 ---
 
-import { example } from "./effect.examples";
+Use the `effect()` primitive to run a reactive side effect — syncing to the DOM, browser APIs, timers, or external systems. It runs after the island mounts and re-runs automatically whenever any signal it reads changes.
 
-Registers a reactive side effect that runs after the island mounts and re-runs automatically whenever any signal it reads changes. Use it to sync state to the outside world — the DOM, browser APIs, timers, or external systems.
+```tsx twoslash
+import { ilha, state, effect } from "ilha";
 
-[Interactive Tutorial](/tutorial/counter/effect)
+const App = ilha(() => {
+  const title = state("Hello");
+  effect(() => {
+    document.title = title();
+  });
+  return <p>{title()}</p>;
+});
+```
 
-## Basic usage
-
-<Preview code={example} size="lg" />
-
-Every time `state.title` changes, the effect re-runs and updates `document.title`.
+Every time `title` changes, the effect re-runs and updates `document.title`.
 
 ## Cleanup
 
 Return a function from the effect to clean up before the next run or on unmount:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state, effect } from "ilha";
 
-const Island = ilha
-  .state("delay", 1000)
-  .effect(({ state }) => {
+const App = ilha(() => {
+  const delay = state(1000);
+
+  effect(() => {
     const id = setInterval(() => {
       console.log("tick");
-    }, state.delay());
-    return () => clearInterval(id); // [!code highlight]
-  })
-  .render(({ state }) => <p>Interval: {state.delay()}ms</p>);
+    }, delay());
+    return () => clearInterval(id);
+  });
+
+  return <p>Interval: {delay()}ms</p>;
+});
 ```
 
 The cleanup runs before the effect re-runs with new values, and once more on unmount. This prevents stale timers, subscriptions, or event listeners from accumulating.
 
-## Cancelling async work with `ctx.signal`
+## Cancelling async work with the signal
 
-Unlike `.on()`, race-cancellation is the **default** behaviour for effects (no modifier needed). When a dependency changes, the previous run's signal aborts automatically. Pass `signal` to async work to bail out of stale invocations:
+Race cancellation is the default for effects. When a dependency changes, the previous run's signal aborts automatically. Pass `signal` to async work to bail out of stale invocations:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state, effect } from "ilha";
 
-const Island = ilha
-  .state("userId", 1)
-  .state("user", null as { name: string } | null)
-  .effect(({ state, signal }) => {
-    fetch(`/api/users/${state.userId()}`, { signal })
+const App = ilha(() => {
+  const userId = state(1);
+  const user = state(null as { name: string } | null);
+
+  effect(({ signal }) => {
+    fetch(`/api/users/${userId()}`, { signal })
       .then((res) => {
-        if (signal.aborted) return;
+        if (signal.aborted) return undefined;
         return res.json();
       })
       .then((data) => {
         if (signal.aborted) return;
-        state.user(data as { name: string });
+        user(data as { name: string });
       })
       .catch((err) => {
         if (err && err.name === "AbortError") return;
         throw err;
       });
-  })
-  .render(({ state }) => (
-    <p>{state.user()?.name ?? "Loading…"}</p>
-  ));
+  });
+
+  return <p>{user()?.name ?? "Loading…"}</p>;
+});
 ```
 
-Both the user-supplied cleanup function (if any) and the signal abort fire when the effect re-runs, so you can mix patterns.
+Both the returned cleanup function and the signal abort fire when the effect re-runs, so you can mix patterns.
 
 ## Effect context
 
-The effect function receives an `EffectContext`:
-
-```ts
-{
-  state: IslandState; // reactive state signals
-  derived: IslandDerived; // derived signal accessors (same as render / .on())
-  action: IslandActions; // callable actions and their reactive status
-  input: TInput; // resolved input props
-  host: Element; // island root element
-  signal: AbortSignal; // aborts when the effect re-runs or the island unmounts
-}
-```
-
-Reading `derived.name()` subscribes the effect, like state. Writing `derived.name(value)` for optimistic UI does **not** subscribe — only reads and envelope property access (`.loading`, `.value`, `.error`) are tracked.
+The callback receives `{ signal }` — the AbortSignal for the current run. State, derived values, actions, and props stay in lexical closure; no context object passes them.
 
 ## Multiple effects
 
-Chain `.effect()` as many times as needed. Each runs independently with its own dependency tracking:
+Call `effect()` as many times as needed. Each runs independently with its own dependency tracking, in declaration order:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state, effect } from "ilha";
 
-const Island = ilha
-  .state("title", "Hello")
-  .state("color", "teal")
-  .effect(({ state }) => {
-    document.title = state.title();
-  })
-  .effect(({ state }) => {
-    document.body.style.backgroundColor = state.color();
-  })
-  .render(({ state }) => <p>{state.title()}</p>);
+const App = ilha(() => {
+  const title = state("Hello");
+  effect(() => {
+    document.title = title();
+  });
+  effect(() => {
+    document.body.style.backgroundColor = "teal";
+  });
+  return <p>{title()}</p>;
+});
 ```
 
 ## Implicit batching
 
-Multiple synchronous state writes inside an effect run propagate atomically — dependents see the final state and run once instead of once per write:
+Multiple synchronous state writes inside an effect propagate atomically — dependents see the final state and run once:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state, effect } from "ilha";
 
-const Island = ilha
-  .state("a", 0)
-  .state("b", 0)
-  .effect(({ state }) => {
-    // These two writes produce a single re-render.
-    state.a((a) => a + 1);
-    state.b((b) => b + 1);
-    console.log(state.a(), state.b());
-  })
-  .render(({ state }) => (
+const App = ilha(() => {
+  const a = state(0);
+  const b = state(0);
+
+  effect(() => {
+    a((value) => value + 1);
+    b((value) => value + 1);
+    console.log(a(), b());
+  });
+
+  return (
     <p>
-      {state.a()} {state.b()}
+      {a()} {b()}
     </p>
-  ));
+  );
+});
 ```
 
 ## Conditional reads
@@ -131,38 +128,143 @@ const Island = ilha
 Dependencies are tracked based on which signals are actually read during a run. Signals inside a branch that does not execute are not tracked:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state, effect } from "ilha";
 
-const Island = ilha
-  .state("enabled", false)
-  .state("value", 0)
-  .effect(({ state }) => {
-    if (!state.enabled()) return; // if false, state.value is never read
-    console.log(state.value()); // only tracked when enabled is true
-  })
-  .render(({ state }) => <p>{state.value()}</p>);
+const App = ilha(() => {
+  const enabled = state(false);
+  const value = state(0);
+
+  effect(() => {
+    if (!enabled()) return; // value() is never read when disabled
+    console.log(value()); // only tracked when enabled is true
+  });
+
+  return <p>{enabled()}</p>;
+});
 ```
 
-This means the effect only re-runs when `state.value` changes if `state.enabled` was `true` during the last run.
+## Run setup once with `effect.once()`
 
-## `.effect()` vs `.onMount()`
+Use `effect.once()` to run code exactly once, after the island mounts. It does not re-run when reactive values change, so it is the right place for one-time setup: measuring layout, initializing third-party libraries, or seeding client state on hydration. It runs client-only — SSR never invokes it.
 
-Both run after mount, but they serve different purposes:
+```tsx twoslash
+import { ilha, state, effect } from "ilha";
 
-|                    | `.effect()`                    | `.onMount()`   |
-| ------------------ | ------------------------------ | -------------- |
-| Re-runs            | Yes, when dependencies change  | No, runs once  |
-| Tracks signals     | Yes                            | No             |
-| Receives `derived` | Yes                            | Yes            |
-| Cleanup support    | Yes                            | Yes            |
-| Use for            | Reactive sync to external APIs | One-time setup |
+const lat = state(0);
+const lng = state(0);
 
-If you need something to happen only once after mount, use [`.onMount()`](/guide/island/onmount). If you need it to stay in sync with state over time, use `.effect()`.
+class MapLibre {
+  constructor(_options: { container: Element }) {}
+  remove() {}
+}
+
+const Map = ilha(() => {
+  effect.once(({ host, signal }) => {
+    const map = new MapLibre({ container: host });
+    // pass signal to any cancellable API
+    fetch(`/tile/${lat()}/${lng()}`, { signal });
+
+    return () => map.remove();
+  });
+
+  return <div style="height:400px"></div>;
+});
+```
+
+### The context
+
+The callback receives `{ host, signal, hydrated }`:
+
+```ts twoslash
+import { state, effect } from "ilha";
+
+state(0); // placeholder: primitives run inside an island component
+effect.once(({ host, signal, hydrated }) => {
+  // host — the island root element
+  // signal — aborts when the island unmounts
+  // hydrated — true when restoring existing SSR markup/state
+});
+```
+
+The `hydrated` flag tells you whether the island activated over server-rendered HTML. Use it to skip initialization you do not want to repeat for content already on screen:
+
+```tsx twoslash
+import { ilha, effect } from "ilha";
+
+const App = ilha(() => {
+  effect.once(({ host, hydrated }) => {
+    if (!hydrated) {
+      host.animate([{ opacity: 0 }, { opacity: 1 }], 300);
+    }
+  });
+  return <div>content</div>;
+});
+```
+
+Return a function to run cleanup on unmount. For abortable APIs, pass the mount `signal` instead of manual cleanup — it aborts when the island unmounts:
+
+```tsx twoslash
+import { ilha, effect } from "ilha";
+
+const Panel = ilha(() => {
+  effect.once(({ host }) => {
+    const observer = new ResizeObserver(() => {
+      console.log("resized", host.clientWidth);
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  });
+  return <div>hello</div>;
+});
+```
+
+### Skipping setup during hydration
+
+When you call `.hydratable()` with a snapshot, the `skipOnMount` option tells ilha to skip `effect.once()` on rehydration. Use it when your setup would duplicate work already done on the server:
+
+```tsx twoslash
+import { ilha, effect } from "ilha";
+
+const Counter = ilha(() => {
+  effect.once(() => {
+    console.log("this is skipped on hydration");
+  });
+  return <p>0</p>;
+});
+
+// On the server:
+await Counter.hydratable(
+  {},
+  { name: "my-island", snapshot: true, skipOnMount: true },
+);
+```
+
+`skipOnMount` applies to `effect.once()` only. `effect()` always runs, even when `skipOnMount` is enabled.
+
+### Comparison
+
+|                     | `effect()`                                   | `effect.once()`           |
+| ------------------- | -------------------------------------------- | ------------------------- |
+| Runs                | After mount, then on every dependency change | Once after mount          |
+| Tracks signals      | Yes                                          | No                        |
+| Receives `host`     | No (capture via `effect.once()`)             | Yes                       |
+| Receives `hydrated` | No                                           | Yes                       |
+| Cleanup support     | Yes                                          | Yes                       |
+| Use for             | Reactive sync                                | One-time setup, libraries |
+
+Errors thrown by either an effect or its `effect.once()` counterpart (or their cleanups) are reported to [`onError()`](/guide/island/errors) with `source: "effect"` and `source: "once"` respectively.
+
+## Standalone `effect()`
+
+Outside an island render, `effect()` runs a standalone reactive effect and returns a stop function. Inside an island render it registers an island effect slot. Both share the same reactivity.
 
 ## Notes
 
-- Effects run client-side only. They are not called during SSR.
-- Effects are registered **after** [`.onMount()`](/guide/island/onmount) (and after any `enter` transition). See [Transition — mount order](/guide/island/transition#mount-order).
-- Sync throws from an effect (or its cleanup) go to [`.onError()`](/guide/island/onerror) with `source: "effect"`. Unhandled promise rejections from fire-and-forget async inside an effect are **not** caught — use `await` or `.catch()` inside the effect.
-- The first effect run happens soon after mount; keep effect bodies fast to avoid blocking rendering.
-- Avoid writing to signals inside an effect that reads those same signals — this creates an infinite loop.
+- Effects run client-side only; SSR never invokes them.
+- Sync throws from an effect (or its cleanup) go to [`onError()`](/guide/island/errors) with `source: "effect"`.
+- Avoid writing to signals inside an effect that reads those same signals — this creates a loop.
+
+## Related
+
+- [Handle errors](/guide/island/errors)
+- [Render and hydrate](/guide/island/render)

@@ -275,8 +275,6 @@ export namespace JSX {
     value?: string | number;
     width?: Numberish;
     "bind:value"?: BindAccessor<string | number>;
-    "bind:valueAsNumber"?: BindAccessor<number | null>;
-    "bind:valueAsDate"?: BindAccessor<Date | null>;
     "bind:checked"?: BindAccessor<boolean>;
     "bind:group"?: BindAccessor<string | number | Array<string | number>>;
     "bind:files"?: BindAccessor<FileList | null>;

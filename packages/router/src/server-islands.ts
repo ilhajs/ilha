@@ -14,7 +14,7 @@ import { basename } from "node:path";
 export interface ScannedServerIsland {
   /** Export binding name, or `"default"` for `export default ilha…`. */
   name: string;
-  /** Slot tag from `.as()` — must match what SSR emits. */
+  /** Slot tag from the `{ as }` option — must match what SSR emits. */
   as: string;
   /** Stream key → referenced module export used as its transport. */
   streams: Record<string, string>;
@@ -29,10 +29,36 @@ export interface ClientIslandRef {
   spec: string;
 }
 
+/**
+ * Replace identity `action(` wrappers of exported server actions with the
+ * capture-aware shim on ALREADY-COMPILED module code. Must run inside the
+ * SSR transform so upstream JSX/TS output is preserved.
+ */
+export function rewriteServerActions(code: string, rpcActions: Record<string, string>): string {
+  const names = Object.keys(rpcActions);
+  if (names.length === 0) return code;
+  const re = new RegExp(
+    `(export\\s+(?:const|let|var)\\s+(${names.join("|")})\\b\\s*=\\s*)action\\s*\\(`,
+    "g",
+  );
+  return code.replace(re, (_match, head: string, name: string) => {
+    const key = rpcActions[name]!;
+    return `${head}__ilhaServerAction(${JSON.stringify(key)}, `;
+  });
+}
+
 export interface ServerModuleScan {
   islands: ScannedServerIsland[];
   /** All value-export names of the module (transport candidates). */
   exports: string[];
+  /**
+   * Exported server actions rewritten to capture-aware shims: name → the
+   * `x:<name>` manifest key the client proxy wires an RPC transport for.
+   * Event closures may call these directly without wrapping in ilha's
+   * action() — during hydration-manifest rendering the call is recorded,
+   * not executed.
+   */
+  rpcActions: Record<string, string>;
   /** Imported JSX components that must hydrate inside the server island. */
   clientRefs: ClientIslandRef[];
   /** True when the module declares `export const load = loader.client(…)` —
@@ -44,7 +70,8 @@ const EXPORT_RE =
   /(?:^|\n)\s*export\s+(?:declare\s+)?(?:async\s+)?(?:function\s*\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/g;
 const ISLAND_EXPORT_RE = /(?:^|\n)\s*export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*ilha\b/g;
 const DEFAULT_ISLAND_RE = /export\s+default\s+ilha\b/;
-const AS_RE = /\.as\(\s*["'`]([a-z][a-z0-9-]*)["'`]\s*\)/;
+// Slot tag option: current `{ as: "span" }` constructor option.
+const AS_RES = [/\{\s*as:\s*["'`]([a-z][a-z0-9-]*)["'`]\s*[,}]?/];
 
 export function clientRefPublicId(spec: string, imported: string): string {
   return createHash("sha256").update(`${spec}#${imported}`).digest("base64url");
@@ -110,30 +137,6 @@ function extractCallArgs(source: string, openParen: number, limit = 4000): strin
   return null;
 }
 
-/** First callback body inside an args list: everything after the first top-level
- * comma. Used to scan which module exports a stream/action closure references. */
-function callbackBody(args: string): string {
-  let depth = 0;
-  let quote: string | null = null;
-  for (let i = 0; i < args.length; i++) {
-    const ch = args[i]!;
-    if (quote !== null) {
-      if (ch === "\\") i++;
-      else if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      quote = ch;
-      continue;
-    }
-    if (ch === "(" || ch === "{" || ch === "[") depth++;
-    else if (ch === ")" || ch === "}" || ch === "]") depth--;
-    else if (ch === "," && depth === 0) return args.slice(i + 1);
-  }
-  return "";
-}
-
-/** Identifiers in `body` that are members of `candidates`, excluding keywords. */
 function referencedExports(body: string, candidates: Set<string>): string | undefined {
   // Only exported identifiers INVOKED as functions count as transports.
   const CALL_RE = /([A-Za-z_$][\w$]*)\s*\(/g;
@@ -145,7 +148,7 @@ function referencedExports(body: string, candidates: Set<string>): string | unde
 
 /** Scan a `*.server.ts(x)` module source for island exports and their
  * declarative wiring. Convention: islands start with `ilha` — both builder
- * chains (`ilha.state()…render()`) and direct factories (`ilha(() => …)`). */
+ * function components (`ilha(() => …)`) and `ilha(schema, component)`. */
 export function scanServerIslands(source: string): ServerModuleScan {
   const exports: string[] = [];
   for (const match of source.matchAll(EXPORT_RE)) exports.push(match[1]!);
@@ -161,22 +164,63 @@ export function scanServerIslands(source: string): ServerModuleScan {
   }
   const candidates = new Set(exports);
 
+  // Detect exported oxidejs-style actions (`export const x = action(fn)`) and
+  // rewrite them into capture-aware shims so event closures can call them
+  // directly: during hydration-manifest rendering the shim records
+  // {k:"x:x", a:args} instead of executing the mutation. Identity action()
+  // wrappers are dropped — the shim preserves the (payload, ctx) signature.
+  // The rewrite is only applied to the TRANSFORMED module code at SSR
+  // transform time (see rewriteServerActions) — replacing here would clobber
+  // upstream JSX/TS compilation.
+  const rpcActions: Record<string, string> = {};
+  for (const match of source.matchAll(
+    /export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*action\s*\(/g,
+  )) {
+    rpcActions[match[1]!] = `x:${match[1]!}`;
+  }
+
   const islands: ScannedServerIsland[] = [];
 
+  // Function-component primitives are order-based: the runtime assigns each
+  // action slot the deterministic id `a{order}` and each streaming derived
+  // generator `d{order}`. The scanner mirrors that order statically so the
+  // generated client proxy can wire transports by the same ids.
   const collect = (name: string, start: number, sliceEnd: number): void => {
     const slice = source.slice(start, sliceEnd);
-    const as = slice.match(AS_RE)?.[1] ?? "div";
+    let as = "div";
+    for (const re of AS_RES) {
+      const hit = slice.match(re)?.[1];
+      if (hit) {
+        as = hit;
+        break;
+      }
+    }
     const streams: Record<string, string> = {};
     const actions: Record<string, string> = {};
-    for (const kind of ["stream", "action"] as const) {
-      const re = new RegExp(`\\.${kind}\\s*\\(\\s*["'\`](\\w+)["'\`]\\s*,`, "g");
+    let actionOrder = 0;
+    let streamOrder = 0;
+    for (const kind of ["action", "derived"] as const) {
+      // Actions may be imported under an alias to avoid collisions (e.g.
+      // `islandAction(...)` when a server module also imports another
+      // framework's `action`), so accept any identifier ending in "action";
+      // derived has no common alias, so keep it word-bounded.
+      const pattern = kind === "action" ? "[A-Za-z0-9_$]*[Aa]ction\\s*\\(" : "\\bderived\\s*\\(";
+      const re = new RegExp(pattern, "g");
       for (const match of slice.matchAll(re)) {
-        const key = match[1]!;
-        const openParen = (match.index ?? 0) + match[0].indexOf("(");
+        const openParen = match.index! + match[0].indexOf("(");
         const args = extractCallArgs(slice, openParen);
         if (!args) continue;
-        const target = referencedExports(callbackBody(args), candidates);
-        if (target) (kind === "stream" ? streams : actions)[key] = target;
+        if (kind === "derived") {
+          // Only async generators stream; sync/promise deriveds don't.
+          if (!/(async\s+function\s*\*|yield\b|for\s+await)/.test(args)) continue;
+          const target = referencedExports(args, candidates);
+          if (target) streams[`d${streamOrder++}`] = target;
+          continue;
+        }
+        // The full args ARE the callback body in the new `action((payload) => ...)`
+        // syntax — no key comma to split on. Scan invoked exports for the transport.
+        const target = referencedExports(args, candidates);
+        actions[`a${actionOrder++}`] = target ?? "";
       }
     }
     islands.push({ name, as, streams, actions });
@@ -207,6 +251,7 @@ export function scanServerIslands(source: string): ServerModuleScan {
   return {
     islands,
     exports,
+    rpcActions,
     clientRefs: scanClientRefs(source),
     clientLoader: /(^|\n)\s*export\s+(?:const|let|var)\s+load\b\s*=\s*loader\.client\b/.test(
       source,
@@ -243,7 +288,7 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
   const moduleKey = basename(spec).replace(/\.server\.(?:[jt]sx?)$/i, "");
   const lines: string[] = [
     `import { client as $$rpc } from "virtual:oxide/client";`,
-    `import { __ilhaServerIsland } from "@ilha/router/server-island";`,
+    `import { __ilhaApplyHead, __ilhaServerIsland } from "@ilha/router/server-island";`,
     `const $$call = (method, args) => { const opts = args.at(-1); return opts && typeof opts === "object" && opts.signal instanceof AbortSignal && Object.keys(opts).length === 1 ? $$rpc[${JSON.stringify(moduleKey)}][method](args.slice(0, -1), opts) : $$rpc[${JSON.stringify(moduleKey)}][method](args); };`,
     ...scan.clientRefs.map((ref, index) =>
       ref.imported === "default"
@@ -264,7 +309,12 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
       ([key, target]) =>
         `${JSON.stringify(key)}: (signal) => $$call(${JSON.stringify(target)}, [{ signal }])`,
     );
-    const actions = Object.entries(island.actions).map(
+    // Directly-referenced exported actions (x:<name>) share the island's
+    // transports so event closures can call them without ilha action().
+    const rpcEntries = Object.entries(scan.rpcActions).map(
+      ([name, key]) => [key, name] as [string, string],
+    );
+    const actions = Object.entries({ ...island.actions, ...Object.fromEntries(rpcEntries) }).map(
       ([key, target]) =>
         `${JSON.stringify(key)}: (...args) => $$call(${JSON.stringify(target)}, args)`,
     );
@@ -277,7 +327,7 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
     }
     const id = serverIslandPublicId(spec, island.name);
     wiring.push(
-      `frame: () => fetch("/__ilha/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ${JSON.stringify(id)}, path: location.pathname + location.search }) }).then((r) => { if (!r.ok) throw new Error("frame failed"); return r.json(); }).then((j) => { if (j.redirect) { location.assign(j.redirect); throw new Error("frame redirected"); } return j.html; })`,
+      `frame: () => fetch("/__ilha/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ${JSON.stringify(id)}, path: location.pathname + location.search }) }).then((r) => { if (!r.ok) throw new Error("frame failed"); return r.json(); }).then((j) => { if (j.redirect) { location.assign(j.redirect); throw new Error("frame redirected"); } __ilhaApplyHead(j.head); return j.html; })`,
     );
     // `loader.client` on server pages executes over RPC when the view
     // hydrates — the module's code never ships to the browser.

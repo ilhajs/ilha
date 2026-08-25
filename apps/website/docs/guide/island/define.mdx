@@ -1,18 +1,18 @@
 ---
-title: .define()
+title: Custom elements
 description: Register an island as a custom element so it can be used from plain HTML or any other framework.
 ---
 
-Registers the island as a **custom element** — usable from plain HTML, or from any framework that can render arbitrary tags, without touching ilha's `mount()` API at all. This is one of the easiest ways to drop an ilha island into an existing app, a CMS template, or a static page.
+Register an island as a **custom element** — usable from plain HTML, or from any framework that can render arbitrary tags, without touching ilha's `mount()` API at all. This is one of the easiest ways to drop an ilha island into an existing app, a CMS template, or a static page.
 
 ## Basic usage
 
 ```tsx twoslash
 import { ilha } from "ilha";
 
-const Badge = ilha
-  .input<{ label: string }>({ label: "?" })
-  .render(({ input }) => <span>{input.label}</span>);
+const Badge = ilha<{ label: string }>(({ label }) => (
+  <span>{label}</span>
+));
 
 Badge.define("x-ilha-badge", { observe: ["label"] });
 ```
@@ -33,15 +33,15 @@ interface DefineOptions {
 
 ## Observed attributes
 
-Attributes named in `observe` become string input props. Changing the attribute re-resolves input and re-renders the island automatically:
+Attributes named in `observe` become string props. Changing the attribute re-resolves props and re-renders the island automatically:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state } from "ilha";
 
-const Counter = ilha
-  .input<{ start: string }>({ start: "0" })
-  .state("count", ({ start }) => Number(start))
-  .render(({ state }) => <p>{state.count()}</p>);
+const Counter = ilha<{ start: string }>(({ start }) => {
+  const count = state(Number(start));
+  return <p>{count()}</p>;
+});
 
 Counter.define("x-counter", { observe: ["start"] });
 ```
@@ -56,7 +56,7 @@ Counter.define("x-counter", { observe: ["start"] });
 </script>
 ```
 
-Because HTML attributes are always strings, coerce them to the type you need (as `Number(start)` does above) inside `.state()` or `.derived()`.
+Because HTML attributes are always strings, coerce them to the type you need (as `Number(start)` does above) inside the component or a derived value.
 
 ## Rich props via the `props` property
 
@@ -65,15 +65,13 @@ Attributes can only carry strings. For objects, arrays, or other non-string prop
 ```tsx twoslash
 import { ilha } from "ilha";
 
-const List = ilha
-  .input<{ items: string[] }>({ items: [] })
-  .render(({ input }) => (
-    <ul>
-      {input.items.map((i) => (
-        <li>{i}</li>
-      ))}
-    </ul>
-  ));
+const List = ilha<{ items: string[] }>(({ items }) => (
+  <ul>
+    {items.map((item) => (
+      <li>{item}</li>
+    ))}
+  </ul>
+));
 
 List.define("x-ilha-list");
 ```
@@ -86,32 +84,18 @@ const host = document.createElement(
 };
 host.props = { items: ["a", "b"] };
 document.body.appendChild(host);
-
-// Later updates re-render the island:
-host.props = { items: ["a", "b", "c"] };
 ```
 
 `props` is merged **over** attribute-derived props, so you can combine both — observed attributes for simple values, `props` for anything richer.
 
 ## Falling back to `data-ilha-props`
 
-If neither `observe` attributes nor `props` are set, the element falls back to reading `data-ilha-props` off itself — the same serialized-props convention used by [`.hydratable()`](/guide/island/hydratable):
+If neither `observe` attributes nor `props` are set, the element falls back to reading `data-ilha-props` off itself — the same serialized-props convention used by `.hydratable()`:
 
 ```html
 <x-ilha-badge
   data-ilha-props='{"label":"hello"}'
 ></x-ilha-badge>
-```
-
-## Using from another framework
-
-Because the custom element mounts and unmounts itself via the standard `connectedCallback` / `disconnectedCallback` lifecycle, it works anywhere custom elements are supported — React, Vue, Svelte, plain HTML, or a CMS template — with no ilha-specific glue code required in the host framework.
-
-```tsx
-// Inside a React component, for example:
-function Page() {
-  return <x-ilha-badge label="from React" />;
-}
 ```
 
 ## SSR safety
@@ -122,14 +106,16 @@ function Page() {
 import { ilha } from "ilha";
 
 const Badge = ilha(() => <span>hi</span>);
-
-// Safe to call during module init even on the server —
-// logs a dev warning and returns without registering anything.
 Badge.define("x-ilha-badge");
 ```
 
 ## Notes
 
-- Registering the same tag name twice logs a dev warning and skips the second registration — `customElements.define()` throws if called twice for the same tag, so `.define()` guards against that.
-- `.define()` can be called anywhere after `.render()` finalizes the builder chain — typically once at module scope, next to the island's definition.
-- Combine `.define()` with [`.hydratable()`](/guide/island/hydratable) if you also render the island server-side elsewhere — they are independent integration paths for the same island.
+- Registering the same tag name twice logs a dev warning and skips the second registration.
+- `.define()` can be called once at module scope, next to the island's definition.
+- Combine `.define()` with `.hydratable()` if you also render the island server-side elsewhere — they are independent integration paths for the same island.
+
+## Related
+
+- [Create an island](/guide/island/create)
+- [Compose islands](/guide/island/compose)

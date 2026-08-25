@@ -1,0 +1,163 @@
+---
+title: Create an island
+description: Build islands with function components, typed props, and Standard Schema input validation.
+---
+
+An island is a function component that returns JSX or `html`` directly. Call`ilha()` with a function to create one:
+
+```tsx twoslash
+import { ilha, state } from "ilha";
+
+const Counter = ilha(() => {
+  const count = state(0);
+  return (
+    <button onclick={() => count((value) => value + 1)}>
+      {count()}
+    </button>
+  );
+});
+```
+
+The component reruns when a reactive value it reads during rendering changes. State, derived values, actions, effects, and error handlers are registered as primitives that persist across rerenders by call order — declare them at the top level of the component in a stable order.
+
+## Typed props
+
+Props are ordinary current values passed straight to the component:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Greeting = ilha<{ name: string }>(({ name }) => {
+  return <p>Hello, {name}!</p>;
+});
+```
+
+A state initializer applies only when the instance is created. Later prop changes rerender the component but do not reset state:
+
+```tsx twoslash
+import { ilha, state } from "ilha";
+
+const Counter = ilha<{ start: number }>(({ start }) => {
+  const count = state(start);
+  return <p>{count()}</p>;
+});
+```
+
+## Input validation with a schema
+
+Pass a [Standard Schema](https://standardschema.dev)-compatible validator as the first argument to validate and coerce props at runtime, with defaults handled by the schema:
+
+```tsx twoslash
+import { z } from "zod";
+import { ilha } from "ilha";
+
+const Greeting = ilha(
+  z.object({ name: z.string().default("World") }),
+  ({ name }) => <p>Hello, {name}!</p>,
+);
+```
+
+Validation runs during SSR, hydration, mount, and prop updates. The inferred output type flows to the component's props.
+
+## Slot wrapper tag
+
+When an island is nested inside another island's render, ilha wraps it in a slot element. Choose the wrapper tag with the `{ as }` constructor option — useful for valid structure (`<li>` inside `<ul>`), semantics, or styling:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Badge = ilha(() => <span>New</span>, { as: "span" });
+```
+
+## Plain function components
+
+A plain function component is transparent — it belongs to the containing island, and any primitives it calls share that island's frame and lifecycle:
+
+```tsx twoslash
+import { ilha, state } from "ilha";
+
+function Label() {
+  const value = state("ready");
+  return <span>{value()}</span>;
+}
+
+const App = ilha(() => <Label />);
+```
+
+Transparent components must also keep a stable primitive ordering. Promote a component to its own island boundary with `ilha()` when it needs independent mount, hydration, or lifecycle:
+
+```tsx twoslash
+import { ilha, state } from "ilha";
+
+const Label = ilha(() => {
+  const value = state("ready");
+  return <span>{value()}</span>;
+});
+```
+
+## Primitive rules
+
+`state()`, `derived()`, `action()`, `effect()`, `effect.once()`, and `onError()` are order-based hooks:
+
+1. Call them at the component's top level.
+2. Call them in the same order and with the same kind on every render.
+3. Call them only while an island or a plain component owned by an island is rendering.
+
+In development, ilha detects primitive calls outside an island render, hook count changes, kind changes, and conditional registration. Put conditionals inside a primitive, not around primitive registration:
+
+```tsx twoslash
+import { ilha, state, derived } from "ilha";
+
+const App = ilha(() => {
+  const enabled = state(false);
+  const loadValue = (options: { signal: AbortSignal }) => {
+    void options;
+    return "loaded";
+  };
+
+  // invalid — conditional primitive registration
+  if (enabled()) {
+    const value = state(0);
+    void value;
+  }
+
+  // valid — the condition lives inside the derived function
+  const value = derived(async ({ signal }) => {
+    if (!enabled) return undefined;
+    return loadValue({ signal });
+  });
+
+  return <p>{value() ?? "idle"}</p>;
+});
+```
+
+## Authoring modes
+
+You can author with either JSX or the `html`` tagged template. Both share the same runtime and reactivity model:
+
+```tsx twoslash
+import { ilha, html } from "ilha";
+
+const Status = ilha(() => html`<p>Ready</p>`);
+```
+
+## Server rendering
+
+Render an island synchronously with `Island.toString(props)`, or await async derived values with `await Island.toStringAsync(props)`:
+
+```tsx twoslash
+import { ilha } from "ilha";
+
+const Counter = ilha(() => "<p>Count</p>");
+
+const html = Counter.toString();
+const asyncHtml = await Counter.toStringAsync();
+```
+
+Direct `Island(props)` calls are reserved for composing child islands inside another island render.
+
+## Related
+
+- [Local state](/guide/island/state)
+- [Render and hydrate](/guide/island/render)
+- [Compose islands](/guide/island/compose)

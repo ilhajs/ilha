@@ -1,6 +1,6 @@
 /**
  * Shared, decoded-aware route pattern matching used by both the router
- * (`index.ts`) and the server-frame path (`server-island-registry.ts`) so the
+ * (`index.ts`) and the server-frame path (`ssr.ts`) so the
  * two never drift on segment semantics or parameter decoding.
  *
  * Patterns support `:name` segments, a bare mid-pattern `*` (one segment), and

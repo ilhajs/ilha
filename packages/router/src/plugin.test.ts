@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { resolveGeneratedPaths } from "./codegen";
 import { ilhaPages } from "./plugin";
+import { getFrameAuth, setFrameAuth } from "./ssr";
 import { makeDir, removeDir } from "./test-helpers";
 
 function plugin(options: Record<string, string> = {}) {
@@ -13,6 +14,7 @@ function plugin(options: Record<string, string> = {}) {
     buildStart(): Promise<void>;
     resolveId(id: string, importer?: string): string | undefined;
     load(id: string): string | undefined;
+    configureServer(server: unknown): void;
   };
 }
 
@@ -98,6 +100,15 @@ describe("pages — plugin", () => {
     await mkdir(join(root, "src/pages"), { recursive: true });
     await expect(p.buildStart()).resolves.toBeUndefined();
     await removeDir(root);
+  });
+
+  it("keeps frame requests open by default in development", () => {
+    setFrameAuth({ defaultAction: "deny" });
+    plugin().configureServer({
+      watcher: { add() {}, on() {} },
+      middlewares: { use() {} },
+    });
+    expect(getFrameAuth()?.defaultAction).toBe("open");
   });
 });
 

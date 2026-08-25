@@ -1,0 +1,126 @@
+---
+title: Handle errors
+description: Route uncaught errors from actions, effects, and events to per-island onError() handlers or a global onUncaughtError() sink.
+---
+
+Register a **per-island** error handler with `onError()`. The runtime routes uncaught errors through a central sink: local `onError()` handlers first (in declaration order), then the app-wide `onUncaughtError()` sink if the island has none, then `console.error` so nothing is swallowed silently.
+
+```tsx twoslash
+import { onError, ilha, action } from "ilha";
+
+const report = (error: unknown, source: string) => {
+  void error;
+  void source;
+};
+
+const Form = ilha(() => {
+  const save = action(async () => {
+    const response = await fetch("/api/profile", {
+      method: "POST",
+    });
+    if (!response.ok) throw new Error("Save failed");
+  });
+
+  onError(({ error, source }) => {
+    report(error, source);
+  });
+
+  return <button onclick={save}>Save</button>;
+});
+```
+
+The context is `{ error, source, host }`. Access state, derived values, actions, and props through lexical closure rather than copying them into the error context.
+
+## Error sources
+
+Errors come from several places, and `source` tells you which:
+
+| Source   | Origin                                           |
+| -------- | ------------------------------------------------ |
+| `action` | An `action()` callback threw or rejected         |
+| `effect` | An `effect()` body or its cleanup threw          |
+| `once`   | An `effect.once()` callback or its cleanup threw |
+| `event`  | A native event handler threw or rejected         |
+
+`AbortError` is filtered automatically — cancellation is the expected outcome of a signal abort, not a real error, so it never reaches handlers.
+
+## Multiple handlers
+
+Declare multiple `onError()` calls and they run in declaration order. Each receives the same normalized error.
+
+```tsx twoslash
+import { ilha, onError } from "ilha";
+
+const track = (error: Error) => {
+  void error;
+};
+
+const App = ilha(() => {
+  onError(({ error }) => console.log("first", error));
+  onError(({ error }) => track(error));
+  return <p>hi</p>;
+});
+```
+
+State, derived values, actions, and props stay in lexical closure, so each handler reads them directly:
+
+```tsx twoslash
+import { ilha, state, onError } from "ilha";
+
+const App = ilha(() => {
+  const count = state(0);
+  onError(({ error }) => {
+    console.error("count was", count(), "when it failed");
+  });
+  return <p>{count()}</p>;
+});
+```
+
+## Global error sink — `onUncaughtError()`
+
+Register an app-wide handler that fires when an island reports an error and has no local `onError()` handler. Returns an unsubscribe function:
+
+```ts twoslash
+import { onUncaughtError } from "ilha";
+
+const telemetry = {
+  capture: (_error: unknown, _context: unknown) => {},
+};
+
+const stop = onUncaughtError((error, source) => {
+  telemetry.capture(error, { source });
+});
+
+// later
+stop();
+```
+
+Islands with their own `onError()` are handled locally and do not reach the global sink.
+
+## Derived errors
+
+Rejected async derived work sets `derived.error` on the envelope — it is **not** routed to `onError()`. Handle failures in the render path via the accessor's `loading` / `error` / `value` properties:
+
+```tsx twoslash
+import { ilha, derived } from "ilha";
+
+const UserCard = ilha<{ id: string }>(({ id }) => {
+  const user = derived(async ({ signal }) => {
+    const res = await fetch(`/api/users/${id}`, { signal });
+    return res.json();
+  });
+
+  if (user.error) return <p>Error: {user.error.message}</p>;
+  if (user.loading) return <p>Loading…</p>;
+  return <p>{user()?.name}</p>;
+});
+```
+
+## The fallback
+
+When no `onError()` handler is registered and no global sink exists, ilha logs the error with `console.error` so it is never silently swallowed. If an `onError()` handler itself throws, ilha logs that handler error without recursing.
+
+## Related
+
+- [Run actions](/guide/island/action)
+- [Side effects](/guide/island/effect)

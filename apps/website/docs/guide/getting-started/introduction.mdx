@@ -7,13 +7,13 @@ import { example } from "./introduction.examples";
 
 ilha is a tiny, isomorphic island framework for building reactive UI components.
 
-It lets you render on the server and mount in the browser with fine-grained signal reactivity, without a virtual DOM or compiler overhead. The result is a UI model that stays close to HTML while still giving you state, events, lifecycle hooks, scoped styles, and hydration when you need them.
+It lets you render on the server and mount in the browser with fine-grained signal reactivity, without a virtual DOM or compiler overhead. The result is a UI model that stays close to HTML while still giving you state, events, lifecycle hooks, and hydration when you need them.
 
 ## What ilha is
 
-An **island** is a self-contained component that knows how to render itself to HTML and how to activate itself in the browser. That means the same component can be used for server-side rendering, client-side mounting, or both together in a hydration flow.
+An **island** is a function component that knows how to render itself to HTML and how to activate itself in the browser. The same component works for server-side rendering, client-side mounting, or both together in a hydration flow.
 
-You can start with a plain JSX function, wrap it with `ilha()` when it needs an independent island boundary, then expand it into the fluent builder when it needs local capabilities.
+You can start with a plain JSX function, wrap it with `ilha()` when it needs an independent island boundary, then add reactive primitives inside the component when it needs local capabilities.
 
 ## Why it exists
 
@@ -29,7 +29,7 @@ This makes ilha a good fit when you want:
 
 ## How it feels to use
 
-A typical island reads a lot like a small HTML-aware module:
+A typical island reads like a small HTML-aware module:
 
 <Preview code={example} />
 
@@ -37,13 +37,10 @@ The same component can render to a string on the server and mount into the DOM o
 
 ## Choose the smallest component form
 
-Ilha has two runtime modes: transparent plain components and independent islands. Islands have two authoring forms, so you can add capabilities without redesigning your component.
-
-| Start with                                | Use it when                                                                             |
-| ----------------------------------------- | --------------------------------------------------------------------------------------- |
-| `const View = () => JSX`                  | You need reusable markup inside another island                                          |
-| `const View = ilha(() => JSX)`            | The component needs an independent mount, hydration, reactive scope, or event lifecycle |
-| `ilha.state(...).action(...).render(...)` | The island needs local state, derived values, actions, input, or lifecycle hooks        |
+| Start with                     | Use it when                                                                             |
+| ------------------------------ | --------------------------------------------------------------------------------------- |
+| `const View = () => JSX`       | You need reusable markup inside another island                                          |
+| `const View = ilha(() => JSX)` | The component needs an independent mount, hydration, reactive scope, or event lifecycle |
 
 Start plain:
 
@@ -51,25 +48,26 @@ Start plain:
 const Status = () => <p>Ready</p>;
 ```
 
-Promote the same render function when it needs an island boundary:
+Promote the same component when it needs an island boundary:
 
-```tsx twoslash
+```tsx
 import { ilha } from "ilha";
 
 const Status = ilha(() => <p>Ready</p>);
 ```
 
-Expand it into the builder when it needs local capabilities:
+Add local capabilities with primitives inside the component:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state } from "ilha";
 
-const Status = ilha
-  .state("message", "Ready")
-  .render(({ state }) => <p>{state.message()}</p>);
+const Status = ilha(() => {
+  const message = state("Ready");
+  return <p>{message()}</p>;
+});
 ```
 
-Both `ilha(() => JSX)` and the builder return the same kind of `Island`. The shorthand is equivalent to `ilha.render(() => JSX)`.
+Both forms return the same kind of `Island`.
 
 ## Core ideas
 
@@ -81,23 +79,26 @@ ilha can produce HTML on the server and activate the same component in the brows
 
 Signals keep state updates targeted and local. Changing one value does not rerender an entire application tree.
 
+### Function components
+
+An island is a plain function that returns JSX or `html``. Reactive primitives — `state()`, `derived()`, `action()`, `effect()`, `effect.once()`, and `onError()` — are registered by call order and persist across rerenders, so the component reruns in place when its dependencies change.
+
 ### JSX-first authoring
 
 ilha is designed to work naturally with JSX/TSX. The DOM-like syntax is familiar to most developers, and you get full TypeScript support, IDE autocompletion, and standard tooling out of the box.
 
-If you prefer a lower-level option or need to avoid a build step, the [`html`` `](/guide/helpers/html) tagged-template API is also available. It uses the same runtime and reactivity model, so you can mix both styles or migrate incrementally.
+If you prefer a lower-level option or need to avoid a build step, the [`html`` `](/guide/recipes/helpers#build-html-strings) tagged-template API is also available. It uses the same runtime and reactivity model, so you can mix both styles or migrate incrementally.
 
-### Builder-based composition
+### Primitive-based composition
 
-The fluent API lets you layer behavior step by step:
+Each primitive adds one capability, declared at the top level of the component:
 
-- [`.input()`](/guide/island/input) for typed props.
-- [`.state()`](/guide/island/state) for local reactive state.
-- [`.derived()`](/guide/island/derived) for computed values.
-- [Native event handlers and `.action()`](/guide/island/action#call-actions-from-events) for events and operations.
-- [`.effect()`](/guide/island/effect) and [`.onMount()`](/guide/island/onmount) for side effects.
-- [`.css()`](/guide/island/css) for scoped styles.
-- [`.render()`](/guide/island/render) to finalize the component.
+- [`ilha()`](/guide/island/create) for the component boundary and typed props.
+- [`state()`](/guide/island/state) for local reactive state.
+- [`derived()`](/guide/island/derived) for computed values.
+- [Native event handlers and `action()`](/guide/island/action) for events and operations.
+- [`effect()`](/guide/island/effect) and [`effect.once()`](/guide/island/effect) for side effects.
+- [`onError()`](/guide/island/errors) for error handling.
 
 ## When to use ilha
 
@@ -114,8 +115,8 @@ It is less about building a giant monolithic app framework and more about compos
 
 Think of an island as a component with three parts:
 
-- **Input**: data from the outside world.
+- **Props**: data from the outside world.
 - **State**: reactive values owned by the component.
-- **Render**: HTML output driven by that state and input.
+- **Render**: HTML output driven by that state and props.
 
-Then add behavior on top with events, effects, bindings, and lifecycle hooks. Once you understand that pattern, the rest of the API is mostly a set of focused ways to connect those pieces.
+Then add behavior on top with events, effects, bindings, and lifecycle primitives. Once you understand that pattern, the rest of the API is mostly a set of focused ways to connect those pieces.

@@ -1,242 +1,196 @@
 ---
-title: .action()
-description: Define named synchronous or asynchronous island operations with reactive pending, data, and error state.
+title: Handle events
+description: Handle native events with plain functions, then use action() when you need reactive operation state and cancellation.
 ---
 
-Defines a named operation that belongs to one mounted island. Use actions for form submissions, mutations, and other work that needs reactive pending, result, and error state.
-
-When a shorthand island needs a reusable operation, expand `ilha(() => JSX)` into `.action(...).render(...)`. The builder adds the action without changing the island model.
-
-[Interactive Tutorial](/tutorial/counter/action)
-
-## Basic usage
+Pass a function to a lowercase native event prop such as `onclick` or `onsubmit`:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state } from "ilha";
 
-const Counter = ilha
-  .state("count", 0)
-  .action("increment", (amount: number, { state }) => {
-    state.count((count) => count + amount);
-    return state.count();
-  })
-  .render(({ state, action }) => (
-    <button onclick={() => action.increment(1)}>
-      Count: {state.count()}
-    </button>
-  ));
+const Counter = ilha(() => {
+  const count = state(0);
+
+  const increment = () => {
+    count((value) => value + 1);
+  };
+
+  return <button onclick={increment}>Count: {count()}</button>;
+});
 ```
 
-The first callback argument is the action payload. The second is the action context.
+Use plain functions for ordinary operations. You do not need a primitive to handle an event, update state, call an API, or run application logic.
 
-## Call actions from events
+## Handle native event data
 
-Each action becomes a function on the render context's `action` object:
-
-```ts
-action.increment(1);
-```
-
-An action without a payload is callable with no arguments:
+The handler receives the native browser event. Use `currentTarget` when you need the element that owns the listener:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state } from "ilha";
 
-const Reset = ilha
-  .state("count", 1)
-  .action("reset", (_, { state }) => state.count(0))
-  .render(({ action }) => (
-    <button onclick={action.reset}>Reset</button>
-  ));
-```
+const NameForm = ilha(() => {
+  const message = state("");
 
-Use an action directly as a native event handler when its payload matches the event type:
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const Form = ilha
-  .action("submit", async (event: SubmitEvent, { signal }) => {
+  const submit = async (event: SubmitEvent) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
-    const response = await fetch("/api/profile", {
+    const name = String(new FormData(form).get("name") ?? "");
+
+    await fetch("/api/profile", {
       method: "POST",
-      body: new FormData(form),
-      signal,
+      body: JSON.stringify({ name }),
     });
-    if (!response.ok) throw new Error("Save failed");
-    return response.json();
-  })
-  .render(({ action }) => (
-    <form onsubmit={action.submit}>
-      <input name="name" />
-      <button disabled={action.submit.pending}>
-        {action.submit.pending ? "Saving…" : "Save"}
-      </button>
+
+    message(`Saved ${name}`);
+  };
+
+  return (
+    <form onsubmit={submit}>
+      <input name="name" required />
+      <button>Save</button>
+      <p>{message()}</p>
     </form>
-  ));
+  );
+});
 ```
 
-### Transform event data
-
-Keep DOM-specific conversion in the native handler when an action accepts an application payload:
+Keep event behavior and DOM-specific conversion in the handler. Pass application values to a separate function when you want to reuse the operation:
 
 ```tsx twoslash
 import { ilha } from "ilha";
 
-const Newsletter = ilha
-  .action("subscribe", async (email: string, { signal }) => {
+const Newsletter = ilha(() => {
+  const subscribe = async (email: string) => {
     await fetch("/api/newsletter", {
       method: "POST",
       body: JSON.stringify({ email }),
-      signal,
     });
-  })
-  .render(({ action }) => (
+  };
+
+  return (
     <form
       onsubmit={(event) => {
         event.preventDefault();
         const email = String(
           new FormData(event.currentTarget).get("email") ?? "",
         );
-        action.subscribe(email);
+        subscribe(email);
       }}
     >
       <input name="email" type="email" required />
-      <button disabled={action.subscribe.pending}>
-        {action.subscribe.pending ? "Joining…" : "Join"}
+      <button>Join</button>
+    </form>
+  );
+});
+```
+
+Start with this form. Add `action()` only when the UI needs to react to the operation itself.
+
+## Track an operation with `action()`
+
+`action()` wraps an operation in a reactive envelope. The returned accessor is callable and exposes:
+
+| Property  | Value                                 |
+| --------- | ------------------------------------- |
+| `pending` | Whether one or more calls are running |
+| `data`    | The latest successful result          |
+| `error`   | The latest error, or `undefined`      |
+
+This makes form submission state, loading indicators, success output, and errors available during render:
+
+```tsx twoslash
+import { ilha, action } from "ilha";
+
+const ProfileForm = ilha(() => {
+  const save = action(async (form: FormData, { signal }) => {
+    const response = await fetch("/api/profile", {
+      method: "POST",
+      body: form,
+      signal,
+    });
+
+    if (!response.ok) throw new Error("Could not save profile");
+    return response.json() as Promise<{ name: string }>;
+  });
+
+  return (
+    <form
+      onsubmit={(event) => {
+        event.preventDefault();
+        save(new FormData(event.currentTarget));
+      }}
+    >
+      <input name="name" required />
+      <button disabled={save.pending}>
+        {save.pending ? "Saving…" : "Save"}
+      </button>
+      {save.error && <p role="alert">{save.error.message}</p>}
+      {save.data && <p>Saved {save.data.name}</p>}
+    </form>
+  );
+});
+```
+
+The native handler owns the event and payload conversion. The action owns execution state and lifecycle cancellation.
+
+## Use an action as the handler
+
+Use an action directly when its payload is already the native event:
+
+```tsx twoslash
+import { ilha, action } from "ilha";
+
+const Form = ilha(() => {
+  const submit = action(async (event: SubmitEvent) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    await fetch("/api", {
+      method: "POST",
+      body: new FormData(form),
+    });
+  });
+
+  return (
+    <form onsubmit={submit}>
+      <input name="name" />
+      <button disabled={submit.pending}>
+        {submit.pending ? "Saving…" : "Save"}
       </button>
     </form>
-  ));
+  );
+});
 ```
 
-The native handler owns event behavior and payload conversion. The action owns the operation and its reactive state.
+Direct action references are matched by identity in the hydration manifest. This lets server-owned islands reconnect them without invoking the handler during SSR.
 
-### Reuse an action from multiple handlers
+## Concurrency guarantees
 
-Call the same action from any rendered element:
+Multiple concurrent calls share a pending counter. The latest-started call owns `data` and `error`. Previous successful data remains available while a newer call is pending.
 
-```tsx twoslash
-import { ilha } from "ilha";
+## Cancellation
 
-const Quantity = ilha
-  .state("count", 1)
-  .action("change", (amount: number, { state }) => {
-    state.count((count) => Math.max(0, count + amount));
-  })
-  .render(({ state, action }) => (
-    <div>
-      <button onclick={() => action.change(-1)}>Remove</button>
-      <output>{state.count()}</output>
-      <button onclick={() => action.change(1)}>Add</button>
-    </div>
-  ));
-```
-
-## Advanced listeners — `.on()`
-
-For CSS selectors, island-host listeners, or combined modifiers, use [`.on()`](/guide/island/on) instead of native event props. Declare actions before `.on()` so they are exposed through the handler context:
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const Registration = ilha
-  .action(
-    "registerUser",
-    async (event: SubmitEvent, { signal }) => {
-      event.preventDefault();
-      const form = event.currentTarget as HTMLFormElement;
-      await fetch("/api/register", {
-        method: "POST",
-        body: new FormData(form),
-        signal,
-      });
-    },
-  )
-  .on("form@submit", ({ action, event }) =>
-    action.registerUser(event),
-  )
-  .render(() => (
-    <form>
-      <input name="email" type="email" />
-      <button>Register</button>
-    </form>
-  ));
-```
-
-See [`.on()`](/guide/island/on) for selector syntax, the handler context, and error handling.
-
-## Reactive action state
-
-Every action exposes three read-only reactive properties:
-
-```ts
-action.save.pending; // boolean
-action.save.data; // returned value | undefined
-action.save.error; // Error | undefined
-```
-
-Reading these properties inside `.render()` or `.effect()` subscribes that scope. Ilha re-renders when the action state changes.
-
-When asynchronous invocations overlap, `pending` stays `true` until all of them settle. Only the latest-started invocation can publish `data` or `error`, so an older response cannot replace a newer result.
-
-Starting another invocation keeps the previous successful data available while pending. A successful invocation clears the previous error.
-
-## Action context
-
-The callback receives an `ActionContext` as its second argument:
-
-```ts
-{
-  state: IslandState; // local state accessors
-  derived: IslandDerived; // current derived values
-  input: TInput; // resolved input props
-  host: Element; // mounted island host
-  signal: AbortSignal; // aborts when the island unmounts
-}
-```
-
-Pass `signal` to `fetch` and other abort-aware APIs. Ilha ignores action settlements after unmount.
-
-Actions are also available as `action` inside `.on()`, `.effect()`, `.onMount()`, and `.onError()` callbacks when you declare the action earlier in the builder chain.
+An action receives an `AbortSignal` that aborts when the island unmounts. Pass it to `fetch` or another cancellable API. Ilha ignores later settlements and filters cancellation `AbortError` values.
 
 ## Errors
 
-Ilha stores a thrown or rejected error in `action.name.error`. It also routes the error through the island error sink with `source: "action"`:
+When an action throws or rejects, its `error` property updates and the error routes to [`onError()`](/guide/island/errors) with `source: "action"`.
 
-1. Local [`.onError()`](/guide/island/onerror) handlers
-2. Global `onUncaughtError()` handlers
-3. `console.error`
+## SSR behavior
 
-An `AbortError` caused by unmount cancellation is expected and does not reach the error sink.
+Actions remain idle during SSR. Calling an action during SSR logs a development warning and does not execute the operation.
 
-```tsx twoslash
-import { ilha } from "ilha";
+## Choose the smallest tool
 
-const Save = ilha
-  .action("save", async () => {
-    throw new Error("Could not save");
-  })
-  .onError(({ error, source }) => {
-    if (source === "action") console.error(error.message);
-  })
-  .render(({ action }) => (
-    <>
-      <button onclick={action.save}>Save</button>
-      {action.save.error && <p>{action.save.error.message}</p>}
-    </>
-  ));
-```
+Use a plain function by default. Reach for `action()` when you need at least one of these features:
 
-## SSR and hydration
+- Render pending, success, or error state.
+- Disable controls while an operation runs.
+- Show a loader during form submission.
+- Preserve the previous successful result during a refresh.
+- Cancel work automatically when the island unmounts.
+- Route operation failures through `onError()`.
 
-Actions are client operations. During SSR, every action reports `pending === false`, with no data or error. Calling an action during SSR does nothing and logs a development warning.
+## Related
 
-Action state is transient and is not included in hydration snapshots. A hydrated island starts with idle action state.
-
-## Notes
-
-- Action keys must be unique within one builder chain.
-- The action function returns `void`; read its result through `data` instead of awaiting the call site.
-- Synchronous state writes inside an action are batched into one propagation pass.
-- Use [`@ilha/store` actions](/guide/store/overview) for mutations shared across multiple islands.
+- [Handle errors](/guide/island/errors)
+- [Local state](/guide/island/state)

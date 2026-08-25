@@ -1,14 +1,17 @@
-export const example = `import { ilha } from "ilha";
+export const example = `import { ilha, state } from "ilha";
 import { Button } from "areia";
 
-export default ilha
-  .state("count", 0)
-  .action("increment", (_, { state }) =>
-    state.count((count) => count + 1))
-  .render(({ state, action }) => (
+export default ilha(() => {
+  const count = state(0);
+
+  const increment = () =>
+    count((value) => value + 1);
+
+  return (
     <div class="flex flex-col gap-2">
-      <p>Count: {state.count()}</p>
-      <Button onclick={action.increment}>Increment</Button>
+      <p>Count: {count()}</p>
+      <Button onclick={increment}>Increment</Button>
     </div>
-  ));
+  );
+});
 `;

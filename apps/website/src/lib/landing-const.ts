@@ -9,58 +9,60 @@ export const URLS = {
 export const META_DESCRIPTION =
   "Build fast, interactive websites with JavaScript only where you need it. Ilha works with your existing stack and keeps every page lightweight.";
 
-export const COUNTER_CODE = `import { ilha, mount } from "ilha";
+export const COUNTER_CODE = `import { ilha, state, derived, mount } from "ilha";
 
-const Signup = ilha
-  .state("email", "")
-  .derived("ready", ({ state }) =>
-    state.email().includes("@")
-  )
-  .action("join", async (event: SubmitEvent, { state }) => {
+const Signup = ilha(() => {
+  const email = state("");
+  const ready = derived(() => email().includes("@"));
+  const join = async (event: SubmitEvent) => {
     event.preventDefault();
     await fetch("/api/waitlist", {
       method: "POST",
-      body: JSON.stringify({ email: state.email() }),
+      body: JSON.stringify({ email: email() }),
     });
-  })
-  .render(({ state, derived, action }) => (
-    <form class="card" onsubmit={action.join}>
+  };
+
+  return (
+    <form class="card" onsubmit={join}>
       <input
         name="email"
-        bind:value={state.email}
+        bind:value={email}
         placeholder="you@company.com"
       />
-      <button disabled={!derived.ready()}>
-        {action.join.pending ? "Joining…" : "Join waitlist"}
+      <button disabled={!ready()}>
+        {join.pending ? "Joining…" : "Join waitlist"}
       </button>
     </form>
-  ));
+  );
+});
 
 // Hydrate matching server-rendered Signup hosts.
 mount({ Signup });`;
 
-export const SIGNALS_CODE = `import { ilha } from "ilha";
+export const SIGNALS_CODE = `import { ilha, state, derived } from "ilha";
 
-const Search = ilha
-  .state("query", "")
-  .derived("results", async ({ state, signal }) => {
-    if (!state.query()) return [];
+const Search = ilha(() => {
+  const query = state("");
+  const results = derived(async ({ signal }) => {
+    if (!query()) return [];
     const res = await fetch(
-      \`/api/search?q=\${encodeURIComponent(state.query())}\`,
+      \`/api/search?q=\${encodeURIComponent(query())}\`,
       { signal }
     );
     return res.json() as Promise<string[]>;
-  })
-  .render(({ state, derived }) => (
+  });
+
+  return (
     <section class="card">
       <input
         name="q"
         placeholder="Search…"
-        bind:value={state.query}
+        bind:value={query}
       />
-      <Results items={derived.results() ?? []} />
+      <Results items={results() ?? []} />
     </section>
-  ));`;
+  );
+});`;
 
 export const RENDERING_CODE = `import { mount } from "ilha";
 import { ProductCard } from "./product-card";
@@ -94,22 +96,17 @@ import { pageRouter, registry } from "ilha:pages/client";
 pageRouter.hydrate(registry);`;
 
 export const ILHA_STORE_CODE = `// src/lib/cart.ts
-import { store } from "@ilha/store";
+import { context, persist } from "ilha";
 
-export const cart = store({ items: [] as Item[] })
-  .action("add", (product: Item, ctx) => ({
-    items: [...ctx.get().items, product],
-  }))
-  .action("remove", (id: string, ctx) => ({
-    items: ctx.get().items.filter((p) => p.id !== id),
-  }))
-  .action("clear", () => ({ items: [] }))
-  .on("change", (state) => {
-    localStorage.setItem("cart", JSON.stringify(state));
-  })
-  .build();
+export const cart = context("cart.items", [] as Item[]);
+persist(cart, "cart");
 
-cart.add({ id: "pro", name: "Pro plan" });`;
+export const add = (product: Item) =>
+  cart((items) => [...items, product]);
+export const remove = (id: string) =>
+  cart((items) => items.filter((p) => p.id !== id));
+
+export const count = () => cart().length;`;
 
 export const ILHA_ASTRO_CODE = `// astro.config.ts
 import { defineConfig } from "astro/config";
@@ -119,58 +116,60 @@ export default defineConfig({
   integrations: [ilha()],
 });`;
 
-export const PREVIEW_CODE = `import { ilha } from "ilha";
+export const PREVIEW_CODE = `import { ilha, state, derived } from "ilha";
 import { Button, Checkbox, Input, LayerCard } from "areia";
 
 let nextId = 4;
 
-export default ilha
-  .state("tasks", [
+export default ilha(() => {
+  const tasks = state([
     { id: 1, label: "Ship the landing page", done: true },
     { id: 2, label: "Write unit tests", done: false },
     { id: 3, label: "Update README", done: false },
-  ])
-  .state("draft", "")
-  .derived("pending", ({ state }) =>
-    state.tasks().filter((task) => !task.done)
-  )
-  .action("add", (event: SubmitEvent, { state }) => {
+  ]);
+  const draft = state("");
+  const pending = derived(() =>
+    tasks().filter((task) => !task.done)
+  );
+
+  const add = (event: SubmitEvent) => {
     event.preventDefault();
-    const label = state.draft().trim();
+    const label = draft().trim();
     if (!label) return;
-    state.tasks((tasks) => [
-      ...tasks,
+    tasks((current) => [
+      ...current,
       { id: nextId++, label, done: false },
     ]);
-    state.draft("");
-  })
-  .action("remove", (id: number, { state }) => {
-    state.tasks((tasks) =>
-      tasks.filter((task) => task.id !== id)
+    draft("");
+  };
+  const remove = (id: number) => {
+    tasks((current) =>
+      current.filter((task) => task.id !== id)
     );
-  })
-  .render(({ state, derived, action }) => (
+  };
+
+  return (
     <LayerCard>
       <LayerCard.Title>
-        My Tasks ({derived.pending().length})
+        My Tasks ({pending().length})
       </LayerCard.Title>
       <LayerCard.Content class="p-0">
         <ul class="divide-y divide-areia-border">
-          {state.tasks().map((task, index) => (
+          {tasks().map((task, index) => (
             <li
               key={task.id}
               class="flex items-center gap-2 p-2"
             >
               <div class="flex-1">
                 <Checkbox
-                  bind:checked={state.tasks.select(
-                    (tasks) => tasks[index].done
+                  bind:checked={tasks.select(
+                    (current) => current[index].done
                   )}
                   label={task.label}
                 />
               </div>
               <Button
-                onclick={() => action.remove(task.id)}
+                onclick={() => remove(task.id)}
                 size="sm"
               >
                 ✕
@@ -179,21 +178,22 @@ export default ilha
           ))}
         </ul>
         <form
-          onsubmit={action.add}
+          onsubmit={add}
           class="flex gap-2 border-t border-areia-border p-2"
         >
           <Input
             placeholder="New task…"
-            bind:value={state.draft}
+            bind:value={draft}
             class="flex-1"
           />
-          <Button type="submit" disabled={!state.draft()}>
+          <Button type="submit" disabled={!draft()}>
             Add
           </Button>
         </form>
       </LayerCard.Content>
     </LayerCard>
-  ));
+  );
+});
 `;
 
 export const PRIMARY_ILHA_CARDS = [

@@ -27,6 +27,7 @@
     "typescript": "^6.0.3"
   },
   "patchedDependencies": {
-    "blume@1.5.3": "patches/blume@1.5.3.patch"
+    "blume@1.5.3": "patches/blume@1.5.3.patch",
+    "areia@0.2.6": "patches/areia@0.2.6.patch"
   }
 }

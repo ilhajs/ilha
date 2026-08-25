@@ -7,15 +7,15 @@ A map of the public `@ilha/router` API. For how-to guidance, start with [Router 
 
 ## Builder and routing
 
-| Export / method                                                                     | Guide                                                         |
-| ----------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `router(options)`                                                                   | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `.route(pattern, island, loader?)`                                                  | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `.mount(target, options?)`                                                          | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `.hydrate(registry)` / `.prime()`                                                   | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `navigate` / `prefetch` / `invalidate` / `navigating`                               | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `useRoute` / `routePath` / `routeParams` / `routeSearch` / `routeHash` / `isActive` | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `RouterView` / `RouterLink`                                                         | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| Export / method                                       | Guide                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------- |
+| `router(options)`                                     | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `.route(pattern, island, loader?)`                    | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `.mount(target, options?)`                            | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `.hydrate(registry)` / `.prime()`                     | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `navigate` / `prefetch` / `invalidate` / `navigating` | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `useRoute` / `isActive`                               | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `RouterView` / `RouterLink`                           | [Routes and navigation](/guide/routing/routes-and-navigation) |
 
 ## Loaders
 
@@ -28,20 +28,29 @@ A map of the public `@ilha/router` API. For how-to guidance, start with [Router 
 
 ## File-system routing
 
-| Topic                                            | Guide                                                     |
-| ------------------------------------------------ | --------------------------------------------------------- |
-| Pages plugin (Vite/Rspack/Rolldown)              | [File-system routing](/guide/routing/file-system-routing) |
-| Layouts / error boundaries / route groups        | [File-system routing](/guide/routing/file-system-routing) |
-| Virtual modules (`ilha:pages/*`, `ilha:loaders`) | [File-system routing](/guide/routing/file-system-routing) |
+| Export / method                                  | Guide                                                                              |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `defineLayout()`                                 | [File-system routing](/guide/routing/file-system-routing)                          |
+| `wrapLayout()` / `wrapError()`                   | [File-system routing](/guide/routing/file-system-routing) — used by generated code |
+| Pages plugin (Vite/Rsbuild)                      | [File-system routing](/guide/routing/file-system-routing)                          |
+| Virtual modules (`ilha:pages/*`, `ilha:loaders`) | [File-system routing](/guide/routing/file-system-routing)                          |
+
+## Navigation hooks
+
+| Export / method      | Guide                                                         |
+| -------------------- | ------------------------------------------------------------- |
+| `beforeNavigate(fn)` | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `afterNavigate(fn)`  | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| `head(input)`        | [Loaders](/guide/routing/loaders)                             |
 
 ## Server rendering
 
-| Export / method                                     | Guide                                               |
-| --------------------------------------------------- | --------------------------------------------------- |
-| `.render` / `.renderHydratable` / `.renderResponse` | [Server rendering](/guide/routing/server-rendering) |
-| `.respond(urlOrRequest, registry, options?)`        | [Server rendering](/guide/routing/server-rendering) |
-| `httpResponse(body, options)` / `serializeHead`     | [Server rendering](/guide/routing/server-rendering) |
-| `useContext()`                                      | [Server islands](/guide/routing/server-islands)     |
+| Export / method                                     | Guide                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `.render` / `.renderHydratable` / `.renderResponse` | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
+| `.respond(urlOrRequest, registry, options?)`        | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
+| `httpResponse(body, options)` / `serializeHead`     | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
+| `useContext()`                                      | [Server islands](/guide/routing/server-islands#read-the-request-during-rendering)    |
 
 ## Server islands and security
 

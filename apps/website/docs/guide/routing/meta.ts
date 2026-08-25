@@ -7,7 +7,6 @@ export default defineMeta({
     "routes-and-navigation",
     "loaders",
     "file-system-routing",
-    "server-rendering",
     "server-islands",
     "middleware-and-security",
     "deployment",

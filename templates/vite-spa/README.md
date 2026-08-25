@@ -1,6 +1,6 @@
 # Ilha + Vite
 
-A minimal client-side Ilha app with [Vite](https://vite.dev). Pages live in `src/pages/` and mount on the client via `@ilha/router`.
+A minimal client-side Ilha app with [Vite](https://vite.dev). Pages live in `src/pages/` and mount on the client via `@ilha/router`. This template has **no backend** — everything ships as static files.
 
 ## Requirements
 
@@ -32,9 +32,4 @@ src/
   app.css      # Tailwind + Areia styles
 ```
 
-The demo includes a todo island and [Areia](https://areia.ilha.build) UI components.
-
-## Learn more
-
-- [Ilha docs](https://ilha.build/docs)
-- [Scaffold a new project](https://ilha.build/docs/guide/getting-started/installation)
+The demo includes a todo island (plain client `state()` — no loaders needed for a static app) and [Areia](https://areia.ilha.build) UI components.

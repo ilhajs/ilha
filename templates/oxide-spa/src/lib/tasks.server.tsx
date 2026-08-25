@@ -1,7 +1,6 @@
-import { Button, Checkbox } from "areia";
-import { ilha } from "ilha";
+import { Badge, Button, Checkbox } from "areia";
+import { derived, each, ilha } from "ilha";
 import { action, useRequest } from "oxidejs";
-import { each } from "quando";
 import { Publisher } from "tacho";
 
 export type Task = {
@@ -52,33 +51,36 @@ export const deleteTask = action(async (id: string) => {
   notify();
 });
 
-// Server-owned island: streams live task state over SSE and exposes its
-// mutations as actions. The render function never ships to the browser —
-// the client hydrates a proxy that replays actions over RPC and morphs
-// streamed HTML frames into place.
-export const TaskList = ilha
-  .stream("items", () => getTasks())
-  .action("toggle", (id: string) => toggleTask(id))
-  .action("remove", (id: string) => deleteTask(id))
-  .render(({ state, action }) => (
-    <ul class="flex flex-col gap-2">
-      {each(state.items() ?? [])
-        .as((task) => (
-          <li key={task.id} class="flex items-center justify-between gap-2">
+export const TaskCount = ilha(() => {
+  const items = derived(async function* () {
+    yield* getTasks();
+  });
+  const count = derived(() => items()?.filter((task) => !task.completed).length ?? 0);
+  return <Badge>{count()}</Badge>;
+});
+
+// Server-owned island: streams live task state and replays mutations over RPC.
+export const TaskList = ilha(() => {
+  const items = derived(async function* () {
+    yield* getTasks();
+  });
+
+  return (
+    <div class="flex flex-col gap-2">
+      {each(items() ?? [])
+        .as((todo) => (
+          <div data-key={todo.id} class="flex items-center justify-between gap-2">
             <Checkbox
-              checked={task.completed}
-              label={task.text}
-              onCheckedChange={() => action.toggle(task.id)}
+              checked={todo.completed}
+              label={todo.text}
+              onCheckedChange={() => toggleTask(todo.id)}
             />
-            <Button
-              type="button"
-              class="text-sm text-red-500 hover:text-red-700"
-              onclick={() => action.remove(task.id)}
-            >
+            <Button type="button" onclick={() => deleteTask(todo.id)}>
               Delete
             </Button>
-          </li>
+          </div>
         ))
-        .else(<p class="text-sm opacity-60">No todos.</p>)}
-    </ul>
-  ));
+        .else(<p>No todos.</p>)}
+    </div>
+  );
+});

@@ -7,7 +7,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ilha, html, ISLAND_MOUNT_HANDLES, mount as ilhaMount, raw } from "ilha";
+import { ilha, html, mount as ilhaMount, raw, effect } from "ilha";
+import { ISLAND_MOUNT_HANDLES } from "ilha/internal";
 import { jsx, jsxs } from "ilha/jsx-runtime";
 
 import { generate } from "./codegen";
@@ -20,6 +21,7 @@ import {
   navigate,
   Redirect,
   redirect,
+  resolveRedirectTarget,
   router,
   serializeHead,
   wrapLayout,
@@ -35,6 +37,8 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
 
   function makeEl(inner = ""): Element {
     const el = document.createElement("div");
+    // pi-lens-ignore: ast-grep:no-inner-html, slop — test fixture only; the markup
+    // is an author-controlled literal simulating attacker payloads.
     el.innerHTML = inner;
     document.body.appendChild(el);
     return el;
@@ -66,12 +70,12 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
     });
 
     it("survives layoutUpdateProps in-place update", async () => {
-      const Page = ilha.render(
-        ({ input }: any) => `<p data-def>${input?.load?.value?.meta?.default ?? "-"}</p>`,
+      const Page = ilha(
+        (input: any) => `<p data-def>${input?.load?.value?.meta?.default ?? "-"}</p>`,
       );
       const Wrapped = wrapLayout(
         (children: any) =>
-          ilha.render(({ input }: any) => html`<section data-shell>${children(input)}</section>`),
+          ilha((input: any) => html`<section data-shell>${children(input)}</section>`),
         Page,
       );
       let n = 0;
@@ -79,7 +83,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       unmount = router()
         .route(
           "/",
-          ilha.render(() => `<p>home</p>`),
+          ilha(() => `<p>home</p>`),
         )
         .route("/t", Wrapped, loader(load))
         .mount(el);
@@ -117,12 +121,12 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
     afterEach(() => setLocation("/"));
 
     it("SSR + hydrate + invalidate keeps props parseable", async () => {
-      const Page = ilha.render(
-        ({ input }: any) => `<p data-def>${input?.load?.value?.meta?.default ?? "-"}</p>`,
+      const Page = ilha(
+        (input: any) => `<p data-def>${input?.load?.value?.meta?.default ?? "-"}</p>`,
       );
       const Wrapped = wrapLayout(
         (children: any) =>
-          ilha.render(({ input }: any) => html`<section data-shell>${children(input)}</section>`),
+          ilha((input: any) => html`<section data-shell>${children(input)}</section>`),
         Page,
       );
       let n = 0;
@@ -133,7 +137,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       const ssrHtml = await r().renderHydratable("/t", reg);
       setLocation("/t");
       const el = makeEl(ssrHtml);
-      const hydrated = ilha.mount(reg, { root: el });
+      const hydrated = ilhaMount(reg, { root: el });
       const unmount = r().mount(el, { hydrate: true, registry: reg });
       await flush();
 
@@ -159,8 +163,8 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
 
 // ─────────── from improvements.test.ts ───────────
 {
-  const Page = ilha.render(() => `<p>page</p>`);
-  const NotFoundPage = ilha.render(() => `<h1>lost</h1>`);
+  const Page = ilha(() => `<p>page</p>`);
+  const NotFoundPage = ilha(() => `<h1>lost</h1>`);
 
   function setLocation(path: string) {
     window.location.href = "http://localhost" + path;
@@ -178,7 +182,11 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       const r = router().route("/", Page, load);
       const html = await r.renderHydratable("http://localhost/", { index: Page });
       expect(html).not.toContain("<script>alert");
-      expect(html).toContain("&quot;&gt;&lt;script&gt;");
+      // Post-fix: redirect targets are normalized through the URL parser, so
+      // the payload is percent-encoded (canonical URL data) rather than kept
+      // raw-and-HTML-escaped. Either way no live markup can survive.
+      expect(html).toContain("%3E%3Cscript%3E");
+      expect(html).not.toContain("></script>");
     });
 
     it("blocks cross-origin redirects by default (renderResponse)", async () => {
@@ -230,6 +238,56 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       const res = await r.runLoader("http://localhost/");
       expect(res).toEqual({ kind: "redirect", to: "/login", status: 307 });
     });
+
+    it("rejects backslash-smuggled authority targets", async () => {
+      const load = loader(async () => {
+        redirect("/\\evil.example/phish");
+      });
+      const r = router().route("/", Page, load);
+      const res = await r.runLoader("http://localhost/");
+      expect(res.kind).toBe("error");
+      if (res.kind === "error") expect(res.status).toBe(500);
+    });
+
+    it("respond() never emits a backslash or CRLF Location header", async () => {
+      const backslash = loader(async () => {
+        redirect("/\\evil.example");
+      });
+      const crlf = loader(async () => {
+        redirect("/x\r\nX-Evil: 1");
+      });
+      const r1 = router().route("/", Page, backslash);
+      const res1 = await r1.respond("http://localhost/", { index: Page });
+      expect(res1.status).toBe(500);
+      expect(res1.headers.get("location")).toBeNull();
+
+      const r2 = router().route("/", Page, crlf);
+      const res2 = await r2.respond("http://localhost/", { index: Page });
+      expect(res2.status).toBe(500);
+      expect(res2.headers.get("location")).toBeNull();
+    });
+
+    it("resolveRedirectTarget rejects control-char-padded external targets", () => {
+      const base = new URL("https://app.com/");
+      expect(resolveRedirectTarget("/\t/evil.example", base, false)).toEqual({ ok: false });
+      expect(resolveRedirectTarget("/\\evil.example", base, false)).toEqual({ ok: false });
+      expect(resolveRedirectTarget(" /\\evil.example", base, false)).toEqual({ ok: false });
+    });
+
+    it("resolveRedirectTarget: relative, same-origin absolute, and opted-in external", () => {
+      const base = new URL("https://app.com/");
+      expect(resolveRedirectTarget("/login", base, false)).toEqual({ ok: true, to: "/login" });
+      expect(resolveRedirectTarget("https://app.com/dest?a=1", base, false)).toEqual({
+        ok: true,
+        to: "/dest?a=1",
+      });
+      expect(resolveRedirectTarget("https://other.example/x", base, false)).toEqual({ ok: false });
+      expect(resolveRedirectTarget("https://other.example/x", base, true)).toEqual({
+        ok: true,
+        to: "https://other.example/x",
+      });
+      expect(resolveRedirectTarget("javascript:alert(1)", base, false)).toEqual({ ok: false });
+    });
   });
 
   describe("sentinel status validation", () => {
@@ -280,6 +338,50 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       ]);
       expect(unsafe.headTags).not.toContain("refresh");
       expect(unsafe.headTags).not.toContain("evil.example");
+    });
+
+    it("drops backslash-smuggled and external refresh targets; keeps external script/link", () => {
+      const out = serializeHead([
+        { meta: [{ "http-equiv": "refresh", content: "0; url=/\\evil.example" }] },
+        { meta: [{ "http-equiv": "refresh", content: "0; url=https://evil.example/x" }] },
+        { meta: [{ "http-equiv": "refresh", content: "0; url=/home" }] },
+        { script: [{ src: "/\\evil.example/app.js" }] },
+        { script: [{ src: "https://evil.example/ok.js" }] },
+        { link: [{ rel: "stylesheet", href: "https://evil.example/app.css" }] },
+      ]);
+      // Both external refresh targets dropped; only the relative one survives.
+      expect(out.headTags.match(/http-equiv="refresh"/g) ?? []).toHaveLength(1);
+      expect(out.headTags).not.toContain("/\\evil.example/app.js");
+      // External HTTPS script/link remain supported (context policy).
+      expect(out.headTags).toContain("https://evil.example/ok.js");
+      expect(out.headTags).toContain("https://evil.example/app.css");
+    });
+  });
+
+  describe("loader error status validation", () => {
+    it("clamps loader error status outside 400-599 to 500", async () => {
+      const load = loader(async () => {
+        throw Object.assign(new Error("boom"), { status: 600 });
+      });
+      const r = router().route("/", Page, load);
+      const res = await r.respond("http://localhost/", { index: Page });
+      expect(res.status).toBe(500);
+      const html = await res.text();
+      expect(html).toContain('data-router-error="500"');
+      expect(html).not.toContain('data-router-error="600"');
+    });
+
+    it("escapes loader error status attribute and message", async () => {
+      const load = loader(async () => {
+        throw Object.assign(new Error("<x>"), { status: 418 });
+      });
+      const r = router().route("/", Page, load);
+      const res = await r.respond("http://localhost/", { index: Page });
+      expect(res.status).toBe(418);
+      const html = await res.text();
+      expect(html).toContain('data-router-error="418"');
+      expect(html).not.toContain("<x>");
+      expect(html).toContain("&lt;x&gt;");
     });
   });
 
@@ -449,7 +551,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
         .route("/docs", Page)
         .route(
           "/docs/:slug",
-          ilha.render(() => `<p>doc</p>`),
+          ilha(() => `<p>doc</p>`),
         );
       setLocation("/");
       navigate("/docs/getting-started"); // sync signals
@@ -552,7 +654,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       try {
         const pagesDir = join(root, "pages");
         await mkdir(join(pagesDir, "foo"), { recursive: true });
-        const island = `import { ilha } from "ilha"; export default ilha.render(() => "<p>x</p>");`;
+        const island = `import { ilha } from "ilha"; export default ilha(() => "<p>x</p>");`;
         // Both map to "/foo"
         await writeFile(join(pagesDir, "foo.ts"), island);
         await writeFile(join(pagesDir, "foo", "index.ts"), island);
@@ -580,6 +682,8 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
 
   function makeEl(inner = ""): Element {
     const el = document.createElement("div");
+    // pi-lens-ignore: ast-grep:no-inner-html, slop — test fixture only; the markup
+    // is an author-controlled literal simulating attacker payloads.
     el.innerHTML = inner;
     document.body.appendChild(el);
     return el;
@@ -603,13 +707,13 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
     await new Promise((r) => setTimeout(r, 40));
   };
 
-  const HomePage = ilha.render(() => `<p>home</p>`);
-  const AboutPage = ilha.render(() => `<p>about</p>`);
+  const HomePage = ilha(() => `<p>home</p>`);
+  const AboutPage = ilha(() => `<p>about</p>`);
 
   /** A search page: an input plus a loader-driven list. */
   function makeSearchPage() {
-    return ilha.render(
-      ({ input }: any) =>
+    return ilha(
+      (input: any) =>
         `<div><input data-q /><ul>${((input?.load?.value?.rows ?? []) as string[])
           .map((r) => `<li>${r}</li>`)
           .join("")}</ul></div>`,
@@ -686,11 +790,14 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
 
     it("island change still remounts: effect cleanup runs exactly once, none for same-island navs", async () => {
       let cleanups = 0;
-      const FxPage = ilha
-        .effect(() => () => {
+      const FxPage = ilha((input: any) => {
+        // effect.once: setup runs once per mount; its cleanup fires only on
+        // unmount, so teardown counts distinguish in-place updates from remounts.
+        effect.once(() => () => {
           cleanups++;
-        })
-        .render(({ input }: any) => `<p>fx:${input?.load?.value?.rows?.[0] ?? "-"}</p>`);
+        });
+        return `<p>fx:${input?.load?.value?.rows?.[0] ?? "-"}</p>`;
+      });
       const load = makeSearchLoader();
       unmount = router()
         .route("/", HomePage)
@@ -796,7 +903,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       const SearchPage = makeSearchPage();
       // Layout that never reads its input — props must still reach the page.
       const Wrapped = wrapLayout(
-        (children: any) => ilha.render(() => html`<section data-shell>${children}</section>`),
+        (children: any) => ilha(() => html`<section data-shell>${children}</section>`),
         SearchPage,
       );
       const load = makeSearchLoader();
@@ -884,7 +991,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       const el = makeEl(ssrHtml);
       // App boot: ilha.mount() hydrates the SSR islands (the router never saw
       // these handles — it must adopt them).
-      const hydrated = ilha.mount(reg, { root: el });
+      const hydrated = ilhaMount(reg, { root: el });
       const unmount = router()
         .route("/", HomePage)
         .route("/s", SearchPage, loader(load))
@@ -915,6 +1022,8 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
 
   function makeEl(inner = ""): Element {
     const el = document.createElement("div");
+    // pi-lens-ignore: ast-grep:no-inner-html, slop — test fixture only; the markup
+    // is an author-controlled literal simulating attacker payloads.
     el.innerHTML = inner;
     document.body.appendChild(el);
     return el;
@@ -969,37 +1078,43 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
     it("hydratable + mount paints compound children and keeps callbacks", async () => {
       const setPageCalls: number[] = [];
 
-      const Pagination = ilha
-        .input<{
-          page: number;
-          setPage?: (n: number) => void;
-          children?: unknown;
-        }>()
-        .on("[data-next]@click", ({ input }) => {
-          input.setPage?.(input.page + 1);
-        })
-        .render(({ input }) => {
-          return html`<div data-slot="pagination" data-page=${String(input.page)}>
-            ${paintChildren(input.children)}<button type="button" data-next>next</button>
-          </div>`;
+      const Pagination = ilha<{
+        page: number;
+        setPage?: (n: number) => void;
+        children?: unknown;
+      }>((props) => {
+        effect.once(({ host, signal }) => {
+          host.addEventListener(
+            "click",
+            (event) => {
+              if ((event.target as Element).closest("[data-next]")) {
+                props.setPage?.(props.page + 1);
+              }
+            },
+            { signal },
+          );
         });
+        return html`<div data-slot="pagination" data-page=${String(props.page)}>
+          ${paintChildren(props.children)}<button type="button" data-next>next</button>
+        </div>`;
+      });
 
-      const Page = ilha.render(() => html`<p data-page-body>page</p>`);
+      const Page = ilha(() => html`<p data-page-body>page</p>`);
 
       const Layout = defineLayout((Children) =>
-        ilha.input<{ page: number }>().render(({ input }) =>
+        ilha<{ page: number }>(({ page }) =>
           jsxs("div", {
             class: "flex",
             children: [
               jsx("footer", {
                 children: jsx(Pagination as never, {
                   key: "grid-pagination",
-                  page: input.page,
+                  page,
                   setPage: (p: number) => {
                     setPageCalls.push(p);
                   },
                   children: [
-                    jsx("span", { "data-info": true, children: `info ${input.page}` }),
+                    jsx("span", { "data-info": true, children: `info ${page}` }),
                     jsx("div", { class: "grow" }),
                   ],
                 }),
@@ -1038,45 +1153,51 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
     it("layout input update keeps nested children painted and callbacks live", async () => {
       const setPageCalls: number[] = [];
 
-      const Pagination = ilha
-        .input<{
-          page: number;
-          totalCount: number;
-          setPage?: (n: number) => void;
-          children?: unknown;
-        }>()
-        .on("[data-next]@click", ({ input }) => {
-          input.setPage?.(input.page + 1);
-        })
-        .render(({ input }) => {
-          return html`<div
-            data-slot="pagination"
-            data-page=${String(input.page)}
-            data-total=${String(input.totalCount)}
-          >
-            ${paintChildren(input.children)}<button type="button" data-next>next</button>
-          </div>`;
+      const Pagination = ilha<{
+        page: number;
+        totalCount: number;
+        setPage?: (n: number) => void;
+        children?: unknown;
+      }>((props) => {
+        effect.once(({ host, signal }) => {
+          host.addEventListener(
+            "click",
+            (event) => {
+              if ((event.target as Element).closest("[data-next]")) {
+                props.setPage?.(props.page + 1);
+              }
+            },
+            { signal },
+          );
         });
+        return html`<div
+          data-slot="pagination"
+          data-page=${String(props.page)}
+          data-total=${String(props.totalCount)}
+        >
+          ${paintChildren(props.children)}<button type="button" data-next>next</button>
+        </div>`;
+      });
 
-      const Page = ilha.render(() => html`<p data-page-body>page</p>`);
+      const Page = ilha(() => html`<p data-page-body>page</p>`);
 
       const Layout = defineLayout((Children) =>
-        ilha.input<{ page: number; totalCount: number }>().render(({ input }) =>
+        ilha<{ page: number; totalCount: number }>(({ page, totalCount }) =>
           jsxs("div", {
             class: "flex",
             children: [
               jsx("footer", {
                 children: jsx(Pagination as never, {
                   key: "grid-pagination",
-                  page: input.page,
-                  totalCount: input.totalCount,
+                  page,
+                  totalCount,
                   setPage: (p: number) => {
                     setPageCalls.push(p);
                   },
                   children: [
                     jsx("span", {
                       "data-info": true,
-                      children: `info ${input.page}/${input.totalCount}`,
+                      children: `info ${page}/${totalCount}`,
                     }),
                   ],
                 }),
@@ -1131,21 +1252,26 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
     it("nested wrapLayout (outer→inner→page) keeps layout-level compound islands", async () => {
       const clicks: string[] = [];
 
-      const Tool = ilha
-        .input<{ name: string; onGo?: () => void; children?: unknown }>()
-        .on("[data-go]@click", ({ input }) => input.onGo?.())
-        .render(
-          ({ input }) =>
-            html`<div data-tool=${input.name}>
-              ${paintChildren(input.children)}
-              <button type="button" data-go>${input.name}</button>
-            </div>`,
-        );
+      const Tool = ilha<{ name: string; onGo?: () => void; children?: unknown }>((props) => {
+        effect.once(({ host, signal }) => {
+          host.addEventListener(
+            "click",
+            (event) => {
+              if ((event.target as Element).closest("[data-go]")) props.onGo?.();
+            },
+            { signal },
+          );
+        });
+        return html`<div data-tool=${props.name}>
+          ${paintChildren(props.children)}
+          <button type="button" data-go>${props.name}</button>
+        </div>`;
+      });
 
-      const Page = ilha.render(() => html`<p data-page>page</p>`);
+      const Page = ilha(() => html`<p data-page>page</p>`);
 
       const Inner = defineLayout((Children) =>
-        ilha.render(() =>
+        ilha(() =>
           jsxs("div", {
             "data-inner-layout": true,
             children: [
@@ -1162,7 +1288,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
       );
 
       const Outer = defineLayout((Children) =>
-        ilha.render(() =>
+        ilha(() =>
           jsxs("div", {
             "data-outer-layout": true,
             children: [
@@ -1206,22 +1332,31 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
     it("many layout child islands + page slot: all paint and callbacks survive updateProps", async () => {
       const hits: number[] = [];
 
-      const Chip = ilha
-        .input<{ id: number; onHit?: (id: number) => void; children?: unknown }>()
-        .on("[data-hit]@click", ({ input }) => input.onHit?.(input.id))
-        .render(
-          ({ input }) =>
-            html`<button type="button" data-hit data-chip=${String(input.id)}>
-              ${paintChildren(input.children)}
-            </button>`,
-        );
+      const Chip = ilha<{ id: number; onHit?: (id: number) => void; children?: unknown }>(
+        (props) => {
+          effect.once(({ host, signal }) => {
+            host.addEventListener(
+              "click",
+              (event) => {
+                if ((event.target as Element).closest("[data-hit]")) {
+                  props.onHit?.(props.id);
+                }
+              },
+              { signal },
+            );
+          });
+          return html`<button type="button" data-hit data-chip=${String(props.id)}>
+            ${paintChildren(props.children)}
+          </button>`;
+        },
+      );
 
-      const Page = ilha
-        .input<{ marker: string }>()
-        .render(({ input }) => html`<p data-page-marker>${input.marker}</p>`);
+      const Page = ilha<{ marker: string }>(
+        ({ marker }) => html`<p data-page-marker>${marker}</p>`,
+      );
 
       const Layout = defineLayout((Children) =>
-        ilha.input<{ marker: string; tick: number }>().render(({ input }) => {
+        ilha<{ marker: string; tick: number }>(({ tick }) => {
           const chips = Array.from({ length: 12 }, (_, id) =>
             jsx(Chip as never, {
               key: `chip-${id}`,
@@ -1230,7 +1365,7 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
               children: [
                 jsx("span", {
                   "data-chip-label": true,
-                  children: `c${id}@${input.tick}`,
+                  children: `c${id}@${tick}`,
                 }),
               ],
             }),
@@ -1290,37 +1425,44 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
     });
 
     it("rapid layout updateProps churn never empties nested compound slots", async () => {
-      const Pagination = ilha
-        .input<{
-          page: number;
-          total: number;
-          setPage?: (n: number) => void;
-          children?: unknown;
-        }>()
-        .on("[data-next]@click", ({ input }) => input.setPage?.(input.page + 1))
-        .render(
-          ({ input }) =>
-            html`<div data-pag data-page=${String(input.page)} data-total=${String(input.total)}>
-              ${paintChildren(input.children)}
-              <button type="button" data-next>n</button>
-            </div>`,
-        );
+      const Pagination = ilha<{
+        page: number;
+        total: number;
+        setPage?: (n: number) => void;
+        children?: unknown;
+      }>((props) => {
+        effect.once(({ host, signal }) => {
+          host.addEventListener(
+            "click",
+            (event) => {
+              if ((event.target as Element).closest("[data-next]")) {
+                props.setPage?.(props.page + 1);
+              }
+            },
+            { signal },
+          );
+        });
+        return html`<div data-pag data-page=${String(props.page)} data-total=${String(props.total)}>
+          ${paintChildren(props.children)}
+          <button type="button" data-next>n</button>
+        </div>`;
+      });
 
       const calls: number[] = [];
-      const Page = ilha.render(() => html`<p data-page>p</p>`);
+      const Page = ilha(() => html`<p data-page>p</p>`);
       const Layout = defineLayout((Children) =>
-        ilha.input<{ page: number; total: number }>().render(({ input }) =>
+        ilha<{ page: number; total: number }>(({ page, total }) =>
           jsxs("div", {
             children: [
               jsx(Pagination as never, {
                 key: "pag",
-                page: input.page,
-                total: input.total,
+                page,
+                total,
                 setPage: (n: number) => calls.push(n),
                 children: [
                   jsx("span", {
                     "data-info": true,
-                    children: `${input.page}/${input.total}`,
+                    children: `${page}/${total}`,
                   }),
                   jsx("span", {
                     "data-fat": true,
@@ -1363,22 +1505,17 @@ import { CLIENT_QUERY, createPagesPluginState, resolvePagesId } from "./plugin";
     });
 
     it("layout with both positional and keyed nested islands + page", async () => {
-      const Pos = ilha
-        .input<{ label: string; children?: unknown }>()
-        .render(
-          ({ input }) =>
-            html`<aside data-pos>${input.label}:${paintChildren(input.children)}</aside>`,
-        );
-      const Keyed = ilha
-        .input<{ label: string; children?: unknown }>()
-        .render(
-          ({ input }) =>
-            html`<header data-keyed>${input.label}:${paintChildren(input.children)}</header>`,
-        );
+      const Pos = ilha<{ label: string; children?: unknown }>(
+        ({ label, children }) => html`<aside data-pos>${label}:${paintChildren(children)}</aside>`,
+      );
+      const Keyed = ilha<{ label: string; children?: unknown }>(
+        ({ label, children }) =>
+          html`<header data-keyed>${label}:${paintChildren(children)}</header>`,
+      );
 
-      const Page = ilha.render(() => html`<main data-main>main</main>`);
+      const Page = ilha(() => html`<main data-main>main</main>`);
       const Layout = defineLayout((Children) =>
-        ilha.render(() =>
+        ilha(() =>
           jsxs("div", {
             children: [
               jsx(Pos as never, {

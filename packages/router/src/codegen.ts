@@ -458,7 +458,7 @@ function buildServerFile(entries: PageEntry[], serverFile: string): string {
     // serve GET /__ilha/loader for regular pages with server loads.
     ...(entries.some((e) => e.hasLoader || e.loaderLayouts.length > 0)
       ? [
-          `import { setFrameLoaderRunner } from "@ilha/router/server-island-registry";`,
+          `import { setFrameLoaderRunner } from "@ilha/router/ssr";`,
           // Forward the originating request so client-navigation loaders keep
           // cookies/identity and observe the real request's abort signal.
           `setFrameLoaderRunner((path, request) => pageRouter.runLoader(path, request));`,
@@ -467,7 +467,7 @@ function buildServerFile(entries: PageEntry[], serverFile: string): string {
     ``,
     ...wrappedIslandLines,
     ``,
-    `export const registry: Record<string, Island<any, any>> = {`,
+    `export const registry: Record<string, Island<any>> = {`,
     ...registryLines,
     `};`,
     ``,
@@ -632,7 +632,7 @@ function buildClientFile(
     ``,
     ...wrappedIslandLines,
     ``,
-    `export const registry: Record<string, Island<any, any>> = {`,
+    `export const registry: Record<string, Island<any>> = {`,
     ...registryLines,
     `};`,
     ``,
@@ -736,14 +736,14 @@ async function generateTypes(outDir: string): Promise<void> {
     `  import type { RouterBuilder } from "@ilha/router";`,
     `  import type { Island } from "ilha";`,
     `  export const pageRouter: RouterBuilder;`,
-    `  export const registry: Record<string, Island<any, any>>;`,
+    `  export const registry: Record<string, Island<any>>;`,
     `}`,
     ``,
     `declare module "ilha:pages/client" {`,
     `  import type { RouterBuilder } from "@ilha/router";`,
     `  import type { Island } from "ilha";`,
     `  export const pageRouter: RouterBuilder;`,
-    `  export const registry: Record<string, Island<any, any>>;`,
+    `  export const registry: Record<string, Island<any>>;`,
     `}`,
     ``,
     `declare module "ilha:loaders" {`,

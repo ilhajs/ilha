@@ -1,122 +1,256 @@
 ---
 title: Server islands
-description: Render islands on the server with .server.tsx files, keep them live through frames, and read the originating request.
+description: Add SSR to an Ilha SPA with Oxide, render selected islands or whole routes on the server, and keep them interactive through frames.
 ---
 
-Define islands in `*.server.ts(x)` files. The render function never ships to the browser — the client hydrates a proxy that replays actions over RPC and re-renders through the server:
-
-```tsx
-// src/lib/tasks.server.tsx
-export const TaskList = ilha
-  .stream("items", ({ signal }) => getTasks({ signal }))
-  .action("remove", (id: string) => deleteTask(id))
-  .render(({ state, action }) => (
-    <ul>
-      {each(state.items() ?? []).as((task) => (
-        <li
-          key={task.id}
-          onclick={() => action.remove(task.id)}
-        >
-          {task.text}
-        </li>
-      ))}
-    </ul>
-  ));
-```
-
-Import `<TaskList />` in any page. The plugin scans the module, generates a client proxy, and keeps the render function server-side.
-
-The proxy stays current through **frames**: the client posts to `/__ilha/frame`, and the server re-renders the island from its own state and morphs the HTML into place. In dev the plugin serves the endpoint; in production, wire it into your server's fetch handler. With [oxidejs](https://npmjs.com/package/oxidejs):
+Use [Oxide](https://npmjs.com/package/oxidejs) as the server runtime for an Ilha router app. You keep the SPA authoring model and opt individual islands or whole routes into server rendering.
 
 ```ts
-// vite.config.ts — the middleware serves both SSR endpoints in production:
-// POST /__ilha/frame (server islands) and GET /__ilha/loader (client-
-// navigation data for regular pages). Its route-graph imports are implicit.
-oxide({ middleware: ["@ilha/router/ssr"] });
-```
+// vite.config.ts
+import pages from "@ilha/router/vite";
+import oxide from "oxidejs/vite";
+import { defineConfig } from "vite";
 
-Render functions read the originating request through `useContext()`:
-
-```ts twoslash
-import { useContext } from "@ilha/router";
-
-// inside a .server.tsx render function
-const { request } = useContext();
-```
-
-:::note
-In **production**, `/__ilha/frame` is **denied by default** when no guard is registered — anyone can otherwise re-render any server island by id, so if an island's state holds private data you must install a session check. `/__ilha/loader` is denied by default the same way (its output is gated behind the same `defaultAction` policy). Opt out of the deny-by-default explicitly (not recommended) by setting the frame-auth policy `defaultAction: "open"` (see below). The dev middleware stays permissive unless you register a guard.
-:::
-
-Gate frames in dev through the plugin option, and in production through the shared guard slot:
-
-```ts
-// dev
-pages({
-  frameGuard: (request) => {
-    if (!isSignedIn(request))
-      return new Response("Unauthorized", { status: 401 });
-    // return nothing to allow the frame
-  },
+export default defineConfig({
+  plugins: [
+    oxide({ middleware: ["@ilha/router/ssr"] }),
+    pages(),
+  ],
 });
 ```
 
-```ts
-// production — call once at server startup
+This is the recommended SSR setup. You do not need a separate server entry, route renderer, or fetch handler. Oxide loads the route graph and runs the `@ilha/router/ssr` middleware in production.
+
+The middleware serves two internal endpoints:
+
+| Endpoint             | Purpose                                       |
+| -------------------- | --------------------------------------------- |
+| `POST /__ilha/frame` | Render a server island or server page again.  |
+| `GET /__ilha/loader` | Load data during regular-page SPA navigation. |
+
+## Render one island on the server
+
+Put the island in a `*.server.ts` or `*.server.tsx` file. Its render function and server dependencies never ship to the browser:
+
+```tsx
+// src/lib/tasks.server.tsx
+import { action, derived, each, ilha } from "ilha";
+
+export const TaskList = ilha(() => {
+  const items = derived(async function* ({ signal }) {
+    yield* getTasks({ signal });
+  });
+
+  const remove = action((id: string) => deleteTask(id));
+
+  return (
+    <ul>
+      {each(items() ?? []).as((task) => (
+        <li key={task.id}>
+          {task.text}
+          <button onclick={remove.withArgs(task.id)}>
+            Remove
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+});
+```
+
+Import and render it from a regular page:
+
+```tsx
+// src/pages/index.tsx
+import { TaskList } from "$lib/tasks.server";
+import { ilha } from "ilha";
+
+export default ilha(() => <TaskList />);
+```
+
+The router plugin replaces the server module with a small client proxy. The proxy requests the first frame, morphs the returned HTML into place, and reconnects events to server actions.
+
+Streaming `derived()` generators and `action()` calls are matched by primitive order. Keep the same primitive kind at each position on every render so the generated proxy resolves the same transports.
+
+## Render a whole route on the server
+
+Rename a page to `foo.server.tsx` to render the complete route through Oxide. Export a default island and an optional server `load()` function:
+
+```tsx twoslash
+// src/pages/user/[id].server.tsx
+import type { FrameLoaderContext } from "@ilha/router/ssr";
+import { ilha } from "ilha";
+
+export async function load({
+  params,
+  request,
+}: FrameLoaderContext) {
+  const response = await fetch(
+    new URL(`/api/users/${params.id}`, request.url),
+  );
+  return response.json() as Promise<{ name: string }>;
+}
+
+export default ilha(({ name }: { name: string }) => (
+  <main>
+    <h1>{name}</h1>
+  </main>
+));
+```
+
+The `load()` result becomes the page props. It runs again at frame time with the current route params, query, request headers, and cancellation signal. A loader `redirect()` navigates the client to its validated target.
+
+Layouts and `+error.ts` boundaries still compose around a server page. During client navigation, the view remains pending until its first frame arrives, so use [`navigating`](/guide/routing/routes-and-navigation#transitions) when you want a route-level loading indicator.
+
+`loader.client()` also works on a server page, but its function executes over RPC and its result does not become server-rendered props. Use it for side effects such as analytics or client document state.
+
+## Read the request during rendering
+
+A server island can read the originating request through `useContext()`:
+
+```tsx twoslash
+import { useContext } from "@ilha/router";
+
+const { request } = useContext();
+const locale = request?.headers.get("accept-language") ?? "en";
+```
+
+Oxide installs the request scope before the router renders. Cookies, authorization, and user-agent headers remain available to loaders and frames. The middleware deliberately does not trust a client-supplied `x-forwarded-for` header.
+
+## How frames keep islands live
+
+```text
+Oxide server                         browser
+───────────────────────────────────  ───────────────────────────────
+POST /__ilha/frame { id, path }      proxy requests a frame
+  → match route and run load()         → morph returned HTML
+  → restore server island state        → reconnect event sentinels
+  → render the next HTML frame          → replay actions over RPC
+
+GET /__ilha/loader?path=…            regular page navigation
+  → run the matched loader              → mount or update the view
+```
+
+The server owns rendering and state for `*.server.*` islands. The browser owns the DOM proxy and sends action calls back to Oxide.
+
+## Guard production endpoints
+
+Production frame and loader endpoints deny requests by default. Register guards once during server startup:
+
+```ts twoslash
 import {
   setFrameAuth,
   setFrameGuard,
   setLoaderGuard,
-} from "@ilha/router/server-island-registry";
+} from "@ilha/router/ssr";
 
-// Gates /__ilha/frame in production; without this the endpoint returns 403.
-setFrameGuard((request) => {
-  if (!isSignedIn(request))
-    return new Response("Unauthorized", { status: 401 });
-});
+function isSignedIn(_request: Request) {
+  return true;
+}
+// ---cut---
+setFrameGuard((request) =>
+  isSignedIn(request)
+    ? undefined
+    : new Response("Unauthorized", { status: 401 }),
+);
 
-// Gates /__ilha/loader independently (falls back to the frame guard when absent).
 setLoaderGuard((request) =>
   isSignedIn(request)
     ? undefined
     : new Response("Unauthorized", { status: 401 }),
 );
 
-// Optional: explicit trusted origins (origin checks otherwise compare the
-// Origin header against the request's own Host) and a CSRF verifier for the
-// frame POST (covers non-browser callers that send no Origin).
 setFrameAuth({
   trustedOrigins: ["https://app.example.com"],
-  csrf: (request) =>
-    request.headers.get("x-csrf") === process.env.CSRF_SECRET,
+  // Verify a per-session token issued by your server (double-submit cookie or
+  // synchronizer token), compared in constant time. Never use a build-time
+  // environment variable or literal string — anything shipped to the browser
+  // is public and cannot be a CSRF secret.
+  csrf: (request) => verifySessionCsrfToken(request),
 });
 ```
 
-:::note
-Server-island render scopes do **not** forward a client-supplied `x-forwarded-for` header — it is spoofable and must not be trusted for IP checks. Frame bodies are streamed with a hard 16&nbsp;KiB cap.
-:::
+In development, pass `frameGuard` to `pages()` when you need the same session check. Frame request bodies have a 16&nbsp;KiB limit, and invalid paths fail closed.
 
-See [Middleware and security](/guide/routing/middleware-and-security) for the full guard and origin model.
+See [Middleware and security](/guide/routing/middleware-and-security) for the complete guard, origin, CSRF, and header model.
 
-## Server pages — `foo.server.tsx`
+## Use a custom server only when needed
 
-A `.server.tsx` file in the pages directory makes the whole route server-rendered. The page must export a default island. Use the server `load` for data fetching — it runs at frame time with matched route params, and its return value becomes the island's props:
+Oxide is the default path. Use the router's manual rendering methods only when another server framework must own the fetch handler.
 
-```tsx twoslash
-// src/pages/about.server.tsx
-import { ilha } from "ilha";
+Every server method accepts a `Request` as its first argument. Prefer that form so route matching, loader context, request-scoped rendering, and redirect validation share one URL:
 
-export async function load({ params, request }: any) {
-  return { path: new URL(request.url).pathname, id: params.id };
-}
+```ts twoslash
+import { router } from "@ilha/router";
 
-export default ilha.render(({ input }: any) => {
-  return `<section><h1>About ${input.path}</h1></section>`;
+const pageRouter = router();
+const registry = {};
+const request = new Request("https://app.example.com/about");
+// ---cut---
+const result = await pageRouter.renderResponse(
+  request,
+  registry,
+);
+const response = await pageRouter.respond(request, registry);
+```
+
+Use the methods according to the result you need:
+
+| Method                                        | Result                                     |
+| --------------------------------------------- | ------------------------------------------ |
+| `render(url)`                                 | Plain synchronous route HTML.              |
+| `renderHydratable(url, registry, options?)`   | HTML with island hydration markers.        |
+| `renderResponse(request, registry, options?)` | Structured HTML, head, redirect, or error. |
+| `respond(request, registry, options?)`        | Ready-to-send `Response` with headers.     |
+| `runLoader(request)`                          | Loader result without rendering a route.   |
+
+Pass `shell` to `respond()` when your host needs a complete document:
+
+```ts twoslash
+import { router } from "@ilha/router";
+
+const pageRouter = router();
+const registry = {};
+const request = new Request("https://app.example.com/about");
+const nonce = "abc123";
+// ---cut---
+const response = await pageRouter.respond(request, registry, {
+  cspNonce: nonce,
+  shell: (head, html) =>
+    `<!doctype html><html${head.htmlAttrs}><head>${head.headTags}</head><body${head.bodyAttrs}>${html}</body></html>`,
 });
 ```
 
-The client mounts a proxy island that immediately pulls its HTML from `/__ilha/frame` — with the current path attached, so `load` sees the same params and query on every frame. Loader `redirect()`s are honored: the client navigates to the target. No SSR host entry is needed; this works in a plain oxidejs SPA deployment. Layouts and `+error` boundaries still hydrate client-side around the server island.
+`respond()` handles redirects, 404 responses, serialized head entries, and default security headers. Use `httpResponse()` only when you already have HTML and need a correctly headered response:
 
-`loader.client` also works on server pages — it executes **over RPC when the view hydrates** (the code never ships to the browser). It is a side-effect loader there: set document state, fire analytics. Its return value cannot flow back into server-rendered island markup.
+```ts twoslash
+import { httpResponse } from "@ilha/router";
 
-During client navigation to a server page the view host starts empty until the first frame lands — pair it with a pending indicator (see [Transitions](/guide/routing/routes-and-navigation#transitions)).
+const response = httpResponse("<h1>Hello</h1>", {
+  contentSecurityPolicy: "default-src 'self'",
+});
+```
+
+## Hydrate manually rendered routes
+
+For a custom host, call `hydrate()` from the browser after the server emits hydratable markup:
+
+```ts twoslash
+import { router } from "@ilha/router";
+
+const pageRouter = router();
+const registry = {};
+// ---cut---
+pageRouter.hydrate(registry, {
+  root: document.getElementById("root")!,
+  target: "#app",
+});
+```
+
+Oxide file-system routing generates this client wiring for you.
+
+## Related
+
+- [File-system routing](/guide/routing/file-system-routing)
+- [Middleware and security](/guide/routing/middleware-and-security)
+- [Deployment](/guide/routing/deployment)

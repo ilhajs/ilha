@@ -1,56 +1,35 @@
 ---
-title: .derived()
-description: Declare computed values that depend on state or input, with built-in loading and error envelopes.
+title: Derive state
+description: Compute values with derived(), including synchronous derivations, promises, and async generators with built-in loading and error envelopes.
 ---
 
-import { example } from "./derived.examples";
+Use `derived()` to compute a value that depends on state or props. Derived values re-run automatically when any reactive dependency they read changes. Read the result with the same call syntax as state:
 
-Declares a computed value that depends on state or input. Derived values can be synchronous or async, and they re-run automatically when any reactive dependency changes.
+```tsx twoslash
+import { state, derived } from "ilha";
+// Inside an island component:
+const count = state(0);
+const doubled = derived(() => count() * 2);
+```
 
-When a shorthand island needs computed data, expand `ilha(() => JSX)` into `.derived(...).render(...)`. It remains the same kind of independently mounted island.
+## Sync values
 
-[Interactive Tutorial](/tutorial/counter/derived)
+```tsx twoslash
+import { ilha, state, derived } from "ilha";
 
-## Basic usage
-
-<Preview code={example} size="lg" />
-
-Each derived entry is a signal accessor — call it with no arguments to read the resolved value, the same way you read `state.count()`:
-
-```ts
-derived.total(); // read → returns current value
+const Cart = ilha(() => {
+  const price = state(100);
+  const qty = state(3);
+  const total = derived(() => price() * qty());
+  return <p>Total: {total()}</p>;
+});
 ```
 
 When any signal the derived function reads changes, the function re-runs and the island re-renders.
 
-## Reading and writing
-
-Derived accessors can also be written for optimistic UI. A write updates the value immediately without waiting for the derived function to re-run:
-
-```ts
-derived.total(999); // write → sets value optimistically
-```
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const Cart = ilha
-  .state("price", 100)
-  .state("qty", 3)
-  .derived("total", ({ state }) => state.price() * state.qty())
-  .action("resetTotal", (_, { derived }) => derived.total(0))
-  .render(({ derived, action }) => (
-    <button onclick={action.resetTotal}>
-      Total: {derived.total()}
-    </button>
-  ));
-```
-
-The next time the derived function runs (for example after state changes or an async fetch resolves), it overwrites the optimistic value with the computed result.
-
 ## The derived envelope
 
-Every derived value also exposes `loading`, `value`, and `error` on the accessor itself. Use these when you need explicit control — especially with async derived values:
+Every derived value exposes `loading`, `value`, and `error` on the accessor. Use these for async work:
 
 | Property  | Type                 | Description                           |
 | --------- | -------------------- | ------------------------------------- |
@@ -58,177 +37,119 @@ Every derived value also exposes `loading`, `value`, and `error` on the accessor
 | `value`   | `T \| undefined`     | The last successfully resolved value  |
 | `error`   | `Error \| undefined` | Set if the function threw or rejected |
 
-```ts
-derived.total(); // same as derived.total.value when resolved
-derived.total.value; // envelope read
-derived.total.loading; // false for sync derived after first run
-derived.total.error; // undefined when no error
+```ts twoslash
+import { state, derived } from "ilha";
+
+const count = state(0);
+const total = derived(() => count() * 2);
+
+total(); // same as total.value when resolved
+total.loading; // false for sync derived after first run
+total.error; // undefined when no error
 ```
 
-For synchronous derived values, `loading` is `false` after the first run and `()` returns the computed value directly. For async derived values, check `loading` and `error` before reading `value` or calling `()`.
+For synchronous derived values, `loading` is `false` after the first run and `()` returns the computed value directly.
 
-## Async derived values
+## Async values
 
 Pass an async function to fetch data or run any other asynchronous work. The envelope tracks progress while the promise is pending:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, derived } from "ilha";
 
-const UserCard = ilha
-  .state("userId", 1)
-  // [!code highlight:4]
-  .derived("user", async ({ state, signal }) => {
-    const res = await fetch(`/api/users/${state.userId()}`, {
-      signal,
-    });
+const UserCard = ilha<{ userId: string }>(({ userId }) => {
+  const user = derived(async ({ signal }) => {
+    const res = await fetch(`/api/users/${userId}`, { signal });
     return res.json();
-  })
-  .render(({ derived }) => {
-    if (derived.user.loading) return <p>Loading…</p>;
-    if (derived.user.error)
-      return <p>Error: {derived.user.error.message}</p>;
-    return <p>{derived.user().name}</p>;
   });
+
+  if (user.loading) return <p>Loading…</p>;
+  if (user.error) return <p>Error: {user.error.message}</p>;
+  return <p>{user()?.name}</p>;
+});
 ```
 
-On first render, `loading` is `true` and `derived.user()` is `undefined` until the promise resolves.
+## Consume async generators
 
-## Cache fetches with `@ilha/store/query`
-
-Return [`query()`](/guide/store/persistence-and-query#query--data-fetching-cache) from island `.derived()` when you want cache, in-flight dedup, stale-while-revalidate, and invalidation across mounts. The island envelope stays the same — `loading` / `value` / `error`.
+Return an async generator to stream values into the envelope — useful for sockets, feeds, and long-polling:
 
 ```tsx twoslash
-import { ilha } from "ilha";
-import { query } from "@ilha/store/query";
+import { ilha, derived } from "ilha";
 
-type User = { name: string };
-
-const UserCard = ilha
-  .state("userId", 1)
-  .derived("user", async ({ state, signal }) => {
-    const userId = state.userId();
-    return query({
-      key: ["user", userId],
-      fn: () =>
-        fetch(`/api/users/${userId}`, { signal }).then(
-          (r) => r.json() as Promise<User>,
-        ),
-      staleTime: 30_000,
-    });
-  })
-  .render(({ derived }) => {
-    if (derived.user.loading) return <p>Loading…</p>;
-    if (derived.user.error)
-      return <p>Error: {derived.user.error.message}</p>;
-    return <p>{derived.user()?.name}</p>;
+const Ticker = ilha(() => {
+  const tick = derived(async function* ({ signal }) {
+    while (!signal.aborted) {
+      yield new Date().toISOString();
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   });
+  return <p>{tick()}</p>;
+});
 ```
 
-Read reactive inputs (`state.userId()`) before building `key`. Capture the derived `signal` in `fn` so a re-run aborts the in-flight fetch. Full options, `invalidate` / `invalidatePrefix`, and SSR caveats live on [`@ilha/store`](/guide/store/persistence-and-query#query--data-fetching-cache).
+On the client, ilha consumes the generator continuously. During async SSR, ilha pulls the first yielded value so it renders inline instead of a loading placeholder. Abort iteration by returning from the loop when `signal` is aborted.
 
-## Reactive dependencies
+## Cancellation and stale results
 
-The derived function re-runs whenever any signal it reads changes. Dependencies are tracked automatically — you do not need to declare them manually.
+Every async derived function receives an `AbortSignal` that aborts when the function is about to re-run or the island unmounts. Pass it to `fetch` or any other cancellable API to avoid stale responses:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state, derived } from "ilha";
 
-const Search = ilha
-  .state("query", "")
-  .derived("results", async ({ state, signal }) => {
-    const res = await fetch(`/api/search?q=${state.query()}`, {
+const Search = ilha(() => {
+  const query = state("");
+  const results = derived(async ({ signal }) => {
+    const res = await fetch(`/api/search?q=${query()}`, {
       signal,
     });
     return res.json() as Promise<string[]>;
-  })
-  .render(({ state, derived }) => (
+  });
+
+  return (
     <>
-      <input value={state.query()} />
-      {derived.results.loading ? (
+      <input bind:value={query} />
+      {results.loading ? (
         <p>Searching…</p>
       ) : (
         <ul>
-          {derived.results()?.map((r) => (
+          {results()?.map((r) => (
             <li>{r}</li>
           ))}
         </ul>
       )}
     </>
-  ));
+  );
+});
 ```
 
-## Abort signal
-
-Every async derived function receives an `AbortSignal` that aborts when the function is about to re-run. Pass it to `fetch` or any other cancellable API to avoid stale responses:
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const Island = ilha
-  .state("id", 1)
-  .derived("data", async ({ state, signal }) => {
-    const res = await fetch(`/api/items/${state.id()}`, {
-      signal,
-    });
-    return res.json();
-  })
-  .render(({ derived }) => (
-    <p>{derived.data()?.name ?? "…"}</p>
-  ));
-```
-
-If the signal was already aborted before your async work completes, the result is discarded silently.
-
-## Keeping stale value during reload
-
-When a derived function re-runs, `loading` becomes `true` but `value` retains the previous result until the new one resolves. This lets you avoid layout shifts by showing stale content while refreshing:
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const Island = ilha
-  .state("page", 1)
-  .derived("items", async ({ state, signal }) => {
-    const res = await fetch(`/api/items?page=${state.page()}`, {
-      signal,
-    });
-    return res.json() as Promise<string[]>;
-  })
-  .render(({ derived }) => (
-    <>
-      <ul
-        style={`opacity: ${derived.items.loading ? "0.5" : "1"}`}
-      >
-        {derived.items()?.map((i) => (
-          <li>{i}</li>
-        ))}
-      </ul>
-      <button>Next page</button>
-    </>
-  ));
-```
+If the signal is already aborted before your async work completes, the result is discarded silently. When a derived re-runs, `loading` becomes `true` but `value` retains the previous result until the new one resolves — so you can keep stale content visible while refreshing.
 
 ## SSR behavior
 
-During SSR, derived functions are called once. If they are async, the island awaits them before rendering when called as `await island(props)`. When called synchronously via `island.toString()`, async derived values render with `loading: true` immediately.
+During SSR, derived functions are called once. `await Island.toStringAsync(props)` waits for async values before rendering. `Island.toString(props)` renders them in the `loading` state immediately.
 
-```ts
-// Async — waits for all derived values to resolve
-const html = await MyIsland({ userId: 1 });
+```ts twoslash
+import { ilha } from "ilha";
 
-// Sync — derived renders in loading state
-const html = MyIsland.toString({ userId: 1 });
+const MyIsland = ilha<{ userId: number }>(({ userId }) =>
+  userId.toString(),
+);
+
+const asyncHtml = await MyIsland.toStringAsync({ userId: 1 });
+const syncHtml = MyIsland.toString({ userId: 1 });
 ```
 
 ## Hydration snapshots
 
-When using `.hydratable()` with `snapshot: true`, derived values are embedded in the server output and restored on the client. This means the island can render immediately on mount without re-fetching, using the server-resolved value as the initial state.
-
-See [`.hydratable()`](/guide/island/hydratable) for full snapshot options.
+With `.hydratable()` and a snapshot, derived values are embedded in the server output and restored on the client, so the island renders immediately without re-fetching. Snapshots are positional — values restore by primitive order.
 
 ## Notes
 
-- Derived keys must be unique within the same builder chain.
-- **Rejected or thrown async derived work** sets `derived.key.error` on the envelope — it is **not** routed to [`.onError()`](/guide/island/onerror). Handle failures in the render path via `error` / `loading`.
-- Async schemas are not supported as derived functions — the function itself can be async, but ilha [`.input()`](/guide/island/input) schemas must remain synchronous.
-- Multiple derived entries are independent. Each tracks its own dependencies and re-runs on its own schedule.
+- Rejected or thrown async derived work sets `derived.error` on the envelope — it is not routed to `onError()`. Handle failures in the render path.
+- Put conditions inside the derived function, not around the `derived()` call.
+- Multiple derived entries are independent; each tracks its own dependencies.
+
+## Related
+
+- [Local state](/guide/island/state)
+- [Handle errors](/guide/island/errors)

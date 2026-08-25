@@ -2,7 +2,7 @@
 import PageLayout from "blume/components/layout/PageLayout.astro";
 import Preview from "../src/components/Preview.astro";
 import HeroTechCards from "../src/components/landing/HeroTechCards.astro";
-import { ProjectCreatorForm } from "../src/components/landing/LandingIslands";
+import { ProjectCreatorForm } from "../src/components/landing/Landing";
 import { Badge } from "../src/ui/badge";
 import { Button } from "../src/ui/button";
 import {
@@ -228,7 +228,7 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
             <Tabs defaultValue="routing" class="min-w-0">
               <TabsList>
                 <TabsTrigger value="routing">@ilha/router</TabsTrigger>
-                <TabsTrigger value="store">@ilha/store</TabsTrigger>
+                <TabsTrigger value="store">Shared signals</TabsTrigger>
                 <TabsTrigger value="astro">@ilha/astro</TabsTrigger>
               </TabsList>
               <TabsContent value="routing">

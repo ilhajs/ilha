@@ -1,25 +1,60 @@
 ---
 title: "Tutorial: Actions"
-description: Tutorial — define a named counter operation and call it from a native event handler.
+description: Tutorial — use action() for operations that need pending state, and plain functions otherwise.
 seo:
-  title: Build a counter with .action() - Ilha
+  title: Build a counter with action() - Ilha
 ---
 
 import { example } from "./action.examples";
 
-Use `.action()` to define a reusable operation that belongs to the island. Call it from a lowercase native event prop such as `onclick`:
+Most event handlers are plain functions. Reach for the `action()` primitive only when an operation needs reactive status — `pending`, `data`, or `error` — or cancellation. A save-to-server call is the classic case:
 
-```tsx
-const Counter = ilha
-  .action("increase", (_, { state }) => {
-    state.count((count) => count + 1);
-  })
-  .render(({ action }) => (
-    <button onclick={action.increase}>Increase</button>
-  ));
+```tsx twoslash
+import { ilha, state, action } from "ilha";
+
+const Counter = ilha(() => {
+  const count = state(0);
+  const save = action(async (value: number) => {
+    await fetch("/api/count", {
+      method: "POST",
+      body: JSON.stringify({ value }),
+    });
+    return value;
+  });
+
+  return (
+    <button
+      onclick={async () => {
+        const next = count() + 1;
+        count(next);
+        await save(next);
+      }}
+      disabled={save.pending}
+    >
+      Increase{save.pending ? "…" : ""}
+    </button>
+  );
+});
 ```
 
-The action owns the state update. The native handler connects that operation to one rendered element. You can call the same action from another event, effect, or mount hook without duplicating the update logic.
+The button reads `save.pending` to disable itself and show progress while the request is in flight — state a plain function cannot expose.
+
+## Plain functions first
+
+For updates that need no status tracking, skip `action()` entirely:
+
+```tsx twoslash
+import { ilha, state } from "ilha";
+
+const Counter = ilha(() => {
+  const count = state(0);
+  const increase = () => count((value) => value + 1);
+
+  return <button onclick={increase}>Increase</button>;
+});
+```
+
+Use [`action()`](/guide/island/action) when you need `.pending` / `.data` / `.error` or cancellation; use a plain function for everything else.
 
 <Preview code={example} size="lg" />
 

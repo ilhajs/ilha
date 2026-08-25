@@ -1,17 +1,32 @@
-export const example = `import { ilha } from "ilha";
+export const example = `import { ilha, state, action } from "ilha";
 import { Button } from "areia";
 
-export default ilha
-  .state("count", 0)
-  .action("increase", (_, { state }) => {
-    state.count((count) => count + 1);
-  })
-  .render(({ state, action }) => (
+export default ilha(() => {
+  const count = state(0);
+
+  const save = action(async (value: number) => {
+    await fetch("/api/count", {
+      method: "POST",
+      body: JSON.stringify({ value }),
+    });
+    return value;
+  });
+
+  return (
     <>
-      <p>Count: {state.count()}</p>
-      <Button variant="primary" onclick={action.increase}>
-        Increase
+      <p>Count: {count()}</p>
+      <Button
+        variant="primary"
+        disabled={save.pending}
+        onclick={async () => {
+          const next = count() + 1;
+          count(next);
+          await save(next);
+        }}
+      >
+        Increase{save.pending ? "…" : ""}
       </Button>
     </>
-  ));
+  );
+});
 `;

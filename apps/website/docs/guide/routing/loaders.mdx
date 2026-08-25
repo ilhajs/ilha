@@ -20,7 +20,7 @@ export const load = loader(
     const session = await getSession(request);
     if (!session) redirect("/login");
 
-    const user = await fetchUser(params.id, { signal });
+    const user = await fetchUser(params.id, signal);
     if (!user) error(404, "User not found");
 
     return { user };
@@ -39,43 +39,93 @@ async function fetchUser(id?: string, _signal?: AbortSignal) {
 }
 // ---cut---
 export const load = loader(async ({ params, signal }) => {
-  const user = await fetchUser(params.id, { signal });
+  const user = await fetchUser(params.id, signal);
   return { user };
 });
 
-export default ilha<InferLoader<typeof load>>(({ input }) => (
-  <h1>{input.load.value.user.name}</h1>
+export default ilha<InferLoader<typeof load>>(({ load }) => (
+  <h1>{load.value.user.name}</h1>
 ));
 ```
 
-`InferLoader<typeof load>` awaits asynchronous loaders and preserves the exact returned fields. Prefer it whenever one loader defines the page input. Use an explicit merged type when layout loaders or other sources add fields that are not present in that loader's return value.
+`InferLoader<typeof load>` infers the complete `{ load }` props, awaits asynchronous loaders, and preserves the exact returned fields. Prefer it whenever one loader defines the page input. Use an explicit merged type when layout loaders or other sources add fields that are not present in that loader's return value.
 
 ## Loader context
 
 The loader receives a `LoaderContext`:
 
-```ts
-{
+```ts twoslash
+type LoaderContext = {
   params: Record<string, string>; // matched URL params
   request: Request; // the incoming request
   url: URL; // parsed URL
   signal: AbortSignal; // abort on superseded navigation
-}
+};
 ```
 
 On the server, loaders run when a route is rendered — at frame time for server pages, and inside the SSR middleware's `/__ilha/loader` endpoint for regular pages. You can also call **`.runLoader(url, request?)`** on the builder to execute a loader without rendering HTML.
 
 A loader runs **wherever the router runs**. When the route was registered in the browser — a plain SPA via `.route(pattern, island, loader)`, hash mode, Electron, `file://` — client navigations execute the loader locally: no server or loader endpoint needed. Routes that only _mark_ a server loader (the SSR-split pages build) fetch from the `/__ilha/loader` endpoint instead. Locally-executed loaders receive a synthetic `Request` (no cookies or server context) — rely on `url`, `params`, and `signal`; `redirect()`s are checked against the same cross-origin policy as on the server.
 
-**`.clientLoader(pattern, loader)`** attaches a loader that runs in the browser on client navigations, instead of the endpoint fetch. The FS-routing codegen uses it for `loader.client` exports; manual routers can call it directly. When both a server and a client loader exist, the client loader wins on client navigations and the server loader runs during SSR.
-
 With `router({ loaderTimeout })`, the loader is raced against its abort signal — even a loader that ignores `ctx.signal` is cut off when the timeout elapses (or the incoming request aborts) and surfaces as a `504` loader error. Pass `ctx.signal` to your fetches anyway so the underlying work is actually cancelled, not just abandoned.
 
 Loader `ctx.head(...)` contributions are applied on the server **and** on client navigations — `document.title` and managed meta/link tags stay in sync as users navigate.
 
+## Run a loader in the browser
+
+Use `loader.client()` when the browser can fetch the data directly. This avoids the `/__ilha/loader` round trip during client navigation:
+
+```tsx twoslash
+// src/pages/dashboard.tsx
+import { loader, type InferLoader } from "@ilha/router";
+import { ilha } from "ilha";
+
+type Stats = { views: number };
+// ---cut---
+export const load = loader.client(async ({ signal }) => {
+  const response = await fetch("/api/stats", { signal });
+  const stats = (await response.json()) as Stats;
+  return { stats };
+});
+
+export default ilha<InferLoader<typeof load>>(({ load }) => (
+  <p>
+    {load.loading
+      ? "Loading…"
+      : `${load.value.stats.views} views`}
+  </p>
+));
+```
+
+A file-system route exports either `load = loader(...)` for server loading or `load = loader.client(...)` for browser loading. Both forms pass the same `{ load }` envelope to the page:
+
+| Property       | Meaning                             |
+| -------------- | ----------------------------------- |
+| `load.loading` | The loader is running.              |
+| `load.value`   | The latest successful return value. |
+| `load.error`   | The latest error, or `undefined`.   |
+
+Choose the execution location according to the data boundary:
+
+| Use `loader()` when…                            | Use `loader.client()` when…                    |
+| ----------------------------------------------- | ---------------------------------------------- |
+| The code reads secrets, cookies, or a database. | The browser can call a public endpoint safely. |
+| SSR needs the data for the initial HTML.        | Avoiding a server loader round trip matters.   |
+| Server request context controls the result.     | The route is an ordinary client-rendered SPA.  |
+
+A client loader ships to the browser. Never import database clients, private environment variables, or server-only modules from it.
+
+Client loaders receive `url`, `params`, and an abort `signal`. Their `request` is synthetic, so do not expect server cookies or trusted headers. Layout client loaders compose with page client loaders, and the page wins when both return the same key.
+
+With SSR and hydration, a regular page that only exports `loader.client()` renders its initial shell without loader data. The browser runs the loader after hydration and updates the page. If the first HTML needs the data, use `loader()` instead.
+
+On a `*.server.tsx` page, `loader.client()` stays on the server and executes over RPC after hydration. Its result does not become rendered page props, so use it only for side effects there.
+
+For a manually registered router, `.clientLoader(pattern, loader)` adds the browser loader separately. See the [router reference](/reference/router#builder-and-routing) for the builder API.
+
 ## Same-island navigations update in place
 
-A navigation that changes only params or the query string (`/t/a` → `/t/b`, `?page=1` → `?page=2`) re-runs the loader, then pushes the fresh data into the already-mounted island as reactive input — ilha's fine-grained morph reconciles the DOM, so island state, focus, caret position, and scroll all survive; the router never tears the view down. Only when the matched island itself changes does the router unmount and mount fresh. This is what makes a filter bar built on [`persistQuery`](/guide/store/persistence-and-query) work: an input bound with `bind:value` writes to the URL, the loader re-runs, and the list updates — without the input ever losing focus mid-typing. [`invalidate()`](/guide/routing/routes-and-navigation#invalidate) takes the same in-place path, so refreshing data after a mutation doesn't blur a form.
+A navigation that changes only params or the query string (`/t/a` → `/t/b`, `?page=1` → `?page=2`) re-runs the loader, then pushes the fresh data into the already-mounted island as reactive input — ilha's fine-grained morph reconciles the DOM, so island state, focus, caret position, and scroll all survive; the router never tears the view down. Only when the matched island itself changes does the router unmount and mount fresh. This is what makes a filter bar built on core [`persist(signal, key)`](/guide/island/signals#persistsignal-key) work: an input bound with `bind:value` writes to the URL, the loader re-runs, and the list updates — without the input ever losing focus mid-typing. [`invalidate()`](/guide/routing/routes-and-navigation#invalidate) takes the same in-place path, so refreshing data after a mutation doesn't blur a form.
 
 If a loader fails, the error renders through the route's `+error` boundary when one is registered (see [Error boundaries](/guide/routing/file-system-routing#error-boundaries)) — on the server `renderResponse` returns the boundary's HTML with the error status, and client navigations mount the boundary island in the outlet. Without a boundary, a minimal inline `data-router-error` element renders instead.
 

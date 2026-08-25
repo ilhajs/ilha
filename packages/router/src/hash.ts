@@ -154,6 +154,10 @@ const hashAdapter: HistoryAdapter = {
   extractLogicalPath(anchor) {
     const href = anchor.getAttribute("href");
     if (!href) return null;
+    // Protocol-relative links (//host) must not be intercepted — the browser
+    // performs a normal external navigation. Treating them as logical paths
+    // would call navigate("//host") and hit a contained pushState SecurityError.
+    if (href.startsWith("//")) return null;
     // Ignore non-HTTP(S) schemes (mailto:, tel:, javascript:, etc.)
     if (anchor.protocol && !/^(http:|https:)$/.test(anchor.protocol)) return null;
 

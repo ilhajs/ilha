@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 
 import { ilha } from "ilha";
 
+import { getAdapter } from "./hash";
 import {
   router,
   navigate,
@@ -18,9 +19,9 @@ import {
 // Shared Page islands
 // ─────────────────────────────────────────────
 
-const HomePage = ilha.render(() => `<p>home</p>`);
-const AboutPage = ilha.render(() => `<p>about</p>`);
-const UserPage = ilha.render(() => `<p>user</p>`);
+const HomePage = ilha(() => `<p>home</p>`);
+const AboutPage = ilha(() => `<p>about</p>`);
+const UserPage = ilha(() => `<p>user</p>`);
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -172,6 +173,12 @@ describe("hash mode — navigate()", () => {
   it("writes the logical path into location.hash", () => {
     navigate("/about");
     expect(window.location.hash).toBe("#/about");
+  });
+
+  it("does not intercept protocol-relative hrefs", () => {
+    const a = document.createElement("a");
+    a.setAttribute("href", "//evil.example/path");
+    expect(getAdapter().extractLogicalPath(a)).toBeNull();
   });
 
   it("updates routePath to the logical path (no leading hash)", () => {

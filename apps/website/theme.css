@@ -29,6 +29,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -247,4 +248,9 @@
 
 :root[data-theme="dark"] [class*="shj-lang-"] {
   color-scheme: dark !important;
+}
+
+.twoslash-popup-docs,
+.twoslash-popup-code {
+  text-wrap-mode: wrap;
 }

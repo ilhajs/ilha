@@ -36,14 +36,30 @@ ilha is designed for modern JavaScript and TypeScript projects.
 ## Import
 
 ```tsx twoslash
-import { ilha, raw, css, mount, from, context } from "ilha";
+import { ilha } from "ilha";
 ```
 
-Import `ilha` as a named export to create an island with `ilha(() => JSX)` or a configured builder chain. Use other named exports for helpers such as `raw` and `mount`.
+Use other named exports for the primitives and helpers you need:
+
+```tsx twoslash
+import {
+  ilha,
+  state,
+  derived,
+  action,
+  effect,
+  onError,
+  signal,
+  html,
+  raw,
+  mount,
+  context,
+} from "ilha";
+```
 
 ## Minimal example
 
-Create an island directly when it does not need builder configuration:
+Create an island directly with a function component:
 
 ```tsx twoslash
 import { ilha } from "ilha";
@@ -51,21 +67,20 @@ import { ilha } from "ilha";
 const Greeting = ilha(() => <p>Hello, ilha!</p>);
 ```
 
-Start with a plain function for markup owned by another island, then wrap it with `ilha()` when it needs an independent lifecycle. Expand the shorthand into a builder chain when you need local state or actions:
+Add local capabilities with primitives inside the component:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state } from "ilha";
 
-const Counter = ilha
-  .state("count", 0)
-  .action("increment", (_, { state }) => {
-    state.count((count) => count + 1);
-  })
-  .render(({ state, action }) => (
-    <button onclick={action.increment}>
-      Count: {state.count()}
-    </button>
-  ));
+const Counter = ilha(() => {
+  const count = state(0);
+
+  const increment = () => {
+    count((value) => value + 1);
+  };
+
+  return <button onclick={increment}>Count: {count()}</button>;
+});
 ```
 
 ## Server-side rendering
@@ -73,39 +88,24 @@ const Counter = ilha
 Render the island to an HTML string with `toString()`:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state } from "ilha";
 
-const Counter = ilha
-  .state("count", 0)
-  .action("increment", (_, { state }) => {
-    state.count((count) => count + 1);
-  })
-  .render(({ state, action }) => (
-    <button onclick={action.increment}>
-      Count: {state.count()}
-    </button>
-  ));
-// ---cut---
+const Counter = ilha(() => {
+  const count = state(0);
+  const increment = () => count((value) => value + 1);
+  return <button onclick={increment}>Count: {count()}</button>;
+});
+
 const htmlOutput = Counter.toString();
 ```
 
-If your island uses async derived values, you can also await the island itself:
+If your island uses async derived values, render it with `toStringAsync()`:
 
 ```tsx twoslash
 import { ilha } from "ilha";
 
-const Counter = ilha
-  .state("count", 0)
-  .action("increment", (_, { state }) => {
-    state.count((count) => count + 1);
-  })
-  .render(({ state, action }) => (
-    <button onclick={action.increment}>
-      Count: {state.count()}
-    </button>
-  ));
-// ---cut---
-const htmlOutput = await Counter();
+const Counter = ilha(() => "<p>Count</p>");
+const htmlOutput = await Counter.toStringAsync();
 ```
 
 ## Client-side mounting
@@ -115,17 +115,8 @@ Mount the island into a DOM element:
 ```tsx twoslash
 import { ilha } from "ilha";
 
-const Counter = ilha
-  .state("count", 0)
-  .action("increment", (_, { state }) => {
-    state.count((count) => count + 1);
-  })
-  .render(({ state, action }) => (
-    <button onclick={action.increment}>
-      Count: {state.count()}
-    </button>
-  ));
-// ---cut---
+const Counter = ilha(() => "<p>Count</p>");
+
 const root = document.getElementById("app");
 if (root) {
   const unmount = Counter.mount(root);

@@ -3,15 +3,14 @@ title: File-system routing
 description: Generate routes from src/pages/ with the pages plugin — layouts, error boundaries, page loaders, and virtual modules.
 ---
 
-`@ilha/router` ships a **pages plugin** (built on [unplugin](https://unplugin.unjs.io/)) that scans `src/pages/`, resolves layout and error boundary chains, and generates a ready-to-use router with zero manual route registration. The same plugin works across bundlers — pick the entry that matches your toolchain:
+`@ilha/router` ships a **pages plugin** (built on [unplugin](https://unplugin.unjs.io/)) that scans `src/pages/`, resolves layout and error boundary chains, and generates a ready-to-use router with zero manual route registration. Pick the entry that matches your toolchain:
 
-| Bundler  | Import                  |
-| -------- | ----------------------- |
-| Vite     | `@ilha/router/vite`     |
-| Rspack   | `@ilha/router/rspack`   |
-| Rolldown | `@ilha/router/rolldown` |
+| Tool    | Import                 |
+| ------- | ---------------------- |
+| Vite    | `@ilha/router/vite`    |
+| Rsbuild | `@ilha/router/rsbuild` |
 
-Vite 8+ may use Rolldown under the hood; use `@ilha/router/vite` in `vite.config.ts` either way. Use `@ilha/router/rolldown` when you configure [Rolldown](https://rolldown.rs/) directly (for example with [tsdown](https://tsdown.dev/)).
+Vite 8+ may use Rolldown internally; keep using `@ilha/router/vite` in `vite.config.ts`.
 
 ## Setup
 
@@ -27,76 +26,28 @@ export default defineConfig({
 });
 ```
 
-### Rspack
+### Rsbuild
 
 ```ts
-// rspack.config.ts
-import { rspack } from "@rspack/core";
-import pages from "@ilha/router/rspack";
-
-export default {
-  plugins: [
-    pages(),
-    new rspack.HtmlRspackPlugin({
-      template: "./index.html",
-    }),
-  ],
-  resolve: {
-    extensions: ["...", ".ts", ".tsx"],
-  },
-  module: {
-    rules: [
-      {
-        test: /\.ts$/,
-        exclude: /node_modules/,
-        loader: "builtin:swc-loader",
-        options: {
-          jsc: {
-            parser: {
-              syntax: "typescript",
-            },
-          },
-        },
-        type: "javascript/auto",
-      },
-      {
-        test: /\.tsx$/,
-        exclude: /node_modules/,
-        loader: "builtin:swc-loader",
-        options: {
-          jsc: {
-            parser: {
-              syntax: "typescript",
-              tsx: true,
-            },
-            transform: {
-              react: {
-                runtime: "automatic",
-                importSource: "ilha",
-                throwIfNamespace: false,
-              },
-            },
-          },
-        },
-        type: "javascript/auto",
-      },
-    ],
-  },
-};
-```
-
-### Rolldown
-
-(tsdown, Rolldown CLI, or other Rolldown-based tools)
-
-```ts
-// tsdown.config.ts
-import pages from "@ilha/router/rolldown";
-import { defineConfig } from "tsdown";
+// rsbuild.config.ts
+import { defineConfig } from "@rsbuild/core";
+import pages from "@ilha/router/rsbuild";
 
 export default defineConfig({
-  entry: ["src/client.ts"],
   plugins: [pages()],
+  tools: {
+    swc: {
+      jsc: {
+        transform: {
+          react: {
+            runtime: "automatic",
+            importSource: "ilha",
+            throwIfNamespace: false,
+          },
+        },
+      },
+    },
+  },
 });
 ```
 
@@ -162,89 +113,17 @@ export default defineLayout((Children) =>
 );
 ```
 
-## Page loaders
+## Load page data
 
-Export a `load` function from any page file. The pages plugin detects it automatically, composes it with any layout loaders, and wires it into the router at SSR time.
+Export `load` from a page or layout to fetch data before rendering. The plugin composes nested loaders and connects their results to the page.
 
-```tsx twoslash
-// src/pages/user/[id].tsx
-import { loader, type InferLoader } from "@ilha/router";
-import { ilha } from "ilha";
-
-async function fetchUser(id?: string, _signal?: AbortSignal) {
-  return { name: "Ada" };
-}
-// ---cut---
-export const load = loader(async ({ params, signal }) => {
-  const user = await fetchUser(params.id, { signal });
-  return { user };
-});
-
-export default ilha<InferLoader<typeof load>>(({ input }) => (
-  <h1>{input.load.value.user.name}</h1>
-));
-```
-
-See [Loaders](/guide/routing/loaders) for the full loader contract.
-
-## Client loaders — `loader.client`
-
-Export `load = loader.client(…)` to run a loader **in the browser** on client navigations, instead of fetching from the loader endpoint. Use it for data that is fetchable from the client anyway (public APIs, your app's own REST endpoints) — it saves a server round-trip per navigation and works on static hosts with no loader endpoint at all.
-
-Two spellings, same behavior:
-
-```tsx twoslash
-// src/pages/dashboard.tsx
-import { loader, type InferLoader } from "@ilha/router";
-import { ilha } from "ilha";
-
-type Stats = { views: number };
-const Dashboard = (props: {
-  stats: Stats;
-  loading: boolean;
-}) => <p>{props.loading ? "…" : props.stats.views}</p>;
-// ---cut---
-// sugar — a client loader under the server export name:
-export const load = loader.client(async ({ signal }) => {
-  const stats = await fetch("/api/stats", { signal }).then(
-    (response): Promise<Stats> => response.json(),
-  );
-  return { stats };
-});
-
-export default ilha<InferLoader<typeof load>>(({ input }) => (
-  <Dashboard
-    stats={input.load.value.stats}
-    loading={input.load.loading}
-  />
-));
-```
-
-### The `input.load` envelope
-
-Client-loader results arrive in an envelope shaped like ilha's derived one:
-
-```ts
-input.load.value; // → { stats }
-input.load.loading; // false once the loader has settled
-input.load.error; // undefined when no error
-```
-
-Read it via property access (`input.load.value.stats`). Server `load` data uses the identical shape, so templates work unchanged across both.
-
-Every loader result — server or client — reads through `input.load` with the same shape in all contexts.
-
-- Client loaders are **bundled into the client** — never put secrets, database clients, or server-only imports in them. Keep those in `load`, which stays server-only.
-- A page can export **both**: `load` runs during SSR (first paint), the client loader runs on client navigations instead of the endpoint fetch. Make them return the same shape, then infer the page input from either loader.
-- Layout client loaders compose with the page's — the page wins on key collision, mirroring server loaders.
-- With SSR + hydration, a client-loader-only page is server-rendered without its data; the router runs the loader right after hydration and re-renders the route with the loaded props.
-- The loader receives a synthetic `Request` — rely on `url`, `params`, and `signal`, not cookies or headers.
+See [Loaders](/guide/routing/loaders) for server loaders, `loader.client()`, input typing, redirects, errors, and navigation behavior.
 
 ## Error boundaries
 
 A `+error.tsx` catches rendering errors for pages in its directory. The nearest boundary wins. If it re-throws, the next outer boundary takes over. (`.ts` is also supported if you do not need JSX.)
 
-The nearest boundary also renders **loader errors** — `error(status, message)` or an unexpected throw in `load`/`clientLoad` — on both the server (with the proper HTTP status) and client navigations. Manual routers get the same via `.errorBoundary(pattern, handler)`.
+The nearest boundary also renders **loader errors** — `error(status, message)` or an unexpected throw in `load`/`loader.client()` — on both the server (with the proper HTTP status) and client navigations. Manual routers get the same via `.errorBoundary(pattern, handler)`.
 
 ```tsx twoslash
 // src/pages/+error.tsx
@@ -280,7 +159,7 @@ pageRouter.hydrateStatic(registry);
 
 ## Plugin options
 
-Options are the same for every bundler entry (`vite`, `rspack`, `rolldown`):
+Options are the same for the Vite and Rsbuild entries:
 
 ```ts
 pages({
@@ -299,6 +178,6 @@ pages({
 - **`mode: "spa", interceptLinks: false`** — SSR/hydration, but internal links reload the document.
 - **`mode: "static"`** — registry only on the client; no bundled route graph — use `hydrateStatic`.
 
-For advanced use, import `ilhaPages` from any bundler entry and call `.vite()`, `.rspack()`, or `.rolldown()` on the shared factory.
+For advanced use, import `ilhaPages` from either bundler entry and call `.vite()` or `.rsbuild()` on the shared factory.
 
-The `frameGuard`, `loaderGuard`, `trustedOrigins`, and `csrf` options apply in development; production uses the shared guard slots from `@ilha/router/server-island-registry` — see [Middleware and security](/guide/routing/middleware-and-security).
+The `frameGuard`, `loaderGuard`, `trustedOrigins`, and `csrf` options apply in development; production uses the shared guard slots from `@ilha/router/ssr` — see [Middleware and security](/guide/routing/middleware-and-security).

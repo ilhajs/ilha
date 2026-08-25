@@ -315,9 +315,9 @@ describe("codegen — registry", () => {
     expect(await runCodegen()).toContain("export const registry");
   });
 
-  it("registry is typed as Record<string, Island<any, any>>", async () => {
+  it("registry is typed as Record<string, Island<any>>", async () => {
     await writePage(pagesDir, "index.ts", `export default null;`);
-    expect(await runCodegen()).toContain("Record<string, Island<any, any>>");
+    expect(await runCodegen()).toContain("Record<string, Island<any>>");
   });
 
   it("imports Island type from ilha", async () => {
@@ -1559,11 +1559,7 @@ describe("codegen — server pages", () => {
   }
 
   it("maps index.server.tsx → / and emits a proxy import in the client graph", async () => {
-    await writePage(
-      pagesDir,
-      "index.server.tsx",
-      `export default ilha.render(() => "<p>server</p>");`,
-    );
+    await writePage(pagesDir, "index.server.tsx", `export default ilha(() => "<p>server</p>");`);
     const { client, server } = await runCodegen();
     expect(server).toContain(`route("/"`);
     // Proxy virtual spec rides the base64url-encoded absolute path.

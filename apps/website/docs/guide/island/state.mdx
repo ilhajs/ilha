@@ -1,115 +1,132 @@
 ---
-title: .state()
-description: Declare reactive signals local to an island to store values that change over time and drive re-renders.
+title: Local state
+description: Declare reactive state local to an island with state(), read and write it, and initialize from props.
 ---
 
-import { example } from "./state.examples";
+Declare island-local reactive state with `state()`. When a state value changes, the island rerenders automatically — only the island updates, nothing outside it is touched.
 
-Declares a reactive signal local to the island. State is the primary way to store values that change over time and drive re-renders.
+```tsx twoslash
+import { ilha, state } from "ilha";
 
-Adding local state is a reason to expand `ilha(() => JSX)` into a builder chain. The component keeps the same island boundary; the builder adds state to it.
-
-[Interactive Tutorial](/tutorial/counter/state)
-
-## Basic usage
-
-<Preview code={example} />
+const Counter = ilha(() => {
+  const count = state(0);
+  return (
+    <button onclick={() => count((value) => value + 1)}>
+      {count()}
+    </button>
+  );
+});
+```
 
 ## Reading and writing
 
-Each state entry becomes a signal accessor — a function that both reads and writes depending on how it is called:
+`state()` returns a signal accessor — a function that reads or writes depending on how you call it:
 
-```ts
-state.count(); // read → returns current value
-state.count(5); // write → sets value to 5
-state.count((previous) => previous + 1); // update from the latest value
+```ts twoslash
+import { state } from "ilha";
+
+const count = state(0);
+
+count(); // read → returns current value
+count(5); // write → sets value to 5
+count((previous) => previous + 1); // update from the latest value
 ```
 
 Use the updater form when the next value depends on the previous value. Ilha calls the function once with the latest value and writes its return value.
 
-When a signal is written, the island re-renders automatically. Only the affected island updates — nothing outside it is touched.
+If the value itself is a function, return the replacement from an updater wrapper:
 
-If the state value is itself a function, Ilha treats any function passed to the setter as an updater. Return the replacement function from an outer function:
+```ts twoslash
+import { state } from "ilha";
 
-```ts
-state.callback(() => nextCallback);
+const myCallback = () => "initial";
+const nextCallback = () => "next";
+
+// A lazy initializer may return a function value:
+const callback = state(() => myCallback);
+// Write a replacement by returning it from an updater wrapper:
+callback(() => nextCallback);
 ```
 
-## Initializing from input
+## Lazy initializers
 
-The initial value can be a static value or a function that receives the resolved input:
+Pass a function as the initializer to defer expensive work until the instance is created:
 
 ```tsx twoslash
-import { ilha } from "ilha";
-import { z } from "zod";
+import { state } from "ilha";
 
-const Counter = ilha
-  .input(z.object({ start: z.number().default(0) }))
-  .state("count", ({ start }) => start) // [!code highlight]
-  .render(({ state }) => <p>{state.count()}</p>);
+const expensiveInitialValue = () => 42;
+const count = state(() => expensiveInitialValue());
 ```
 
-This is evaluated once at mount time. The initializer is not reactive — it only runs when the island is first created.
+The initializer runs once, when the island mounts.
 
-## Multiple state entries
+## Initializing from props
 
-Chain `.state()` as many times as needed. Each key becomes a typed accessor on the `state` object:
+Initialize state from a prop. The initializer applies only when the instance is created — later prop changes rerender the component but do not reset state:
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { ilha, state } from "ilha";
 
-const Form = ilha
-  .state("name", "")
-  .state("submitted", false)
-  .state("count", 0)
-  .render(({ state }) => (
-    <p>
-      {state.name()} — {state.count()}
-    </p>
-  ));
+const Counter = ilha<{ start: number }>(({ start }) => {
+  const count = state(start);
+  return <p>{count()}</p>;
+});
 ```
 
-## Inside JSX
+## Separate instances do not share state
 
-Signal accessors can be rendered directly in JSX without calling them. ilha detects signal accessors and calls them automatically, and applies HTML escaping:
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const Island = ilha
-  .state("label", "<b>hello</b>")
-  .render(({ state }) => <p>{state.label}</p>);
-```
-
-If you call `state.label()` explicitly it works the same way — both forms are equivalent inside JSX.
-
-## Updating state from events
-
-Put reusable state updates in an action, then call the action from a lowercase native event prop:
+Each mounted instance keeps its own state slots. Two copies of the same island on a page are fully independent:
 
 ```tsx twoslash
 import { ilha } from "ilha";
 
-// [!code word:action.toggle]
-const Toggle = ilha
-  .state("open", false)
-  // [!code highlight:3]
-  .action("toggle", (_, { state }) =>
-    state.open((open) => !open),
-  )
-  .render(({ state, action }) => (
-    <button onclick={action.toggle}>
-      Toggle: {String(state.open())}
-    </button>
-  ));
+const Counter = ilha(() => <p>counter</p>);
+const App = ilha(() => (
+  <>
+    <Counter />
+    <Counter />
+  </>
+));
 ```
+
+## Rendering state in JSX
+
+Render a signal accessor directly in JSX; ilha calls it and HTML-escapes the result:
+
+```tsx twoslash
+import { ilha, state } from "ilha";
+
+const Label = ilha(() => {
+  const label = state("<b>hello</b>");
+  return <p>{label()}</p>;
+});
+```
+
+Calling `label()` explicitly works the same way inside JSX.
+
+## Nested selection
+
+To update a nested slice of an object or array without replacing the whole value, use `.select()`. Both a selector function and a property path are supported, and both stay writable:
+
+```tsx twoslash
+import { context } from "ilha";
+
+const user = context("shared.user", {
+  profile: { name: "Ilha" },
+});
+const nameA = user.select((value) => value.profile.name);
+const nameB = user.select("profile", "name");
+```
+
+The selector (or path) must traverse nested state. Writes update only that path — siblings stay intact.
 
 ## Sharing state across islands
 
-State declared with `.state()` is local to one island. If you need to share a value across multiple islands, use [`context()`](/guide/island/signals) instead, which creates a named global signal.
+`state()` is local to one island instance. To share a value across multiple islands, use a [`context()` signal](/guide/island/signals) instead.
 
-## Notes
+## Related
 
-- State keys must be unique within the same builder chain.
-- The initial value type inferred from the second argument becomes the permanent type of the accessor. Passing a value of a different type later will cause a TypeScript error.
-- State is not persisted between page loads unless you use [`.hydratable()`](/guide/island/hydratable) with `snapshot: true` on the server side.
+- [Derived state](/guide/island/derived)
+- [Use bindings](/guide/island/bindings)
+- [Signals](/guide/island/signals)

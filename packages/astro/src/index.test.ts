@@ -1,20 +1,22 @@
 import { describe, expect, it, mock } from "bun:test";
 
+// The integration registers extensionless entrypoints (@ilha/astro/client,
+// @ilha/astro/server) — see package.json exports.
 mock.module("virtual:@ilha/astro/options", () => ({
   default: (id: string) => id.includes("/ilha/"),
 }));
 
-import { ilha, __ilhaJsxSlot, html } from "ilha";
+import { ilha, html, state } from "ilha";
+import { __ilhaJsxSlot } from "ilha/internal";
 
 import hydrate from "./client";
 import ilhaIntegration, { getRenderer, getViteConfig } from "./index";
 import renderer from "./server";
 
-const Counter = ilha
-  .input<{ label: string }>()
-  .state("count", 0)
-  .on("button@click", ({ state }) => state.count(state.count() + 1))
-  .render(({ input, state }) => html`<button>${input.label}:${state.count()}</button>`);
+const Counter = ilha<{ label: string }>(({ label }) => {
+  const count = state(0);
+  return html`<button onclick=${() => count((v) => v + 1)}>${label}:${count()}</button>`;
+});
 
 // Stand-in for a non-island component library export (e.g. Areia's `Button`):
 // a plain function that returns ilha `RawHtml` via the `html` tag, with no
@@ -58,8 +60,8 @@ describe("@ilha/astro integration", () => {
 
   it("points the renderer at the client/server entrypoints", () => {
     const r = getRenderer();
-    expect(r.clientEntrypoint).toBe("@ilha/astro/client.js");
-    expect(r.serverEntrypoint).toBe("@ilha/astro/server.js");
+    expect(r.clientEntrypoint).toBe("@ilha/astro/client");
+    expect(r.serverEntrypoint).toBe("@ilha/astro/server");
   });
 });
 
@@ -170,6 +172,8 @@ describe("@ilha/astro client hydration", () => {
     const { html: markup } = await renderer.renderToStaticMarkup(Counter, { label: "Clicks" }, {}, {
       displayName: "Counter",
     } as never);
+    // test host only; markup is renderer output, not user input.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     el.innerHTML = markup;
     document.body.appendChild(el);
 
@@ -202,6 +206,8 @@ describe("@ilha/astro client hydration", () => {
 
     const el = document.createElement("div");
     el.setAttribute("ssr", "");
+    // test host only; markup is renderer output, not user input.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     el.innerHTML = markup;
     document.body.appendChild(el);
 
@@ -232,6 +238,8 @@ describe("@ilha/astro client hydration", () => {
 
     const el = document.createElement("div");
     el.setAttribute("ssr", "");
+    // test host only; markup is renderer output, not user input.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     el.innerHTML = markup;
     document.body.appendChild(el);
 
@@ -268,6 +276,8 @@ describe("@ilha/astro client hydration", () => {
     const { html: markup } = await renderer.renderToStaticMarkup(Button, { label: "Save" }, {}, {
       displayName: "Button",
     } as never);
+    // test host only; markup is renderer output, not user input.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     el.innerHTML = markup;
     document.body.appendChild(el);
 
@@ -299,6 +309,8 @@ describe("@ilha/astro client hydration", () => {
     const { html: markup } = await renderer.renderToStaticMarkup(Widget, { label: "Hi" }, {}, {
       displayName: "Widget",
     } as never);
+    // test host only; markup is renderer output, not user input.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     el.innerHTML = markup;
     document.body.appendChild(el);
 

@@ -15,15 +15,14 @@ Every route is an ilha island. The router matches URLs, runs loaders, and mounts
 
 ## Import paths
 
-| Import path                           | Use it for                                                                           |
-| ------------------------------------- | ------------------------------------------------------------------------------------ |
-| `@ilha/router`                        | Runtime router, loaders, navigation helpers, route context, and built-in islands.    |
-| `@ilha/router/vite`                   | Vite file-system routing plugin.                                                     |
-| `@ilha/router/rspack`                 | Rspack file-system routing plugin.                                                   |
-| `@ilha/router/rolldown`               | Rolldown file-system routing plugin.                                                 |
-| `@ilha/router/server-island`          | Client proxy factory for server-defined islands (used by generated code).            |
-| `@ilha/router/ssr`                    | Production SSR endpoints middleware — `POST /__ilha/frame` and `GET /__ilha/loader`. |
-| `@ilha/router/server-island-registry` | `setFrameGuard()`, `setLoaderGuard()`, `setFrameAuth()` — gate frame requests.       |
+| Import path                  | Use it for                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| `@ilha/router`               | Runtime router, loaders, navigation helpers, route context, and built-in islands.    |
+| `@ilha/router/vite`          | Vite file-system routing plugin.                                                     |
+| `@ilha/router/rsbuild`       | Rsbuild file-system routing plugin.                                                  |
+| `@ilha/router/server-island` | Client proxy factory for server-defined islands (used by generated code).            |
+| `@ilha/router/ssr`           | Production SSR endpoints middleware — `POST /__ilha/frame` and `GET /__ilha/loader`. |
+| `@ilha/router/ssr`           | `setFrameGuard()`, `setLoaderGuard()`, `setFrameAuth()` — gate frame requests.       |
 
 ## Quick start
 
@@ -31,12 +30,12 @@ Every route is an ilha island. The router matches URLs, runs loaders, and mounts
 
 ```ts twoslash
 import { router } from "@ilha/router";
-import {
-  HomePage,
-  AboutPage,
-  UserPage,
-  NotFound,
-} from "./pages";
+import { ilha } from "ilha";
+
+const HomePage = ilha(() => "<p>home</p>");
+const AboutPage = ilha(() => "<p>about</p>");
+const UserPage = ilha(() => "<p>user</p>");
+const NotFound = ilha(() => "<p>not found</p>");
 
 router()
   .route("/", HomePage)
@@ -70,7 +69,7 @@ export default defineConfig({
 // src/pages/index.tsx
 import { TaskList } from "$lib/tasks.server";
 
-export default ilha.render(() => <TaskList />);
+export default ilha(() => <TaskList />);
 ```
 
 **Whole pages**: rename `src/pages/about.tsx` to `src/pages/about.server.tsx` and the entire route renders server-side.
@@ -79,13 +78,12 @@ Details: [Server islands](/guide/routing/server-islands), [Server pages](/guide/
 
 ## Where to go next
 
-| Topic                               | Page                                                              |
-| ----------------------------------- | ----------------------------------------------------------------- |
-| Routes, navigation, route context   | [Routes and navigation](/guide/routing/routes-and-navigation)     |
-| Loaders and data fetching           | [Loaders](/guide/routing/loaders)                                 |
-| File-system routing with the plugin | [File-system routing](/guide/routing/file-system-routing)         |
-| SSR and manual rendering            | [Server rendering](/guide/routing/server-rendering)               |
-| Server islands and server pages     | [Server islands](/guide/routing/server-islands)                   |
-| Guards, origins, and security       | [Middleware and security](/guide/routing/middleware-and-security) |
-| Production deployment               | [Deployment](/guide/routing/deployment)                           |
-| Package symbol reference            | [Router reference](/reference/router)                             |
+| Topic                                 | Page                                                              |
+| ------------------------------------- | ----------------------------------------------------------------- |
+| Routes, navigation, route context     | [Routes and navigation](/guide/routing/routes-and-navigation)     |
+| Loaders and data fetching             | [Loaders](/guide/routing/loaders)                                 |
+| File-system routing with the plugin   | [File-system routing](/guide/routing/file-system-routing)         |
+| SSR, server islands, and server pages | [Server islands](/guide/routing/server-islands)                   |
+| Guards, origins, and security         | [Middleware and security](/guide/routing/middleware-and-security) |
+| Production deployment                 | [Deployment](/guide/routing/deployment)                           |
+| Package symbol reference              | [Router reference](/reference/router)                             |

@@ -1,30 +1,24 @@
 ---
 title: "Tutorial: Derived values"
-description: Tutorial — compute values from state automatically with the .derived() builder method.
+description: Tutorial — compute values from state automatically with the derived() primitive.
 seo:
-  title: Compute counter values with .derived() - Ilha
+  title: Compute counter values with derived() - Ilha
 ---
 
 import { example } from "./derived.examples";
 
-Now that an action updates the counter state, derived properties let you compute
-values from that state automatically — recalculating only when their dependencies
-change. Use `.derived()` to keep complex logic out of your templates and make
-components easier to reason about.
+Derived properties let you compute values from state automatically, recalculating only when their dependencies change. Use `derived()` to keep complex logic out of your templates.
 
-```ts
-.derived("name", ({ state }) => /* computed value */)
+```ts twoslash
+import { state, derived } from "ilha";
+
+const count = state(0);
+const doubled = derived(() => count() * 2);
 ```
 
-The callback receives `state`, `input`, and a lifecycle `signal`. The result is
-available in `.render()` via `derived.name()` — the same call syntax as state.
+The callback receives a lifecycle `signal` for async work. The result is read with `doubled()` — the same call syntax as state.
 
-You can also write `derived.name(value)` for optimistic UI; the next time the
-derived function runs, it overwrites with the computed result.
-
-`.derived()` also accepts an async function, making it suitable for data fetching.
-Async derived values expose `loading`, `value`, and `error` on the accessor — so
-you get built-in async state without reaching for SWR or TanStack Query.
+`derived()` also accepts an async function, making it suitable for data fetching. Async derived values expose `loading`, `value`, and `error` on the accessor — built-in async state without reaching for SWR or TanStack Query.
 
 <Preview code={example} size="lg" />
 
