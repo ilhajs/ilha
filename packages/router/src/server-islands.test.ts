@@ -132,7 +132,7 @@ describe("generateServerIslandModule", () => {
     const id = serverIslandPublicId("/abs/tasks.server.ts", "T");
     expect(code).toContain(`export const T = __ilhaServerIsland("${id}", "div"`);
     expect(code).toContain(
-      `JSON.stringify({ id: "${id}", path: location.pathname + location.search })`,
+      `JSON.stringify({ id: "${id}", path: location.pathname + location.search, props })`,
     );
     expect(code).not.toContain("#T");
     expect(code).not.toContain("state })");
@@ -324,6 +324,48 @@ describe("__ilhaServerIsland nested client islands", () => {
     expect(actions).toEqual(["task-1"]);
     expect(slot.getAttribute("data-mounted")).toBe("false");
     expect(updates).toContain(false);
+    unmount();
+  });
+});
+
+describe("__ilhaServerIsland parent props", () => {
+  it("re-fetches a frame when the parent updates props", async () => {
+    const seen: unknown[] = [];
+    const Island = __ilhaServerIsland("opaque", "div", {
+      frame: (props) => {
+        seen.push(props);
+        return `<p>Hello, ${String(props?.name ?? "")}!</p>`;
+      },
+    });
+    const host = document.createElement("div");
+    host.innerHTML = `<p>Hello, !</p>`;
+    document.body.appendChild(host);
+    const handle = (Island as unknown as Record<symbol, Function>)[
+      Symbol.for("ilha.islandMountInternal")
+    ](host, { name: "" });
+    handle.updateProps({ name: "Ada" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(seen).toEqual([{ name: "Ada" }]);
+    expect(host.textContent).toBe("Hello, Ada!");
+    handle.unmount();
+  });
+
+  it("mount(host, props) bootstraps the first frame with those props", async () => {
+    const seen: unknown[] = [];
+    const Island = __ilhaServerIsland("opaque", "div", {
+      frame: (props) => {
+        seen.push(props);
+        return `<p>Hello, ${String(props?.name ?? "")}!</p>`;
+      },
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const unmount = Island.mount(host, { name: "Ada" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(seen).toEqual([{ name: "Ada" }]);
+    expect(host.textContent).toBe("Hello, Ada!");
     unmount();
   });
 });

@@ -350,10 +350,11 @@ export async function renderServerIsland(
   request: Request,
   runWithScope: <T>(request: Request, fn: () => T) => T | Promise<T>,
   onHead?: (entries: HeadInput[]) => void,
+  incomingProps?: Record<string, unknown>,
 ): Promise<string> {
   const entry = registry().get(id);
   if (!entry) throw new FrameError(400, "unknown island");
-  let props: unknown;
+  let props: unknown = incomingProps;
   if (entry.load) {
     let url: URL;
     try {
@@ -410,6 +411,13 @@ export const LOADER_ENDPOINT = "/__ilha/loader";
 
 /** Max request body size — matches the dev middleware cap. */
 export const MAX_BODY = 16 * 1024;
+
+/** Parent-island props on a frame POST. Missing is fine; anything else is 400. */
+export function parseFrameProps(value: unknown): Record<string, unknown> | undefined {
+  if (value == null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) throw new FrameError(400, "frame failed");
+  return value as Record<string, unknown>;
+}
 
 export function json(status: number, body: Record<string, unknown>): Response {
   const env = frameEnvelope(status, body);
@@ -570,11 +578,13 @@ async function ssr(request: Request): Promise<Response | undefined> {
 
   let id: string;
   let path = "/";
+  let incomingProps: Record<string, unknown> | undefined;
   try {
     const text = await readBodyBounded(request, MAX_BODY);
     if (text === null) return json(413, { error: "frame failed" });
-    const body = JSON.parse(text) as { id?: unknown; path?: unknown };
+    const body = JSON.parse(text) as { id?: unknown; path?: unknown; props?: unknown };
     id = String(body.id ?? "");
+    incomingProps = parseFrameProps(body.props);
     // Route context for server pages: the frame renders as if requested at
     // the client's current URL. Only path+search are honored — never a full
     // foreign origin. Backslash is rejected too: WHATWG URLs treat `\` as
@@ -633,6 +643,7 @@ async function ssr(request: Request): Promise<Response | undefined> {
       scoped,
       (scopedRequest, fn) => Promise.resolve(runWithIslandRequest(scopedRequest, fn)),
       (entries) => (head = entries),
+      incomingProps,
     );
     return json(200, { html, head });
   } catch (error) {

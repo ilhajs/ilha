@@ -24,6 +24,7 @@ import {
   FrameError,
   getFrameGuard,
   isSafeFramePath,
+  parseFrameProps,
   renderServerIsland,
   setFrameAuth,
   setFrameGuard,
@@ -617,7 +618,9 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
               id?: string;
               path?: string;
+              props?: unknown;
             };
+            const incomingProps = parseFrameProps(body.props);
             const target = serverIslands.get(body.id ?? "");
             if (!target) throw new Error("unknown island");
             // Route context for server pages: render at the client's current
@@ -662,6 +665,7 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
               request,
               (r, fn) => runWithIslandRequest(r, fn),
               (entries) => (head = entries),
+              incomingProps,
             );
             const env = frameEnvelope(200, { html: String(html), head });
             res.statusCode = env.status;

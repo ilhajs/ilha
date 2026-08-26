@@ -327,7 +327,7 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
     }
     const id = serverIslandPublicId(spec, island.name);
     wiring.push(
-      `frame: () => fetch("/__ilha/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ${JSON.stringify(id)}, path: location.pathname + location.search }) }).then((r) => { if (!r.ok) throw new Error("frame failed"); return r.json(); }).then((j) => { if (j.redirect) { location.assign(j.redirect); throw new Error("frame redirected"); } __ilhaApplyHead(j.head); return j.html; })`,
+      `frame: (props) => fetch("/__ilha/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ${JSON.stringify(id)}, path: location.pathname + location.search, props }) }).then((r) => { if (!r.ok) throw new Error("frame failed"); return r.json(); }).then((j) => { if (j.redirect) { location.assign(j.redirect); throw new Error("frame redirected"); } __ilhaApplyHead(j.head); return j.html; })`,
     );
     // `loader.client` on server pages executes over RPC when the view
     // hydrates — the module's code never ships to the browser.
