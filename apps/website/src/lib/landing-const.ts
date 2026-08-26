@@ -9,18 +9,18 @@ export const URLS = {
 export const META_DESCRIPTION =
   "Build fast, interactive websites with JavaScript only where you need it. Ilha works with your existing stack and keeps every page lightweight.";
 
-export const COUNTER_CODE = `import { ilha, state, derived, mount } from "ilha";
+export const COUNTER_CODE = `import { ilha, state, derived, action, mount } from "ilha";
 
 const Signup = ilha(() => {
   const email = state("");
   const ready = derived(() => email().includes("@"));
-  const join = async (event: SubmitEvent) => {
+  const join = action(async (event: SubmitEvent) => {
     event.preventDefault();
     await fetch("/api/waitlist", {
       method: "POST",
       body: JSON.stringify({ email: email() }),
     });
-  };
+  });
 
   return (
     <form class="card" onsubmit={join}>
