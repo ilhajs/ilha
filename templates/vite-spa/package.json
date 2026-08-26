@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@ilha/router": "^0.10.0",
-    "areia": "^0.2.6",
+    "areia": "^0.3.0",
     "ilha": "^0.12.0"
   },
   "devDependencies": {
@@ -18,8 +18,5 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
-  },
-  "patchedDependencies": {
-    "areia@0.2.6": "patches/areia@0.2.6.patch"
   }
 }

@@ -2664,7 +2664,9 @@ describe("wrapError / wrapLayout hydration", () => {
     unmount();
   });
 
-  it("wrapLayout layout onMount runs when outer snapshot has _skipOnMount", async () => {
+  it("wrapLayout layout onMount runs when hydrating with a state snapshot", async () => {
+    // effect.once is client-only under the function API — a state snapshot
+    // never implies setup already ran, so once-slots must run at mount.
     const Layout = defineLayout((children) =>
       ilha(() => {
         effect.once(({ host }) => {
@@ -2679,7 +2681,7 @@ describe("wrapError / wrapLayout hydration", () => {
     const Wrapped = wrapLayout(Layout, Page);
     const ssr = await Wrapped.hydratable({}, { name: "page", snapshot: true });
 
-    expect(ssr).toContain("_skipOnMount");
+    expect(ssr).not.toContain("_skipOnMount");
 
     el = makeEl(`<div data-router-view>${ssr}</div>`);
     const { unmount } = ilhaMount({ page: Wrapped }, { root: el });

@@ -6,7 +6,7 @@ mock.module("virtual:@ilha/astro/options", () => ({
   default: (id: string) => id.includes("/ilha/"),
 }));
 
-import { ilha, html, state } from "ilha";
+import { effect, ilha, html, state } from "ilha";
 import { __ilhaJsxSlot } from "ilha/internal";
 
 import hydrate from "./client";
@@ -323,5 +323,41 @@ describe("@ilha/astro client hydration", () => {
     expect(el.innerHTML).toContain("data-areia-widget");
 
     el.remove();
+  });
+});
+
+describe("effect.once runs after hydration", () => {
+  // Regression: renderToStaticMarkup used to pass `skipOnMount: true`, which
+  // makes ilha skip every effect.once slot on the client — dropping submit
+  // listeners, controllers, and drag wiring for any island hydrated with a
+  // state snapshot. Setup is client-only under the function API, so it must
+  // always run at hydration.
+  it("attaches once-setup when hydrating an island with a state snapshot", async () => {
+    const { html: htmlTag } = await import("ilha");
+    let setupRuns = 0;
+    let clicked = 0;
+
+    const Widget = ilha(() => {
+      const n = state(0);
+      effect.once(({ host }) => {
+        setupRuns++;
+        host.addEventListener("click", () => clicked++);
+      });
+      return htmlTag`<div data-widget>n:${n()}</div>`;
+    });
+
+    const { html } = await renderer.renderToStaticMarkup(Widget, {}, {}, {
+      displayName: "Widget",
+    } as never);
+    expect(html).toContain("data-widget");
+
+    document.body.innerHTML = html;
+    const host = document.querySelector("[data-ilha='Widget']") as Element;
+    await hydrate(host as never)(Widget as never, {}, {}, {} as never);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(setupRuns).toBe(1);
+    host.querySelector("[data-widget]")!.dispatchEvent(new Event("click", { bubbles: true }));
+    expect(clicked).toBe(1);
   });
 });

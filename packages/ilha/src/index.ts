@@ -4788,7 +4788,10 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
     if (snapshot !== false) {
       const doState = snapshot === true || (snapshot as { state?: boolean }).state !== false;
       const doDerived = snapshot === true || (snapshot as { derived?: boolean }).derived !== false;
-      const doSkipOnMount = explicitSkipOnMount ?? (doState || doDerived);
+      // effect.once is client-only under the function-component API — it never
+      // runs during SSR, so a snapshot never means "setup already happened".
+      // Only an explicit `skipOnMount: true` opts out of once-slots at mount.
+      const doSkipOnMount = explicitSkipOnMount ?? false;
 
       const snapshotData: Record<string, unknown> = { v: 2 };
       const input = resolveInput(resolvedProps);

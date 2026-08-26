@@ -158,7 +158,6 @@ async function renderPlainComponent(
     {
       name: metadata?.displayName ?? "IlhaPlain",
       snapshot: true,
-      skipOnMount: true,
     },
   );
 }
@@ -188,12 +187,12 @@ async function renderToStaticMarkup(
   if (isIsland(Component)) {
     // `.hydratable()` embeds serialized props and a state snapshot in
     // `data-ilha-*` attributes, so the client entrypoint hydrates without a
-    // mismatch or re-running setup for snapshotted islands
-    // (`skipOnMount`). Setup is client-only — SSR never invokes it.
+    // mismatch. Do NOT pass `skipOnMount`: with the function-component API,
+    // setup lives in effect.once and only ever runs client-side — skipping it
+    // would drop listeners, controllers, and drag wiring after hydration.
     const html = await Component.hydratable(await resolveProps(props), {
       name: metadata?.displayName ?? "IlhaIsland",
       snapshot: true,
-      skipOnMount: true,
     });
     return { html };
   }
