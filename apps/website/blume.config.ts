@@ -62,6 +62,7 @@ export default defineConfig({
               "/guide/recipes/helpers",
               "/guide/recipes/jsx-less",
               "/guide/recipes/view-transitions",
+              "/guide/recipes/oxlint",
             ],
           },
           {

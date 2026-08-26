@@ -10,7 +10,7 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@ilha/router": "^0.10.1",
+    "@ilha/router": "^0.10.2",
     "areia": "^0.3.1",
     "ilha": "^0.12.1",
     "tacho": "^0.5.0"
