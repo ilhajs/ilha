@@ -6,6 +6,31 @@
 
 import type { NativeEventHandler, NativeEventModifier, RawHtml } from "./index";
 
+export type ServerAction<A extends unknown[] = unknown[], R = unknown> = ((...args: A) => R) & {
+  with: (...args: unknown[]) => (...runtimeArgs: unknown[]) => unknown;
+};
+
+type ServerActionBinder = <A extends unknown[], R>(
+  fn: (...args: A) => R,
+  manifestId?: string,
+) => ServerAction<A, R>;
+
+let serverActionBinder: ServerActionBinder | undefined;
+
+/** @internal Register core's action branding implementation. */
+export function setServerActionBinder(binder: ServerActionBinder): void {
+  serverActionBinder = binder;
+}
+
+/** @internal Brand an external server action for hydration-manifest replay. */
+export function bindServerAction<A extends unknown[], R>(
+  fn: (...args: A) => R,
+  manifestId?: string,
+): ServerAction<A, R> {
+  if (!serverActionBinder) throw new Error("ilha: server action binder is unavailable");
+  return serverActionBinder(fn, manifestId);
+}
+
 /** Registry of live island mount handles keyed by host element. */
 export const ISLAND_MOUNT_HANDLES: WeakMap<
   Element,

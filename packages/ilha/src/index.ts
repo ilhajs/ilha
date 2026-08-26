@@ -5,7 +5,9 @@ import {
   ISLAND_MOUNT_INTERNAL,
   serializeServerManifest,
   setJsxRuntimeBridge,
+  setServerActionBinder,
   type JsxEventRegistration,
+  type ServerAction,
 } from "./internal";
 
 // ---------------------------------------------
@@ -1172,7 +1174,7 @@ const SSR_ACTION_STUB = Symbol.for("ilha.ssrActionStub");
 const ACTION_MANIFEST_ID = Symbol.for("ilha.actionManifestId");
 const ACTION_BOUND_ARGS = Symbol.for("ilha.actionBoundArgs");
 
-/** Serialized size ceiling for `.withArgs()` payloads (JSON chars). */
+/** Serialized size ceiling for `.with()` payloads (JSON chars). */
 const MAX_BOUND_ARGS_CHARS = 8192;
 
 /** Manifest id for a brand-recognized action reference, else undefined.
@@ -1183,14 +1185,14 @@ function actionManifestId(fn: unknown): string | undefined {
   return (fn as Record<symbol, string | undefined>)[ACTION_MANIFEST_ID];
 }
 
-/** Bound args recorded by `.withArgs()` on an action reference, else undefined. */
+/** Bound args recorded by `.with()` on an action reference, else undefined. */
 function actionBoundArgs(fn: unknown): unknown[] | undefined {
   if (typeof fn !== "function" || !(ACTION_BOUND_ARGS in fn)) return undefined;
   const args = (fn as Record<symbol, unknown>)[ACTION_BOUND_ARGS];
   return Array.isArray(args) ? args : undefined;
 }
 
-/** Attach `.withArgs(...args)` to an action accessor. Returns an explicit,
+/** Attach `.with(...args)` to an action accessor. Returns an explicit,
  * serializable action REFERENCE — never a closure to inspect or probe.
  * Arguments are validated JSON-safe at bind time; the hydration manifest
  * stores `{ actionId, args }` directly and the client RPC path sends them
@@ -1212,25 +1214,25 @@ function assertJsonSafe(value: unknown, seen = new WeakSet<object>()): void {
       return;
     case "number":
       if (Number.isFinite(value)) return;
-      throw new TypeError("withArgs() rejects non-finite numbers.");
+      throw new TypeError("with() rejects non-finite numbers.");
     case "object":
       break;
     default:
       // undefined, function, symbol, bigint
-      throw new TypeError(`withArgs() rejects ${typeof value} values.`);
+      throw new TypeError(`with() rejects ${typeof value} values.`);
   }
-  if (seen.has(value as object)) throw new TypeError("withArgs() rejects circular values.");
+  if (seen.has(value as object)) throw new TypeError("with() rejects circular values.");
   seen.add(value as object);
   if (Array.isArray(value)) {
     for (const item of value) assertJsonSafe(item, seen);
     return;
   }
   if (Object.getPrototypeOf(value) !== Object.prototype) {
-    throw new TypeError("withArgs() accepts plain objects only.");
+    throw new TypeError("with() accepts plain objects only.");
   }
   for (const [key, child] of Object.entries(value)) {
     if (UNSAFE_KEYS.has(key)) {
-      throw new TypeError(`withArgs() rejects unsafe key "${key}".`);
+      throw new TypeError(`with() rejects unsafe key "${key}".`);
     }
     assertJsonSafe(child, seen);
   }
@@ -1241,14 +1243,14 @@ function cloneJsonSafe(value: unknown): unknown {
   return structuredClone(value);
 }
 
-function attachWithArgs(accessor: Function): void {
-  Object.defineProperty(accessor, "withArgs", {
+function attachWith(accessor: Function): void {
+  Object.defineProperty(accessor, "with", {
     enumerable: false,
     value: (...args: unknown[]) => {
       for (const arg of args) assertJsonSafe(arg);
       const serialized = cloneJsonSafe(args) as unknown[];
       if (JSON.stringify(serialized).length > MAX_BOUND_ARGS_CHARS) {
-        throw new RangeError(`withArgs() payload exceeds ${MAX_BOUND_ARGS_CHARS} JSON characters.`);
+        throw new RangeError(`with() payload exceeds ${MAX_BOUND_ARGS_CHARS} JSON characters.`);
       }
       const manifestId = actionManifestId(accessor);
       const bound = (...runtimeArgs: unknown[]) => {
@@ -1273,6 +1275,17 @@ function attachWithArgs(accessor: Function): void {
     },
   });
 }
+
+setServerActionBinder(function bindExternalAction<A extends unknown[], R>(
+  fn: (...args: A) => R,
+  manifestId?: string,
+): ServerAction<A, R> {
+  const action = fn as typeof fn & Record<symbol, unknown>;
+  action[SSR_ACTION_STUB] = true;
+  action[ACTION_MANIFEST_ID] = manifestId;
+  attachWith(action);
+  return action as unknown as ServerAction<A, R>;
+});
 
 // Shared across duplicate ilha copies in one realm (app + component library).
 // Module-local stacks break nested islands: a child island closed over copy B
@@ -2986,6 +2999,10 @@ type ActionCall<P> = [P] extends [undefined]
     ? () => void
     : (payload: P) => void;
 
+/** A bound action can back native events or component callback props.
+ * Runtime arguments are ignored when `.with()` binds a payload. */
+type BoundActionHandler = (...runtimeArgs: unknown[]) => unknown;
+
 /**
  * Reactive operation with execution state. `pending`, `data`, and `error`
  * are reactive: reading them during render subscribes the island render.
@@ -2995,10 +3012,10 @@ export type ActionAccessor<P = undefined, R = void> = ActionCall<P> & {
   readonly data: Awaited<R> | undefined;
   readonly error: Error | undefined;
   /** Bind an explicit serializable payload into an RPC-replayable action
-   * reference for server-owned islands (`onclick={remove.withArgs(id)}`).
+   * reference for server-owned islands (`onclick={remove.with(id)}`).
    * Arguments are validated JSON-safe (≤ 8 KiB serialized) at bind time and
    * stored in the hydration manifest — never extracted by executing code. */
-  withArgs: (...args: unknown[]) => NativeEventHandler;
+  with: (...args: unknown[]) => BoundActionHandler;
 };
 
 // ---------------------------------------------
@@ -3475,7 +3492,7 @@ export function action<P, R>(
       data: { get: () => undefined },
       error: { get: () => undefined },
     });
-    attachWithArgs(noop);
+    attachWith(noop);
     return noop;
   }
   const index = f.actionIndex++;
@@ -3510,7 +3527,7 @@ export function action<P, R>(
     // symbols and registered in f.slots; the cast widens it to the public
     // accessor shape (pending/data/error accessors + invoke signature).
     const ssrAccessor = invoke as unknown as ActionAccessor<P, R>;
-    attachWithArgs(ssrAccessor);
+    attachWith(ssrAccessor);
     return ssrAccessor;
   }
 
@@ -3605,7 +3622,7 @@ export function action<P, R>(
   // restores the public action accessor type for the caller.
   const clientAccessor = invoke as unknown as ActionAccessor<P, R>;
   (clientAccessor as unknown as Record<symbol, string>)[ACTION_MANIFEST_ID] = manifestId;
-  attachWithArgs(clientAccessor);
+  attachWith(clientAccessor);
   return clientAccessor;
 }
 
@@ -3897,7 +3914,7 @@ export const ilha: IlhaFactory = ((...args: unknown[]): unknown => {
       // then by the cross-copy Symbol.for manifest id on the stub itself.
       const id = frame.actionManifest?.get(record.handler) ?? actionManifestId(record.handler);
       if (!id) return;
-      // `.withArgs()` references carry an explicit serializable payload —
+      // `.with()` references carry an explicit serializable payload —
       // stored in the manifest directly, replayed by the client verbatim.
       const args = actionBoundArgs(record.handler);
       eventsOut.set(`${record.type}:${index}`, Array.isArray(args) ? { k: id, a: args } : id);

@@ -17,7 +17,8 @@
  *   runner (`setFrameLoaderRunner`, wired by the generated server module).
  */
 
-import { setServerManifestSerializer } from "ilha/internal";
+import "ilha";
+import { bindServerAction, setServerManifestSerializer, type ServerAction } from "ilha/internal";
 
 import type { HeadInput } from "./head";
 import { resolveRedirectTarget } from "./index";
@@ -295,19 +296,12 @@ setServerManifestSerializer({
   },
 });
 
-/** Register `id` → entry. Later registrations win (id encodes file + name). */
-/**
- * Wrap an exported server action with a named transport key. Ilha never
- * executes event-handler closures during server rendering (fail closed), so
- * this is a transparent passthrough kept for API compatibility; the `key`
- * documents the RPC transport name used by tooling.
- */
+/** @internal Brand an exported server action with its generated RPC transport key. */
 export function __ilhaServerAction<A extends unknown[], R>(
   key: string,
   fn: (...args: A) => R,
-): (...args: A) => R | undefined {
-  void key;
-  return typeof fn === "function" ? fn : () => fn;
+): ServerAction<A, R> {
+  return bindServerAction(fn, key);
 }
 
 export function registerServerIsland(

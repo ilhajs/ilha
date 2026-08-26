@@ -1,6 +1,7 @@
+import { action } from "@ilha/router/server";
 import { Badge, Button, Checkbox } from "areia";
 import { derived, each, ilha } from "ilha";
-import { action, useRequest } from "oxidejs";
+import { useRequest } from "oxidejs";
 import { Publisher } from "tacho";
 
 export type Task = {
@@ -64,7 +65,6 @@ export const TaskList = ilha(() => {
   const items = derived(async function* () {
     yield* getTasks();
   });
-
   return (
     <div class="flex flex-col gap-2">
       {each(items() ?? [])
@@ -73,9 +73,9 @@ export const TaskList = ilha(() => {
             <Checkbox
               checked={todo.completed}
               label={todo.text}
-              onCheckedChange={() => toggleTask(todo.id)}
+              onCheckedChange={toggleTask.with(todo.id)}
             />
-            <Button type="button" onclick={() => deleteTask(todo.id)}>
+            <Button type="button" onclick={deleteTask.with(todo.id)}>
               Delete
             </Button>
           </div>

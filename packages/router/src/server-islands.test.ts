@@ -4,6 +4,7 @@ import { __ilhaServerIsland } from "./server-island";
 import {
   clientRefPublicId,
   generateServerIslandModule,
+  rewriteServerActions,
   scanServerIslands,
   serverIslandPublicId,
   splitServerImports,
@@ -59,6 +60,23 @@ export function helper(): string {
     expect(plain.as).toBe("div");
     expect(plain.streams).toEqual({});
     expect(plain.actions).toEqual({});
+  });
+
+  it("wires @ilha/router/server actions without ilha action slots", () => {
+    const source = `
+      import { action } from "@ilha/router/server";
+      export const remove = action(async (id: string) => id);
+      export const Tasks = ilha(() => <button onclick={remove.with("t1")} />);
+    `;
+    const scan = scanServerIslands(source);
+    expect(scan.rpcActions).toEqual({ remove: "x:remove" });
+    expect(scan.islands[0]?.actions).toEqual({});
+    expect(generateServerIslandModule("/abs/tasks.server.tsx", scan)).toContain(
+      `"x:remove": (...args) => $$call("remove", args)`,
+    );
+    expect(rewriteServerActions(source, scan.rpcActions)).toContain(
+      `export const remove = __ilhaServerAction("x:remove", async (id: string) => id);`,
+    );
   });
 
   it("detects default island exports", () => {

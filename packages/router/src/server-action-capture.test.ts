@@ -18,7 +18,17 @@ setServerManifestSerializer({
 const deleteTask = __ilhaServerAction("x:deleteTask", async (id: string) => `deleted:${id}`);
 const toggleTask = __ilhaServerAction("x:toggleTask", async (id: string) => `toggled:${id}`);
 
+test("server actions bind payloads without a separate ilha action", async () => {
+  const List = ilha(() => html`<button onclick=${deleteTask.with("t1")}>del</button>`);
+  const rs = (List as unknown as Record<symbol, (props?: unknown) => Promise<string>>)[
+    Symbol.for("ilha.renderState")
+  ];
+  await rs({});
+  expect(manifests.at(-1)).toEqual({ "click:0": { k: "x:deleteTask", a: ["t1"] } });
+});
+
 test("server-export closures are never executed during SSR and record nothing", async () => {
+  const manifestCount = manifests.length;
   let executed = 0;
   const realDelete = __ilhaServerAction("x:real", async (id: string) => {
     executed++;
@@ -39,7 +49,7 @@ test("server-export closures are never executed during SSR and record nothing", 
   // Fail closed: manifest rendering must not execute handler closures, so the
   // wrapped server action never runs server-side. No manifest entries either.
   expect(executed).toBe(0);
-  expect(manifests[manifests.length - 1] ?? {}).toEqual({});
+  expect(manifests).toHaveLength(manifestCount);
 
   // Outside rendering the shim passes through.
   expect(await deleteTask("z")).toBe("deleted:z");

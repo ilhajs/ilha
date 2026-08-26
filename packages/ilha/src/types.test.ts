@@ -272,6 +272,12 @@ function ilhaTypeAnchors(): void {
     const typedNoPayload: ActionAccessor<undefined, number> = noPayload;
     void typedNoPayload;
 
+    const boundIncrement = increment.with(1);
+    const nativeCallback: NativeEventHandler<PointerEvent> = boundIncrement;
+    const componentCallback: (checked: boolean) => void = boundIncrement;
+    void nativeCallback;
+    void componentCallback;
+
     return html`<button onclick=${() => increment(1)}>${count()}</button>`;
   });
 

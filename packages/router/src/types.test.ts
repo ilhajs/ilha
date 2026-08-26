@@ -2,6 +2,7 @@ import type { Island } from "ilha";
 
 import { httpResponse, loader, router, serializeHead } from "./index";
 import type { RenderResponse } from "./index";
+import { action as serverAction } from "./server";
 
 declare const anIsland: Island;
 
@@ -29,6 +30,11 @@ export function typecheckRouterApi(): void {
   // loader() keeps its typed context ({ params, request, url, signal, head }).
   const load = loader(async ({ params, url }) => ({ path: url.pathname, id: params.id }));
 
+  // Server actions remain callable and bind to native or component callbacks.
+  const remove = serverAction(async (id: string) => id);
+  const nativeHandler: (event: PointerEvent) => unknown = remove.with("task-1");
+  const componentHandler: (checked: boolean) => void = remove.with("task-1");
+
   // serializeHead accepts the serializable HeadInput entries.
   const head = serializeHead([{ title: "Title", link: [{ rel: "stylesheet", href: "/app.css" }] }]);
   const headTags: string = head.headTags;
@@ -38,6 +44,8 @@ export function typecheckRouterApi(): void {
   void loaded;
   void resp.status;
   void load;
+  void nativeHandler;
+  void componentHandler;
   void headTags;
 }
 

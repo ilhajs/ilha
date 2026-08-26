@@ -9,9 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ilha/router": "^0.10.0",
+    "@ilha/router": "^0.10.1",
     "areia": "^0.3.0",
-    "ilha": "^0.12.0"
+    "ilha": "^0.12.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
