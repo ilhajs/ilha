@@ -58,7 +58,11 @@ export default defineConfig({
           },
           {
             label: "Recipes",
-            items: ["/guide/recipes/helpers", "/guide/recipes/view-transitions"],
+            items: [
+              "/guide/recipes/helpers",
+              "/guide/recipes/jsx-less",
+              "/guide/recipes/view-transitions",
+            ],
           },
           {
             label: "Resources",
