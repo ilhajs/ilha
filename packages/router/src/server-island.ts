@@ -41,8 +41,8 @@ export interface ServerIslandWiring {
   /** Action key → client transport. Event payloads are not serializable;
    * handlers receive `undefined` and should read island state instead. */
   actions?: Record<string, (payload?: unknown) => unknown>;
-  /** Frame transport: re-renders the island from server-owned state. */
-  frame?: () => unknown;
+  /** Frame transport: re-renders the island with the latest parent props. */
+  frame?: (props?: Record<string, unknown>) => unknown;
   /** RPC transport for the module's `loader.client` export — invoked once
    * when the view hydrates. Side-effect loader on server pages. */
   clientLoader?: () => unknown;
@@ -83,6 +83,7 @@ function hydrateServerIsland(
   host: Element,
   id: string,
   wiring: ServerIslandWiring,
+  props?: Record<string, unknown>,
 ): ServerIslandHandle {
   const controller = new AbortController();
   const cleanups: Array<() => void> = [];
@@ -104,13 +105,15 @@ function hydrateServerIsland(
   // Serialized repaint queue — frames must apply in push order even when
   // several arrive back-to-back.
   const frame = wiring.frame;
+  let currentProps = props;
   let repaintChain: Promise<void> = Promise.resolve();
   const scheduleRepaint = (): void => {
     if (!frame || controller.signal.aborted) return;
+    const sent = currentProps;
     repaintChain = repaintChain
       .then(async () => {
         if (controller.signal.aborted || !host.isConnected) return;
-        const html = await frame();
+        const html = await frame(sent);
         if (controller.signal.aborted || typeof html !== "string") return;
         morph(host, html);
         syncChildren();
@@ -292,9 +295,10 @@ function hydrateServerIsland(
       for (const cleanup of cleanups) cleanup();
       cleanups.length = 0;
     },
-    // Props updates cannot repaint server-rendered markup client-side — the
-    // render function never ships. Content changes arrive via frames instead.
-    updateProps: () => {},
+    updateProps: (next) => {
+      currentProps = next;
+      scheduleRepaint();
+    },
   };
 }
 
@@ -315,7 +319,7 @@ interface IslandCallShape {
 
 export type ServerIslandCallable = Record<symbol, unknown> &
   ((props?: Record<string, unknown>) => string) & {
-    mount: (host: Element) => () => void;
+    mount: (host: Element, props?: Record<string, unknown>) => () => void;
     toString: () => string;
     key: (slotKey: string) => (props?: Record<string, unknown>) => IslandCallShape;
   };
@@ -366,11 +370,14 @@ export function __ilhaServerIsland(
   // for ilha's mount machinery to discover.
   (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
     host: Element,
-  ): ServerIslandHandle => hydrateServerIsland(host, id, wiring);
+    mountProps?: Record<string, unknown>,
+  ): ServerIslandHandle => hydrateServerIsland(host, id, wiring, mountProps);
 
   // SAFETY: `.mount` mirrors the core island method surface on the proxy.
-  (island as unknown as Record<string, unknown>).mount = (host: Element): (() => void) =>
-    hydrateServerIsland(host, id, wiring).unmount;
+  (island as unknown as Record<string, unknown>).mount = (
+    host: Element,
+    mountProps?: Record<string, unknown>,
+  ): (() => void) => hydrateServerIsland(host, id, wiring, mountProps).unmount;
 
   return island;
 }

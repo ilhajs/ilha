@@ -18,6 +18,7 @@ import {
   getServerIslandEntry,
   isTrustedOrigin,
   registerServerIsland,
+  parseFrameProps,
   renderServerIsland,
   setFrameAuth,
   setFrameGuard,
@@ -234,6 +235,41 @@ describe("@ilha/router/ssr", () => {
     setFrameGuard(() => blocked);
     const res2 = await handleFrame(new Request("http://localhost/__ilha/loader?path=/data"));
     expect(res2?.status).toBe(403);
+  });
+
+  test("nested island frames render with parent props", async () => {
+    registerServerIsland(
+      "greet",
+      () => (props?: { name?: string }) => `Hello, ${props?.name ?? ""}!`,
+    );
+    const html = await renderServerIsland(
+      "greet",
+      new Request("http://localhost/"),
+      (_r, fn) => fn(),
+      undefined,
+      { name: "Ada" },
+    );
+    expect(html).toBe("Hello, Ada!");
+  });
+
+  test("frame POST applies parent props", async () => {
+    openFrames();
+    registerServerIsland(
+      "greet-http",
+      () => (props?: { name?: string }) => `Hello, ${props?.name ?? ""}!`,
+    );
+    const res = await handleFrame(
+      post(JSON.stringify({ id: "greet-http", props: { name: "Ada" } })),
+    );
+    expect(res?.status).toBe(200);
+    expect((await res!.json()).html).toBe("Hello, Ada!");
+  });
+
+  test("parseFrameProps rejects non-objects", () => {
+    expect(parseFrameProps(undefined)).toBeUndefined();
+    expect(parseFrameProps(null)).toBeUndefined();
+    expect(() => parseFrameProps([])).toThrow();
+    expect(() => parseFrameProps("x")).toThrow();
   });
 
   test("registry lookup round-trips", () => {
