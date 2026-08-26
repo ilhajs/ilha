@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@ilha/router": "^0.10.1",
-    "areia": "^0.3.0",
+    "areia": "^0.3.1",
     "ilha": "^0.12.1"
   },
   "devDependencies": {

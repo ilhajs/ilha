@@ -21,7 +21,7 @@
         "@fontsource-variable/geist": "^5.3.0",
         "@fontsource-variable/geist-mono": "^5.3.0",
         "@ilha/astro": "workspace:*",
-        "areia": "^0.3.0",
+        "areia": "^0.3.1",
         "astro": "^7.2.4",
         "astro-icon": "^1.1.5",
         "ilha": "workspace:*",
@@ -76,9 +76,9 @@
       "name": "@ilha/template-oxide-spa",
       "version": "0.0.0",
       "dependencies": {
-        "@ilha/router": "^0.10.0",
-        "areia": "^0.3.0",
-        "ilha": "^0.12.0",
+        "@ilha/router": "^0.10.1",
+        "areia": "^0.3.1",
+        "ilha": "^0.12.1",
         "tacho": "^0.5.0",
       },
       "devDependencies": {
@@ -94,9 +94,9 @@
       "name": "@ilha/template-vite-spa",
       "version": "0.0.0",
       "dependencies": {
-        "@ilha/router": "^0.10.0",
-        "areia": "^0.3.0",
-        "ilha": "^0.12.0",
+        "@ilha/router": "^0.10.1",
+        "areia": "^0.3.1",
+        "ilha": "^0.12.1",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.3",
@@ -974,7 +974,7 @@
 
     "anynum": ["anynum@1.0.1", "", {}, "sha512-N6//FLET/tXYNM/F6ABca1oH6fWB+KlTt909Le28WMDBk8oaT4vY17DCrwg2MvmuqUKt3Ni4N5dGJ/EoBgcO6A=="],
 
-    "areia": ["areia@0.3.0", "", { "dependencies": { "@areia/slots": "0.2.0", "alien-signals": "3.2.1", "clsx": "2.1.1", "date-fns": "4.4.0", "tailwind-merge": "3.6.0" }, "peerDependencies": { "ilha": "0.12.0", "sonner": "^2.0.7", "tailwindcss": ">=4.0.0" }, "optionalPeers": ["tailwindcss"] }, "sha512-/jGoAsnxyIH6ZYavwvKkmOvU9Qj3Es3rMyW4IHQJ5Wra0OlLZGmO2K5Sjxt4L+aTjMcDCgOzfrDJEDFP7h0u0g=="],
+    "areia": ["areia@0.3.1", "", { "dependencies": { "@areia/slots": "0.2.0", "alien-signals": "3.2.1", "clsx": "2.1.1", "date-fns": "4.4.0", "tailwind-merge": "3.6.0" }, "peerDependencies": { "ilha": "0.12.1", "sonner": "^2.0.7", "tailwindcss": ">=4.0.0" }, "optionalPeers": ["tailwindcss"] }, "sha512-SuEQ80s+gEQul0ZoxGt5knrmrF2z8s8FZF4Unl2HHcuBPdZfqqyyMeHSYHDQ9aRxhdl5zoJmzClVlwXksbKfgQ=="],
 
     "argparse": ["argparse@2.0.1", "", {}, "sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q=="],
 

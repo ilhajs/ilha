@@ -15,7 +15,7 @@
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@ilha/astro": "workspace:*",
-    "areia": "^0.3.0",
+    "areia": "^0.3.1",
     "astro": "^7.2.4",
     "astro-icon": "^1.1.5",
     "ilha": "workspace:*",
