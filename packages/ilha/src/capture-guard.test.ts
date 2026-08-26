@@ -88,7 +88,7 @@ test("a counter-mutating closure is never executed during SSR", async () => {
   expect(mutations).toBe(0);
 });
 
-test("withArgs binds an explicit payload without executing anything", async () => {
+test(".with() binds an explicit payload without executing anything", async () => {
   let deleteCalls = 0;
   const App = ilha(() => {
     const remove = action((_id: string) => {
@@ -96,7 +96,7 @@ test("withArgs binds an explicit payload without executing anything", async () =
       return "ok";
     });
     return html`<ul>
-      <li><button onclick=${remove.withArgs("task-42")}>Delete</button></li>
+      <li><button onclick=${remove.with("task-42")}>Delete</button></li>
     </ul>`;
   });
   // SSR: no manifest-render execution of the action body.
@@ -114,7 +114,7 @@ test("withArgs binds an explicit payload without executing anything", async () =
     const remove = action((id: string) => {
       clientPayload = id;
     });
-    return html`<button onclick=${remove.withArgs("task-7")}>go</button>`;
+    return html`<button onclick=${remove.with("task-7")}>go</button>`;
   });
   const unmount = Client.mount(el);
   el.querySelector("button")!.click();
@@ -123,7 +123,7 @@ test("withArgs binds an explicit payload without executing anything", async () =
   unmount();
 });
 
-test("withArgs rejects non-JSON-safe and oversized payloads at bind time", async () => {
+test(".with() rejects non-JSON-safe and oversized payloads at bind time", async () => {
   let ping!: (x?: unknown) => unknown;
   const App = ilha(() => {
     const op = action((_x: unknown) => "ok");
@@ -131,8 +131,8 @@ test("withArgs rejects non-JSON-safe and oversized payloads at bind time", async
     return html`<b></b>`;
   });
   await renderState(App);
-  expect(() => (ping as any).withArgs(() => 1)).toThrow(/rejects function/);
-  expect(() => (ping as any).withArgs("x".repeat(9000))).toThrow(/exceeds/);
+  expect(() => (ping as any).with(() => 1)).toThrow(/rejects function/);
+  expect(() => (ping as any).with("x".repeat(9000))).toThrow(/exceeds/);
 });
 
 test("closures are never executed across every server render API", async () => {
@@ -149,7 +149,7 @@ test("closures are never executed across every server render API", async () => {
   expect(sideEffects).toBe(0);
 });
 
-test("withArgs strictly rejects values that would silently transform", () => {
+test(".with() strictly rejects values that would silently transform", () => {
   let op!: (x?: unknown) => unknown;
   const App = ilha(() => {
     const a = action((x?: unknown) => x);
@@ -157,31 +157,31 @@ test("withArgs strictly rejects values that would silently transform", () => {
     return html`<b></b>`;
   });
   return renderState(App).then(() => {
-    expect(() => (op as any).withArgs({ value: undefined })).toThrow();
-    expect(() => (op as any).withArgs({ value: () => {} })).toThrow();
-    expect(() => (op as any).withArgs(NaN)).toThrow(/non-finite/);
-    expect(() => (op as any).withArgs(Infinity)).toThrow(/non-finite/);
-    expect(() => (op as any).withArgs(new Date())).toThrow(/plain objects only|rejects object/);
-    expect(() => (op as any).withArgs(new Map())).toThrow(/plain objects only/);
-    expect(() => (op as any).withArgs(1n)).toThrow(/rejects bigint/);
+    expect(() => (op as any).with({ value: undefined })).toThrow();
+    expect(() => (op as any).with({ value: () => {} })).toThrow();
+    expect(() => (op as any).with(NaN)).toThrow(/non-finite/);
+    expect(() => (op as any).with(Infinity)).toThrow(/non-finite/);
+    expect(() => (op as any).with(new Date())).toThrow(/plain objects only|rejects object/);
+    expect(() => (op as any).with(new Map())).toThrow(/plain objects only/);
+    expect(() => (op as any).with(1n)).toThrow(/rejects bigint/);
     const circular: Record<string, unknown> = {};
     circular.self = circular;
-    expect(() => (op as any).withArgs(circular)).toThrow(/circular/);
+    expect(() => (op as any).with(circular)).toThrow(/circular/);
     // Unsafe keys rejected — no prototype-pollution smuggling.
-    expect(() => (op as any).withArgs(JSON.parse('{"__proto__": {"polluted": true}}'))).toThrow(
+    expect(() => (op as any).with(JSON.parse('{"__proto__": {"polluted": true}}'))).toThrow(
       /unsafe key "__proto__"/,
     );
-    expect(() => (op as any).withArgs({ constructor: { prototype: {} } })).toThrow(
+    expect(() => (op as any).with({ constructor: { prototype: {} } })).toThrow(
       /unsafe key "constructor"/,
     );
   });
 });
 
-test("withArgs preserves a valid nested payload exactly", async () => {
+test(".with() preserves a valid nested payload exactly", async () => {
   let bound!: unknown[];
   const App = ilha(() => {
     const remove = action((_x?: unknown) => "ok");
-    const ref = (remove as any).withArgs({ task: { id: "task-42", tags: ["a", "b"] } }) as Record<
+    const ref = (remove as any).with({ task: { id: "task-42", tags: ["a", "b"] } }) as Record<
       symbol,
       unknown
     >;
@@ -193,7 +193,7 @@ test("withArgs preserves a valid nested payload exactly", async () => {
   // Re-bind and inspect the stored payload directly for deep equality.
   const App2 = ilha(() => {
     const remove = action((_x?: unknown) => "ok");
-    const ref = (remove as any).withArgs({ task: { id: "task-42", tags: ["a", "b"] } }) as Record<
+    const ref = (remove as any).with({ task: { id: "task-42", tags: ["a", "b"] } }) as Record<
       symbol,
       unknown[]
     >;

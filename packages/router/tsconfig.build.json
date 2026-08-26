@@ -11,6 +11,7 @@
   },
   "include": [
     "src/index.ts",
+    "src/server.ts",
     "src/ssr.ts",
     "src/server-island.ts",
     "src/vite.ts",
