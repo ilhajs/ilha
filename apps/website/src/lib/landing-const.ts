@@ -151,7 +151,7 @@ export default ilha(() => {
   return (
     <LayerCard>
       <LayerCard.Title>
-        My Tasks ({pending().length})
+        My Tasks ({pending()?.length ?? 0})
       </LayerCard.Title>
       <LayerCard.Content class="p-0">
         <ul class="divide-y divide-areia-border">
