@@ -1,0 +1,109 @@
+---
+// PageFooter layout slot: renders an author byline for blog posts. Non-blog
+// routes render nothing (the slot's built-in is already an empty fallback).
+import { getCollection } from "astro:content";
+import { GITHUB_MARK } from "blume/components/github-mark.ts";
+import data from "blume:data";
+
+const X_MARK =
+  '<path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>';
+
+const route = Astro.props.page?.route ?? "";
+
+const norm = (id: string) =>
+  String(id).replace(/^filesystem:/, "").replace(/\.(mdx|md)$/, "");
+const routeById = new Map(data.routes.map((r) => [norm(r.id), r.path]));
+
+const posts = (await getCollection("docs")).filter(
+  (entry) => entry.data.type === "blog" && !entry.data.draft,
+);
+const post = posts.find((entry) => routeById.get(norm(entry.id)) === route);
+
+const raw = post?.data?.authors ?? null;
+const authorList = raw === null ? [] : Array.isArray(raw) ? raw : [raw];
+
+type Author = { name: string; url?: string; x?: string; github?: string };
+const authors: Author[] = authorList.map((a) => {
+  if (typeof a === "string") return { name: a };
+  const o = a as Record<string, unknown>;
+  return {
+    name: String(o.name ?? ""),
+    url: typeof o.url === "string" ? o.url : undefined,
+    x: typeof o.x === "string" ? o.x : undefined,
+    github: typeof o.github === "string" ? o.github : undefined,
+  };
+});
+
+const iconClass =
+  "inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+
+const dateStr = post?.data?.date
+  ? new Intl.DateTimeFormat("en", { dateStyle: "long" }).format(new Date(post.data.date as string))
+  : "";
+---
+
+<div class="mx-auto mt-10 w-full max-w-[54rem] px-6">
+  <div class="border-border flex flex-wrap items-center gap-x-3 gap-y-2 border-t pt-6">
+    {authors.length > 0 && (
+      <span class="text-muted-foreground text-sm">
+        Written by{" "}
+        {authors.map((author, i) => (
+          <span class="inline-flex items-center gap-1">
+            {i > 0 && <span>, </span>}
+            {author.url ? (
+              <a
+                class="text-foreground font-medium hover:underline"
+                href={author.url}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {author.name}
+              </a>
+            ) : (
+              <span class="text-foreground font-medium">{author.name}</span>
+            )}
+            {author.x && (
+              <a
+                aria-label={`${author.name} on X`}
+                class={iconClass}
+                href={author.x}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <svg
+                  aria-hidden="true"
+                  fill="currentColor"
+                  height="14"
+                  set:html={X_MARK}
+                  viewBox="0 0 24 24"
+                  width="14"
+                  xmlns="http://www.w3.org/2000/svg"
+                />
+              </a>
+            )}
+            {author.github && (
+              <a
+                aria-label={`${author.name} on GitHub`}
+                class={iconClass}
+                href={author.github}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <svg
+                  aria-hidden="true"
+                  fill="currentColor"
+                  height="14"
+                  set:html={GITHUB_MARK}
+                  viewBox="0 0 16 16"
+                  width="14"
+                  xmlns="http://www.w3.org/2000/svg"
+                />
+              </a>
+            )}
+          </span>
+        ))}
+      </span>
+    )}
+    {dateStr && <time class="text-muted-foreground text-sm">{dateStr}</time>}
+  </div>
+</div>

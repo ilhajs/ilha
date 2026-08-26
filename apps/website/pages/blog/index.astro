@@ -1,0 +1,60 @@
+---
+import PageLayout from "blume/components/layout/PageLayout.astro";
+import { getCollection } from "astro:content";
+import data from "blume:data";
+
+const { config } = data;
+
+const norm = (id) => String(id).replace(/^filesystem:/, "").replace(/\.(mdx|md)$/, "");
+const routeById = new Map(data.routes.map((route) => [norm(route.id), route.path]));
+
+const posts = (await getCollection("docs"))
+  .filter((entry) => entry.data.type === "blog" && !entry.data.draft)
+  .map((entry) => ({
+    date: entry.data.date,
+    description: entry.data.description,
+    href: routeById.get(norm(entry.id)),
+    title: entry.data.title,
+  }))
+  .toSorted((a, b) => Number(new Date(b.date)) - Number(new Date(a.date)));
+---
+
+<PageLayout
+  site={{ title: config.title, description: config.description }}
+  logo={config.logo}
+  favicon={config.favicon}
+  appleIcon={config.appleIcon}
+  banner={config.banner}
+  analytics={config.analytics}
+  navigation={data.navigation}
+  page={{ title: "Blog", description: "News and updates from the Ilha team.", route: "/blog" }}
+  themeMode={config.theme.mode}
+  fontCssVars={data.fontCssVars}
+  searchEnabled={config.search.enabled}
+  siteUrl={config.site}
+  ogEnabled={config.og.enabled}
+  structuredDataEnabled={config.structuredData}
+  x={config.x}
+>
+  <div class="flex min-h-[calc(100dvh-4rem)] flex-col">
+    <div class="mx-auto w-full max-w-3xl flex-1 px-4 py-16">
+      <h1 class="text-4xl font-semibold">Blog</h1>
+      <p class="text-muted-foreground mt-2 text-lg">News and updates from the Ilha team.</p>
+      <ul class="mt-10 space-y-8">
+        {posts.map((post) => (
+          <li>
+            <a class="text-xl font-medium underline-offset-4 hover:underline" href={post.href}>
+              {post.title}
+            </a>
+            <p class="text-muted-foreground mt-1">{post.description}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+    <footer
+      class="border-border border-t py-8 text-center text-sm text-muted-foreground"
+    >
+      © {new Date().getFullYear()} {config.title}
+    </footer>
+  </div>
+</PageLayout>

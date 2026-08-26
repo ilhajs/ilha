@@ -1,0 +1,17 @@
+---
+// Layout slot override: proxies Blume's RootLayout and switches blog posts to
+// the "bare" layout (no sidebar, no TOC, centered content column).
+import RootLayout from "blume/components/layout/RootLayout.astro";
+
+const route = Astro.props.page?.route ?? "";
+const isBlog = route.startsWith("/blog");
+const props = {
+  ...Astro.props,
+  contentLayout: isBlog ? "bare" : (Astro.props.contentLayout ?? "default"),
+};
+---
+
+<RootLayout {...props}>
+  {isBlog && <div class="mt-10"></div>}
+  <slot />
+</RootLayout>
