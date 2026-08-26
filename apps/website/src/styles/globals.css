@@ -8,7 +8,7 @@
  *
  * Architecture:
  *   1. CSS custom properties (--nb-*) define landing-only tokens
- *   2. Blume and Bejamas provide shared Tailwind utility tokens
+ *   2. Blume provides shared Tailwind utility tokens
  *   3. Dark mode uses the `[data-theme="dark"]` attribute
  *   4. All colors use oklch for perceptual uniformity
  *

@@ -1,11 +1,9 @@
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 @import "tw-animate-css";
-@import "bejamas/tailwind.css";
 
 @source "./pages";
 @source "./src/components";
-@source "./src/ui";
 @plugin "areia";
 
 @theme inline {

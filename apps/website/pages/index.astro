@@ -3,16 +3,7 @@ import PageLayout from "blume/components/layout/PageLayout.astro";
 import Preview from "../src/components/Preview.astro";
 import HeroTechCards from "../src/components/landing/HeroTechCards.astro";
 import { ProjectCreatorForm } from "../src/components/landing/Landing";
-import { Badge } from "../src/ui/badge";
-import { Button } from "../src/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../src/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../src/ui/tabs";
+import { Badge, ClipboardText, LayerCard, LinkButton, Tabs } from "areia";
 import {
   ILHA_ASTRO_CODE,
   ILHA_ROUTER_CODE,
@@ -26,7 +17,6 @@ import {
 import { highlight } from "./_home/highlight";
 import { playgroundUrl } from "../src/lib/playground";
 import data from "blume:data";
-import { ClipboardText } from "areia";
 
 const { config } = data;
 import "../src/styles/landing.css";
@@ -76,15 +66,14 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
             </div>
             <div class="grid w-full min-w-0 max-w-xl justify-items-stretch gap-3.5 sm:justify-items-center">
               <div class="flex w-full min-w-0 flex-col items-stretch gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-3">
-                <Button
-                  as="a"
+                <LinkButton
                   href="/guide/getting-started/installation"
+                  variant="primary"
                   class="w-full justify-center sm:w-auto sm:flex-none"
                 >
                   Get started
-                </Button>
-                <Button
-                  as="a"
+                </LinkButton>
+                <LinkButton
                   href={OXIDE_SANDBOX}
                   variant="secondary"
                   target="_blank"
@@ -92,7 +81,7 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
                   class="w-full justify-center sm:w-auto sm:flex-none"
                 >
                   Try it online
-                </Button>
+                </LinkButton>
               </div>
               <div class="landing-install">
                 <ClipboardText
@@ -106,37 +95,36 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
           </div>
 
           <div class="landing-hero-visual w-full min-w-0 max-w-full">
-            <Card class="!pb-0">
-              <CardHeader class="flex flex-row items-center justify-between">
+            <LayerCard class="!pb-0">
+              <div class="flex flex-row items-center justify-between gap-3 p-4">
                 <div>
-                  <CardTitle>playground.ilha.build</CardTitle>
-                  <CardDescription>Run this island in the playground.</CardDescription>
+                  <h3 class="text-base font-medium">playground.ilha.build</h3>
+                  <p class="text-muted-foreground text-sm">Run this island in the playground.</p>
                 </div>
-                <Button
-                  as="a"
+                <LinkButton
                   href={PLAYGROUND_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   variant="outline"
-                  size="icon"
+                  shape="square"
                   aria-label="Open playground"
                 >
-                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg class="size-4" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M15 3h6v6" />
                     <path d="M10 14 21 3" />
                     <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                   </svg>
-                </Button>
-              </CardHeader>
-              <CardContent class="border-t !p-0">
+                </LinkButton>
+              </div>
+              <div class="border-border border-t">
                 <div class="landing-preview-split">
                   <div class="landing-preview-code font-mono" set:html={previewHtml} />
                   <div class="landing-preview-run">
                     <Preview code={PREVIEW_CODE} size="lg" mobilePreview activate="click" />
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </LayerCard>
           </div>
         </div>
       </section>
@@ -191,15 +179,15 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
                       ))}
                     </ul>
                   </div>
-                  <Card class="min-w-0">
-                    <CardHeader class="flex flex-row items-center justify-between">
-                      <CardTitle>{tab.file}</CardTitle>
-                      <CardDescription>tsx</CardDescription>
-                    </CardHeader>
-                    <CardContent class="font-mono">
+                  <LayerCard class="min-w-0">
+                    <div class="flex flex-row items-center justify-between gap-3 p-4">
+                      <h3 class="text-base font-medium">{tab.file}</h3>
+                      <p class="text-muted-foreground text-sm">tsx</p>
+                    </div>
+                    <div class="border-border border-t p-4 font-mono">
                       <Fragment set:html={highlight(tab.code, "ts")} />
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </LayerCard>
                 </div>
               </div>
             </section>
@@ -225,21 +213,21 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
                 }
               </ul>
             </div>
-            <Tabs defaultValue="routing" class="min-w-0">
-              <TabsList>
-                <TabsTrigger value="routing">@ilha/router</TabsTrigger>
-                <TabsTrigger value="store">Shared signals</TabsTrigger>
-                <TabsTrigger value="astro">@ilha/astro</TabsTrigger>
-              </TabsList>
-              <TabsContent value="routing">
-                <Card><CardContent class="font-mono"><Fragment set:html={routingHtml} /></CardContent></Card>
-              </TabsContent>
-              <TabsContent value="store">
-                <Card><CardContent class="font-mono"><Fragment set:html={storeHtml} /></CardContent></Card>
-              </TabsContent>
-              <TabsContent value="astro">
-                <Card><CardContent class="font-mono"><Fragment set:html={astroHtml} /></CardContent></Card>
-              </TabsContent>
+            <Tabs defaultValue="routing" class="min-w-0" client:load>
+              <Tabs.List>
+                <Tabs.Trigger value="routing">@ilha/router</Tabs.Trigger>
+                <Tabs.Trigger value="store">Shared signals</Tabs.Trigger>
+                <Tabs.Trigger value="astro">@ilha/astro</Tabs.Trigger>
+              </Tabs.List>
+              <Tabs.Content value="routing">
+                <LayerCard><div class="p-4 font-mono"><Fragment set:html={routingHtml} /></div></LayerCard>
+              </Tabs.Content>
+              <Tabs.Content value="store">
+                <LayerCard><div class="p-4 font-mono"><Fragment set:html={storeHtml} /></div></LayerCard>
+              </Tabs.Content>
+              <Tabs.Content value="astro">
+                <LayerCard><div class="p-4 font-mono"><Fragment set:html={astroHtml} /></div></LayerCard>
+              </Tabs.Content>
             </Tabs>
           </div>
         </div>
@@ -247,20 +235,20 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
 
       <section class="border-border border-b">
         <div class="landing-shell py-16 sm:py-20 lg:py-24">
-          <Card>
-            <CardHeader>
+          <LayerCard>
+            <div class="grid gap-2 p-4">
               <p class="landing-eyebrow">Start your way</p>
-              <CardTitle class="landing-section-title">Add Ilha without rebuilding your stack.</CardTitle>
-              <CardDescription class="landing-lede">
+              <h2 class="landing-section-title">Add Ilha without rebuilding your stack.</h2>
+              <p class="landing-lede">
                 Choose a starter for Vite or your server. You get a working, type-safe project with
                 fast server-rendered pages and focused interactivity—without adopting a full
                 application framework.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+              </p>
+            </div>
+            <div class="p-4 pt-0">
               <ProjectCreatorForm client:load />
-            </CardContent>
-          </Card>
+            </div>
+          </LayerCard>
         </div>
       </section>
 
@@ -277,21 +265,20 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
             </p>
           </div>
           <div class="flex w-full shrink-0 flex-col gap-2.5 sm:w-auto sm:flex-row sm:gap-3">
-            <Button
-              as="a"
+            <LinkButton
               href="/guide/getting-started/introduction"
+              variant="primary"
               class="w-full sm:w-auto"
             >
               Read the quick start
-            </Button>
-            <Button
-              as="a"
+            </LinkButton>
+            <LinkButton
               href="/tutorial/counter/state"
               variant="secondary"
               class="w-full sm:w-auto"
             >
               Build the counter
-            </Button>
+            </LinkButton>
           </div>
         </div>
       </section>

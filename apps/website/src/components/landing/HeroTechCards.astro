@@ -1,5 +1,5 @@
 ---
-import { Card, CardDescription, CardHeader, CardTitle } from "@/ui/card";
+import { LayerCard } from "areia";
 
 const cards = [
   {
@@ -31,13 +31,13 @@ const cards = [
 >
   {
     cards.map((card) => (
-      <Card data-hero-card class="h-full">
-        <CardHeader>
+      <LayerCard data-hero-card class="h-full p-4">
+        <div class="grid gap-1.5">
           <img src={card.icon} alt="" class="size-6 opacity-75" />
-          <CardTitle>{card.title}</CardTitle>
-          <CardDescription>{card.description}</CardDescription>
-        </CardHeader>
-      </Card>
+          <h3 class="text-base font-medium">{card.title}</h3>
+          <p class="text-muted-foreground text-sm">{card.description}</p>
+        </div>
+      </LayerCard>
     ))
   }
 </div>
