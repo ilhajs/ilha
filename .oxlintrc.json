@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "ignorePatterns": ["**/dist/**", "**/node_modules/**"],
-  "jsPlugins": ["@ilha/router/oxlint"],
+  "jsPlugins": ["./packages/router/oxlint.cjs"],
   "rules": {
     "oxlint-plugin-ilha/pascal-case": "error",
     "oxlint-plugin-ilha/no-conditional-primitive": "error",

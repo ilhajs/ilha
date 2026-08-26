@@ -3,16 +3,34 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const repoRoot = join(import.meta.dir, "../..");
+const plugin = join(import.meta.dir, "oxlint.cjs");
 
 async function lint(source: string) {
   const dir = await mkdtemp(join(tmpdir(), "ilha-oxlint-"));
   const file = join(dir, "case.tsx");
+  const config = join(dir, ".oxlintrc.json");
   await writeFile(file, source);
-  const proc = Bun.spawnSync(
-    ["bunx", "oxlint", "-c", join(repoRoot, ".oxlintrc.json"), "--format", "json", file],
-    { cwd: repoRoot, stdout: "pipe", stderr: "pipe" },
+  await writeFile(
+    config,
+    JSON.stringify({
+      jsPlugins: [plugin],
+      rules: {
+        "oxlint-plugin-ilha/pascal-case": "error",
+        "oxlint-plugin-ilha/no-conditional-primitive": "error",
+        "oxlint-plugin-ilha/no-primitive-outside-island": "error",
+        "oxlint-plugin-ilha/prefer-plain-handler": "warn",
+        "oxlint-plugin-ilha/prefer-lowercase-events": "error",
+        "oxlint-plugin-ilha/no-direct-island-call": "error",
+        "oxlint-plugin-ilha/require-ssr-api": "error",
+        "oxlint-plugin-ilha/function-in-state": "error",
+      },
+    }),
   );
+  const proc = Bun.spawnSync(["bunx", "oxlint", "-c", config, "--format", "json", file], {
+    cwd: dir,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const out = proc.stdout.toString() || proc.stderr.toString();
   let messages: { ruleId?: string; message?: string }[] = [];
   try {
