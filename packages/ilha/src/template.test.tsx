@@ -55,6 +55,19 @@ test("html comments resolve interpolated values without leaking slot markers", (
   expect(html`<!-- before ${id} after -->`.value).not.toContain("\uE000");
 });
 
+test("html parser requires a valid element closing-tag boundary", () => {
+  expect(html`<div>ok </divergent></div>`.value).toBe("<div>ok &lt;/divergent&gt;</div>");
+});
+
+test("html parser requires a valid raw-text closing-tag boundary", () => {
+  const out = html`<script>
+    note </scripter> end
+  </script>`.value;
+  expect(out).toContain("note </scripter> end");
+  expect(out).toMatch(/<\/scripter>/);
+  expect(out).toMatch(/<\/script>$/);
+});
+
 test("unquoted attribute values keep leading and mid-value slashes", () => {
   expect(html`<a href=/docs>x</a>`.value).toMatch(/href=["']?\/docs["']?/);
   expect(html`<img src=https://example.com />`.value).toMatch(

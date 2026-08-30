@@ -1853,9 +1853,30 @@ function templateSkipWs(s: string, i: number): number {
   return i;
 }
 
+function templateAsciiLower(source: string): string {
+  return source.replace(/[A-Z]/g, (char) => String.fromCharCode(char.charCodeAt(0) + 32));
+}
+
+function templateClosingTagAt(lower: string, index: number, tag: string): boolean {
+  const prefix = `</${tag}`;
+  if (!lower.startsWith(prefix, index)) return false;
+  const boundary = lower[index + prefix.length];
+  return boundary === ">" || boundary === "/" || /[\t\n\f\r ]/.test(boundary ?? "");
+}
+
+function templateFindClosingTag(lower: string, tag: string, from: number): number {
+  const needle = `</${tag}`;
+  let index = lower.indexOf(needle, from);
+  while (index !== -1) {
+    if (templateClosingTagAt(lower, index, tag)) return index;
+    index = lower.indexOf(needle, index + 1);
+  }
+  return -1;
+}
+
 function templateParseFragment(source: string): TemplateFragNode {
   const children: TemplateFragNode[] = [];
-  templateParseNodes(source, source.toLowerCase(), 0, null, children);
+  templateParseNodes(source, templateAsciiLower(source), 0, null, children);
   return { nodeName: "#document-fragment", childNodes: children };
 }
 
@@ -1867,7 +1888,7 @@ function templateParseNodes(
   out: TemplateFragNode[],
 ): number {
   while (i < s.length) {
-    if (stop && lower.startsWith(`</${stop}`, i)) {
+    if (stop && templateClosingTagAt(lower, i, stop)) {
       const gt = s.indexOf(">", i);
       return gt === -1 ? s.length : gt + 1;
     }
@@ -1878,7 +1899,7 @@ function templateParseNodes(
       i = close;
       continue;
     }
-    if (s[i] === "<" && s[i + 1] === "/") {
+    if (stop === null && s[i] === "<" && s[i + 1] === "/") {
       const gt = s.indexOf(">", i);
       i = gt === -1 ? s.length : gt + 1;
       continue;
@@ -1942,8 +1963,7 @@ function templateParseNodes(
       };
       if (!TEMPLATE_PARSE_VOID_TAGS.has(tag)) {
         if (TEMPLATE_PARSE_RAW_TEXT_TAGS.has(tag)) {
-          const close = `</${tag}`;
-          const ci = lower.indexOf(close, i);
+          const ci = templateFindClosingTag(lower, tag, i);
           const textEnd = ci === -1 ? s.length : ci;
           if (textEnd > i) el.childNodes!.push({ nodeName: "#text", value: s.slice(i, textEnd) });
           i = ci === -1 ? s.length : s.indexOf(">", ci) === -1 ? s.length : s.indexOf(">", ci) + 1;
