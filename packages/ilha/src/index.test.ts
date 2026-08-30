@@ -1161,7 +1161,7 @@ describe("rendering", () => {
     let setTitle!: (v: string) => void;
     const Island = ilha(() => {
       const title = state("hello");
-      setTitle = title;
+      setTitle = title.set;
       const count = state(0);
       return html`<div>
         <input data-i value=${String(count())} />
@@ -1225,7 +1225,7 @@ describe("rendering", () => {
     const Item = ilha<{ k: string }>(({ k }) => html`<span data-key="${k}">${k}</span>`);
     const List = ilha(() => {
       const order = state(["a", "b", "c"]);
-      setOrder = order;
+      setOrder = order.set;
       return html`<div>${order().map((k) => Item.key(k)({ k }))}</div>`;
     });
     const el = makeEl();
@@ -1266,7 +1266,7 @@ describe("rendering", () => {
     let setOrder!: (v: string[]) => void;
     const List = ilha(() => {
       const order = state(["a", "b"]);
-      setOrder = order;
+      setOrder = order.set;
       return html`<div>${order().map((k) => html`<button data-key="${k}">${k}</button>`)}</div>`;
     });
     const el = makeEl();

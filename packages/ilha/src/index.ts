@@ -11,8 +11,6 @@ import {
   type JsxEventRegistration,
   type ServerAction,
 } from "./internal";
-import { htmlTemplate, templateAttribute, templateParts, type TemplateNode } from "./template";
-
 // ---------------------------------------------
 // Standard Schema V1 (inlined, type-only)
 // ---------------------------------------------
@@ -1762,6 +1760,357 @@ function emitBindSSR({
       return [isMatched ? ` checked` : ``, spec];
     }
   }
+}
+
+// ---------------------------------------------
+// html`` template IR (parse + bind)
+// ---------------------------------------------
+
+const TEMPLATE_ATTRIBUTE = Symbol.for("ilha.templateAttribute");
+const TEMPLATE_PARTS = Symbol.for("ilha.templateParts");
+
+interface TemplateAttribute {
+  [TEMPLATE_ATTRIBUTE]: true;
+  value: unknown;
+  quoted: boolean;
+  bare: boolean;
+}
+
+interface TemplateParts {
+  [TEMPLATE_PARTS]: true;
+  values: unknown[];
+}
+
+export type TemplateNode =
+  | { kind: "fragment"; children: TemplateNode[] }
+  | {
+      kind: "element";
+      tag: string;
+      props: Record<string, unknown>;
+      children: TemplateNode[];
+      selfClosing?: boolean;
+    }
+  | { kind: "text"; value: string }
+  | { kind: "comment"; value: string }
+  | { kind: "dynamic"; value: unknown };
+
+interface TemplateBlueprintSlot {
+  slot: number;
+}
+
+type TemplateBlueprintSegment = string | TemplateBlueprintSlot;
+
+type TemplateBlueprintNode =
+  | { kind: "fragment"; children: TemplateBlueprintNode[] }
+  | {
+      kind: "element";
+      tag: string;
+      props: Record<string, TemplateBlueprintSegment[]>;
+      children: TemplateBlueprintNode[];
+      selfClosing?: boolean;
+    }
+  | { kind: "text"; value: TemplateBlueprintSegment[] }
+  | { kind: "comment"; value: string };
+
+const TEMPLATE_SLOT_START = "\uE000ilha:";
+const TEMPLATE_SLOT_END = ":\uE001";
+const TEMPLATE_SLOT_RE = /\uE000ilha:(\d+):\uE001/g;
+const templateBlueprintCache = new WeakMap<TemplateStringsArray, TemplateBlueprintNode>();
+
+const TEMPLATE_PARSE_VOID_TAGS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
+const TEMPLATE_PARSE_RAW_TEXT_TAGS = new Set(["script", "style", "textarea", "title"]);
+
+type TemplateFragNode = {
+  nodeName: string;
+  tagName?: string;
+  value?: string;
+  data?: string;
+  attrs?: Array<{ name: string; value: string }>;
+  childNodes?: TemplateFragNode[];
+  sourceCodeLocation?: {
+    attrs?: Record<string, { startOffset: number; endOffset: number }>;
+    startTag?: { startOffset: number; endOffset: number };
+  };
+};
+
+function templateSkipWs(s: string, i: number): number {
+  while (i < s.length && /[\t\n\f\r ]/.test(s[i]!)) i++;
+  return i;
+}
+
+function templateParseFragment(source: string): TemplateFragNode {
+  const children: TemplateFragNode[] = [];
+  templateParseNodes(source, 0, null, children);
+  return { nodeName: "#document-fragment", childNodes: children };
+}
+
+function templateParseNodes(
+  s: string,
+  i: number,
+  stop: string | null,
+  out: TemplateFragNode[],
+): number {
+  while (i < s.length) {
+    if (stop && s.toLowerCase().startsWith(`</${stop}`, i)) {
+      const gt = s.indexOf(">", i);
+      return gt === -1 ? s.length : gt + 1;
+    }
+    if (s.startsWith("<!--", i)) {
+      const end = s.indexOf("-->", i + 4);
+      const close = end === -1 ? s.length : end + 3;
+      out.push({ nodeName: "#comment", data: s.slice(i + 4, end === -1 ? s.length : end) });
+      i = close;
+      continue;
+    }
+    if (s[i] === "<" && s[i + 1] === "/") {
+      const gt = s.indexOf(">", i);
+      i = gt === -1 ? s.length : gt + 1;
+      continue;
+    }
+    if (s[i] === "<" && /[A-Za-z]/.test(s[i + 1] ?? "")) {
+      const start = i;
+      i++;
+      const tagStart = i;
+      while (i < s.length && /[A-Za-z0-9:-]/.test(s[i]!)) i++;
+      const tagOrig = s.slice(tagStart, i);
+      const tag = tagOrig.toLowerCase();
+      const attrs: Array<{ name: string; value: string }> = [];
+      const attrLocs: Record<string, { startOffset: number; endOffset: number }> = {};
+      i = templateSkipWs(s, i);
+      while (i < s.length && s[i] !== ">" && s[i] !== "/") {
+        const attrStart = i;
+        while (i < s.length && /[^\s=>/]/.test(s[i]!)) i++;
+        const rawName = s.slice(attrStart, i);
+        if (!rawName) break;
+        const name = rawName;
+        i = templateSkipWs(s, i);
+        let value = "";
+        if (s[i] === "=") {
+          i++;
+          i = templateSkipWs(s, i);
+          if (s[i] === '"' || s[i] === "'") {
+            const q = s[i]!;
+            i++;
+            const vs = i;
+            while (i < s.length && s[i] !== q) i++;
+            value = s.slice(vs, i);
+            if (s[i] === q) i++;
+          } else {
+            const vs = i;
+            while (i < s.length && /[^\s>]/.test(s[i]!)) {
+              if (s[i] === "/") {
+                let j = i + 1;
+                while (j < s.length && /\s/.test(s[j]!)) j++;
+                if (j >= s.length || s[j] === ">") break;
+              }
+              i++;
+            }
+            value = s.slice(vs, i);
+          }
+        }
+        attrs.push({ name, value });
+        attrLocs[name] = { startOffset: attrStart, endOffset: i };
+        i = templateSkipWs(s, i);
+      }
+      if (s[i] === "/") {
+        i++;
+        i = templateSkipWs(s, i);
+      }
+      if (s[i] === ">") i++;
+      const el: TemplateFragNode = {
+        nodeName: tagOrig,
+        tagName: tagOrig,
+        attrs,
+        childNodes: [],
+        sourceCodeLocation: { attrs: attrLocs, startTag: { startOffset: start, endOffset: i } },
+      };
+      if (!TEMPLATE_PARSE_VOID_TAGS.has(tag)) {
+        if (TEMPLATE_PARSE_RAW_TEXT_TAGS.has(tag)) {
+          const close = `</${tag}`;
+          const ci = s.toLowerCase().indexOf(close, i);
+          const textEnd = ci === -1 ? s.length : ci;
+          if (textEnd > i) el.childNodes!.push({ nodeName: "#text", value: s.slice(i, textEnd) });
+          i = ci === -1 ? s.length : s.indexOf(">", ci) === -1 ? s.length : s.indexOf(">", ci) + 1;
+        } else {
+          i = templateParseNodes(s, i, tag, el.childNodes!);
+        }
+      }
+      out.push(el);
+      continue;
+    }
+    const next = s.indexOf("<", i);
+    const end = next === -1 ? s.length : next;
+    if (end > i) {
+      out.push({ nodeName: "#text", value: s.slice(i, end) });
+      i = end;
+      continue;
+    }
+    out.push({ nodeName: "#text", value: s[i]! });
+    i++;
+  }
+  return i;
+}
+
+function templateSegments(value: string): TemplateBlueprintSegment[] {
+  const out: TemplateBlueprintSegment[] = [];
+  let offset = 0;
+  for (const match of value.matchAll(TEMPLATE_SLOT_RE)) {
+    if (match.index! > offset) out.push(value.slice(offset, match.index));
+    out.push({ slot: Number(match[1]) });
+    offset = match.index! + match[0].length;
+  }
+  if (offset < value.length) out.push(value.slice(offset));
+  return out;
+}
+
+function templateBlueprint(node: TemplateFragNode, source: string): TemplateBlueprintNode | null {
+  if (node.nodeName === "#text") return { kind: "text", value: templateSegments(node.value!) };
+  if (node.nodeName === "#comment") return { kind: "comment", value: node.data! };
+  if (node.nodeName === "#document-fragment") {
+    return {
+      kind: "fragment",
+      children: node
+        .childNodes!.map((child) => templateBlueprint(child, source))
+        .filter(Boolean) as TemplateBlueprintNode[],
+    };
+  }
+  if (typeof node.tagName === "string") {
+    const props: Record<string, TemplateBlueprintSegment[]> = {};
+    for (const attr of node.attrs ?? []) {
+      const location = node.sourceCodeLocation?.attrs?.[attr.name];
+      const sourceAttr = location
+        ? source.slice(location.startOffset, location.endOffset)
+        : attr.name;
+      const parts = templateSegments(attr.value) as TemplateBlueprintSegment[] & {
+        quoted?: boolean;
+        bare?: boolean;
+      };
+      parts.quoted = /=\s*["']/.test(sourceAttr);
+      parts.bare = !sourceAttr.includes("=");
+      props[attr.name] = parts;
+    }
+    return {
+      kind: "element",
+      tag: node.tagName,
+      props,
+      children: (node.childNodes ?? [])
+        .map((child) => templateBlueprint(child, source))
+        .filter(Boolean) as TemplateBlueprintNode[],
+      selfClosing: node.sourceCodeLocation?.startTag
+        ? /\/\s*>$/.test(
+            source.slice(
+              node.sourceCodeLocation.startTag.startOffset,
+              node.sourceCodeLocation.startTag.endOffset,
+            ),
+          )
+        : false,
+    };
+  }
+  return null;
+}
+
+function templateCompile(strings: TemplateStringsArray): TemplateBlueprintNode {
+  let source = strings[0] ?? "";
+  for (let i = 0; i < strings.length - 1; i++) {
+    source += `${TEMPLATE_SLOT_START}${i}${TEMPLATE_SLOT_END}${strings[i + 1] ?? ""}`;
+  }
+  return (
+    templateBlueprint(templateParseFragment(source), source) ?? {
+      kind: "fragment",
+      children: [],
+    }
+  );
+}
+
+function templateBindSegments(
+  parts: TemplateBlueprintSegment[] & { quoted?: boolean; bare?: boolean },
+  values: unknown[],
+): TemplateAttribute {
+  let value: unknown;
+  if (parts.length === 1 && typeof parts[0] !== "string") value = values[parts[0].slot];
+  else if (parts.some((part) => typeof part !== "string")) {
+    value = {
+      [TEMPLATE_PARTS]: true,
+      values: parts.map((part) => (typeof part === "string" ? part : values[part.slot])),
+    } satisfies TemplateParts;
+  } else value = parts.join("");
+  return {
+    [TEMPLATE_ATTRIBUTE]: true,
+    value,
+    quoted: parts.quoted ?? true,
+    bare: parts.bare ?? false,
+  };
+}
+
+function templateBind(
+  node: TemplateBlueprintNode,
+  values: unknown[],
+): TemplateNode | TemplateNode[] {
+  if (node.kind === "text") {
+    const out: TemplateNode[] = [];
+    for (const part of node.value) {
+      if (typeof part === "string") {
+        if (part) out.push({ kind: "text", value: part });
+      } else {
+        out.push({ kind: "dynamic", value: values[part.slot] });
+      }
+    }
+    return out;
+  }
+  if (node.kind === "comment") return { kind: "comment", value: node.value };
+  if (node.kind === "element") {
+    const props: Record<string, unknown> = {};
+    for (const [name, parts] of Object.entries(node.props))
+      props[name] = templateBindSegments(parts, values);
+    return {
+      kind: "element",
+      tag: node.tag,
+      props,
+      children: node.children.flatMap((child) => templateBind(child, values)),
+      selfClosing: node.selfClosing,
+    };
+  }
+  return {
+    kind: "fragment",
+    children: node.children.flatMap((child) => templateBind(child, values)),
+  };
+}
+
+function htmlTemplate(strings: TemplateStringsArray, values: unknown[]): TemplateNode {
+  let compiled = templateBlueprintCache.get(strings);
+  if (!compiled) {
+    compiled = templateCompile(strings);
+    templateBlueprintCache.set(strings, compiled);
+  }
+  const result = templateBind(compiled, values);
+  return Array.isArray(result) ? { kind: "fragment", children: result } : result;
+}
+
+function templateAttribute(value: unknown): TemplateAttribute | null {
+  return value && typeof value === "object" && TEMPLATE_ATTRIBUTE in value
+    ? (value as TemplateAttribute)
+    : null;
+}
+
+function templateParts(value: unknown): unknown[] | null {
+  return value && typeof value === "object" && TEMPLATE_PARTS in value
+    ? (value as TemplateParts).values
+    : null;
 }
 
 const TEMPLATE_ATTRIBUTE_ALIASES: Record<string, string> = {

@@ -4,8 +4,7 @@
  * any release.
  */
 
-import type { NativeEventHandler, NativeEventModifier, RawHtml } from "./index";
-import type { TemplateNode } from "./template";
+import type { NativeEventHandler, NativeEventModifier, RawHtml, TemplateNode } from "./index";
 
 export type ServerAction<A extends unknown[] = unknown[], R = unknown> = ((...args: A) => R) & {
   with: (...args: unknown[]) => (...runtimeArgs: unknown[]) => unknown;

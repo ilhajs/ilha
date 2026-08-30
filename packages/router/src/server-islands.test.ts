@@ -275,6 +275,7 @@ describe("__ilhaServerIsland", () => {
       if (attempts < 3) throw new Error("RPC transport error: 503");
       yield 42;
     }
+    let unmount: (() => void) | undefined;
     try {
       const Island = __ilhaServerIsland("t.server.tsx#T", "div", {
         streams: { count: () => gen() },
@@ -285,14 +286,26 @@ describe("__ilhaServerIsland", () => {
       });
       const host = makeHost(`<div data-ilha="T"></div>`);
       const root = host.firstElementChild!;
-      const unmount = Island.mount(root);
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      unmount = Island.mount(root);
+      const deadline = Date.now() + 2000;
+      for (;;) {
+        if (attempts === 3 && frames > 0 && root.querySelector("p")?.textContent === "ok") {
+          break;
+        }
+        if (Date.now() >= deadline) {
+          throw new Error("Timed out waiting for stream retry and frame repaint");
+        }
+        await new Promise<void>((resolve) => {
+          if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
+          else setTimeout(resolve, 0);
+        });
+      }
       expect(attempts).toBe(3);
       expect(frames).toBeGreaterThan(0);
       expect(root.querySelector("p")?.textContent).toBe("ok");
       expect(errors).toEqual([]);
-      unmount();
     } finally {
+      unmount?.();
       console.error = prevError;
     }
   });
