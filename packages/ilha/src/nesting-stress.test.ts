@@ -20,6 +20,7 @@ function cleanup(el: Element): void {
 }
 
 function flush(): Promise<void> {
+  // two microtasks: morph + derived scopes settle
   return new Promise((r) => queueMicrotask(() => queueMicrotask(r)));
 }
 
@@ -392,7 +393,7 @@ describe("stress: parent re-render prop churn", () => {
       const current = page();
       setPage = (n) => {
         calls.push(n);
-        page(n);
+        page.set(n);
       };
       return html`<div>
         ${Child.key("pag")({
@@ -438,7 +439,7 @@ describe("stress: parent re-render prop churn", () => {
     const Parent = ilha(() => {
       const n = state(1);
       effect.once(() => {
-        n(2);
+        n.set(2);
       });
       const current = n();
       return html`<footer>
@@ -476,7 +477,7 @@ describe("stress: parent re-render prop churn", () => {
     const Parent = ilha(() => {
       const side = state("left");
       const current = side();
-      setSide = side;
+      setSide = side.set;
       const island = current === "left" ? Left : Right;
       return html`<div>
         ${island.key("slot")({
@@ -531,13 +532,13 @@ describe("stress: parent re-render prop churn", () => {
     await flush();
     expect(el.querySelectorAll("[data-cell]").length).toBe(5);
 
-    count(2);
+    count.set(2);
     await flush();
     expect(el.querySelectorAll("[data-cell]").length).toBe(2);
     expect(el.querySelector('[data-c="0"]')?.textContent).toBe("c0");
     expect(el.querySelector('[data-c="1"]')?.textContent).toBe("c1");
 
-    count(8);
+    count.set(8);
     await flush();
     expect(el.querySelectorAll("[data-cell]").length).toBe(8);
     expect(el.querySelector('[data-c="7"]')?.textContent).toBe("c7");

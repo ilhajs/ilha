@@ -14,7 +14,7 @@ import { state, effect } from "ilha";
 
 const count = state(0);
 effect(() => {
-  if (count() > 3) count(0);
+  if (count() > 3) count.set(0);
 });
 ```
 

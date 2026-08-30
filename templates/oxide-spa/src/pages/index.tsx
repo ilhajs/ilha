@@ -15,7 +15,7 @@ export default ilha(() => {
     const text = draft().trim();
     if (!text) return;
     await createTask(text);
-    draft("");
+    draft.set("");
   };
 
   return (

@@ -262,6 +262,54 @@ describe("__ilhaServerIsland", () => {
     expect(observedAbort).toBe(true);
   });
 
+  it("retries when the first stream next() fails with a cold-start 503", async () => {
+    let attempts = 0;
+    let frames = 0;
+    const errors: unknown[] = [];
+    const prevError = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args);
+    };
+    async function* gen(): AsyncGenerator<number> {
+      attempts++;
+      if (attempts < 3) throw new Error("RPC transport error: 503");
+      yield 42;
+    }
+    let unmount: (() => void) | undefined;
+    try {
+      const Island = __ilhaServerIsland("t.server.tsx#T", "div", {
+        streams: { count: () => gen() },
+        frame: () => {
+          frames++;
+          return `<p>ok</p>`;
+        },
+      });
+      const host = makeHost(`<div data-ilha="T"></div>`);
+      const root = host.firstElementChild!;
+      unmount = Island.mount(root);
+      const deadline = Date.now() + 2000;
+      for (;;) {
+        if (attempts === 3 && frames > 0 && root.querySelector("p")?.textContent === "ok") {
+          break;
+        }
+        if (Date.now() >= deadline) {
+          throw new Error("Timed out waiting for stream retry and frame repaint");
+        }
+        await new Promise<void>((resolve) => {
+          if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
+          else setTimeout(resolve, 0);
+        });
+      }
+      expect(attempts).toBe(3);
+      expect(frames).toBeGreaterThan(0);
+      expect(root.querySelector("p")?.textContent).toBe("ok");
+      expect(errors).toEqual([]);
+    } finally {
+      unmount?.();
+      console.error = prevError;
+    }
+  });
+
   it("does not wire sentinels inside nested islands or slots", () => {
     const calls: string[] = [];
     const Island = __ilhaServerIsland("x.server.tsx#X", "div", {

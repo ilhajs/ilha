@@ -35,7 +35,7 @@
 
 - An island is a function component: `const Counter = ilha(() => JSX)`. Use `ilha<Props>((props) => JSX)` for typed props and `ilha(schema, (props) => JSX)` for Standard Schema validation and inference. Pass `{ as: "span" }` as a trailing option to change the nested-island slot wrapper tag.
 - Primitives are order-based hooks imported from `ilha`: `state()`, `derived()`, `action()`, `effect()`, `effect.once()`, `onError()`. Call them at the top level of the component, in the same order and with the same kind on every render; their slots persist across rerenders.
-- Put conditional and async logic inside primitives, not around registration. `state(() => expensive())` is a lazy initializer; store function values through the updater wrapper (`setCallback(() => nextCallback)`).
+- Put conditional and async logic inside primitives, not around registration. `state(() => expensive())` is a lazy initializer; store function values with `onSave.set(nextCallback)`.
 - Reading signals during render subscribes the island render; changes rerun the component with current props and morph the host DOM. State initialized from props does not reset on later prop changes.
 - Ordinary operations are plain functions. Use `action()` only when you need reactive execution state (`.pending`, `.data`, `.error`) or lifecycle cancellation.
 - DOM event handlers are the common case: when a handler needs no pending/result tracking, concurrency bookkeeping, or cancellation, write a plain function, not `action()`.
@@ -44,7 +44,7 @@
 - Mount islands with `mount({ IslandName })` — it auto-discovers `[data-ilha="IslandName"]` elements.
 - For synchronous SSR, always use `Island.toString(props)`. For async SSR, always use `await Island.toStringAsync(props)`. Direct `Island(props)` calls are reserved for child composition inside another island render.
 - Use `await Island.hydratable(props, options)` when emitting hydration markup; the client restores serialized props and positional primitive snapshots through `mount()`.
-- Functional signal setters use the setter directly (`count((previous) => previous + 1)`). To store a function value, return it from an updater wrapper (`callback(() => nextCallback)`).
+- Read with `count()`, replace with `count.set(1)`, patch with `count.update((previous) => previous + 1)`. Store a function value with `onSave.set(nextCallback)`.
 - Keep the public API surface minimal: named exports (`ilha`, `state`, `derived`, `action`, `effect`, `onError`, plus standalone helpers), island methods (`toString`, `toStringAsync`, `mount`, `hydratable`, `key`, `define`), and the JSX runtime contracts.
 - When changing public types, update `packages/*/src/types.test.ts` (compile-time type anchors, checked by `tsc`) and add runtime tests in the package's `*.test.ts(x)` files.
 - Type anchors use `@ts-expect-error` for negative assertions; those are enforced by `tsc`, not by `bun test` — keep each anchor file's runtime smoke `it()` passing under `bun test`.

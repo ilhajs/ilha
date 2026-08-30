@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { z } from "zod";
 
-import { ilha, html, raw, state } from "./index";
+import { ilha, html, raw, state, type StateAccessor } from "./index";
 import * as jsxDevRuntime from "./jsx-dev-runtime";
 import { jsx, jsxs } from "./jsx-runtime";
 import * as jsxRuntime from "./jsx-runtime";
@@ -260,7 +260,7 @@ describe("ilha JSX runtime", () => {
 
     const Island = ilha(() => {
       const todos = state([{ id: "t1", title: "first" }] as Todo[]);
-      setTodos = todos as typeof setTodos;
+      setTodos = todos.set;
       return (
         <div>
           {todos().map((todo) => (
@@ -410,7 +410,7 @@ describe("ilha JSX runtime", () => {
       return (
         <div>
           <input type="number" bind:value={count} />
-          <button onclick={() => count((value) => value + 1)}>{count()}</button>
+          <button onclick={() => count.update((value) => value + 1)}>{count()}</button>
         </div>
       );
     });
@@ -427,7 +427,7 @@ describe("ilha JSX runtime", () => {
 
     const rendersBeforeUnmount = renders;
     unmount();
-    count(2);
+    count.set(2);
     expect(renders).toBe(rendersBeforeUnmount);
     cleanup(el);
   });
@@ -436,7 +436,7 @@ describe("ilha JSX runtime", () => {
     const count = signal(0);
     let parentRenders = 0;
     const Child = ilha(() => (
-      <button onclick={() => count((value) => value + 1)}>{count()}</button>
+      <button onclick={() => count.update((value) => value + 1)}>{count()}</button>
     ));
     const Parent = ilha(() => {
       parentRenders++;
@@ -517,7 +517,7 @@ describe("ilha JSX runtime", () => {
   it("mounts a non-JSX ilha island inside a JSX parent and keeps it reactive", () => {
     const Child = ilha(() => {
       const count = state(0);
-      return html`<button onclick=${() => count((v) => v + 1)}>${count()}</button>`;
+      return html`<button onclick=${() => count.update((v) => v + 1)}>${count()}</button>`;
     });
 
     const Parent = ilha(() => (
@@ -582,10 +582,10 @@ describe("ilha JSX runtime", () => {
   });
 
   it("mounts JSX into an element and re-renders when state changes", () => {
-    let count!: (value?: number) => number | void;
+    let count!: StateAccessor<number>;
     const Counter = ilha(() => {
       const value = state(0);
-      count = value as typeof count;
+      count = value;
       return <p>{value()}</p>;
     });
 
@@ -593,7 +593,7 @@ describe("ilha JSX runtime", () => {
     const unmount = Counter.mount(el);
 
     expect(el.innerHTML).toBe("<p>0</p>");
-    count(5);
+    count.set(5);
     expect(el.innerHTML).toBe("<p>5</p>");
 
     unmount();
@@ -606,7 +606,7 @@ describe("ilha JSX runtime", () => {
       return (
         <div>
           <p>Count: {count()}</p>
-          <button type="button" onclick={() => count((v) => v + 1)}>
+          <button type="button" onclick={() => count.update((v) => v + 1)}>
             +
           </button>
         </div>
@@ -640,7 +640,7 @@ describe("ilha JSX runtime", () => {
           <button
             onclick={() => {
               seen.push(renderedCount);
-              count(renderedCount + 1);
+              count.set(renderedCount + 1);
             }}
           >
             Increment
@@ -671,7 +671,7 @@ describe("ilha JSX runtime", () => {
     const Test = () => (
       <>
         <p>{value()}</p>
-        <button onclick={() => value("baz")}>Change</button>
+        <button onclick={() => value.set("baz")}>Change</button>
       </>
     );
     const Parent = ilha(() => <Test />);
@@ -748,7 +748,7 @@ describe("ilha JSX runtime", () => {
             class="once"
             onclick:once={() => {
               onceCalls++;
-              onceCallsState((count) => count + 1);
+              onceCallsState.update((count) => count + 1);
             }}
           >
             Once: {onceCallsState()}
@@ -1028,17 +1028,17 @@ describe("ilha JSX runtime", () => {
   });
 
   it("programmatic nested write updates bound input in JSX", () => {
-    let nameAccessor!: (v?: string) => string | void;
+    let nameAccessor!: { set(v: string): void };
 
     const Form = ilha(() => {
       const user = state({ name: "Ada" });
-      nameAccessor = user.select((u) => u.name) as typeof nameAccessor;
+      nameAccessor = user.select((u) => u.name);
       return <input bind:value={user.select((u) => u.name)} />;
     });
 
     const el = makeEl();
     const unmount = Form.mount(el);
-    nameAccessor("Grace");
+    nameAccessor.set("Grace");
     expect((el.querySelector("input") as HTMLInputElement).value).toBe("Grace");
 
     unmount();
@@ -1123,7 +1123,7 @@ describe("ilha JSX runtime", () => {
           <span data-label={label}>
             {label}:{n()}
           </span>
-          <button onclick={() => n((v) => v + 1)}>+</button>
+          <button onclick={() => n.update((v) => v + 1)}>+</button>
         </>
       );
     });
@@ -1132,7 +1132,7 @@ describe("ilha JSX runtime", () => {
 
     const Parent = ilha(() => {
       const labels = state(["a", "b", "c"]);
-      setLabels = labels as unknown as typeof setLabels;
+      setLabels = labels.set;
       return (
         <div>
           {labels().map((label) => (
@@ -1181,7 +1181,7 @@ describe("ilha JSX runtime", () => {
   it("keeps a nested JSX island reactive after parent mount", () => {
     const Child = ilha(() => {
       const count = state(0);
-      return <button onclick={() => count((v) => v + 1)}>{count()}</button>;
+      return <button onclick={() => count.update((v) => v + 1)}>{count()}</button>;
     });
     const Parent = ilha(() => (
       <section>
@@ -1473,7 +1473,7 @@ describe("ilha JSX runtime", () => {
   it("cross-entry JSX island composition mounts interactively", () => {
     const Child = ilha(() => {
       const count = state(0);
-      return <button onclick={() => count((v) => v + 1)}>{count()}</button>;
+      return <button onclick={() => count.update((v) => v + 1)}>{count()}</button>;
     });
     const Parent = ilha(() => jsxRuntime.jsx("div", { children: jsxRuntime.jsx(Child, {}) }));
 

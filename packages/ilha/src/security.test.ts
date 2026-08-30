@@ -277,7 +277,7 @@ describe("html/jsx parity — event attribute names are case-insensitive", () =>
       return html`<button
         onClick=${() => {
           ssrCalls++;
-          n((v) => v + 1);
+          n.update((v) => v + 1);
         }}
       >
         ${n()}

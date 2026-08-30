@@ -11,7 +11,7 @@ import { ilha, state } from "ilha";
 const Counter = ilha(() => {
   const count = state(0);
   return (
-    <button onclick={() => count((value) => value + 1)}>
+    <button onclick={() => count.update((value) => value + 1)}>
       {count()}
     </button>
   );
@@ -20,7 +20,7 @@ const Counter = ilha(() => {
 
 ## Reading and writing
 
-`state()` returns a signal accessor — a function that reads or writes depending on how you call it:
+`state()` returns a signal accessor — call it to read, use `.set()` / `.update()` to write:
 
 ```ts twoslash
 import { state } from "ilha";
@@ -28,13 +28,13 @@ import { state } from "ilha";
 const count = state(0);
 
 count(); // read → returns current value
-count(5); // write → sets value to 5
-count((previous) => previous + 1); // update from the latest value
+count.set(5); // write → sets value to 5
+count.update((previous) => previous + 1); // update from the latest value
 ```
 
 Use the updater form when the next value depends on the previous value. Ilha calls the function once with the latest value and writes its return value.
 
-If the value itself is a function, return the replacement from an updater wrapper:
+If the value itself is a function, pass the replacement to `.set`:
 
 ```ts twoslash
 import { state } from "ilha";
@@ -44,8 +44,8 @@ const nextCallback = () => "next";
 
 // A lazy initializer may return a function value:
 const callback = state(() => myCallback);
-// Write a replacement by returning it from an updater wrapper:
-callback(() => nextCallback);
+// Write a replacement with `.set`:
+callback.set(nextCallback);
 ```
 
 ## Lazy initializers

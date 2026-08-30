@@ -11,7 +11,7 @@ import { ilha, state } from "ilha";
 const Counter = ilha(() => {
   const count = state(0);
   return (
-    <button onclick={() => count((value) => value + 1)}>
+    <button onclick={() => count.update((value) => value + 1)}>
       {count()}
     </button>
   );

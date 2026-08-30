@@ -23,7 +23,7 @@ const Counter = ilha(() => {
   const count = state(0);
 
   const increment = action(() => {
-    count((value) => value + 1);
+    count.update((value) => value + 1);
   });
 
   return html`
@@ -66,7 +66,7 @@ A plain function component stays transparent: its rendering, events, and cleanup
 
 ### `state(init?)`
 
-Island-local reactive state. Returns a signal accessor — a function that reads or writes depending on how you call it:
+Island-local reactive state. Returns a signal accessor — call it to read, use `.set()` / `.update()` to write:
 
 ```tsx
 const Counter = ilha(() => {
@@ -75,11 +75,11 @@ const Counter = ilha(() => {
 });
 
 count(); // read
-count(5); // write
-count((previous) => previous + 1); // update from the latest value
+count.set(5); // write
+count.update((previous) => previous + 1); // update from the latest value
 ```
 
-A function argument is a lazy initializer. To store a function value, return it from an updater wrapper: `callback(() => nextCallback)`.
+A function argument is a lazy initializer. To store a function value, pass it to `.set`: `onSave.set(nextCallback)`.
 
 A state initializer applies only when the instance is created. Later prop changes rerender the component but do not reset state:
 
@@ -264,24 +264,6 @@ mount({ Counter, Badge });
 
 Pass `{ root, lazy }` to scope discovery to a root element or defer mounting until hosts scroll into view.
 
-### `signal(initial)`
-
-Create a free-standing signal for shared state. Same accessor shape as `state()` but lives outside any island:
-
-```ts
-const count = signal(0);
-count(); // read
-count(5); // write
-```
-
-### `computed(fn)`
-
-Create a lazy, cached, read-only value derived from signals:
-
-```ts
-const total = computed(() => price() * qty());
-```
-
 ### `effect(fn)`
 
 Run a standalone reactive effect outside any island; returns a stop function:
@@ -308,8 +290,8 @@ const theme = context("app.theme", "light");
 
 ```ts
 batch(() => {
-  a(1);
-  b(2);
+  a.set(1);
+  b.set(2);
 });
 
 const value = untrack(() => secret());

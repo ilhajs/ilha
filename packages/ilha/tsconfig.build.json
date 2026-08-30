@@ -8,5 +8,13 @@
     "rootDir": "src",
     "allowImportingTsExtensions": false
   },
-  "exclude": ["happydom.ts", "dist", "node_modules", "src/**/*.test.ts", "src/types.test.ts"]
+  "exclude": [
+    "happydom.ts",
+    "dist",
+    "node_modules",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/types.test.ts",
+    "src/test-signal.ts"
+  ]
 }

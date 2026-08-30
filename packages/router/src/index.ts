@@ -1456,7 +1456,7 @@ export function routePath(value?: string): string {
   const store = activeRouteStore();
   if (arguments.length > 0) {
     if (store) return (store.path = value!);
-    return (_routePathSig(value!), value!);
+    return (_routePathSig.set(value!), value!);
   }
   return store ? store.path : _routePathSig();
 }
@@ -1466,7 +1466,7 @@ export function routeParams(value?: Record<string, string>): Record<string, stri
   const store = activeRouteStore();
   if (arguments.length > 0) {
     if (store) return (store.params = value!);
-    return (_routeParamsSig(value!), value!);
+    return (_routeParamsSig.set(value!), value!);
   }
   return store ? store.params : _routeParamsSig();
 }
@@ -1476,7 +1476,7 @@ export function routeSearch(value?: string): string {
   const store = activeRouteStore();
   if (arguments.length > 0) {
     if (store) return (store.search = value!);
-    return (_routeSearchSig(value!), value!);
+    return (_routeSearchSig.set(value!), value!);
   }
   return store ? store.search : _routeSearchSig();
 }
@@ -1486,7 +1486,7 @@ export function routeHash(value?: string): string {
   const store = activeRouteStore();
   if (arguments.length > 0) {
     if (store) return (store.hash = value!);
-    return (_routeHashSig(value!), value!);
+    return (_routeHashSig.set(value!), value!);
   }
   return store ? store.hash : _routeHashSig();
 }
@@ -1522,7 +1522,7 @@ export function invalidate(): Promise<void> {
 /** Mark a navigation as started; returns an idempotent settle callback. */
 function beginNavigation(): () => void {
   if (!isBrowser) return () => {};
-  _navigatingSig(_navigatingSig() + 1);
+  _navigatingSig.set(_navigatingSig() + 1);
   // Pending surface for skeletons/transitions: `<html data-router-pending>`
   // while any navigation is in flight. Style targets:
   // `[data-router-pending] [data-router-view] { … }`.
@@ -1531,7 +1531,7 @@ function beginNavigation(): () => void {
   return () => {
     if (done) return;
     done = true;
-    _navigatingSig(Math.max(0, _navigatingSig() - 1));
+    _navigatingSig.set(Math.max(0, _navigatingSig() - 1));
     if (_navigatingSig() === 0) document.documentElement.removeAttribute("data-router-pending");
   };
 }
@@ -1597,8 +1597,8 @@ function activeIsland(value?: Island<any> | null): Island<any> | null {
   if (arguments.length > 0) {
     const next = value ?? null;
     if (store) return (store.island = next);
-    if (next === null) _activeIslandSig(null);
-    else _activeIslandSig(() => next);
+    if (next === null) _activeIslandSig.set(null);
+    else _activeIslandSig.set(next);
     return next;
   }
   return store ? store.island : _activeIslandSig();

@@ -49,7 +49,7 @@ That means you do not have to split a component into separate "server" and "clie
 
 ilha uses signals for reactive state. A signal is a value you can read and update; when it changes, the island reacts.
 
-A state accessor works as both a getter and setter:
+A state accessor is a function that reads; use `.set()` / `.update()` to write:
 
 ```ts twoslash
 import { ilha, state } from "ilha";
@@ -57,7 +57,7 @@ import { ilha, state } from "ilha";
 const Counter = ilha(() => {
   const count = state(0);
   count(); // read
-  count(5); // write
+  count.set(5); // write
   return null as unknown as string;
 });
 ```
@@ -83,7 +83,7 @@ import { ilha, state, derived } from "ilha";
 const Counter = ilha(() => {
   const count = state(0); // local reactive state
   const double = derived(() => count() * 2); // derived computed value
-  const increment = () => count((v) => v + 1); // plain function — no action() needed
+  const increment = () => count.update((v) => v + 1); // plain function — no action() needed
 
   return <button onclick={increment}>{double()}</button>;
 });

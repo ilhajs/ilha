@@ -8,7 +8,7 @@ test("basic counter island", async () => {
   const Counter = ilha<{ start?: number }>(({ start = 0 }) => {
     const count = state(start);
     const double = derived(() => count() * 2);
-    return html`<button onclick=${() => count((v) => v + 1)}>${double()}</button>`;
+    return html`<button onclick=${() => count.update((v) => v + 1)}>${double()}</button>`;
   });
 
   const ssr = Counter.toString({ start: 5 });
@@ -49,7 +49,7 @@ test("effect.once and onError slots", () => {
     const ready = state("no");
     effect.once(({ hydrated }) => {
       void hydrated;
-      ready("yes");
+      ready.set("yes");
     });
     onError(({ error }) => {
       void error;
@@ -95,7 +95,7 @@ test("outside-island primitive throws", () => {
     void s();
     ran++;
   }) as () => void;
-  s(2);
+  s.set(2);
   stop();
   expect(ran).toBeGreaterThanOrEqual(1);
 });

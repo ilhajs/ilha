@@ -26,7 +26,7 @@ import { ilha, state } from "ilha";
 export const Counter = ilha(() => {
   const count = state(0);
 
-  const increment = () => count((value) => value + 1);
+  const increment = () => count.update((value) => value + 1);
 
   return <button onclick={increment}>Count: {count()}</button>;
 });
@@ -46,7 +46,7 @@ const Counter = ilha(() => {
   const doubled = derived(() => count() * 2);
 
   return (
-    <button onclick={() => count((value) => value + 1)}>
+    <button onclick={() => count.update((value) => value + 1)}>
       {count()} doubled is {doubled()}
     </button>
   );
@@ -127,7 +127,7 @@ The initializer is used when the island instance is created. If `start` changes 
 
 ## `$state` vs `state()`
 
-Svelte’s `$state` lets you read and write a reactive variable directly. Ilha’s `state()` returns a signal accessor: call it with no argument to read, with a value to write, or with an updater function when the next value depends on the previous one.
+Svelte’s `$state` lets you read and write a reactive variable directly. Ilha’s `state()` returns a signal accessor: call it with no argument to read, use `.set()` to replace the value, or `.update()` when the next value depends on the previous one.
 
 ### Svelte
 
@@ -150,18 +150,18 @@ export const Counter = ilha(() => {
   const count = state(0);
 
   return (
-    <button onclick={() => count((value) => value + 1)}>
+    <button onclick={() => count.update((value) => value + 1)}>
       clicks: {count()}
     </button>
   );
 });
 ```
 
-| Action                    | Svelte      | Ilha                          |
-| ------------------------- | ----------- | ----------------------------- |
-| Read                      | `count`     | `count()`                     |
-| Set                       | `count = 5` | `count(5)`                    |
-| Update from current value | `count++`   | `count((value) => value + 1)` |
+| Action                    | Svelte      | Ilha                                 |
+| ------------------------- | ----------- | ------------------------------------ |
+| Read                      | `count`     | `count()`                            |
+| Set                       | `count = 5` | `count.set(5)`                       |
+| Update from current value | `count++`   | `count.update((value) => value + 1)` |
 
 Svelte’s `$state` can deeply proxy arrays and simple objects. Ilha signals use explicit writes instead: replace the value, or use `.select()` to create a writable accessor for a nested field.
 
@@ -439,7 +439,7 @@ import { ilha, state } from "ilha";
 const Counter = ilha(() => {
   const count = state(0);
   return (
-    <button onclick={() => count((value) => value + 1)}>
+    <button onclick={() => count.update((value) => value + 1)}>
       {count()}
     </button>
   );

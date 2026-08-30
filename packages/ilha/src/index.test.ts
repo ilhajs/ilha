@@ -98,7 +98,7 @@ describe("primitive ordering", () => {
     const Counter = ilha(() => {
       const count = state(0);
       rendCalls.push(count());
-      return html`<button onclick=${() => count((v) => v + 1)}>${count()}</button>`;
+      return html`<button onclick=${() => count.update((v) => v + 1)}>${count()}</button>`;
     });
     const el = makeEl();
     const handle = mountInternal(Counter, el);
@@ -119,7 +119,7 @@ describe("primitive ordering", () => {
   it("state persists and updates through a wired handler", async () => {
     const Counter = ilha(() => {
       const count = state(0);
-      return html`<button onclick=${() => count((v) => v + 1)}>${count()}</button>`;
+      return html`<button onclick=${() => count.update((v) => v + 1)}>${count()}</button>`;
     });
     const el = makeEl();
     const handle = mountInternal(Counter, el);
@@ -159,7 +159,7 @@ describe("primitive ordering", () => {
   it("separate instances do not share slots", () => {
     const Island = ilha(() => {
       const count = state(0);
-      return html`<button onclick=${() => count((v) => v + 1)}>${count()}</button>`;
+      return html`<button onclick=${() => count.update((v) => v + 1)}>${count()}</button>`;
     });
     const el1 = makeEl();
     const el2 = makeEl();
@@ -274,7 +274,7 @@ describe("props", () => {
   it("state initialized from props does not reset", async () => {
     const Island = ilha<{ start: number }>(({ start }) => {
       const count = state(start);
-      return html`<button onclick=${() => count((v) => v + 1)}>${count()}</button>`;
+      return html`<button onclick=${() => count.update((v) => v + 1)}>${count()}</button>`;
     });
     const el = makeEl();
     const handle = mountInternal(Island, el, { start: 1 });
@@ -294,8 +294,8 @@ describe("props", () => {
   it("synchronous derived stays current when a nested island writes the source", () => {
     type Task = { id: string; completed: boolean };
     const Toggle = ilha(
-      ({ completed }: { completed: (value: boolean) => void }) =>
-        html`<button onclick=${() => completed(true)}>go</button>`,
+      ({ completed }: { completed: { set(value: boolean): void } }) =>
+        html`<button onclick=${() => completed.set(true)}>go</button>`,
     );
     const Island = ilha(() => {
       const items = state<Task[]>([
@@ -373,7 +373,7 @@ describe("derived", () => {
     const runs = Array<number>(10).fill(0);
     const Island = ilha(() => {
       const base = state(0);
-      setBase = base;
+      setBase = base.set;
       let previous: () => number | undefined = base;
       for (let index = 0; index < runs.length; index++) {
         const upstream = previous;
@@ -424,7 +424,7 @@ describe("derived", () => {
     let setUrl!: (v: string) => void;
     const Reload = ilha(() => {
       const url = state("a");
-      setUrl = url;
+      setUrl = url.set;
       const data = derived(async ({ signal }) => {
         const current = url();
         void signal;
@@ -493,7 +493,7 @@ describe("derived", () => {
       });
       return html`<button
         onclick=${() => {
-          id("two");
+          id.set("two");
         }}
       >
         ${result() ?? "-"}
@@ -638,7 +638,7 @@ describe("effects", () => {
     let setCount!: (v: number) => void;
     const Island = ilha(() => {
       const count = state(0);
-      setCount = count;
+      setCount = count.set;
       effect(() => {
         void count();
         runs++;
@@ -660,7 +660,7 @@ describe("effects", () => {
     let setCount!: (v: number) => void;
     const Island = ilha(() => {
       const count = state(0);
-      setCount = count;
+      setCount = count.set;
       effect(() => {
         const value = count();
         cleanups.push(`run-${value}`);
@@ -685,7 +685,7 @@ describe("effects", () => {
     let setCount!: (v: number) => void;
     const Island = ilha(() => {
       const count = state(0);
-      setCount = count;
+      setCount = count.set;
       effect(({ signal }) => {
         const run = count();
         signal.addEventListener("abort", () => abortedRuns.push(run));
@@ -780,10 +780,10 @@ describe("effects", () => {
       void s();
       runs++;
     }) as () => void;
-    s(1);
+    s.set(1);
     expect(runs).toBe(2);
     stop();
-    s(2);
+    s.set(2);
     expect(runs).toBe(2);
   });
 });
@@ -1090,7 +1090,7 @@ describe("rendering", () => {
       const count = state(0);
       return jsx("button", {
         "data-plus": true,
-        onclick: () => count((v) => v + 1),
+        onclick: () => count.update((v) => v + 1),
         children: String(count()),
       });
     });
@@ -1161,7 +1161,7 @@ describe("rendering", () => {
     let setTitle!: (v: string) => void;
     const Island = ilha(() => {
       const title = state("hello");
-      setTitle = title;
+      setTitle = title.set;
       const count = state(0);
       return html`<div>
         <input data-i value=${String(count())} />
@@ -1191,7 +1191,7 @@ describe("rendering", () => {
     const Parent2 = ilha(() => {
       const count = state(1);
       return html`<div>
-        <button onclick=${() => count((v) => v + 1)}>go</button>${Child({ value: count() })}
+        <button onclick=${() => count.update((v) => v + 1)}>go</button>${Child({ value: count() })}
       </div>`;
     });
     const el2 = makeEl();
@@ -1225,7 +1225,7 @@ describe("rendering", () => {
     const Item = ilha<{ k: string }>(({ k }) => html`<span data-key="${k}">${k}</span>`);
     const List = ilha(() => {
       const order = state(["a", "b", "c"]);
-      setOrder = order;
+      setOrder = order.set;
       return html`<div>${order().map((k) => Item.key(k)({ k }))}</div>`;
     });
     const el = makeEl();
@@ -1266,7 +1266,7 @@ describe("rendering", () => {
     let setOrder!: (v: string[]) => void;
     const List = ilha(() => {
       const order = state(["a", "b"]);
-      setOrder = order;
+      setOrder = order.set;
       return html`<div>${order().map((k) => html`<button data-key="${k}">${k}</button>`)}</div>`;
     });
     const el = makeEl();
@@ -1435,7 +1435,7 @@ describe("top-level helpers", () => {
       seen++;
     }) as () => void;
     expect(seen).toBe(1);
-    s(2);
+    s.set(2);
     expect(seen).toBe(2);
     stop();
   });
@@ -1448,9 +1448,9 @@ describe("top-level helpers", () => {
       runs++;
     }) as () => void;
     batch(() => {
-      s(1);
-      s(2);
-      s(3);
+      s.set(1);
+      s.set(2);
+      s.set(3);
     });
     expect(s()).toBe(3);
     expect(runs).toBe(2); // initial + one coalesced rerun
@@ -1465,7 +1465,7 @@ describe("top-level helpers", () => {
       runs++;
     }) as () => void;
     const before = runs;
-    s(1);
+    s.set(1);
     expect(runs).toBe(before);
     stop();
   });
@@ -1479,14 +1479,14 @@ describe("top-level helpers", () => {
     const s = context("test.persist.key", 1);
     const stop = persist(s, "key", { storage });
     expect(Number(store.get("key"))).toBe(1);
-    s(42);
+    s.set(42);
     expect(Number(store.get("key"))).toBe(42);
     stop();
   });
 
   it("context() creates shared signals", () => {
     const theme = context("test-theme", "light");
-    theme("dark");
+    theme.set("dark");
     expect(theme()).toBe("dark");
     context.delete("test-theme");
   });
@@ -1527,7 +1527,7 @@ describe("select() nested accessors", () => {
     });
     const name = root.select("profile", "name");
     expect(name()).toBe("a");
-    name("b");
+    name.set("b");
     expect(root().profile.name).toBe("b");
     expect(root().profile.age).toBe(1);
     expect(root().other).toEqual({ x: 1 });
@@ -1537,7 +1537,7 @@ describe("select() nested accessors", () => {
     const root = context("test.select.user", { user: { name: "Ilha" }, count: 0 });
     const name = root.select((s) => s.user.name);
     expect(name()).toBe("Ilha");
-    name("new");
+    name.set("new");
     expect(root().user.name).toBe("new");
     expect(root().count).toBe(0);
   });
@@ -1545,7 +1545,7 @@ describe("select() nested accessors", () => {
   it("variadic path writes into an array element without touching siblings", () => {
     const root = context("test.select.todos", { todos: [{ text: "a" }, { text: "b" }] });
     const firstText = root.select("todos", 0, "text");
-    firstText("A");
+    firstText.set("A");
     expect(root().todos[0].text).toBe("A");
     expect(root().todos[1].text).toBe("b");
   });

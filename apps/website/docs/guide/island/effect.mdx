@@ -61,7 +61,7 @@ const App = ilha(() => {
       })
       .then((data) => {
         if (signal.aborted) return;
-        user(data as { name: string });
+        user.set(data as { name: string });
       })
       .catch((err) => {
         if (err && err.name === "AbortError") return;

@@ -45,7 +45,8 @@ import { context, ilha } from "ilha";
 const cartCount = context("cart.count", 0);
 
 const CartButton = ilha(() => {
-  const addToCart = () => cartCount((count) => count + 1);
+  const addToCart = () =>
+    cartCount.update((count) => count + 1);
   return <button onclick={addToCart}>Add to cart</button>;
 });
 
@@ -56,7 +57,7 @@ Both islands share the same signal. Clicking the button updates the badge withou
 
 ### Accessor shape
 
-Every accessor reads when called bare and writes when called with a value:
+Every accessor reads when called bare and writes through `.set()` / `.update()`:
 
 ```ts twoslash
 import { context } from "ilha";
@@ -64,11 +65,11 @@ import { context } from "ilha";
 const count = context("ui.count", 0);
 
 count(); // → 0  (read)
-count(5); // sets to 5 (write)
-count((previous) => previous + 1); // updates from the latest value
+count.set(5); // sets to 5 (write)
+count.update((previous) => previous + 1); // updates from the latest value
 ```
 
-The updater form works on all accessors. If a signal stores a function, return the replacement from an updater: `callback(() => nextCallback)`.
+The updater form works on all accessors. If a signal stores a function, pass the replacement to `.set`: `callback.set(nextCallback)`.
 
 ### Use context in `bind:` bindings
 
@@ -83,7 +84,7 @@ const SearchInput = ilha(() => (
   <input
     type="search"
     value={query()}
-    oninput={(event) => query(event.currentTarget.value)} // [!code highlight]
+    oninput={(event) => query.set(event.currentTarget.value)} // [!code highlight]
   />
 ));
 
@@ -136,7 +137,7 @@ Deleting a key does not affect accessors already handed out — they keep workin
 import { context } from "ilha";
 
 const first = context("ui.count", 0);
-first(5);
+first.set(5);
 
 context.delete("ui.count");
 const second = context("ui.count", 0); // fresh signal, starts at 0
@@ -156,7 +157,7 @@ const base = signal(1);
 const doubled = computed(() => base() * 2);
 
 doubled(); // → 2
-base(3);
+base.set(3);
 doubled(); // → 6
 ```
 
@@ -227,8 +228,8 @@ import { context } from "ilha";
 const a = context("b.a", 0);
 const b = context("b.b", 0);
 
-a(1); // → effects re-run
-b(2); // → effects re-run again
+a.set(1); // → effects re-run
+b.set(2); // → effects re-run again
 ```
 
 With batch, both writes flush together:
@@ -240,8 +241,8 @@ const a = context("c.a", 0);
 const b = context("c.b", 0);
 
 batch(() => {
-  a(10);
-  b(20);
+  a.set(10);
+  b.set(20);
 }); // → effects re-run once
 ```
 
@@ -260,9 +261,9 @@ const count = context("d.count", 0);
 
 batch(() => {
   batch(() => {
-    count(1);
+    count.set(1);
   }); // still inside outer batch — no flush yet
-  count(2);
+  count.set(2);
 }); // outermost batch ends — single flush
 ```
 

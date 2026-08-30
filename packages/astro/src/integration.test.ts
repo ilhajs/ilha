@@ -30,7 +30,7 @@ const JSX_COUNTER = `/** @jsxImportSource ilha */
 import { ilha, state, action } from "ilha";
 export const Counter = ilha<{ start?: number }>(({ start = 0 }) => {
   const count = state(start);
-  const increment = action(() => count((value) => value + 1));
+  const increment = action(() => count.update((value) => value + 1));
   return (
     <div class="flex gap-2">
       {count()}
@@ -44,7 +44,7 @@ const HTML_COUNTER = `/** @jsxImportSource ilha */
 import { ilha, html, state, action } from "ilha";
 export const Counter = ilha<{ start?: number }>(({ start = 0 }) => {
   const count = state(start);
-  const increment = action(() => count((value) => value + 1));
+  const increment = action(() => count.update((value) => value + 1));
   return html\`
     <div class="flex gap-2">
       \${count()}
