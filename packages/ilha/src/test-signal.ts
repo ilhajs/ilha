@@ -8,7 +8,7 @@
  * participates in render subscription, bind:* syntax, and persist(), exactly
  * like accessors created inside ilha.
  */
-import { signal as alienSignal } from "alien-signals";
+import { setActiveSub, signal as alienSignal } from "alien-signals";
 
 import type { SignalAccessor } from "./index";
 
@@ -21,7 +21,12 @@ export function signal<T>(init: T): SignalAccessor<T> {
     s(next);
   };
   accessor.update = (fn) => {
-    s(fn(s()));
+    const prevSub = setActiveSub(undefined);
+    try {
+      s(fn(s()));
+    } finally {
+      setActiveSub(prevSub);
+    }
   };
   // SAFETY: SIGNAL_ACCESSOR is a private brand; Record<symbol, boolean> is the stamp shape.
   (accessor as unknown as Record<symbol, boolean>)[SIGNAL_ACCESSOR] = true;

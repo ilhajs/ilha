@@ -83,18 +83,44 @@ function belongsToHost(host: Element, candidate: Element): boolean {
 async function startServerStream(
   fn: ServerStreamFn,
   signal: AbortSignal,
-): Promise<AsyncGenerator<unknown> | Generator<unknown>> {
+): Promise<{
+  gen: AsyncGenerator<unknown> | Generator<unknown>;
+  first: IteratorResult<unknown, unknown>;
+}> {
   let last: unknown;
   for (let attempt = 0; attempt < 4; attempt++) {
+    if (signal.aborted) {
+      throw last ?? new DOMException("The operation was aborted.", "AbortError");
+    }
+    let gen: AsyncGenerator<unknown> | Generator<unknown> | undefined;
     try {
-      return await fn(signal);
+      gen = await fn(signal);
+      // Async `function*` bodies run on the first `next()`, so cold RPC
+      // failures surface here — keep that read inside the retry boundary.
+      const first = await gen.next();
+      return { gen, first };
     } catch (err) {
       last = err;
+      if (gen) void Promise.resolve(gen.return?.(undefined)).catch(() => {});
       if (signal.aborted) throw err;
       const msg = String(err);
       if (!msg.includes("404") && !msg.includes("503")) throw err;
       if (attempt === 3) throw err;
-      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(
+          () => {
+            signal.removeEventListener("abort", onAbort);
+            resolve();
+          },
+          50 * (attempt + 1),
+        );
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(err);
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      });
     }
   }
   throw last;
@@ -264,13 +290,15 @@ function hydrateServerIsland(
   for (const [key, fn] of Object.entries(wiring.streams ?? {})) {
     void (async () => {
       try {
-        const gen = await startServerStream(fn, controller.signal);
+        const { gen, first } = await startServerStream(fn, controller.signal);
         try {
+          let step: IteratorResult<unknown, unknown> = first;
           for (;;) {
-            const { done, value } = await gen.next();
+            const { done, value } = step;
             if (controller.signal.aborted || done) break;
             state[key] = value;
             scheduleRepaint();
+            step = await gen.next();
           }
         } catch (err) {
           if (!controller.signal.aborted && (err as { name?: string })?.name !== "AbortError") {

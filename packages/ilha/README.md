@@ -290,8 +290,8 @@ const theme = context("app.theme", "light");
 
 ```ts
 batch(() => {
-  a(1);
-  b(2);
+  a.set(1);
+  b.set(2);
 });
 
 const value = untrack(() => secret());

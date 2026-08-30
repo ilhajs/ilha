@@ -127,7 +127,7 @@ The initializer is used when the island instance is created. If `start` changes 
 
 ## `$state` vs `state()`
 
-Svelte’s `$state` lets you read and write a reactive variable directly. Ilha’s `state()` returns a signal accessor: call it with no argument to read, with a value to write, or with an updater function when the next value depends on the previous one.
+Svelte’s `$state` lets you read and write a reactive variable directly. Ilha’s `state()` returns a signal accessor: call it with no argument to read, use `.set()` to replace the value, or `.update()` when the next value depends on the previous one.
 
 ### Svelte
 

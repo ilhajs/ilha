@@ -18,7 +18,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24",
-    "oxidejs": "file:/home/ryuz/Ubuntu/Developer/oxide/packages/oxidejs",
+    "oxidejs": "^0.2.4",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"

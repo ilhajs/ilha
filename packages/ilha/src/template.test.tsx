@@ -48,3 +48,13 @@ test("JSX renders through template IR without lowercasing SVG names", () => {
   expect(out).not.toContain("viewbox=");
   expect(out).not.toContain("<lineargradient");
 });
+
+test("unquoted attribute values keep leading and mid-value slashes", () => {
+  expect(html`<a href=/docs>x</a>`.value).toMatch(/href=["']?\/docs["']?/);
+  expect(html`<img src=https://example.com />`.value).toMatch(
+    /src=["']?https:\/\/example\.com["']?/,
+  );
+  expect(html`<img src=https://example.com/>`.value).toMatch(
+    /src=["']?https:\/\/example\.com["']?/,
+  );
+});

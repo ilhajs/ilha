@@ -35,7 +35,7 @@
 
 - An island is a function component: `const Counter = ilha(() => JSX)`. Use `ilha<Props>((props) => JSX)` for typed props and `ilha(schema, (props) => JSX)` for Standard Schema validation and inference. Pass `{ as: "span" }` as a trailing option to change the nested-island slot wrapper tag.
 - Primitives are order-based hooks imported from `ilha`: `state()`, `derived()`, `action()`, `effect()`, `effect.once()`, `onError()`. Call them at the top level of the component, in the same order and with the same kind on every render; their slots persist across rerenders.
-- Put conditional and async logic inside primitives, not around registration. `state(() => expensive())` is a lazy initializer; store function values through the updater wrapper (`setCallback(() => nextCallback)`).
+- Put conditional and async logic inside primitives, not around registration. `state(() => expensive())` is a lazy initializer; store function values with `onSave.set(nextCallback)`.
 - Reading signals during render subscribes the island render; changes rerun the component with current props and morph the host DOM. State initialized from props does not reset on later prop changes.
 - Ordinary operations are plain functions. Use `action()` only when you need reactive execution state (`.pending`, `.data`, `.error`) or lifecycle cancellation.
 - DOM event handlers are the common case: when a handler needs no pending/result tracking, concurrency bookkeeping, or cancellation, write a plain function, not `action()`.

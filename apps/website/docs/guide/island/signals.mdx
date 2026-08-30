@@ -45,7 +45,8 @@ import { context, ilha } from "ilha";
 const cartCount = context("cart.count", 0);
 
 const CartButton = ilha(() => {
-  const addToCart = () => cartCount((count) => count + 1);
+  const addToCart = () =>
+    cartCount.update((count) => count + 1);
   return <button onclick={addToCart}>Add to cart</button>;
 });
 
@@ -56,7 +57,7 @@ Both islands share the same signal. Clicking the button updates the badge withou
 
 ### Accessor shape
 
-Every accessor reads when called bare and writes when called with a value:
+Every accessor reads when called bare and writes through `.set()` / `.update()`:
 
 ```ts twoslash
 import { context } from "ilha";
@@ -227,8 +228,8 @@ import { context } from "ilha";
 const a = context("b.a", 0);
 const b = context("b.b", 0);
 
-a(1); // → effects re-run
-b(2); // → effects re-run again
+a.set(1); // → effects re-run
+b.set(2); // → effects re-run again
 ```
 
 With batch, both writes flush together:
@@ -240,8 +241,8 @@ const a = context("c.a", 0);
 const b = context("c.b", 0);
 
 batch(() => {
-  a(10);
-  b(20);
+  a.set(10);
+  b.set(20);
 }); // → effects re-run once
 ```
 

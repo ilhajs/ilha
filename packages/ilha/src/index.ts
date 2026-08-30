@@ -2268,12 +2268,12 @@ export type DerivedAccessor<T> = {
 
 function createDerivedAccessor<T>(
   read: () => DerivedValue<T>,
-  write?: (value: T) => void,
+  write?: (value: T | undefined) => void,
 ): DerivedAccessor<T> {
   const accessor = markSignalAccessor(
     () => read().value,
     (value) => {
-      if (write && value !== undefined) write(value);
+      if (write) write(value);
       else if (__DEV__) warn("derived values are read-only");
     },
   );

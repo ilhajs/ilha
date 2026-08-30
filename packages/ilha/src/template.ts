@@ -141,7 +141,17 @@ function parseNodes(s: string, i: number, stop: string | null, out: FragNode[]):
             if (s[i] === q) i++;
           } else {
             const vs = i;
-            while (i < s.length && /[^\s>]/.test(s[i]!) && s[i] !== "/") i++;
+            // Keep `/` inside values (`href=/docs`, `src=https://…`). Treat
+            // `/` as a self-closing marker only when it ends the value
+            // (optional whitespace, then `>` or EOF).
+            while (i < s.length && /[^\s>]/.test(s[i]!)) {
+              if (s[i] === "/") {
+                let j = i + 1;
+                while (j < s.length && /\s/.test(s[j]!)) j++;
+                if (j >= s.length || s[j] === ">") break;
+              }
+              i++;
+            }
             value = s.slice(vs, i);
           }
         }
