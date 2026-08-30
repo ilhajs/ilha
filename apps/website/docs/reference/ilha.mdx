@@ -53,11 +53,11 @@ import { state } from "ilha";
 
 const count = state(0);
 count(); // read
-count(1); // write
-count((previous) => previous + 1); // update from latest value
+count.set(1); // write
+count.update((previous) => previous + 1); // update from latest value
 ```
 
-A function argument to `state()` is a lazy initializer. Function values are stored via an updater wrapper:
+A function argument to `state()` is a lazy initializer. Store a function value with `.set`:
 
 ```ts twoslash
 import { state } from "ilha";
@@ -66,7 +66,7 @@ const initialCallback = () => "initial";
 const nextCallback = () => "next";
 
 const callback = state(() => initialCallback);
-callback(() => nextCallback);
+callback.set(nextCallback);
 ```
 
 ## Standalone helpers
@@ -214,7 +214,6 @@ import type {
   MountResult,
   SignalAccessor,
   StateAccessor,
-  SignalSetter,
   ExternalSignal,
   DerivedAccessor,
   DerivedValue,
@@ -229,29 +228,28 @@ import type {
 } from "ilha";
 ```
 
-| Type                  | Use it for                                                           |
-| --------------------- | -------------------------------------------------------------------- |
-| `Island`              | A callable, renderable, mountable island.                            |
-| `IslandComponent`     | The function-component shape passed to `ilha()`.                     |
-| `KeyedIsland`         | A keyed child invocation returned by `Island.key()`.                 |
-| `RawHtml`             | Trusted HTML produced by `html` or `raw`.                            |
-| `HydratableOptions`   | Hydration name and snapshot options.                                 |
-| `MountOptions`        | Registry mounting root and lazy behavior.                            |
-| `MountResult`         | Registry mount result, including its `unmount()`.                    |
-| `SignalAccessor`      | A readable and writable signal, including `.select()`.               |
-| `StateAccessor`       | The accessor returned by `state()`.                                  |
-| `SignalSetter`        | A direct value or functional updater for a signal.                   |
-| `ExternalSignal`      | Alias of `SignalAccessor`; the contract type for `bind:*` templates. |
-| `DerivedAccessor`     | A derived value accessor with loading and error.                     |
-| `DerivedValue`        | The `{ loading, value, error }` envelope.                            |
-| `ActionAccessor`      | A callable action with `.pending`, `.data`, `.error`.                |
-| `NativeEventHandler`  | Lowercase native event-prop handler type.                            |
-| `NativeEventContext`  | Native handler context containing `signal`.                          |
-| `NativeEventModifier` | `"abortable"`, `"once"`, `"capture"`, or `"passive"`.                |
-| `EffectContext`       | Context passed to `effect()`.                                        |
-| `EffectOnceContext`   | Context passed to `effect.once()`.                                   |
-| `ErrorContext`        | Context passed to `onError()`.                                       |
-| `ErrorSource`         | `"effect"`, `"once"`, `"event"`, or `"action"`.                      |
+| Type                  | Use it for                                                                |
+| --------------------- | ------------------------------------------------------------------------- |
+| `Island`              | A callable, renderable, mountable island.                                 |
+| `IslandComponent`     | The function-component shape passed to `ilha()`.                          |
+| `KeyedIsland`         | A keyed child invocation returned by `Island.key()`.                      |
+| `RawHtml`             | Trusted HTML produced by `html` or `raw`.                                 |
+| `HydratableOptions`   | Hydration name and snapshot options.                                      |
+| `MountOptions`        | Registry mounting root and lazy behavior.                                 |
+| `MountResult`         | Registry mount result, including its `unmount()`.                         |
+| `SignalAccessor`      | A readable and writable signal: `()`, `.set()`, `.update()`, `.select()`. |
+| `StateAccessor`       | The accessor returned by `state()`.                                       |
+| `ExternalSignal`      | Alias of `SignalAccessor`; the contract type for `bind:*` templates.      |
+| `DerivedAccessor`     | A derived value accessor with loading and error.                          |
+| `DerivedValue`        | The `{ loading, value, error }` envelope.                                 |
+| `ActionAccessor`      | A callable action with `.pending`, `.data`, `.error`.                     |
+| `NativeEventHandler`  | Lowercase native event-prop handler type.                                 |
+| `NativeEventContext`  | Native handler context containing `signal`.                               |
+| `NativeEventModifier` | `"abortable"`, `"once"`, `"capture"`, or `"passive"`.                     |
+| `EffectContext`       | Context passed to `effect()`.                                             |
+| `EffectOnceContext`   | Context passed to `effect.once()`.                                        |
+| `ErrorContext`        | Context passed to `onError()`.                                            |
+| `ErrorSource`         | `"effect"`, `"once"`, `"event"`, or `"action"`.                           |
 
 ## Related packages
 

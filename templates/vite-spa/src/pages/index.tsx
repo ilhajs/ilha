@@ -19,11 +19,11 @@ export default ilha(() => {
     event.preventDefault();
     const text = draft().trim();
     if (!text) return;
-    items((current) => [...current, { id: crypto.randomUUID(), text, completed: false }]);
-    draft("");
+    items.update((current) => [...current, { id: crypto.randomUUID(), text, completed: false }]);
+    draft.set("");
   };
   const deleteItem = (index: number) => {
-    items((current) => current.filter((_, i) => i !== index));
+    items.update((current) => current.filter((_, i) => i !== index));
   };
 
   return (

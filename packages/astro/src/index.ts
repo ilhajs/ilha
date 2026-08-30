@@ -7,13 +7,6 @@ import type { AstroIntegration, AstroRenderer } from "astro";
 // permissive renderer registered first (e.g. `@astrojs/solid-js`, whose check
 // accepts any function whose output stringifies) would claim ilha components
 // and render their markup as escaped raw HTML.
-// Tag ilha islands with Astro's `astro:renderer` symbol (via a global core
-// reads at island construction) so Astro routes them to this renderer
-// regardless of the integration's position in `astro.config`. Astro picks the
-// first renderer whose `check()` accepts a component; without this tag a
-// permissive renderer registered first (e.g. `@astrojs/solid-js`, whose check
-// accepts any function whose output stringifies) would claim ilha components
-// and render their markup as escaped raw HTML.
 const ASTRO_RENDERER_GLOBAL = Symbol.for("ilha.astroRenderer");
 const rendererName = "@ilha/astro";
 

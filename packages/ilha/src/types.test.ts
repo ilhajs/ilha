@@ -76,9 +76,9 @@ function ilhaTypeAnchors(): void {
   void aliasCheckB;
 
   const typeCheckedExternalSignal: SignalAccessor<number> = context("types.signal.num", 0);
-  typeCheckedExternalSignal((previous) => previous + 1);
+  typeCheckedExternalSignal.update((previous) => previous + 1);
   // @ts-expect-error updater must return the signal value type
-  typeCheckedExternalSignal(() => "wrong");
+  typeCheckedExternalSignal.update(() => "wrong");
 
   const typeCheckedNestedSignal = context("types.signal", { profile: { name: "Ilha", age: 1 } });
   const typeCheckedSelectedByFunction: SignalAccessor<string> = typeCheckedNestedSignal.select(
@@ -88,7 +88,7 @@ function ilhaTypeAnchors(): void {
     "profile",
     "name",
   );
-  typeCheckedSelectedByPath("Ilha.js");
+  typeCheckedSelectedByPath.set("Ilha.js");
   // @ts-expect-error selected path resolves to string
   const typeCheckedWrongSelectedPath: SignalAccessor<number> = typeCheckedNestedSignal.select(
     "profile",
@@ -99,18 +99,17 @@ function ilhaTypeAnchors(): void {
 
   const nextCallback = () => "next";
   const typeCheckedFunctionSignal = context<() => string>("types.signal.fn", () => "initial");
-  // @ts-expect-error function values must be returned from an updater wrapper
+  typeCheckedFunctionSignal.set(nextCallback);
+  // @ts-expect-error write is .set/.update, not a call
   typeCheckedFunctionSignal(nextCallback);
-  typeCheckedFunctionSignal(() => nextCallback);
 
   const typeCheckedNullableFunctionSignal = context<(() => string) | null>(
     "types.signal.fnnull",
     null,
   );
-  // @ts-expect-error function members of unions must also use an updater wrapper
-  typeCheckedNullableFunctionSignal(nextCallback);
-  typeCheckedNullableFunctionSignal(() => nextCallback);
-  typeCheckedNullableFunctionSignal(null);
+  typeCheckedNullableFunctionSignal.set(nextCallback);
+  typeCheckedNullableFunctionSignal.update(() => nextCallback);
+  typeCheckedNullableFunctionSignal.set(null);
 
   // ─── Islands: typed props ────────────────────────────────────────────────
 
@@ -174,10 +173,10 @@ function ilhaTypeAnchors(): void {
   const TypeCheckedStateIsland = ilha(() => {
     const count: StateAccessor<number> = state(0);
     count();
-    count(1);
-    count((previous) => previous + 1);
+    count.set(1);
+    count.update((previous) => previous + 1);
     // @ts-expect-error state writes must match the value type
-    count("one");
+    count.set("one");
     const lazy: StateAccessor<number> = state(() => 1);
     void lazy;
     return html`<p>${count()}</p>`;
@@ -233,7 +232,7 @@ function ilhaTypeAnchors(): void {
   const TypeCheckedActionsIsland = ilha(() => {
     const count = state(0);
     const increment = action((amount: number) => {
-      count((previous) => previous + amount);
+      count.update((previous) => previous + amount);
       return count();
     });
     const save = action(async (form: string) => {
@@ -377,7 +376,7 @@ function ilhaTypeAnchors(): void {
   // ─── Top-level helpers ───────────────────────────────────────────────────
 
   const typeCheckedBatchReturn: number = batch(() => {
-    typeCheckedExternalSignal(1);
+    typeCheckedExternalSignal.set(1);
     return typeCheckedExternalSignal();
   });
 

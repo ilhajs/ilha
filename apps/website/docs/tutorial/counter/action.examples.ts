@@ -20,7 +20,7 @@ export default ilha(() => {
         disabled={save.pending}
         onclick={async () => {
           const next = count() + 1;
-          count(next);
+          count.set(next);
           await save(next);
         }}
       >

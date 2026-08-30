@@ -49,7 +49,7 @@ import { ilha, state } from "ilha";
 export const Counter = ilha(
   ({ start = 0 }: { start?: number }) => {
     const count = state(start);
-    const increment = () => count((value) => value + 1);
+    const increment = () => count.update((value) => value + 1);
 
     return (
       <button type="button" onclick={increment}>

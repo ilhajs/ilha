@@ -136,14 +136,14 @@ export default ilha(() => {
     event.preventDefault();
     const label = draft().trim();
     if (!label) return;
-    tasks((current) => [
+    tasks.update((current) => [
       ...current,
       { id: nextId++, label, done: false },
     ]);
-    draft("");
+    draft.set("");
   };
   const remove = (id: number) => {
-    tasks((current) =>
+    tasks.update((current) =>
       current.filter((task) => task.id !== id)
     );
   };

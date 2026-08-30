@@ -127,7 +127,7 @@ const Save = ilha(() => {
   const save = action(async (value: string) => {
     await fetch("/api", { method: "POST", body: value });
   });
-  const bump = () => count((value) => value + 1);
+  const bump = () => count.update((value) => value + 1);
 
   return (
     <>
@@ -143,4 +143,4 @@ const Save = ilha(() => {
 });
 ```
 
-`prefer-plain-handler` warns if `save` never reads a status field. Store a function in `state` with an updater wrapper: `callback(() => nextFn)`.
+`prefer-plain-handler` warns if `save` never reads a status field. Store a function in `state` with `.set`: `callback.set(nextFn)`.

@@ -5,6 +5,7 @@
  */
 
 import type { NativeEventHandler, NativeEventModifier, RawHtml } from "./index";
+import type { TemplateNode } from "./template";
 
 export type ServerAction<A extends unknown[] = unknown[], R = unknown> = ((...args: A) => R) & {
   with: (...args: unknown[]) => (...runtimeArgs: unknown[]) => unknown;
@@ -86,6 +87,24 @@ export function __ilhaJsxSlot(options: {
   return (
     bridge?.slot(options) ?? ({ [Symbol.for("ilha.raw")]: true, value: "" } as unknown as RawHtml)
   );
+}
+
+type TemplateRenderer = (node: TemplateNode) => RawHtml;
+
+let templateRenderer: TemplateRenderer | null = null;
+
+/** Register the core's template→HTML renderer. Internal — called once by ilha. */
+export function setTemplateRenderer(renderer: TemplateRenderer): void {
+  templateRenderer = renderer;
+}
+
+/**
+ * @internal Render a template IR node to RawHtml. Used by the JSX runtime so
+ * elements skip the html`` string/parse round-trip.
+ */
+export function __ilhaRenderTemplate(node: TemplateNode): RawHtml {
+  if (!templateRenderer) throw new Error("ilha: template renderer is unavailable");
+  return templateRenderer(node);
 }
 
 /** A hydration-manifest entry: sentinel key → action id or captured payload. */

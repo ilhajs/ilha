@@ -3,12 +3,15 @@ import { signal, effect as alienEffect, setActiveSub, startBatch, endBatch } fro
 import {
   ISLAND_MOUNT_HANDLES,
   ISLAND_MOUNT_INTERNAL,
+  __ilhaJsxEvent,
   serializeServerManifest,
   setJsxRuntimeBridge,
   setServerActionBinder,
+  setTemplateRenderer,
   type JsxEventRegistration,
   type ServerAction,
 } from "./internal";
+import { htmlTemplate, templateAttribute, templateParts, type TemplateNode } from "./template";
 
 // ---------------------------------------------
 // Standard Schema V1 (inlined, type-only)
@@ -939,18 +942,6 @@ function escapeStyleText(text: string): string {
   return text.replace(/</g, "\\3C ");
 }
 
-function dedentString(str: string): string {
-  if (str.length === 0 || str[0] !== "\n") return str;
-  const lines = str.split("\n");
-  while (lines.length && lines[0]!.trim() === "") lines.shift();
-  while (lines.length && lines[lines.length - 1]!.trim() === "") lines.pop();
-  if (!lines.length) return "";
-  const indent = Math.min(
-    ...lines.filter((l) => l.trim() !== "").map((l) => l.match(/^(\s*)/)![1]!.length),
-  );
-  return lines.map((l) => l.slice(indent)).join("\n");
-}
-
 // ---------------------------------------------
 // Symbols & constants
 // ---------------------------------------------
@@ -1472,10 +1463,6 @@ async function resolveAsyncChildren(
 // Signal accessor
 // ---------------------------------------------
 
-type NonFunctionValue<T> = T extends (...args: any[]) => any ? never : T;
-
-export type SignalSetter<T> = NonFunctionValue<T> | ((previous: T) => T);
-
 declare const SIGNAL_WRITER_TYPE: unique symbol;
 
 /** @internal Type-level write target carried by signal accessors. */
@@ -1493,28 +1480,26 @@ type PathValue<T, P extends readonly PathSegment[]> = P extends readonly [infer 
 
 interface MarkedSignalAccessor<T> extends SignalWriter<T> {
   (): T;
-  (...args: [value: SignalSetter<T>]): void;
+  set(value: T): void;
+  update(fn: (previous: T) => T): void;
   select<S>(selector: (state: T) => S): MarkedSignalAccessor<S>;
   select<const P extends readonly PathSegment[]>(...path: P): MarkedSignalAccessor<PathValue<T, P>>;
   [SIGNAL_ACCESSOR]: true;
 }
 
-function resolveSignalSetter<T>(read: () => T, value: SignalSetter<T>): T {
-  if (typeof value !== "function") return value as T;
-  const prevSub = setActiveSub(undefined);
-  try {
-    return (value as (previous: T) => T)(read());
-  } finally {
-    setActiveSub(prevSub);
-  }
-}
-
-function markSignalAccessor<T>(fn: {
-  (): T;
-  (value: SignalSetter<T>): void;
-}): MarkedSignalAccessor<T> {
-  (fn as unknown as Record<symbol, boolean>)[SIGNAL_ACCESSOR] = true;
-  const accessor = fn as MarkedSignalAccessor<T>;
+function markSignalAccessor<T>(read: () => T, write: (value: T) => void): MarkedSignalAccessor<T> {
+  // SAFETY: brand stamp on the read function; Record<symbol, boolean> is the stamp shape.
+  (read as unknown as Record<symbol, boolean>)[SIGNAL_ACCESSOR] = true;
+  const accessor = read as MarkedSignalAccessor<T>;
+  accessor.set = (value) => write(value);
+  accessor.update = (fn) => {
+    const prevSub = setActiveSub(undefined);
+    try {
+      write(fn(read()));
+    } finally {
+      setActiveSub(prevSub);
+    }
+  };
   accessor.select = ((...args: Array<((state: unknown) => unknown) | PathSegment>) =>
     createSelectAccessor(accessor, args)) as MarkedSignalAccessor<T>["select"];
   return accessor;
@@ -1632,17 +1617,15 @@ function createSelectAccessor(
   }
   const read = (from: unknown): unknown =>
     selector ? (path.length === 0 ? selector(from) : getAtPath(from, path)) : getAtPath(from, path);
-  return markSignalAccessor((...args: unknown[]): unknown => {
-    if (args.length === 0) {
-      return read(root());
-    }
-    const previousRoot = root();
-    const previousSelected = read(previousRoot);
-    const value = resolveSignalSetter(() => previousSelected, args[0]);
-    const next =
-      path.length === 0 && selector ? value : setAtPath({ object: previousRoot, path, value });
-    if (!Object.is(previousRoot, next)) root(() => next);
-  }) as MarkedSignalAccessor<unknown>;
+  return markSignalAccessor(
+    () => read(root()),
+    (value) => {
+      const previousRoot = root();
+      const next =
+        path.length === 0 && selector ? value : setAtPath({ object: previousRoot, path, value });
+      if (!Object.is(previousRoot, next)) root.set(next);
+    },
+  );
 }
 
 // ---------------------------------------------
@@ -1713,36 +1696,10 @@ function interpolateValue(v: unknown): string {
 // bind: template syntax
 // ---------------------------------------------
 //
-// `<input bind:value=${state.name}>` and similar are detected during
-// template assembly by ilhaHtml. The regex below scans the trailing static
-// chunk for `bind:NAME=` (optionally with an opening quote) immediately
-// before an interpolation. When matched:
-//
-//   1. The matched portion is stripped from the static chunk.
-//   2. If a closing quote follows the interpolation in the next static
-//      chunk, it's stripped too.
-//   3. The interpolated signal accessor is recorded in the active render
-//      context's `binds` array; the index is the binding's id.
-//   4. The canonical SSR output for the kind is emitted (e.g. `value="V"`,
-//      `checked`, `open`), plus a `data-ilha-bind="KIND:INDEX"` sentinel
-//      that mount-time wiring reads to attach the listener and reflection.
-//
-// Mount-time wiring lives in applyTemplateBindings — it walks the host for
-// `[data-ilha-bind]` and uses resolveBindOps for the canonical
-// property/event mapping per kind.
+// html`` parses into the shared template IR so attribute policy (URL, class,
+// aria booleans, bind:/on*) matches JSX. Bindings record a
+// `data-ilha-bind="KIND:INDEX"` sentinel that applyTemplateBindings reads back.
 const BIND_VALID_KINDS = new Set<BindKind>(["value", "checked", "files", "open", "group", "this"]);
-
-// Matches a `bind:NAME=` or lowercase `onNAME=` (with an optional opening
-// quote) at the end of a static chunk. The `$` anchor prevents matching text
-// outside the currently interpolated attribute.
-const BIND_PREFIX_RE = /\bbind:([a-zA-Z]+)\s*=\s*("|')?$/;
-// HTML attribute names are ASCII case-insensitive, so `onLoad` and `onload`
-// name the same event attribute. Match any case and normalize the captured
-// name to lowercase before registration (addEventListener event types are
-// lowercase). Modifiers (:once, …) are matched case-insensitively too and
-// lowercased before the allowlist lookup.
-const EVENT_PREFIX_RE =
-  /(?:^|\s)on([a-zA-Z][a-zA-Z0-9-]*)(?::([a-zA-Z][a-zA-Z0-9-]*))?\s*=\s*("|')?$/;
 const NATIVE_EVENT_MODIFIERS = new Set<NativeEventModifier>([
   "abortable",
   "once",
@@ -1750,102 +1707,10 @@ const NATIVE_EVENT_MODIFIERS = new Set<NativeEventModifier>([
   "passive",
 ]);
 
-// Full-value attribute interpolation: `name=${…}` or `name="${…}"` at the end
-// of a static chunk — the interpolation occupies the entire attribute value.
-// Anchored like BIND_PREFIX_RE/EVENT_PREFIX_RE so mid-value assembly
-// (`href="/u/${a}/${b}"`) is left to plain escaped interpolation (documented
-// limitation: URL policy cannot span multiple interpolations).
-const FULL_VALUE_ATTR_RE = /(?:^|\s)([a-zA-Z_:][a-zA-Z0-9:._-]*)\s*=\s*("|')?$/;
-
-// Terminators the HTML5 tokenizer honours in *unquoted* attribute values that
-// escapeHtml does not neutralize (escapeHtml already handles `"` `'` `<` `>`).
-// A value containing any of these must be re-emitted in quotes.
-const UNQUOTED_HAZARD_RE = /[\s=]|`/;
-
-// Resolve interpolated values the way interpolateValue does (signals are
-// dereferenced, plain functions are called) before attribute policy applies.
 function resolveTemplateValue(v: unknown): unknown {
   if (isSignalAccessor(v)) return v();
   if (typeof v === "function") return (v as () => unknown)();
   return v;
-}
-
-// Extract the open tag name containing `index` in `source`, for dev warnings.
-function openTagName(source: string, index: number): string {
-  const open = source.lastIndexOf("<", index);
-  if (open === -1) return "element";
-  return (
-    source.slice(open).match(/^<\s*([a-zA-Z][a-zA-Z0-9:._-]*)/)?.[1] ?? "element"
-  ).toLowerCase();
-}
-
-function isEventAttributePosition(source: string, index: number): boolean {
-  let open = -1;
-  let quote: '"' | "'" | null = null;
-  for (let i = 0; i < index; i++) {
-    const char = source[i]!;
-    if (open === -1) {
-      if (char === "<") open = i;
-      continue;
-    }
-    if (quote) {
-      if (char === quote) quote = null;
-    } else if (char === '"' || char === "'") {
-      quote = char;
-    } else if (char === ">") {
-      open = -1;
-    }
-  }
-  if (open === -1 || quote !== null) return false;
-  return !/^\s*[!/?]/.test(source.slice(open + 1, index));
-}
-
-// Find the first `>` in a static chunk that actually closes the open tag,
-// skipping any `>` inside a quoted attribute value (e.g. placeholder="a > b").
-// `initialQuote` carries quote state across chunk boundaries (an interpolation
-// can sit inside a quoted attribute value; interpolated values themselves are
-// entity-escaped and never alter quote state). Returns the index of the
-// closing `>` (-1 if none) plus the quote state at the end of the chunk.
-function findTagCloseIndex(
-  chunk: string,
-  initialQuote: '"' | "'" | null,
-): { index: number; quote: '"' | "'" | null } {
-  let quote = initialQuote;
-  for (let i = 0; i < chunk.length; i++) {
-    const ch = chunk[i];
-    if (quote !== null) {
-      if (ch === quote) quote = null;
-    } else if (ch === '"' || ch === "'") {
-      quote = ch;
-    } else if (ch === ">") {
-      return { index: i, quote };
-    }
-  }
-  return { index: -1, quote };
-}
-
-// Format a Date for an <input type=date|datetime-local|time|month|week>.
-// We pick `date` semantics by default; users wanting datetime-local should
-// pre-format the string themselves on the value side.
-// Try to extract the element's static `value="..."` attribute from the
-// trailing prefix of the current open tag. Used for SSR reflection of
-// bind:group on radio/checkbox inputs, where the runtime needs the
-// element's option-value to decide whether to emit `checked`. Returns
-// null when no static value is found in the prefix — the most common
-// cause is the value is itself interpolated, in which case SSR
-// reflection is skipped and hydration covers it.
-function extractElementStaticValue(prefix: string): string | null {
-  // Walk backwards from the end of the prefix until we find the opening
-  // '<' of the current tag. Anything past that is a different element.
-  const lastOpen = prefix.lastIndexOf("<");
-  if (lastOpen === -1) return null;
-  const tagPrefix = prefix.slice(lastOpen);
-  // Skip if a '>' appears between lastOpen and end — that would mean the
-  // tag already closed and bind:group is somehow stray text.
-  if (tagPrefix.includes(">")) return null;
-  const m = tagPrefix.match(/\bvalue\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/);
-  if (!m) return null;
-  return m[2] ?? m[3] ?? m[4] ?? null;
 }
 
 // Emit the canonical SSR attribute(s) for a binding, plus the sentinel.
@@ -1856,12 +1721,12 @@ function emitBindSSR({
   kind,
   index,
   accessor,
-  prefixForStaticPeek,
+  optionValue,
 }: {
   kind: BindKind;
   index: number;
   accessor: ExternalSignal;
-  prefixForStaticPeek: string;
+  optionValue?: string | null;
 }): [string, string] {
   const spec = `${kind}:${index}`;
   // Reflect current value into output attributes. The morph engine will
@@ -1890,10 +1755,6 @@ function emitBindSSR({
       // No attribute reflection — sentinel only.
       return [``, spec];
     case "group": {
-      // Try to determine this element's option value from the static
-      // prefix. If the signal value (or array, for checkbox groups)
-      // matches, emit `checked`.
-      const optionValue = extractElementStaticValue(prefixForStaticPeek);
       if (optionValue == null) return [``, spec];
       const isMatched = Array.isArray(v)
         ? v.map(String).includes(optionValue)
@@ -1903,350 +1764,231 @@ function emitBindSSR({
   }
 }
 
-// html`` now returns RawHtml instead of string so that arrays of html`` results
-// (e.g. from .map()) can be passed directly as interpolated values in a parent
-// html`` without triggering JS's default Array.toString() comma-joining.
-//
-// Also scans static chunks for the `bind:NAME=${signal}` template syntax,
-// stripping the prefix and registering the binding with the active render
-// context. The output carries a `data-ilha-bind="kind:index"` sentinel that
-// mount-time wiring reads back to attach listeners and reflect updates.
-function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml {
-  let result = "";
-  // We may need to strip a closing quote from the *next* static chunk when
-  // the current interpolation matched a quoted bind: prefix. Track that
-  // pending strip with this flag.
-  let stripLeadingQuote: '"' | "'" | null = null;
-  // Accumulate bind and event specs for the current open tag and emit each as
-  // a single sentinel attribute before the closing `>`.
-  let pendingBindSpecs = "";
-  let pendingEventSpecs = "";
-  // Quote state carried across chunks while specs are pending, so a `>` inside
-  // a quoted attribute value is not mistaken for the tag close.
-  let pendingQuote: '"' | "'" | null = null;
+const TEMPLATE_ATTRIBUTE_ALIASES: Record<string, string> = {
+  className: "class",
+  htmlFor: "for",
+  acceptCharset: "accept-charset",
+  httpEquiv: "http-equiv",
+  accentHeight: "accent-height",
+  alignmentBaseline: "alignment-baseline",
+  baselineShift: "baseline-shift",
+  clipPath: "clip-path",
+  clipRule: "clip-rule",
+  dominantBaseline: "dominant-baseline",
+  fillOpacity: "fill-opacity",
+  fillRule: "fill-rule",
+  floodColor: "flood-color",
+  floodOpacity: "flood-opacity",
+  fontFamily: "font-family",
+  fontSize: "font-size",
+  fontStyle: "font-style",
+  fontWeight: "font-weight",
+  markerEnd: "marker-end",
+  markerMid: "marker-mid",
+  markerStart: "marker-start",
+  stopColor: "stop-color",
+  stopOpacity: "stop-opacity",
+  strokeDasharray: "stroke-dasharray",
+  strokeDashoffset: "stroke-dashoffset",
+  strokeLinecap: "stroke-linecap",
+  strokeLinejoin: "stroke-linejoin",
+  strokeMiterlimit: "stroke-miterlimit",
+  strokeOpacity: "stroke-opacity",
+  strokeWidth: "stroke-width",
+  textAnchor: "text-anchor",
+  vectorEffect: "vector-effect",
+  xlinkHref: "xlink:href",
+};
+const TEMPLATE_VOID_ELEMENTS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
+const TEMPLATE_STRING_BOOLEANS = new Set(["contenteditable", "draggable", "spellcheck"]);
+const TEMPLATE_SAFE_NAME = /^[A-Za-z_:][A-Za-z0-9:._-]*$/;
+const TEMPLATE_EVENT = /^on([a-z][a-z0-9-]*)(?::([a-z][a-z0-9-]*))?$/;
+
+function normalizeTemplateClass(value: unknown): string {
+  if (Array.isArray(value)) return value.filter(Boolean).join(" ");
+  if (isPlainObject(value)) {
+    return Object.entries(value)
+      .filter(([, enabled]) => Boolean(enabled))
+      .map(([name]) => name)
+      .join(" ");
+  }
+  return String(value);
+}
+
+function resolvedAttrText(rawSourceValue: unknown): string | null {
+  const attribute = templateAttribute(rawSourceValue);
+  const sourceValue = attribute ? attribute.value : rawSourceValue;
+  if (sourceValue == null) return null;
+  const parts = templateParts(sourceValue);
+  const value = parts
+    ? parts.map((part) => resolveTemplateValue(part) ?? "").join("")
+    : resolveTemplateValue(sourceValue);
+  if (value == null || value === false) return null;
+  return String(value);
+}
+
+function renderTemplateElement(node: Extract<TemplateNode, { kind: "element" }>): string {
   const ctx = currentRenderCtx();
-
-  for (let i = 0; i < strings.length; i++) {
-    let chunk = strings[i]!;
-    if (stripLeadingQuote !== null) {
-      // Eat one leading quote of the matching kind, if present.
-      if (chunk.startsWith(stripLeadingQuote)) {
-        chunk = chunk.slice(1);
+  let attrs = "";
+  const eventSpecs: string[] = [];
+  const bindSpecs: string[] = [];
+  for (const [sourceName, rawSourceValue] of Object.entries(node.props)) {
+    const attribute = templateAttribute(rawSourceValue);
+    const sourceValue = attribute ? attribute.value : rawSourceValue;
+    if (sourceName === "children" || sourceName === "key" || sourceValue == null) continue;
+    if (sourceName === "__proto__" || sourceName === "constructor" || sourceName === "prototype")
+      continue;
+    const name =
+      TEMPLATE_ATTRIBUTE_ALIASES[sourceName] ??
+      (/^on[A-Z]/.test(sourceName) ? sourceName.toLowerCase() : sourceName);
+    if (!TEMPLATE_SAFE_NAME.test(name)) continue;
+    if (name.startsWith("bind:")) {
+      const kind = name.slice(5) as BindKind;
+      if (!BIND_VALID_KINDS.has(kind) || !isSignalAccessor(sourceValue)) {
+        if (__DEV__) warn(`${name} requires a supported binding and signal accessor.`);
+        continue;
       }
-      stripLeadingQuote = null;
-    }
-
-    // If the chunk contains a closing `>`, emit any pending binding/event
-    // specs right before it so they land inside the current open tag.
-    if (pendingBindSpecs !== "" || pendingEventSpecs !== "") {
-      const { index: gtIdx, quote } = findTagCloseIndex(chunk, pendingQuote);
-      if (gtIdx === -1) {
-        pendingQuote = quote;
-      } else {
-        // Drop a self-closing `/` (plus surrounding whitespace) so sentinels
-        // become the final attributes on void elements.
-        const head = chunk.slice(0, gtIdx).replace(/\s*\/\s*$/, "");
-        const bindAttr = pendingBindSpecs ? ` data-ilha-bind="${pendingBindSpecs}"` : "";
-        const eventAttr = pendingEventSpecs ? ` data-ilha-on="${pendingEventSpecs}"` : "";
-        chunk = head + bindAttr + eventAttr + ">" + chunk.slice(gtIdx + 1);
-        pendingBindSpecs = "";
-        pendingEventSpecs = "";
-        pendingQuote = null;
+      if (!ctx) {
+        if (__DEV__)
+          warn(
+            `${name} used outside an island render — the value is reflected once but not wired.`,
+          );
+        const value = sourceValue();
+        if (kind === "value") attrs += ` value="${escapeHtml(value ?? "")}"`;
+        else if ((kind === "checked" || kind === "open") && value) attrs += ` ${kind}`;
+        continue;
       }
-    }
-
-    if (i >= values.length) {
-      result += chunk;
+      const index = ctx.binds.length;
+      ctx.binds.push({ kind, accessor: sourceValue as ExternalSignal });
+      const [reflected, spec] = emitBindSSR({
+        kind,
+        index,
+        accessor: sourceValue as ExternalSignal,
+        optionValue: resolvedAttrText(node.props.value),
+      });
+      attrs += reflected;
+      bindSpecs.push(spec);
       continue;
     }
-
-    const value = values[i];
-    const eventMatch = chunk.match(EVENT_PREFIX_RE);
-    const eventMatchStart = eventMatch ? chunk.length - eventMatch[0]!.length : -1;
-    if (!eventMatch && typeof value === "function") {
-      const ambiguous = chunk.match(
-        /(?:^|\s)on([a-zA-Z][a-zA-Z0-9-]*)(?::[a-zA-Z][a-zA-Z0-9-]*)?\s*=\s*(?:(?:"[^"]*)|(?:'[^']*)|(?:[^\s"'=<>`]+))$/,
-      );
-      const start = ambiguous ? chunk.length - ambiguous[0]!.length : -1;
-      if (ambiguous && isEventAttributePosition(result + chunk, result.length + start)) {
+    if (/^on/i.test(name)) {
+      const match = TEMPLATE_EVENT.exec(name.toLowerCase());
+      const parts = templateParts(sourceValue);
+      if (parts?.some((part) => typeof part === "function")) {
         throw new Error(
-          `[ilha] on${ambiguous[1]} handler must occupy the entire attribute value. ` +
-            `Write on${ambiguous[1]}=\${handler}.`,
+          `[ilha] ${name} handler must occupy the entire attribute value. Write ${name}=\${handler}.`,
         );
       }
-    }
-    // An attribute-only nested template (html` onclick=${handler}`) has no
-    // opening tag of its own. Register it so the returned sentinel can be
-    // composed into an outer tag instead of invoking/serializing the function.
-    const eventAttributeFragment =
-      eventMatch !== null && chunk.slice(0, eventMatchStart).trim() === "";
-
-    if (
-      eventMatch &&
-      (eventAttributeFragment ||
-        isEventAttributePosition(result + chunk, result.length + eventMatchStart))
-    ) {
-      const eventName = eventMatch[1]!.toLowerCase();
-      const rawModifier = eventMatch[2]?.toLowerCase();
+      if (!match || typeof sourceValue !== "function") {
+        if (__DEV__) warn(`${name} requires an event handler function.`);
+        continue;
+      }
+      const eventName = match[1]!;
+      const rawModifier = match[2];
       const modifier =
         rawModifier !== undefined && NATIVE_EVENT_MODIFIERS.has(rawModifier as NativeEventModifier)
           ? (rawModifier as NativeEventModifier)
           : undefined;
-      const openQuote = (eventMatch[3] ?? null) as '"' | "'" | null;
-      const nextChunk = strings[i + 1] ?? "";
-      const occupiesWholeAttribute = openQuote
-        ? nextChunk.startsWith(openQuote)
-        : /^(?:\s|\/?>|$)/.test(nextChunk);
-      if (!occupiesWholeAttribute) {
-        throw new Error(
-          `[ilha] on${eventName} handler must occupy the entire attribute value. ` +
-            `Write on${eventName}=\${handler}.`,
-        );
-      }
-      const cleanPrefix = chunk.slice(0, eventMatchStart).replace(/\s+$/, "");
-      // Event functions are runtime-only. Never call or serialize them into an
-      // inline on* attribute, even when the template is rendered standalone.
-      // Direct action references are matched by identity for the hydration
-      // manifest. Closures attach after mount; Ilha never executes user event
-      // handlers during SSR to inspect their captured arguments.
-      result += cleanPrefix;
-      // Direct action references are matched by brand/identity for the
-      // hydration manifest. Closures are NEVER executed during SSR to
-      // discover what they call — non-action handlers get no manifest entry.
-      const isActionStub = typeof value === "function" && SSR_ACTION_STUB in (value as object);
-      if (__DEV__ && ctx?.manifest === true && typeof value === "function" && !isActionStub) {
-        warn(
-          `Event handler is not an action() reference, so it cannot appear in the ` +
-            `hydration manifest. Handlers are never executed during server rendering; ` +
-            `pass an action() slot directly as the handler ` +
-            `so the client can replay it. The closure will only run on the client after mount.`,
-        );
-      }
-      if (ctx && typeof value === "function") {
-        const index = ctx.events.length;
-        if (rawModifier && !modifier) {
-          if (__DEV__) {
-            warn(
-              `Unknown native event modifier ":${rawModifier}" on on${eventName}. ` +
-                `Supported modifiers are :once, :capture, :passive, and :abortable.`,
-            );
-          }
-        } else {
-          ctx.events.push({
-            type: eventName,
-            handler: value as NativeEventHandler,
-            modifier,
-          });
-          pendingEventSpecs += (pendingEventSpecs ? "," : "") + `${eventName}:${index}`;
-        }
-      } else if (__DEV__ && typeof value !== "function") {
-        warn(`on${eventName} requires an event handler function — got ${typeof value}.`);
-      }
-
-      if (openQuote) stripLeadingQuote = openQuote;
-      continue;
-    }
-
-    const m = chunk.match(BIND_PREFIX_RE);
-
-    if (m && isSignalAccessor(value)) {
-      const name = m[1]!;
-      const openQuote = (m[2] ?? null) as '"' | "'" | null;
-
-      if (!BIND_VALID_KINDS.has(name as BindKind)) {
+      if (rawModifier && !modifier) {
         if (__DEV__) {
           warn(
-            `Unknown bind:${name} — supported bindings are ` +
-              `${[...BIND_VALID_KINDS].map((k) => `bind:${k}`).join(", ")}.`,
+            `Unknown native event modifier ":${rawModifier}" on on${eventName}. ` +
+              `Supported modifiers are :once, :capture, :passive, and :abortable.`,
           );
         }
-        // Fall through to default interpolation.
-        result += chunk + interpolateValue(value);
         continue;
       }
-
-      if (!ctx) {
-        // No active render context (e.g. html`` invoked at module top
-        // level outside an island render). Bindings only work inside a
-        // island body; emit plain reflection without sentinel so the
-        // output still has the signal's current value, and warn in dev.
-        if (__DEV__) {
-          warn(
-            `bind:${name} used outside an island render — bindings only ` +
-              `work inside an island render. The value is reflected once but not wired.`,
-          );
-        }
-        const stripped = chunk.slice(0, chunk.length - m[0]!.length);
-        // Emit the canonical attribute (name=value) without the sentinel so
-        // the output is valid HTML even outside a render context.
-        // interpolateValue already HTML-escapes primitives; RawHtml values
-        // pass through unescaped (author's responsibility).
-        const quote = openQuote ?? '"';
-        result += stripped + name + "=" + quote + interpolateValue(value) + quote;
-        if (openQuote) stripLeadingQuote = openQuote;
-        continue;
-      }
-
-      // Strip the matched `bind:NAME=` plus optional opening quote from
-      // the chunk; the leading whitespace before `bind:` is preserved by
-      // the regex (it's not in the match), but the match starts at the
-      // word boundary `bind`. Note that there's typically a space before
-      // bind: (between attributes), which we leave alone — the emitted
-      // sentinel starts with its own leading space.
-      const matchStart = chunk.length - m[0]!.length;
-      const prefixBeforeBind = chunk.slice(0, matchStart);
-      // Trim trailing whitespace before bind: because emitBindSSR's output
-      // starts with its own space.
-      const cleanPrefix = prefixBeforeBind.replace(/\s+$/, "");
-
-      const index = ctx.binds.length;
-      ctx.binds.push({ kind: name as BindKind, accessor: value as ExternalSignal });
-
-      const [valueAttrs, spec] = emitBindSSR({
-        kind: name as BindKind,
-        index,
-        accessor: value as ExternalSignal,
-        prefixForStaticPeek: cleanPrefix,
+      const index = __ilhaJsxEvent({
+        type: eventName,
+        handler: sourceValue as NativeEventHandler,
+        modifier,
       });
-      result += cleanPrefix + valueAttrs;
-      pendingBindSpecs += (pendingBindSpecs ? "," : "") + spec;
-
-      if (openQuote) stripLeadingQuote = openQuote;
+      if (index !== undefined) eventSpecs.push(`${eventName}:${index}`);
       continue;
     }
-
-    if (m && __DEV__) {
-      warn(
-        `bind:${m[1]} requires a signal accessor — got ${typeof value}. ` +
-          `Use state(), derived(), or a context() accessor.`,
-      );
-    }
-
-    // Full-value attribute interpolation. Mirrors pushJsxAttr (jsx-runtime.ts)
-    // so html`` and JSX apply one URL/style policy: unsafe URL schemes and
-    // srcdoc are dropped, style objects serialize through the allowlist, and
-    // hazardous unquoted values are re-emitted quoted. Benign unquoted values
-    // keep the author's literal form so valid templates render byte-identical.
-    const attrMatch = chunk.match(FULL_VALUE_ATTR_RE);
-    if (attrMatch && isEventAttributePosition(result + chunk, result.length + attrMatch.index!)) {
-      const attrName = attrMatch[1]!;
-      const openQuote = (attrMatch[2] ?? null) as '"' | "'" | null;
-      if (openQuote) stripLeadingQuote = openQuote;
-      const cleanPrefix = chunk.slice(0, attrMatch.index!).replace(/\s+$/, "");
-
-      // Defence-in-depth: HTML attribute names are ASCII case-insensitive, so
-      // any `on*` name that reaches the generic path despite the
-      // (case-insensitive) event regex — odd punctuation like `on_x`, or a
-      // non-function value — is still event-content markup to the browser.
-      // Never serialize it inline and never invoke a function value during
-      // SSR: drop it, matching JSX, which silently drops every non-function
-      // `on*` prop.
-      if (attrName.length > 2 && /^on/i.test(attrName)) {
-        if (__DEV__) {
-          warn(
-            `Drop ${attrName} from <${openTagName(result + chunk, result.length + attrMatch.index!)}> — ` +
-              `event attributes need a handler function in the full-value form: ` +
-              `on${attrName.slice(2)}=\${handler}.`,
-          );
-        }
-        result += cleanPrefix;
-        continue;
-      }
-
-      // srcdoc decodes HTML entities back into live markup, so escaping does
-      // not neutralize it — drop it entirely (JSX parity).
-      if (attrName.toLowerCase() === "srcdoc") {
-        if (__DEV__) {
-          warn(
-            `Drop ${attrName} from <${openTagName(result + chunk, result.length + attrMatch.index!)}> — ` +
-              `srcdoc re-decodes escaped markup and is not allowed in html templates.`,
-          );
-        }
-        result += cleanPrefix;
-        continue;
-      }
-
-      // Author-owned raw markup in an attribute (island slots, etc.) keeps the
-      // existing default path exactly — full chunk preserved, quote pairing
-      // untouched, so stripLeadingQuote must stay unset.
-      if (isIsland(value) || isIslandCall(value)) {
-        stripLeadingQuote = null;
-        result += chunk + interpolateValue(value);
-        continue;
-      }
-
-      if (isUrlAttributeName(attrName)) {
-        // raw() URL values pass through unescaped — author-owned escape hatch,
-        // same effective behavior as JSX's raw() in a URL attribute.
-        if (isRawHtml(value)) {
-          result += cleanPrefix + ` ${attrName}="${(value as RawHtml).value}"`;
-          continue;
-        }
-        const resolved = resolveTemplateValue(value);
-        // JSX drops null/undefined/false attribute values.
-        if (resolved == null || resolved === false) {
-          result += cleanPrefix;
-          continue;
-        }
-        const url = String(resolved);
-        const tagName = openTagName(result + chunk, result.length + attrMatch.index!);
-        if (!isSafeUrlAttrValue(tagName, attrName, url)) {
-          if (__DEV__) {
-            warn(
-              `Dropped unsafe ${attrName} value from <${tagName}> ` +
-                `(javascript:/vbscript:/data: schemes are blocked outside image contexts).`,
-            );
-          }
-          result += cleanPrefix;
-          continue;
-        }
-        const quotedUrl = openQuote !== null || UNQUOTED_HAZARD_RE.test(url);
-        result +=
-          cleanPrefix + ` ${attrName}=` + (quotedUrl ? `"${escapeHtml(url)}"` : escapeHtml(url));
-        continue;
-      }
-
-      if (attrName.toLowerCase() === "style") {
-        if (!isRawHtml(value)) {
-          const resolved = resolveTemplateValue(value);
-          if (isPlainObject(resolved)) {
-            result += cleanPrefix + ` style="${escapeHtml(serializeStyle(resolved))}"`;
-            continue;
-          }
-        }
-        // Strings, numbers, signals (and raw) fall through to the generic path.
-      }
-
-      if (isRawHtml(value)) {
-        stripLeadingQuote = null;
-        result += chunk + interpolateValue(value);
-        continue;
-      }
-      const resolved = resolveTemplateValue(value);
-      if (resolved == null || resolved === false) {
-        result += cleanPrefix;
-        continue;
-      }
-      if (resolved === true) {
-        // Boolean true renders a bare attribute (JSX parity).
-        result += cleanPrefix + ` ${attrName}`;
-        continue;
-      }
-      const generic = String(resolved);
-      if (openQuote !== null || UNQUOTED_HAZARD_RE.test(generic)) {
-        result += cleanPrefix + ` ${attrName}="${escapeHtml(generic)}"`;
-      } else {
-        result += cleanPrefix + ` ${attrName}=${escapeHtml(generic)}`;
-      }
+    const lower = name.toLowerCase();
+    if (lower === "srcdoc") continue;
+    const parts = templateParts(sourceValue);
+    let value = parts
+      ? parts.map((part) => resolveTemplateValue(part) ?? "").join("")
+      : resolveTemplateValue(sourceValue);
+    if (
+      (lower.startsWith("aria-") || TEMPLATE_STRING_BOOLEANS.has(lower)) &&
+      typeof value === "boolean"
+    )
+      value = String(value);
+    if (lower === "class" && !isRawHtml(value)) value = normalizeTemplateClass(value);
+    const structuredStyle = lower === "style" && isPlainObject(value) && !isRawHtml(value);
+    if (structuredStyle) value = serializeStyle(value as Record<string, unknown>);
+    if (
+      isUrlAttributeName(lower) &&
+      !isRawHtml(value) &&
+      !isSafeUrlAttrValue(node.tag, lower, String(value))
+    )
+      continue;
+    if (value === false || value == null) continue;
+    if (
+      (attribute?.bare && value === "") ||
+      (value === true && !TEMPLATE_STRING_BOOLEANS.has(lower) && !lower.startsWith("aria-"))
+    ) {
+      attrs += ` ${name}`;
       continue;
     }
-
-    result += chunk + interpolateValue(value);
+    const text = isRawHtml(value) ? value.value : String(value);
+    const escaped = isRawHtml(value) ? text : escapeHtml(text);
+    attrs +=
+      attribute && !attribute.quoted && !structuredStyle && !/[\s"'`=<>]/.test(text)
+        ? ` ${name}=${escaped}`
+        : ` ${name}="${escaped}"`;
   }
-  // Emit any remaining specs (e.g. if the final static chunk had no `>`).
-  if (pendingBindSpecs !== "") result += ` data-ilha-bind="${pendingBindSpecs}"`;
-  if (pendingEventSpecs !== "") result += ` data-ilha-on="${pendingEventSpecs}"`;
-  return { [RAW]: true, value: dedentString(result) };
+  const key = node.props.key;
+  if (key != null && node.props["data-key"] == null) attrs += ` data-key="${escapeHtml(key)}"`;
+  if (bindSpecs.length) attrs += ` data-ilha-bind="${bindSpecs.join(",")}"`;
+  if (eventSpecs.length) attrs += ` data-ilha-on="${eventSpecs.join(",")}"`;
+  if (TEMPLATE_VOID_ELEMENTS.has(node.tag.toLowerCase()))
+    return `<${node.tag}${attrs}${node.selfClosing ? " /" : ""}>`;
+  return `<${node.tag}${attrs}>${node.children.map((child) => renderTemplateNode(child, node.tag)).join("")}</${node.tag}>`;
+}
+
+function renderTemplateNode(node: TemplateNode, parentTag?: string): string {
+  switch (node.kind) {
+    case "fragment":
+      return node.children.map((child) => renderTemplateNode(child, parentTag)).join("");
+    case "element":
+      return renderTemplateElement(node);
+    case "dynamic":
+      return interpolateValue(node.value);
+    case "comment":
+      return `<!--${node.value.replace(/--/g, "- -")}-->`;
+    case "text": {
+      const parent = parentTag?.toLowerCase();
+      return parent === "script" || parent === "style" ? node.value : escapeHtml(node.value);
+    }
+  }
+}
+
+function renderTemplate(node: TemplateNode): RawHtml {
+  return ilhaRaw(renderTemplateNode(node));
+}
+
+setTemplateRenderer(renderTemplate);
+
+function ilhaHtml(strings: TemplateStringsArray, ...values: unknown[]): RawHtml {
+  return renderTemplate(htmlTemplate(strings, values));
 }
 
 function isRawHtml(v: unknown): v is RawHtml {
@@ -2274,10 +2016,12 @@ function ilhaContextFn<T>(key: string, initial: T): ContextSignal<T> {
   // Marked as a signal accessor so context signals work everywhere a local
   // state accessor does: render subscription, bind:* template syntax,
   // .select() paths, and standalone effect()/persist().
-  const accessor = markSignalAccessor((...args: unknown[]): unknown => {
-    if (args.length === 0) return s();
-    s(resolveSignalSetter(() => s(), args[0] as SignalSetter<T>));
-  });
+  const accessor = markSignalAccessor(
+    () => s() as T,
+    (next) => {
+      s(next);
+    },
+  );
   contextRegistry.set(key, accessor as unknown as ContextSignal<unknown>);
   return accessor as unknown as ContextSignal<T>;
 }
@@ -2306,7 +2050,7 @@ const ilhaContext = Object.assign(ilhaContextFn, {
  * Internal: used by state()'s slot-drift fallback. The public way to create
  * free-standing shared state is `context(key, initial)`.
  */
-export function ilhaSignal<T>(initial: T): SignalAccessor<T> {
+function ilhaSignal<T>(initial: T): SignalAccessor<T> {
   if (currentFrame()?.creating && __DEV__) {
     warn(
       "signal() created during an island render resets on every rerender — " +
@@ -2314,10 +2058,12 @@ export function ilhaSignal<T>(initial: T): SignalAccessor<T> {
     );
   }
   const s = signal(initial);
-  return markSignalAccessor((...args: unknown[]): unknown => {
-    if (args.length === 0) return s();
-    s(resolveSignalSetter(() => s(), args[0] as SignalSetter<T>));
-  }) as SignalAccessor<T>;
+  return markSignalAccessor(
+    () => s(),
+    (next) => {
+      s(next);
+    },
+  );
 }
 
 /**
@@ -2458,9 +2204,7 @@ export function persist<T>(
       if (value !== null) {
         const prevSub = setActiveSub(undefined);
         try {
-          // Updater wrapper: stores the persisted value regardless of whether
-          // T is a non-function type (SignalSetter excludes function values).
-          accessor(() => value);
+          accessor.set(value as T);
         } finally {
           setActiveSub(prevSub);
         }
@@ -2518,21 +2262,21 @@ export type DerivedAccessor<T> = {
   readonly value: T | undefined;
   readonly error: Error | undefined;
   (): T | undefined;
-  (value: T): void;
+  set(value: T): void;
+  update(fn: (previous: T | undefined) => T | undefined): void;
 };
 
 function createDerivedAccessor<T>(
   read: () => DerivedValue<T>,
   write?: (value: T) => void,
 ): DerivedAccessor<T> {
-  const accessor = markSignalAccessor((...args: unknown[]): T | undefined => {
-    if (args.length > 0) {
-      if (write) write(args[0] as T);
+  const accessor = markSignalAccessor(
+    () => read().value,
+    (value) => {
+      if (write && value !== undefined) write(value);
       else if (__DEV__) warn("derived values are read-only");
-      return;
-    }
-    return read().value;
-  });
+    },
+  );
 
   return new Proxy(accessor, {
     get(target, prop, receiver) {
@@ -2819,8 +2563,8 @@ function applyTemplateBindings(
         // Ref binding: write the element into the signal on attach,
         // null it on cleanup. No event listener.
         if (phase !== "listen") {
-          (accessor as (v: unknown) => void)(el);
-          cleanups.push(() => (accessor as (v: unknown) => void)(null));
+          accessor.set(el);
+          cleanups.push(() => accessor.set(null));
         }
         continue;
       }
@@ -2873,7 +2617,7 @@ function applyTemplateBindings(
             } else if (!groupRead.checked && idx !== -1) {
               arr.splice(idx, 1);
             }
-            (accessor as (v: unknown) => void)(arr);
+            accessor.set(arr);
             return;
           }
           // Radio group: write the now-checked value, coerced to match the
@@ -2892,7 +2636,7 @@ function applyTemplateBindings(
           } else if (typeof currentVal === "boolean") {
             coerced = Boolean(groupRead);
           }
-          (accessor as (v: unknown) => void)(coerced);
+          accessor.set(coerced);
           return;
         }
 
@@ -2913,7 +2657,7 @@ function applyTemplateBindings(
         } else if (typeof currentVal === "boolean") {
           value = Boolean(raw);
         }
-        (accessor as (v: unknown) => void)(value);
+        accessor.set(value);
       };
 
       el.addEventListener(event, listener);
@@ -3284,8 +3028,8 @@ function acquireSlot<K extends SlotKind>(kind: K): Extract<FrameSlot, { kind: K 
  *
  * A function argument is treated as a lazy initializer:
  *   const count = state(() => expensiveInitialValue());
- * To store a function VALUE, return it from the updater wrapper on write:
- *   setCallback(() => nextCallback);
+ * To store a function VALUE, pass it to `.set`:
+ *   onSave.set(nextCallback);
  */
 export function state<T>(init?: T | (() => T)): StateAccessor<T> {
   const frame = currentFrame();
@@ -3306,11 +3050,12 @@ export function state<T>(init?: T | (() => T)): StateAccessor<T> {
     snap === undefined ? (typeof init === "function" ? (init as () => T)() : init) : snap;
 
   const s = signal(initial);
-  const acc = markSignalAccessor((...args: unknown[]): unknown => {
-    if (args.length === 0) return s();
-    const next = resolveSignalSetter(() => s(), args[0]);
-    s(next);
-  });
+  const acc = markSignalAccessor(
+    () => s() as T,
+    (next) => {
+      s(next);
+    },
+  );
   f.slots[f.cursor - 1] = { kind: "state", acc };
   return acc as StateAccessor<T>;
 }
@@ -5015,7 +4760,6 @@ export const raw = ilhaRaw;
 export const mount = mountAll;
 export const context = ilhaContext;
 
-// Shared URL/style policy — consumed by the JSX runtime (jsx-runtime.ts) and
-// available to advanced template authors who want the same checks in custom
-// builders.
+// Shared URL/style policy — used by the template IR renderer and available to
+// advanced template authors who want the same checks in custom builders.
 export { isSafeUrl, isSafeUrlAttrValue, isUrlAttributeName, serializeStyle };

@@ -1,6 +1,6 @@
 {
   "name": "@ilha/astro",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Astro integration for Ilha islands",
   "keywords": [
     "astro-component",
@@ -52,11 +52,11 @@
     "test": "bun test"
   },
   "devDependencies": {
-    "astro": "^7.2.4",
-    "ilha": "^0.12.1"
+    "astro": "^7.2.9",
+    "ilha": "0.13.0"
   },
   "peerDependencies": {
-    "astro": "^7.2.4",
-    "ilha": ">=0.12.1"
+    "astro": "^7.2.9",
+    "ilha": ">=0.13.0"
   }
 }

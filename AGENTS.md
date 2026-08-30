@@ -44,7 +44,7 @@
 - Mount islands with `mount({ IslandName })` — it auto-discovers `[data-ilha="IslandName"]` elements.
 - For synchronous SSR, always use `Island.toString(props)`. For async SSR, always use `await Island.toStringAsync(props)`. Direct `Island(props)` calls are reserved for child composition inside another island render.
 - Use `await Island.hydratable(props, options)` when emitting hydration markup; the client restores serialized props and positional primitive snapshots through `mount()`.
-- Functional signal setters use the setter directly (`count((previous) => previous + 1)`). To store a function value, return it from an updater wrapper (`callback(() => nextCallback)`).
+- Read with `count()`, replace with `count.set(1)`, patch with `count.update((previous) => previous + 1)`. Store a function value with `onSave.set(nextCallback)`.
 - Keep the public API surface minimal: named exports (`ilha`, `state`, `derived`, `action`, `effect`, `onError`, plus standalone helpers), island methods (`toString`, `toStringAsync`, `mount`, `hydratable`, `key`, `define`), and the JSX runtime contracts.
 - When changing public types, update `packages/*/src/types.test.ts` (compile-time type anchors, checked by `tsc`) and add runtime tests in the package's `*.test.ts(x)` files.
 - Type anchors use `@ts-expect-error` for negative assertions; those are enforced by `tsc`, not by `bun test` — keep each anchor file's runtime smoke `it()` passing under `bun test`.

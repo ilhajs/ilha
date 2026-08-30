@@ -2457,7 +2457,9 @@ describe("wrapError / wrapLayout hydration", () => {
   it("wrapError preserves interactivity — state updates work on direct mount", async () => {
     const Counter = ilha(() => {
       const count = state(0);
-      return html`<button data-inc onclick=${() => count((v) => v + 1)}>count:${count()}</button>`;
+      return html`<button data-inc onclick=${() => count.update((v) => v + 1)}>
+        count:${count()}
+      </button>`;
     });
 
     const ErrorPage = ilha(() => `<p>error</p>`);
@@ -2486,7 +2488,9 @@ describe("wrapError / wrapLayout hydration", () => {
   it("wrapError preserves interactivity after hydration via ilha.mount", async () => {
     const Counter = ilha(() => {
       const count = state(0);
-      return html`<button data-inc onclick=${() => count((v) => v + 1)}>count:${count()}</button>`;
+      return html`<button data-inc onclick=${() => count.update((v) => v + 1)}>
+        count:${count()}
+      </button>`;
     });
 
     const ErrorPage = ilha(() => `<p>error</p>`);
@@ -2620,7 +2624,7 @@ describe("wrapError / wrapLayout hydration", () => {
       effect.once(({ host, signal }) => {
         host
           .querySelector("[data-layout-toggle]")
-          ?.addEventListener("click", () => on(!on()), { signal });
+          ?.addEventListener("click", () => on.set(!on()), { signal });
       });
       return html`<button data-layout-toggle>${on() ? "on" : "off"}</button>`;
     });
@@ -2630,7 +2634,7 @@ describe("wrapError / wrapLayout hydration", () => {
       effect.once(({ host, signal }) => {
         host
           .querySelector("[data-page-inc]")
-          ?.addEventListener("click", () => count((v) => v + 1), { signal });
+          ?.addEventListener("click", () => count.update((v) => v + 1), { signal });
       });
       return html`<button data-page-inc>${count()}</button>`;
     });
@@ -2818,7 +2822,7 @@ describe("wrapError / wrapLayout hydration", () => {
       effect.once(({ host, signal }) => {
         host
           .querySelector("[data-inc]")
-          ?.addEventListener("click", () => count((v) => v + 1), { signal });
+          ?.addEventListener("click", () => count.update((v) => v + 1), { signal });
       });
       return html`<button data-inc>${count()}</button>`;
     });
@@ -2928,7 +2932,7 @@ describe("wrapError / wrapLayout hydration", () => {
       effect.once(({ host, signal }) => {
         host
           .querySelector("[data-bump]")
-          ?.addEventListener("click", () => n((v) => v + 1), { signal });
+          ?.addEventListener("click", () => n.update((v) => v + 1), { signal });
       });
       return html`<button data-bump>${n()}</button>`;
     });

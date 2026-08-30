@@ -5,7 +5,7 @@ export default ilha(() => {
   const count = state(0);
 
   const increment = () =>
-    count((value) => value + 1);
+    count.update((value) => value + 1);
 
   return (
     <div class="flex flex-col gap-2">

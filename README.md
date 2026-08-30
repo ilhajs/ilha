@@ -72,7 +72,7 @@ export const Counter = ilha<{ start?: number }>(({ start = 0 }) => {
   const count = state(start);
 
   return (
-    <button type="button" onclick={() => count((value) => value + 1)}>
+    <button type="button" onclick={() => count.update((value) => value + 1)}>
       Count: {count()}
     </button>
   );

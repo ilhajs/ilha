@@ -6,11 +6,11 @@ export default ilha(() => {
   const doubled = derived(() => count() * 2);
 
   const increase = () => {
-    count((value) => value + 1);
+    count.update((value) => value + 1);
   };
 
   effect(() => {
-    if (count() > 3) count(0);
+    if (count() > 3) count.set(0);
   });
 
   return (

@@ -12,7 +12,7 @@ export const Counter = ilha(() => {
   const count = state(0);
 
   return html`
-    <button onclick=${() => count((value) => value + 1)}>
+    <button onclick=${() => count.update((value) => value + 1)}>
       count: ${count()}
     </button>
   `;
@@ -34,7 +34,7 @@ export const Totals = ilha(() => {
 
   return html`
     <p>${count} doubled is ${doubled()}</p>
-    <button onclick=${() => count((value) => value + 1)}>
+    <button onclick=${() => count.update((value) => value + 1)}>
       +1
     </button>
   `;
@@ -118,7 +118,9 @@ import { ilha, html, state } from "ilha";
 
 const Counter = ilha(() => {
   const count = state(0);
-  return html`<button onclick=${() => count((v) => v + 1)}>
+  return html`<button
+    onclick=${() => count.update((v) => v + 1)}
+  >
     ${count}
   </button>`;
 });
@@ -149,7 +151,9 @@ import { ilha, html, state } from "ilha";
 
 const Counter = ilha(() => {
   const count = state(0);
-  return html`<button onclick=${() => count((v) => v + 1)}>
+  return html`<button
+    onclick=${() => count.update((v) => v + 1)}
+  >
     ${count}
   </button>`;
 });

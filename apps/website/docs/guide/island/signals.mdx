@@ -64,11 +64,11 @@ import { context } from "ilha";
 const count = context("ui.count", 0);
 
 count(); // → 0  (read)
-count(5); // sets to 5 (write)
-count((previous) => previous + 1); // updates from the latest value
+count.set(5); // sets to 5 (write)
+count.update((previous) => previous + 1); // updates from the latest value
 ```
 
-The updater form works on all accessors. If a signal stores a function, return the replacement from an updater: `callback(() => nextCallback)`.
+The updater form works on all accessors. If a signal stores a function, pass the replacement to `.set`: `callback.set(nextCallback)`.
 
 ### Use context in `bind:` bindings
 
@@ -83,7 +83,7 @@ const SearchInput = ilha(() => (
   <input
     type="search"
     value={query()}
-    oninput={(event) => query(event.currentTarget.value)} // [!code highlight]
+    oninput={(event) => query.set(event.currentTarget.value)} // [!code highlight]
   />
 ));
 
@@ -136,7 +136,7 @@ Deleting a key does not affect accessors already handed out — they keep workin
 import { context } from "ilha";
 
 const first = context("ui.count", 0);
-first(5);
+first.set(5);
 
 context.delete("ui.count");
 const second = context("ui.count", 0); // fresh signal, starts at 0
@@ -156,7 +156,7 @@ const base = signal(1);
 const doubled = computed(() => base() * 2);
 
 doubled(); // → 2
-base(3);
+base.set(3);
 doubled(); // → 6
 ```
 
@@ -260,9 +260,9 @@ const count = context("d.count", 0);
 
 batch(() => {
   batch(() => {
-    count(1);
+    count.set(1);
   }); // still inside outer batch — no flush yet
-  count(2);
+  count.set(2);
 }); // outermost batch ends — single flush
 ```
 

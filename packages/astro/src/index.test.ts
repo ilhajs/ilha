@@ -15,7 +15,7 @@ import renderer from "./server";
 
 const Counter = ilha<{ label: string }>(({ label }) => {
   const count = state(0);
-  return html`<button onclick=${() => count((v) => v + 1)}>${label}:${count()}</button>`;
+  return html`<button onclick=${() => count.update((v) => v + 1)}>${label}:${count()}</button>`;
 });
 
 // Stand-in for a non-island component library export (e.g. Areia's `Button`):

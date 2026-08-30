@@ -10,15 +10,15 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@ilha/router": "^0.10.3",
+    "@ilha/router": "^0.10.4",
     "areia": "^0.3.1",
-    "ilha": "^0.12.1",
-    "tacho": "^0.5.0"
+    "ilha": "^0.13.0",
+    "tacho": "^0.6.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24",
-    "oxidejs": "^0.2.1",
+    "oxidejs": "file:/home/ryuz/Ubuntu/Developer/oxide/packages/oxidejs",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"

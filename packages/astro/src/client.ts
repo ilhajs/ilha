@@ -1,29 +1,11 @@
-import { ilha, raw } from "ilha";
+import { wrapPlainAsIsland, type PlainComponent } from "./plain";
 
 interface MountableIsland {
   mount(host: Element, props?: Record<string, unknown>): () => void;
 }
 
-type PlainComponent = (props: Record<string, unknown>) => unknown;
-
-const RAW = Symbol.for("ilha.raw");
-
 function isMountable(Component: unknown): Component is MountableIsland {
   return !!Component && typeof (Component as MountableIsland).mount === "function";
-}
-
-function isRawHtml(value: unknown): value is { value: string } {
-  return !!(value && typeof value === "object" && RAW in (value as object));
-}
-
-function wrapPlainAsIsland(Component: PlainComponent, merged: Record<string, unknown>) {
-  return ilha(() => {
-    const result = Component(merged);
-    if (result == null) return raw("");
-    if (typeof result === "string") return raw(result);
-    if (isRawHtml(result)) return raw(result.value);
-    return raw("");
-  });
 }
 
 // Astro renders our SSR output (a `[data-ilha]` element) as a light-DOM child

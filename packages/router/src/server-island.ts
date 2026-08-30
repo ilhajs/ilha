@@ -79,6 +79,27 @@ function belongsToHost(host: Element, candidate: Element): boolean {
   return el === host;
 }
 
+/** Dev cold-start can race a warming `virtual:oxide/actions` graph — retry briefly. */
+async function startServerStream(
+  fn: ServerStreamFn,
+  signal: AbortSignal,
+): Promise<AsyncGenerator<unknown> | Generator<unknown>> {
+  let last: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return await fn(signal);
+    } catch (err) {
+      last = err;
+      if (signal.aborted) throw err;
+      const msg = String(err);
+      if (!msg.includes("404") && !msg.includes("503")) throw err;
+      if (attempt === 3) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
+  throw last;
+}
+
 function hydrateServerIsland(
   host: Element,
   id: string,
@@ -243,7 +264,7 @@ function hydrateServerIsland(
   for (const [key, fn] of Object.entries(wiring.streams ?? {})) {
     void (async () => {
       try {
-        const gen = await fn(controller.signal);
+        const gen = await startServerStream(fn, controller.signal);
         try {
           for (;;) {
             const { done, value } = await gen.next();
