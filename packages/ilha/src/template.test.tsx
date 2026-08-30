@@ -49,6 +49,12 @@ test("JSX renders through template IR without lowercasing SVG names", () => {
   expect(out).not.toContain("<lineargradient");
 });
 
+test("html comments resolve interpolated values without leaking slot markers", () => {
+  const id = "item-42";
+  expect(html`<!-- before ${id} after -->`.value).toBe("<!-- before item-42 after -->");
+  expect(html`<!-- before ${id} after -->`.value).not.toContain("\uE000");
+});
+
 test("unquoted attribute values keep leading and mid-value slashes", () => {
   expect(html`<a href=/docs>x</a>`.value).toMatch(/href=["']?\/docs["']?/);
   expect(html`<img src=https://example.com />`.value).toMatch(

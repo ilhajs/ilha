@@ -1791,7 +1791,7 @@ export type TemplateNode =
       selfClosing?: boolean;
     }
   | { kind: "text"; value: string }
-  | { kind: "comment"; value: string }
+  | { kind: "comment"; value: string | TemplateParts }
   | { kind: "dynamic"; value: unknown };
 
 interface TemplateBlueprintSlot {
@@ -1810,7 +1810,7 @@ type TemplateBlueprintNode =
       selfClosing?: boolean;
     }
   | { kind: "text"; value: TemplateBlueprintSegment[] }
-  | { kind: "comment"; value: string };
+  | { kind: "comment"; value: TemplateBlueprintSegment[] };
 
 const TEMPLATE_SLOT_START = "\uE000ilha:";
 const TEMPLATE_SLOT_END = ":\uE001";
@@ -1855,18 +1855,19 @@ function templateSkipWs(s: string, i: number): number {
 
 function templateParseFragment(source: string): TemplateFragNode {
   const children: TemplateFragNode[] = [];
-  templateParseNodes(source, 0, null, children);
+  templateParseNodes(source, source.toLowerCase(), 0, null, children);
   return { nodeName: "#document-fragment", childNodes: children };
 }
 
 function templateParseNodes(
   s: string,
+  lower: string,
   i: number,
   stop: string | null,
   out: TemplateFragNode[],
 ): number {
   while (i < s.length) {
-    if (stop && s.toLowerCase().startsWith(`</${stop}`, i)) {
+    if (stop && lower.startsWith(`</${stop}`, i)) {
       const gt = s.indexOf(">", i);
       return gt === -1 ? s.length : gt + 1;
     }
@@ -1942,12 +1943,12 @@ function templateParseNodes(
       if (!TEMPLATE_PARSE_VOID_TAGS.has(tag)) {
         if (TEMPLATE_PARSE_RAW_TEXT_TAGS.has(tag)) {
           const close = `</${tag}`;
-          const ci = s.toLowerCase().indexOf(close, i);
+          const ci = lower.indexOf(close, i);
           const textEnd = ci === -1 ? s.length : ci;
           if (textEnd > i) el.childNodes!.push({ nodeName: "#text", value: s.slice(i, textEnd) });
           i = ci === -1 ? s.length : s.indexOf(">", ci) === -1 ? s.length : s.indexOf(">", ci) + 1;
         } else {
-          i = templateParseNodes(s, i, tag, el.childNodes!);
+          i = templateParseNodes(s, lower, i, tag, el.childNodes!);
         }
       }
       out.push(el);
@@ -1980,7 +1981,7 @@ function templateSegments(value: string): TemplateBlueprintSegment[] {
 
 function templateBlueprint(node: TemplateFragNode, source: string): TemplateBlueprintNode | null {
   if (node.nodeName === "#text") return { kind: "text", value: templateSegments(node.value!) };
-  if (node.nodeName === "#comment") return { kind: "comment", value: node.data! };
+  if (node.nodeName === "#comment") return { kind: "comment", value: templateSegments(node.data!) };
   if (node.nodeName === "#document-fragment") {
     return {
       kind: "fragment",
@@ -2072,7 +2073,22 @@ function templateBind(
     }
     return out;
   }
-  if (node.kind === "comment") return { kind: "comment", value: node.value };
+  if (node.kind === "comment") {
+    const parts = node.value;
+    if (parts.length === 1 && typeof parts[0] === "string") {
+      return { kind: "comment", value: parts[0] };
+    }
+    if (parts.every((part) => typeof part === "string")) {
+      return { kind: "comment", value: parts.join("") };
+    }
+    return {
+      kind: "comment",
+      value: {
+        [TEMPLATE_PARTS]: true,
+        values: parts.map((part) => (typeof part === "string" ? part : values[part.slot])),
+      },
+    };
+  }
   if (node.kind === "element") {
     const props: Record<string, unknown> = {};
     for (const [name, parts] of Object.entries(node.props))
@@ -2321,8 +2337,13 @@ function renderTemplateNode(node: TemplateNode, parentTag?: string): string {
       return renderTemplateElement(node);
     case "dynamic":
       return interpolateValue(node.value);
-    case "comment":
-      return `<!--${node.value.replace(/--/g, "- -")}-->`;
+    case "comment": {
+      const parts = templateParts(node.value);
+      const text = parts
+        ? parts.map((part) => resolveTemplateValue(part) ?? "").join("")
+        : String(node.value);
+      return `<!--${text.replace(/--/g, "- -")}-->`;
+    }
     case "text": {
       const parent = parentTag?.toLowerCase();
       return parent === "script" || parent === "style" ? node.value : escapeHtml(node.value);
