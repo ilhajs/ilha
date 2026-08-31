@@ -23,10 +23,7 @@ export default defineConfig({
 });
 ```
 
-The `@ilha/router/ssr` middleware serves:
-
-- `POST /__ilha/frame` — server-island and server-page re-renders
-- `GET /__ilha/loader` — loader data for regular-page client navigations
+The `@ilha/router/ssr` middleware serves `POST /__ilha/frame` for server-island and server-page re-renders.
 
 Any host that runs an oxidejs fetch handler serves these. See [Server islands](/guide/routing/server-islands) and [Middleware and security](/guide/routing/middleware-and-security).
 

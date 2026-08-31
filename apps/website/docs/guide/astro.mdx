@@ -1,11 +1,11 @@
 ---
 title: Astro
-description: Astro integration that renders and hydrates Ilha islands as Astro components.
+description: Astro integration that renders and hydrates Ilha components as Astro islands.
 ---
 
-`@ilha/astro` is an [Astro](https://astro.build) integration for Ilha islands. You register it once, then import any island into an `.astro` page and hydrate it with a [client directive](https://docs.astro.build/en/reference/directives-reference/#client-directives).
+`@ilha/astro` is an [Astro](https://astro.build) integration for Ilha. You register it once, then import any component into an `.astro` page and hydrate it with a [client directive](https://docs.astro.build/en/reference/directives-reference/#client-directives).
 
-It is a separate package from `ilha`. Add it when you build with Astro and want Ilha islands as first-class Astro components.
+It is a separate package from `ilha`. Add it when you build with Astro.
 
 ## Install
 
@@ -13,11 +13,9 @@ It is a separate package from `ilha`. Add it when you build with Astro and want 
 @ilha/astro
 ```
 
-`astro` and `ilha` are peer dependencies. Install both alongside `@ilha/astro`.
+`astro` and `ilha` are peer dependencies.
 
 ## Quick start
-
-Add the integration to your Astro config:
 
 ```ts twoslash
 // astro.config.mjs
@@ -29,7 +27,7 @@ export default defineConfig({
 });
 ```
 
-Islands in these examples use JSX. Set `jsx` and `jsxImportSource` in `tsconfig.json` (or use `/** @jsxImportSource ilha */` per file) — see [Render and hydrate](/guide/island/render):
+Set `jsxImportSource` to `ilha` — see [Render and hydrate](/guide/ui/render):
 
 ```json
 {
@@ -39,8 +37,6 @@ Islands in these examples use JSX. Set `jsx` and `jsxImportSource` in `tsconfig.
   }
 }
 ```
-
-Define an island as usual, then use it in a page with a client directive:
 
 ```tsx twoslash
 // src/islands/counter.tsx
@@ -67,8 +63,6 @@ import { Counter } from "../islands/counter";
 <Counter client:load start={10} />
 ```
 
-Astro SSR-renders the component on the server. On the client, `@ilha/astro` calls `mount()` against the existing markup.
-
 ## How it works
 
 | Phase  | What happens                                                                                                |
@@ -76,86 +70,57 @@ Astro SSR-renders the component on the server. On the client, `@ilha/astro` call
 | Server | The renderer calls `renderToString()`, which wraps output in a `[data-ilha]` host with a state snapshot.    |
 | Client | The client entry finds that host inside Astro's `<astro-island>` and calls `mount(..., { hydrate: true })`. |
 
-Hydration is driven by Ilha's `data-ilha-*` attributes, so every Astro client directive works as expected.
-
 ```
 server                              client
 ──────────────────────────────────  ────────────────────────────────────
-.renderToStaticMarkup(island)       @ilha/astro/client
-  → island.hydratable(props, …)       → find [data-ilha] inside <astro-island>
-  → data-ilha-state snapshot          → island.mount(host)
-  → data-ilha-props on host           → astro:unmount → unmount()
+.renderToStaticMarkup(setup)        @ilha/astro/client
+  → renderToString(setup)             → find [data-ilha] inside <astro-island>
+  → data-ilha-state snapshot          → mount(host, setup, { hydrate: true })
+                                      → astro:unmount → unmount()
 ```
 
 ## Client directives
 
-| Directive        | Behavior                                                             |
-| ---------------- | -------------------------------------------------------------------- |
-| `client:load`    | Hydrate as soon as the page loads.                                   |
-| `client:idle`    | Hydrate when the browser is idle.                                    |
-| `client:visible` | Hydrate when the island enters the viewport.                         |
-| `client:media`   | Hydrate when a media query matches.                                  |
-| `client:only`    | Skip SSR. Mount fresh in the browser with the props Astro passes in. |
-
-Use `client:only` when the island needs browser-only APIs during first paint. For everything else, prefer a directive that SSR-renders first so users see content before JavaScript runs.
+| Directive        | Behavior                                     |
+| ---------------- | -------------------------------------------- |
+| `client:load`    | Hydrate as soon as the page loads.           |
+| `client:idle`    | Hydrate when the browser is idle.            |
+| `client:visible` | Hydrate when the island enters the viewport. |
+| `client:media`   | Hydrate when a media query matches.          |
+| `client:only`    | Skip SSR. Mount fresh in the browser.        |
 
 ```astro
 ---
 import { Counter } from "../islands/counter";
 ---
 
-<Counter client:only="ilha" start={0} />
+<Counter client:only="@ilha/astro" start={0} />
 ```
 
-## Plain function components
+When you mix JSX frameworks, pass `include` globs:
 
-The renderer also accepts plain functions that return Ilha `RawHtml` or a string — the same shape Areia's static exports use (for example `Button` without callbacks).
-
-On the server, `@ilha/astro` calls the function and emits the HTML with no `data-ilha` wrapper. With SSR-backed directives such as `client:load`, the client re-invokes the function so libraries that schedule auto-bind against SSR markup (for example `data-areia-*` hosts) still wire up.
-
-Plain Astro function components do not create an Ilha island lifecycle. Lowercase event props such as `onclick` therefore stay inert when you render the function directly through Astro. Plain functions also cannot use `client:only`, because there is no island to mount without SSR markup.
-
-Promote independently interactive UI with `ilha(() => JSX)`; add state, actions, and other capabilities with primitives inside the component. Plain function children rendered inside an island inherit its event lifecycle.
-
-```tsx twoslash
-export const Button = ({ label }: { label: string }) => (
-  <button class="btn" type="button">
-    {label}
-  </button>
-);
+```ts
+ilha({ include: ["**/ilha/**"] });
 ```
-
-```astro
----
-import { Button } from "../components/button";
----
-
-<Button client:load label="Save" />
-```
-
-If client re-invocation fails, the integration throws a sanitized `[@ilha/astro]` error and does not expose the original exception.
 
 ## Import paths
 
 | Import path          | Use it for                                      |
 | -------------------- | ----------------------------------------------- |
-| `@ilha/astro`        | Astro integration (`ilha()` / `getRenderer()`). |
+| `@ilha/astro`        | Integration (default export / `getRenderer()`). |
 | `@ilha/astro/client` | Client hydration entry (registered by Astro).   |
 | `@ilha/astro/server` | Server renderer entry (registered by Astro).    |
 
-You almost never import the client or server entrypoints yourself. `ilha()` registers them through Astro's renderer API.
-
 ## Notes
 
-- Ilha islands do not support Astro's `<slot />` or children forwarding. Pass data through props and render it inside the island component.
-- `client:only` mounts with `Component.mount(element, props)` against an empty host. Prefer SSR + hydrate when you can.
-- Peer ranges: `astro` `^7.0.0`, `ilha` `>=0.9.5`.
+- Ilha components do not support Astro `<slot />` forwarding. Pass data through props.
+- `client:only` mounts with `mount(element, setup)` against an empty host.
+- Peer ranges: `astro` `^7.2.9`, `ilha` `>=0.13.0`.
 
 ## Related
 
-| Topic                  | Guide                                                            |
-| ---------------------- | ---------------------------------------------------------------- |
-| Core `ilha` API        | [ilha](/reference/ilha)                                          |
-| Hydratable SSR         | [Render and hydrate](/guide/island/render#emit-hydration-markup) |
-| Mount and discovery    | [Mount](/guide/recipes/helpers#mount-islands)                    |
-| Multi-page SPA routing | [Router](/guide/routing/overview)                                |
+| Topic                  | Guide                                  |
+| ---------------------- | -------------------------------------- |
+| Core `ilha` API        | [ilha](/reference/ilha)                |
+| SSR and hydrate        | [Render and hydrate](/guide/ui/render) |
+| Multi-page SPA routing | [Router](/guide/routing/overview)      |

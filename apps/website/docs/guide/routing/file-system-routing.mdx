@@ -1,183 +1,83 @@
 ---
 title: File-system routing
-description: Generate routes from src/pages/ with the pages plugin — layouts, error boundaries, page loaders, and virtual modules.
+description: Generate routes from src/pages/ with the pages plugin.
 ---
 
-`@ilha/router` ships a **pages plugin** (built on [unplugin](https://unplugin.unjs.io/)) that scans `src/pages/`, resolves layout and error boundary chains, and generates a ready-to-use router with zero manual route registration. Pick the entry that matches your toolchain:
+The pages plugin scans `src/pages/`, wraps layouts, and generates a router. Pick the entry for your toolchain:
 
 | Tool    | Import                 |
 | ------- | ---------------------- |
 | Vite    | `@ilha/router/vite`    |
 | Rsbuild | `@ilha/router/rsbuild` |
 
-Vite 8+ may use Rolldown internally; keep using `@ilha/router/vite` in `vite.config.ts`.
-
 ## Setup
 
-### Vite
-
 ```ts
-// vite.config.ts
-import { defineConfig } from "vite";
 import pages from "@ilha/router/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [pages()],
 });
 ```
 
-### Rsbuild
+## File names
 
-```ts
-// rsbuild.config.ts
-import { defineConfig } from "@rsbuild/core";
-import pages from "@ilha/router/rsbuild";
+| File                  | URL            |
+| --------------------- | -------------- |
+| `pages/index.tsx`     | `/`            |
+| `pages/about.tsx`     | `/about`       |
+| `pages/user/[id].tsx` | `/user/:id`    |
+| `pages/[...slug].tsx` | `/**:slug`     |
+| `pages/+layout.tsx`   | wraps children |
+| `pages/+error.tsx`    | error boundary |
 
-export default defineConfig({
-  plugins: [pages()],
-  tools: {
-    swc: {
-      jsc: {
-        transform: {
-          react: {
-            runtime: "automatic",
-            importSource: "ilha",
-            throwIfNamespace: false,
-          },
-        },
-      },
-    },
-  },
-});
-```
+`foo.server.tsx` uses the same URL as `foo.tsx` and renders on the server. See [Server islands](/guide/routing/server-islands).
 
-Add `.ilha/` to `.gitignore`.
+## Page module
 
-## Directory structure
-
-```text
-src/pages/
-  +layout.tsx             ← root layout (wraps all pages)
-  +error.tsx              ← root error boundary
-  index.tsx               → /
-  about.tsx               → /about
-  (auth)/                 ← route group — invisible in the URL
-    +layout.tsx           ← layout scoped to (auth) pages only
-    sign-in.tsx           → /sign-in
-    sign-up.tsx           → /sign-up
-  user/
-    +layout.tsx           ← nested layout (wraps user/* only)
-    +error.tsx            ← nested error boundary
-    [id].tsx              → /user/:id
-    [id]/
-      settings.tsx        → /user/:id/settings
-  [...slug].tsx            → /**:slug
-```
-
-## Filename → pattern mapping
-
-| File                 | Pattern     |
-| -------------------- | ----------- |
-| `index.tsx`          | `/`         |
-| `about.tsx`          | `/about`    |
-| `[id].tsx`           | `/:id`      |
-| `user/[id].tsx`      | `/user/:id` |
-| `[...slug].tsx`      | `/**:slug`  |
-| `(auth)/sign-in.tsx` | `/sign-in`  |
-
-## Route groups
-
-Folders wrapped in parentheses — `(name)` — organise files without contributing a URL segment. Use them for shared layouts, co-located pages, or logical grouping with no effect on the URL.
-
-## Layouts
-
-A `+layout.tsx` wraps every page in its directory and all subdirectories. Layouts compose inside-out — nearest layout is innermost. (`.ts` is also supported if you do not need JSX.)
+Export a default component:
 
 ```tsx twoslash
-// src/pages/+layout.tsx
-import { defineLayout } from "@ilha/router";
-import { ilha } from "ilha";
+import { head } from "@ilha/router";
 
-export default defineLayout((Children) =>
-  ilha(() => (
-    <>
+export default function Home() {
+  head({ title: "Home" });
+  return <h1>Home</h1>;
+}
+```
+
+## Layout
+
+```tsx twoslash
+import type { View } from "ilha";
+
+export default function Layout({
+  children,
+}: {
+  children?: View;
+}) {
+  return (
+    <div>
       <nav>
         <a href="/">Home</a>
-        <a href="/about">About</a>
       </nav>
-      <main>
-        <Children />
-      </main>
-    </>
-  )),
-);
-```
-
-## Load page data
-
-Export `load` from a page or layout to fetch data before rendering. The plugin composes nested loaders and connects their results to the page.
-
-See [Loaders](/guide/routing/loaders) for server loaders, `loader.client()`, input typing, redirects, errors, and navigation behavior.
-
-## Error boundaries
-
-A `+error.tsx` catches rendering errors for pages in its directory. The nearest boundary wins. If it re-throws, the next outer boundary takes over. (`.ts` is also supported if you do not need JSX.)
-
-The nearest boundary also renders **loader errors** — `error(status, message)` or an unexpected throw in `load`/`loader.client()` — on both the server (with the proper HTTP status) and client navigations. Manual routers get the same via `.errorBoundary(pattern, handler)`.
-
-```tsx twoslash
-// src/pages/+error.tsx
-import type { ErrorHandler } from "@ilha/router";
-import { ilha } from "ilha";
-
-export default ((err, route) =>
-  ilha(() => (
-    <div class="error">
-      <h1>{err.status ?? 500}</h1>
-      <p>{err.message}</p>
+      <main>{children}</main>
     </div>
-  ))) satisfies ErrorHandler;
+  );
+}
 ```
 
-## Virtual modules
-
-Use the **explicit** `/server` or `/client` suffix — they resolve to different generated files (raw imports for SSR vs `?client` imports for the browser bundle).
-
-| Module              | Exports                  | Use for                                |
-| ------------------- | ------------------------ | -------------------------------------- |
-| `ilha:pages/server` | `pageRouter`, `registry` | SSR, prerender, server handlers        |
-| `ilha:pages/client` | `pageRouter`, `registry` | Browser hydration entry                |
-| `ilha:loaders`      | —                        | Server-only side-effect: wires loaders |
-
-For **`mode: "static"`** (MPA / pre-rendered HTML), hydrate per page with:
+## Client entry
 
 ```ts
-import { pageRouter, registry } from "ilha:pages/client";
+import { pageRouter } from "ilha:pages/client";
 
-pageRouter.hydrateStatic(registry);
+pageRouter.mount("#app");
 ```
 
-## Plugin options
-
-Options are the same for the Vite and Rsbuild entries:
+Hydrate when the host already has SSR markup:
 
 ```ts
-pages({
-  dir: "src/pages", // default
-  outDir: ".ilha", // default
-  mode: "spa", // "spa" | "static" (default: "spa")
-  interceptLinks: true, // spa only — false = full page loads on <a> clicks
-  frameGuard, // optional (request) => Response | void — gates /__ilha/frame
-  loaderGuard, // optional — gates /__ilha/loader separately (falls back to frameGuard)
-  trustedOrigins, // optional string[] — explicit origins for frame/loader origin checks
-  csrf, // optional (request) => boolean — extra verifier for the frame POST
-});
+pageRouter.mount("#app", { hydrate: true });
 ```
-
-- **`mode: "spa"`** — full route graph, SSR/hydration, client navigation.
-- **`mode: "spa", interceptLinks: false`** — SSR/hydration, but internal links reload the document.
-- **`mode: "static"`** — registry only on the client; no bundled route graph — use `hydrateStatic`.
-
-For advanced use, import `ilhaPages` from either bundler entry and call `.vite()` or `.rsbuild()` on the shared factory.
-
-The `frameGuard`, `loaderGuard`, `trustedOrigins`, and `csrf` options apply in development; production uses the shared guard slots from `@ilha/router/ssr` — see [Middleware and security](/guide/routing/middleware-and-security).

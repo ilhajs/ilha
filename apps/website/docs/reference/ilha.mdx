@@ -1,259 +1,78 @@
 ---
-title: "Core package reference"
-description: Compact reference for the public exports from the ilha package.
+title: Core package reference
+description: Public exports from the ilha package.
 ---
 
-Use this page as a map of the public `ilha` API. Start with [Introduction](/guide/getting-started/introduction) if you are building your first island.
+Use this page as a map of the public `ilha` API. Start with [Introduction](/guide/getting-started/introduction) if you are building your first component.
 
-## Create an island
+## Component
 
-Import the callable `ilha` export and pass a function component:
+A component is a function, async function, or generator that returns a view.
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { atom } from "ilha";
 
-const Status = ilha(() => <p>Ready</p>);
+const Status = () => <p>Ready</p>;
 
-const Greeting = ilha<{ name: string }>(({ name }) => (
+const Greeting = ({ name }: { name: string }) => (
   <p>Hello, {name}</p>
-));
-```
-
-Pass a [Standard Schema](https://standardschema.dev)-compatible validator as the first argument to validate, coerce, and default props at runtime:
-
-```tsx twoslash
-import { z } from "zod";
-import { ilha } from "ilha";
-
-const Greeting = ilha(
-  z.object({ name: z.string().default("World") }),
-  ({ name }) => <p>Hello, {name}!</p>,
 );
-```
 
-An optional trailing `{ as: "span" }` chooses the slot wrapper tag when the island is nested inside another island's render.
-
-## Primitives
-
-Declare reactive capabilities at the top level of the component, in a stable order. Primitive slots persist across rerenders; in development ilha detects calls outside an island render, hook count changes, and kind changes.
-
-| Primitive         | Purpose                                            | Learn more                       |
-| ----------------- | -------------------------------------------------- | -------------------------------- |
-| `state(init?)`    | Island-local reactive state.                       | [State](/guide/island/state)     |
-| `derived(fn)`     | Sync, async, or async-generator derived values.    | [Derived](/guide/island/derived) |
-| `action(fn)`      | Typed reusable operation with reactive status.     | [Actions](/guide/island/action)  |
-| `effect(fn)`      | Reactive side effect; reruns on dependency change. | [Effects](/guide/island/effect)  |
-| `effect.once(fn)` | One-time per-instance setup after mount.           | [Setup](/guide/island/effect)    |
-| `onError(fn)`     | Per-island error handler.                          | [Errors](/guide/island/errors)   |
-
-Primitives return accessors. Read and write state with the same call style:
-
-```ts twoslash
-import { state } from "ilha";
-
-const count = state(0);
-count(); // read
-count.set(1); // write
-count.update((previous) => previous + 1); // update from latest value
-```
-
-A function argument to `state()` is a lazy initializer. Store a function value with `.set`:
-
-```ts twoslash
-import { state } from "ilha";
-
-const initialCallback = () => "initial";
-const nextCallback = () => "next";
-
-const callback = state(() => initialCallback);
-callback.set(nextCallback);
-```
-
-## Standalone helpers
-
-| Helper                   | Purpose                                                     | Learn more                                          |
-| ------------------------ | ----------------------------------------------------------- | --------------------------------------------------- |
-| `context(key, initial)`  | Named shared signal accessible from anywhere by key.        | [Signals](/guide/island/signals)                    |
-| `effect(fn)`             | Standalone reactive effect outside an island; returns stop. | [Signals](/guide/island/signals)                    |
-| `batch(fn)`              | Batch signal writes into one propagation pass.              | [Signals](/guide/island/signals)                    |
-| `untrack(fn)`            | Read signals without subscribing the active reactive scope. | [Signals](/guide/island/signals)                    |
-| `persist(accessor, key)` | Keep a standalone signal in sync with storage.              | [Signals](/guide/island/signals)                    |
-| `each(items)`            | Map a collection to rendered output with an empty fallback. | [Server islands](/guide/routing/server-islands)     |
-| `html\`…\``              | XSS-safe tagged template for HTML strings.                  | [html](/guide/recipes/helpers#build-html-strings)   |
-| `raw(str)`               | Trusted raw markup inside JSX / html.                       | [raw](/guide/recipes/helpers#render-trusted-markup) |
-| `json(value)`            | `JSON.stringify` with `<` escaped for `<script>` data.      | [html](/guide/recipes/helpers#build-html-strings)   |
-| `css(str)`               | `String` with `<` escaped for `<style>` data.               | [html](/guide/recipes/helpers#build-html-strings)   |
-| `mount(registry)`        | Auto-discover and mount `[data-ilha]` hosts.                | [Mount](/guide/recipes/helpers#mount-islands)       |
-| `onUncaughtError(fn)`    | Global fallback for otherwise uncaught island errors.       | [Errors](/guide/island/errors)                      |
-
-## Actions
-
-An action receives its payload first and a `{ signal }` context second. Its accessor is callable and exposes reactive status properties:
-
-```ts twoslash
-import { action } from "ilha";
-
-type Draft = { title: string };
-const draft: Draft = { title: "hello" };
-
-const save = action(async (draft: Draft, { signal }) => {
-  const response = await fetch("/api/save", {
-    method: "POST",
-    body: JSON.stringify(draft),
-    signal,
-  });
-  return response.json();
-});
-
-save(draft);
-save.pending;
-save.data;
-save.error;
-```
-
-Use actions directly as native event handlers when the payload matches the event, and reuse plain functions for ordinary operations.
-
-## Effects
-
-An effect callback receives `{ signal }` — the current run's AbortSignal. State, derived values, actions, and props stay in lexical closure:
-
-```ts twoslash
-import { effect } from "ilha";
-
-let eventSource: EventSource | null = null;
-
-effect(({ signal }) => {
-  eventSource = new EventSource("/stream");
-  const onAbort = () => eventSource?.close();
-  signal.addEventListener("abort", onAbort, { once: true });
-  return () => eventSource?.close();
-});
-```
-
-`effect.once()` receives `{ host, signal, hydrated }`.
-
-## Error contexts
-
-| Context             | Members                      | Source                                      |
-| ------------------- | ---------------------------- | ------------------------------------------- |
-| `effect()` ctx      | `signal`                     | —                                           |
-| `effect.once()` ctx | `host`, `signal`, `hydrated` | —                                           |
-| `onError()` ctx     | `error`, `source`, `host`    | `"effect"`, `"once"`, `"event"`, `"action"` |
-
-## Native event props
-
-Use lowercase DOM event names in JSX:
-
-```tsx twoslash
-import { action } from "ilha";
-
-const save = action((_payload: unknown) => void _payload);
-const search = (event: InputEvent, _signal: AbortSignal) => {
-  void event;
+const Counter = () => {
+  const count = atom(0);
+  return (
+    <button
+      type="button"
+      onclick={() => count.update((n: number) => n + 1)}
+    >
+      {count}
+    </button>
+  );
 };
-
-<button onclick={save}>Save</button>;
-<input
-  oninput:abortable={(event, { signal }) =>
-    search(event, signal)
-  }
-/>;
 ```
 
-Handlers receive the native event and `{ signal }`. Add at most one native modifier: `:abortable`, `:once`, `:capture`, or `:passive`.
+## Named exports
 
-## Island methods
+| Export              | Purpose                                  | Learn more                         |
+| ------------------- | ---------------------------------------- | ---------------------------------- |
+| `atom(init)`        | Writable or computed reactive value      | [State](/guide/ui/state)           |
+| `when(stream, fn)`  | Render a generator body per Stream value | [Streams](/guide/ui/streams)       |
+| `watch(source, fn)` | Side effect on atom or Stream            | [Streams](/guide/ui/streams)       |
+| `wait(body)`        | Pause a generator until `done(value)`    | [Streams](/guide/ui/streams)       |
+| `h` / `Fragment`    | JSX factory                              | [Templating](/guide/ui/templating) |
+| `mount`             | Activate a component in the DOM          | [Render](/guide/ui/render)         |
+| `renderToString`    | Serialize a component to HTML            | [Render](/guide/ui/render)         |
 
-| Method                                 | Purpose                                      |
-| -------------------------------------- | -------------------------------------------- |
-| `Island.toString(props)`               | Synchronous SSR HTML.                        |
-| `await Island.toStringAsync(props)`    | Async SSR HTML; awaits derived values.       |
-| `await Island.hydratable(props, opts)` | Hydration markup with props and snapshot.    |
-| `Island.mount(host, props?)`           | Mount into a DOM element; returns unmount(). |
-| `Island.key(key)`                      | Keyed child invocation for lists.            |
-| `Island.define(tag, options?)`         | Register as a custom element.                |
+`define` lives at `ilha/define`.
 
-Direct `Island(props)` calls are reserved for child composition inside another island render.
+## atom
 
-## JSX runtime
+| Call               | Meaning                |
+| ------------------ | ---------------------- |
+| `atom(value)`      | Writable atom          |
+| `atom(() => expr)` | Computed atom          |
+| `count()`          | Read                   |
+| `count.set(v)`     | Replace                |
+| `count.update(fn)` | Patch                  |
+| `count.atom`       | Underlying Effect atom |
 
-Use the automatic runtime with a pragma or `tsconfig.json`:
+## renderToString
 
-```tsx twoslash
-/** @jsxImportSource ilha */
+```ts
+await renderToString(setup, {
+  snapshot?: boolean;
+  markers?: boolean;
+  timeout?: number;
+  captureActions?: boolean;
+});
 ```
 
-```json
-{
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "jsxImportSource": "ilha"
-  }
-}
+## mount
+
+```ts
+const unmount = mount(element, setup, { hydrate?: boolean; onError?: (e) => void });
 ```
 
-Build tools resolve `ilha/jsx-runtime` in production and `ilha/jsx-dev-runtime` in development. Intrinsic props are element-specific; `RawHtml` is accepted by string-valued HTML and SVG attributes:
+## Types
 
-```tsx twoslash
-import { raw } from "ilha";
-
-const icon = "data:image/png;base64,AAAA";
-<img src={raw(icon)} alt="Icon" />;
-```
-
-## Common public types
-
-```ts twoslash
-import type {
-  Island,
-  IslandComponent,
-  KeyedIsland,
-  RawHtml,
-  HydratableOptions,
-  MountOptions,
-  MountResult,
-  SignalAccessor,
-  StateAccessor,
-  ExternalSignal,
-  DerivedAccessor,
-  DerivedValue,
-  ActionAccessor,
-  NativeEventHandler,
-  NativeEventContext,
-  NativeEventModifier,
-  EffectContext,
-  EffectOnceContext,
-  ErrorContext,
-  ErrorSource,
-} from "ilha";
-```
-
-| Type                  | Use it for                                                                |
-| --------------------- | ------------------------------------------------------------------------- |
-| `Island`              | A callable, renderable, mountable island.                                 |
-| `IslandComponent`     | The function-component shape passed to `ilha()`.                          |
-| `KeyedIsland`         | A keyed child invocation returned by `Island.key()`.                      |
-| `RawHtml`             | Trusted HTML produced by `html` or `raw`.                                 |
-| `HydratableOptions`   | Hydration name and snapshot options.                                      |
-| `MountOptions`        | Registry mounting root and lazy behavior.                                 |
-| `MountResult`         | Registry mount result, including its `unmount()`.                         |
-| `SignalAccessor`      | A readable and writable signal: `()`, `.set()`, `.update()`, `.select()`. |
-| `StateAccessor`       | The accessor returned by `state()`.                                       |
-| `ExternalSignal`      | Alias of `SignalAccessor`; the contract type for `bind:*` templates.      |
-| `DerivedAccessor`     | A derived value accessor with loading and error.                          |
-| `DerivedValue`        | The `{ loading, value, error }` envelope.                                 |
-| `ActionAccessor`      | A callable action with `.pending`, `.data`, `.error`.                     |
-| `NativeEventHandler`  | Lowercase native event-prop handler type.                                 |
-| `NativeEventContext`  | Native handler context containing `signal`.                               |
-| `NativeEventModifier` | `"abortable"`, `"once"`, `"capture"`, or `"passive"`.                     |
-| `EffectContext`       | Context passed to `effect()`.                                             |
-| `EffectOnceContext`   | Context passed to `effect.once()`.                                        |
-| `ErrorContext`        | Context passed to `onError()`.                                            |
-| `ErrorSource`         | `"effect"`, `"once"`, `"event"`, or `"action"`.                           |
-
-## Related packages
-
-| Package        | Guide                             |
-| -------------- | --------------------------------- |
-| `@ilha/router` | [Router](/guide/routing/overview) |
-| `@ilha/astro`  | [Astro](/guide/astro)             |
+`Component`, `View`, `AtomHandle`, `Done`, `MountOptions`, `RenderToStringOptions`.

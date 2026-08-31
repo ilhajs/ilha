@@ -1,5 +1,5 @@
 import { h, mount, renderToString } from "ilha";
-import type { Setup, View } from "ilha";
+import type { Component, View } from "ilha";
 
 import { REQUEST_ALS_KEY } from "./als-key";
 import { getAdapter, getHistoryMode } from "./hash";
@@ -22,7 +22,7 @@ export type { HttpResponseOptions } from "./http";
 
 const isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
 
-export type Page = Setup;
+export type Page = Component;
 
 export interface RouteRecord {
   pattern: string;

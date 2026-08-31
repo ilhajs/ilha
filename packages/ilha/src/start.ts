@@ -1,7 +1,7 @@
 import { asFailure } from "./errors.ts";
 import { interpret } from "./interpret.ts";
 import { setIsland, withFiber, type FiberLocal } from "./runtime.ts";
-import type { GeneratorFn, Setup, View } from "./types.ts";
+import type { Component, GeneratorFn, View } from "./types.ts";
 
 function isGen(x: unknown): x is Generator<unknown, View | void, unknown> {
   return (
@@ -18,7 +18,7 @@ function finish(fiber: FiberLocal, view: View | void): void {
   fiber.park();
 }
 
-export function runSetup(fiber: FiberLocal, fn: Setup): void {
+export function runSetup(fiber: FiberLocal, fn: Component): void {
   try {
     setIsland(fiber);
     const out = withFiber(fiber, () => fn());

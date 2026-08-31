@@ -2,5 +2,5 @@ import { defineMeta } from "blume";
 
 export default defineMeta({
   title: "Counter",
-  pages: ["state", "action", "derived", "bind", "effect", "setup"],
+  pages: ["atom", "events", "ssr"],
 });

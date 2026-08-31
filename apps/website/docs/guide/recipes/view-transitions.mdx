@@ -1,25 +1,24 @@
 ---
-title: View Transitions
+title: View transitions
 ---
 
-You animate between UI states with the browser's native View Transition API. Ilha
-doesn't wrap it — you call `document.startViewTransition()` and update state
-inside the callback.
+You animate between UI states with the browser View Transition API. Ilha does not wrap it. Call `document.startViewTransition()` and update an atom inside the callback.
 
 ```tsx twoslash
-import { ilha, state } from "ilha";
+import { atom } from "ilha";
 
-export default ilha(() => {
-  const checked = state(false);
+export default function Card() {
+  const checked = atom(false);
 
   const toggle = () => {
     document.startViewTransition(() => {
-      checked(!checked());
+      checked.update((value: boolean) => !value);
     });
   };
 
   return (
     <button
+      type="button"
       class="card"
       onclick={toggle}
       style="view-transition-name: card"
@@ -27,44 +26,7 @@ export default ilha(() => {
       {checked() ? "Checked" : "Unchecked"}
     </button>
   );
-});
-```
-
-## How it works
-
-`startViewTransition(callback)` snapshots the current page, runs `callback`
-(where you write new state), then cross-fades between the old and new snapshots.
-
-You wrap only the state write — the island re-renders and `morph()` patches the
-DOM inside the transition, so the browser animates the change.
-
-## Name shared elements
-
-The same element before and after the change must carry the same
-`view-transition-name` for the browser to morph it.
-
-```css
-.card {
-  view-transition-name: card;
 }
 ```
 
-## Respect the reduced-motion setting
-
-```ts twoslash
-import { state } from "ilha";
-
-const checked = state(false);
-
-const toggle = () => {
-  const reduce = matchMedia(
-    "(prefers-reduced-motion: reduce)",
-  ).matches;
-  const write = () => checked(!checked());
-  if (reduce) {
-    write();
-  } else {
-    document.startViewTransition(write);
-  }
-});
-```
+The callback must update state synchronously so the browser can snapshot both sides of the transition.

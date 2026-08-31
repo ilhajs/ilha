@@ -7,4 +7,4 @@ export { recordServerAction } from "./events.ts";
 export { mount, renderToString } from "./mount.ts";
 export type { MountOptions, RenderToStringOptions } from "./mount.ts";
 export { Fragment, h } from "./vnode.ts";
-export type { AtomHandle, Done, Setup, View } from "./types.ts";
+export type { AtomHandle, Component, Done, View } from "./types.ts";

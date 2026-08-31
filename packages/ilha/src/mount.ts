@@ -2,7 +2,7 @@ import { paint, paintError } from "./paint.ts";
 import { closeFiber, makeFiber, makeRuntime, popIsland } from "./runtime.ts";
 import { decodeSnapshot, encodeSnapshot, STATE_COMMENT } from "./snapshot.ts";
 import { runSetup } from "./start.ts";
-import type { Setup, IlhaRuntime } from "./types.ts";
+import type { Component, IlhaRuntime } from "./types.ts";
 
 export type RenderToStringOptions = {
   snapshot?: boolean;
@@ -34,7 +34,7 @@ function readHydrate(el: Element): unknown[] | undefined {
 
 function attach(
   el: Element,
-  fn: Setup,
+  fn: Component,
   opts?: MountOptions & { ssr?: boolean; ssrCapture?: boolean },
 ): { unmount: () => void; ready: Promise<void>; runtime: IlhaRuntime } {
   if (!opts?.hydrate) el.innerHTML = "";
@@ -71,7 +71,7 @@ function attach(
   };
 }
 
-export function mount(el: Element, fn: Setup, opts?: MountOptions): () => void {
+export function mount(el: Element, fn: Component, opts?: MountOptions): () => void {
   return attach(el, fn, opts).unmount;
 }
 
@@ -85,7 +85,7 @@ function ensureDocument(): Promise<void> {
   return domReady;
 }
 
-export async function renderToString(fn: Setup, opts?: RenderToStringOptions): Promise<string> {
+export async function renderToString(fn: Component, opts?: RenderToStringOptions): Promise<string> {
   await ensureDocument();
   const snapshot = opts?.snapshot !== false;
   const markers = opts?.markers !== false;

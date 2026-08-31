@@ -21,36 +21,38 @@ Build reactive components once. Render them on the server, mount them in the bro
 
 Most UI frameworks hydrate an application. Ilha hydrates **only the components that need to be interactive**.
 
-- **Tiny by architecture** — static HTML stays static. Your users download code for active islands, not an entire page.
-- **No virtual DOM** — signals drive local updates and Ilha morphs the existing DOM in place.
-- **No compiler required** — use standard JSX/TSX, or the `html\`\`` helper without JSX.
-- **One component, every environment** — the same island renders on the server, mounts in the browser, and hydrates in place.
-- **A consistent SSR story** — synchronous HTML, awaited async HTML, and hydratable output are explicit methods on every island.
-- **Progressive by default** — add one island to server-rendered HTML or compose a complete SPA. You choose the boundary.
-- **Small API, strong TypeScript** — function components, typed props, signals, derived values, effects, and tracked actions.
-- **Backend and runtime agnostic** — Ilha uses web platform primitives and ESM, so it fits existing servers, edge runtimes, static sites, and browsers.
+- **Tiny by architecture** — static HTML stays static. Your users download code for active regions, not an entire page.
+- **No virtual DOM** — atoms drive local updates and Ilha morphs the existing DOM in place.
+- **No compiler required** — standard JSX/TSX, or `h()` when you cannot use JSX.
+- **One component, every environment** — the same function renders on the server, mounts in the browser, and hydrates in place.
+- **A consistent SSR story** — `renderToString()` waits until idle, then serializes HTML and an optional atom snapshot.
+- **Progressive by default** — add one component to server-rendered HTML or compose a complete SPA. You choose the boundary.
+- **Small API, strong TypeScript** — function components, `atom()`, `when` / `watch` / `wait`, and JSX.
+- **Backend and runtime agnostic** — web platform primitives and ESM, so it fits existing servers, edge runtimes, static sites, and browsers.
 
 Because Ilha sends only the interactive parts of a page, real applications can ship **around 5× less client JavaScript than whole-page hydration**. The exact result depends on your component boundaries and dependencies—measure your production bundle, not the slogan.
 
 ## Ilha vs. full-app frameworks
 
-|                             | Ilha                              | Typical full-app hydration           |
-| --------------------------- | --------------------------------- | ------------------------------------ |
-| Client boundary             | Each interactive island           | The application root                 |
-| Update model                | Signals + direct DOM morphing     | Virtual DOM reconciliation           |
-| Server and client component | The same function                 | Often separate execution constraints |
-| SSR API                     | `.toString()`, `.toStringAsync()` | Framework-specific renderer          |
-| Hydration                   | Explicit, local, snapshot-aware   | Usually application-wide             |
-| Compiler                    | Optional                          | Often required for best results      |
-| Adoption                    | One component or a complete app   | Usually controls the application     |
+|                             | Ilha                            | Typical full-app hydration           |
+| --------------------------- | ------------------------------- | ------------------------------------ |
+| Client boundary             | Each interactive component      | The application root                 |
+| Update model                | Atoms + direct DOM morphing     | Virtual DOM reconciliation           |
+| Server and client component | The same function               | Often separate execution constraints |
+| SSR API                     | `renderToString()`              | Framework-specific renderer          |
+| Hydration                   | Explicit, local, snapshot-aware | Usually application-wide             |
+| Compiler                    | Optional                        | Often required for best results      |
+| Adoption                    | One component or a complete app | Usually controls the application     |
 
 Ilha is not trying to be a batteries-included platform. It is the small rendering and reactivity layer you can bring to the stack you already have.
 
 ## Quick start
 
 ```sh
-npm install ilha
+npm install ilha effect
 ```
+
+`effect` is a peer dependency.
 
 Configure JSX once:
 
@@ -63,52 +65,50 @@ Configure JSX once:
 }
 ```
 
-Create an island:
+Write a component:
 
 ```tsx
-import { ilha, state } from "ilha";
+import { atom } from "ilha";
 
-export const Counter = ilha<{ start?: number }>(({ start = 0 }) => {
-  const count = state(start);
+export const Counter = ({ start = 0 }: { start?: number }) => {
+  const count = atom(start);
 
   return (
-    <button type="button" onclick={() => count.update((value) => value + 1)}>
-      Count: {count()}
+    <button type="button" onclick={() => count.update((value: number) => value + 1)}>
+      Count: {count}
     </button>
   );
-});
+};
 ```
 
 ### Mount it in the browser
-
-```html
-<div data-ilha="Counter"></div>
-```
 
 ```ts
 import { mount } from "ilha";
 import { Counter } from "./counter";
 
-mount({ Counter });
+mount(document.getElementById("app")!, () => Counter({ start: 0 }));
 ```
-
-`mount()` discovers every matching `[data-ilha]` host and activates it.
 
 ### Render it on the server
 
 ```ts
-const html = Counter.toString({ start: 10 });
-const asyncHtml = await Counter.toStringAsync({ start: 10 });
+import { renderToString } from "ilha";
+import { Counter } from "./counter";
+
+const html = await renderToString(() => Counter({ start: 10 }));
 ```
 
 ### Render now, hydrate later
 
 ```ts
-// Server: HTML + serialized props + optional reactive snapshot
-const html = await Counter.hydratable({ start: 10 }, { name: "Counter", snapshot: true });
+import { mount, renderToString } from "ilha";
+import { Counter } from "./counter";
 
-// Client: restores the snapshot and activates the existing DOM
-mount({ Counter });
+const html = await renderToString(() => Counter({ start: 10 }));
+
+const host = document.querySelector("[data-ilha]");
+if (host) mount(host, () => Counter({ start: 10 }), { hydrate: true });
 ```
 
 No duplicate template. No separate client component. No hydration flicker.
@@ -116,29 +116,30 @@ No duplicate template. No separate client component. No hydration flicker.
 ## A small reactive toolbox
 
 ```tsx
-import { action, derived, effect, ilha, onError, state } from "ilha";
+import { atom, when, watch, wait, mount, renderToString, h } from "ilha";
 ```
 
-| Primitive       | Use it for                                                     |
-| --------------- | -------------------------------------------------------------- |
-| `state()`       | Local signal state                                             |
-| `derived()`     | Synchronous, promise, or async-generator derived values        |
-| `action()`      | Operations that need reactive pending, result, error, or abort |
-| `effect()`      | Side effects driven by reactive values                         |
-| `effect.once()` | One-time DOM setup with automatic cleanup                      |
-| `onError()`     | Island-local error handling                                    |
+| Export             | Use it for                                    |
+| ------------------ | --------------------------------------------- |
+| `atom()`           | Local or computed reactive values             |
+| `when()`           | Render a generator body for each Stream value |
+| `watch()`          | Side effects on an atom or Stream             |
+| `wait()`           | Pause a generator until `done(value)`         |
+| `mount()`          | Activate a component in the DOM               |
+| `renderToString()` | Serialize a component to HTML                 |
+| `h` / `Fragment`   | JSX factory                                   |
 
-Ordinary event handlers stay ordinary functions. Reach for `action()` only when the UI needs operation state or cancellation.
+Ordinary event handlers stay ordinary functions (`onclick={handler}`). Lists are Streams of data, not atoms of JSX.
 
 ## Built for the web you already have
 
-### Add islands to any server-rendered page
+### Add components to any server-rendered page
 
 Emit a `data-ilha` host, load your client module, and call `mount()`. Ilha does not require control over your backend or document.
 
 ### Build an isomorphic SPA
 
-[`@ilha/router`](https://ilha.build/guide/routing/overview) adds signal-driven navigation, loaders, nested layouts, file-system routing for Vite and Rsbuild, and selective server islands.
+[`@ilha/router`](https://ilha.build/guide/routing/overview) adds file-system routing for Vite and Rsbuild, nested layouts, and Oxide server islands.
 
 ### Use Ilha inside Astro
 
@@ -153,11 +154,11 @@ Emit a `data-ilha` host, load your client module, and call `mount()`. Ilha does 
 
 ## Packages
 
-| Package                             | What it does                                                                 |
-| ----------------------------------- | ---------------------------------------------------------------------------- |
-| [`ilha`](./packages/ilha)           | Islands, signals, JSX runtime, SSR, hydration, DOM morphing, and lifecycle   |
-| [`@ilha/router`](./packages/router) | Isomorphic SPA routing, loaders, file-system routes, SSR, and server islands |
-| [`@ilha/astro`](./packages/astro)   | Astro renderer integration and client-directive hydration                    |
+| Package                             | What it does                                                         |
+| ----------------------------------- | -------------------------------------------------------------------- |
+| [`ilha`](./packages/ilha)           | Components, atoms, JSX runtime, SSR, hydration, and DOM morphing     |
+| [`@ilha/router`](./packages/router) | Isomorphic SPA routing, file-system routes, and Oxide server islands |
+| [`@ilha/astro`](./packages/astro)   | Astro renderer (`renderToString` + `mount`)                          |
 
 ## Documentation for humans and agents
 

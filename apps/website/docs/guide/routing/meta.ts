@@ -5,7 +5,6 @@ export default defineMeta({
   pages: [
     "overview",
     "routes-and-navigation",
-    "loaders",
     "file-system-routing",
     "server-islands",
     "middleware-and-security",

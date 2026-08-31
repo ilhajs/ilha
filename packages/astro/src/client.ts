@@ -14,8 +14,15 @@ export default (element: HTMLElement) =>
       merged[name === "default" ? "children" : name] = value;
     }
 
-    const hydrate = element.hasAttribute("ssr");
-    const host = (hydrate && element.querySelector<HTMLElement>("[data-ilha]")) || element;
-    const unmount = mount(host, () => Component(merged) as never, { hydrate });
+    const nested = element.querySelector<HTMLElement>("[data-ilha]");
+    const hydrate = !!nested;
+    const host = nested ?? element;
+    const unmount = mount(
+      host,
+      () => (Component as (p: Record<string, unknown>) => unknown)(merged) as never,
+      {
+        hydrate,
+      },
+    );
     element.addEventListener("astro:unmount", () => unmount(), { once: true });
   };

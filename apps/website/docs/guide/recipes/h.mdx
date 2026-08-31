@@ -1,0 +1,25 @@
+---
+title: Without JSX
+description: Build views with h() when you cannot use JSX.
+---
+
+Prefer JSX. When a file cannot use the JSX runtime, call `h()`:
+
+```ts twoslash
+import { atom, h } from "ilha";
+
+const Counter = () => {
+  const count = atom(0);
+  return h(
+    "button",
+    {
+      type: "button",
+      onclick: () => count.update((n: number) => n + 1),
+    },
+    "count: ",
+    count,
+  );
+};
+```
+
+`h(type, props, ...children)` is the same factory JSX uses. There is no `html` tagged template in this API.

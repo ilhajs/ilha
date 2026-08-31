@@ -1,0 +1,93 @@
+---
+title: Streams
+description: when, watch, wait, and live lists from a Stream.
+---
+
+Use `when`, `watch`, and `wait` from a **generator** component. `yield*` the instruction.
+
+## `when`
+
+`when(stream, body)` runs `body` for each value. On the client it keeps listening. On SSR it takes the first value.
+
+```tsx twoslash
+import * as Stream from "effect/Stream";
+import { when } from "ilha";
+
+function* Status() {
+  yield* when(
+    Stream.fromIterable(["idle", "ready"]),
+    function* (value) {
+      yield <p>{value}</p>;
+    },
+  );
+}
+```
+
+A new value closes the previous body and starts a fresh one. Stale work does not paint.
+
+## `watch`
+
+`watch(source, fn)` runs `fn` whenever an atom or Stream emits. It does not render.
+
+```tsx twoslash
+import { atom, watch } from "ilha";
+
+function* Logger() {
+  const n = atom(0);
+  yield* watch(n, (value) => {
+    console.log(value);
+  });
+  yield <p>{n}</p>;
+}
+```
+
+## `wait`
+
+`wait(body)` paints `body` until you call `done(value)`. Then the generator continues with that value.
+
+```tsx twoslash
+import { wait } from "ilha";
+
+function* Gate() {
+  const name = yield* wait(function* (done) {
+    yield (
+      <button type="button" onclick={() => done("Ada")}>
+        Continue
+      </button>
+    );
+  });
+  yield <p>Hello, {name}</p>;
+}
+```
+
+## Live lists
+
+On the server, subscribe to a PubSub or RPC generator and map it to JSX:
+
+```tsx twoslash
+import * as Stream from "effect/Stream";
+import { action } from "oxidejs";
+
+export const getTasks = action(async function* () {
+  yield [{ id: "1", text: "One" }];
+});
+
+export const TaskList = async function TaskList() {
+  return Stream.map(
+    Stream.fromAsyncIterable(getTasks(), (error: unknown) =>
+      error instanceof Error ? error : new Error(String(error)),
+    ),
+    (list: { id: string; text: string }[]) => (
+      <ul>
+        {list.map((item) => (
+          <li key={item.id}>{item.text}</li>
+        ))}
+      </ul>
+    ),
+  );
+};
+```
+
+SSR takes the first Stream value (`take(1)`), then serializes. The client proxy resumes the stream and refetches frames. See [Server islands](/guide/routing/server-islands).
+
+You can `yield Effect.sleep(ms)` or other Effects in a generator. Failures paint an error view unless you handle them.

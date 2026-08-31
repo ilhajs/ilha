@@ -1,0 +1,87 @@
+---
+title: State management
+description: Declare reactive values with atom(), read them, write them, and compute from other atoms.
+---
+
+You declare local state with `atom()`. When a value changes, the component that read it reruns and morphs its host.
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Counter = () => {
+  const count = atom(0);
+  return (
+    <button
+      type="button"
+      onclick={() => count.update((n: number) => n + 1)}
+    >
+      {count}
+    </button>
+  );
+};
+```
+
+## Read and write
+
+| Call                         | Meaning                |
+| ---------------------------- | ---------------------- |
+| `count()`                    | Read the current value |
+| `{count}` in JSX             | Read and subscribe     |
+| `count.set(1)`               | Replace                |
+| `count.update((n) => n + 1)` | Patch from previous    |
+
+If the initializer is a function, ilha treats it as computed, not as a stored function:
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Box = () => {
+  const ready = atom(() => expensive());
+  return <p>{ready() ? "ok" : "…"}</p>;
+};
+
+function expensive() {
+  return true;
+}
+```
+
+## Computed atoms
+
+Pass a function to read other atoms:
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Cart = () => {
+  const items = atom([
+    { id: "a", n: 1 },
+    { id: "b", n: 2 },
+  ]);
+  const total = atom(() =>
+    items().reduce((sum, item) => sum + item.n, 0),
+  );
+  return <p>{total}</p>;
+};
+```
+
+Computed atoms are read-only. Do not call `.set()` on them.
+
+A count is a number atom, not `.length` on a handle:
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Board = () => {
+  const items = atom([{ done: false }, { done: true }]);
+  const pending = atom(
+    () => items().filter((item) => !item.done).length,
+  );
+  return <span>{pending}</span>;
+};
+```
+
+## Props vs state
+
+State you initialize from props does not reset when props change later. Read props during render if the view should follow the parent.
+
+Atoms hold data. Do not store JSX in an atom. For lists, see [Templating](/guide/ui/templating).

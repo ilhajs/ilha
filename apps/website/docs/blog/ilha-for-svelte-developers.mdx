@@ -2,7 +2,7 @@
 title: Ilha for Svelte Developers
 type: blog
 date: 2026-04-27
-description: A practical map from six familiar Svelte ideas—$props, $state, $derived, $effect, bind:, and component boundaries—to their Ilha equivalents.
+description: A practical map from Svelte $state, $derived, and $effect to ilha atoms, computed atoms, and watch.
 authors:
   - name: awskir
     url: https://github.com/rago4
@@ -10,459 +10,96 @@ authors:
     x: https://x.com/awskir
 ---
 
-If you know Svelte, Ilha’s fine-grained reactivity should feel familiar. The important update is that Ilha is now authored with **function components and primitives**, not a fluent builder chain: call `ilha()` to create an independent island, and call `state()`, `derived()`, `effect()`, and related primitives inside the component.
+If you know Svelte, Ilha’s fine-grained reactivity should feel familiar. You write function components. You declare `atom()` values. Reads subscribe. Writes rerun the component and morph the DOM.
 
-This is not an argument that Ilha is better than Svelte. It is a practical map from six familiar Svelte ideas—`$props`, `$state`, `$derived`, `$effect`, `bind:`, and component boundaries—to their Ilha equivalents.
+This is not an argument that Ilha is better than Svelte. It is a map from familiar Svelte ideas to Ilha.
 
 ## What is Ilha?
 
-Ilha is a small, isomorphic island framework for reactive UI. An island can render HTML on the server and activate the same markup in the browser. Instead of turning an entire page into a client application, you can make only the UI that needs behavior interactive.
+Ilha is a small isomorphic UI library. A component renders HTML on the server and activates in the browser. You do not turn the whole page into a client app by default.
 
-Like Svelte, Ilha uses fine-grained reactivity rather than updating one large virtual-DOM tree. Unlike Svelte, Ilha does not use a special single-file component format or a compiler-backed component language. You write ordinary TypeScript/TSX function components, then add capabilities through primitives.
+```tsx twoslash
+import { atom } from "ilha";
 
-```tsx
-import { ilha, state } from "ilha";
-
-export const Counter = ilha(() => {
-  const count = state(0);
-
-  const increment = () => count.update((value) => value + 1);
-
-  return <button onclick={increment}>Count: {count()}</button>;
-});
-```
-
-An island owns its state, event lifecycle, rendering, and hydration. A plain JSX function component is transparent: it belongs to the nearest containing island. Start with a plain function for reusable markup, and wrap it in `ilha()` only when it needs an independent lifecycle, mount point, or hydration boundary.
-
-## The mindset shift
-
-In Svelte, a `.svelte` file brings state, markup, styles, effects, and compiler wiring together. In Ilha, a function component returns JSX (or an `` `html` `` string template), and reactive primitives are declared at the component’s top level in a stable order.
-
-```tsx
-import { derived, ilha, state } from "ilha";
-
-const Counter = ilha(() => {
-  const count = state(0);
-  const doubled = derived(() => count() * 2);
-
+export const Counter = () => {
+  const count = atom(0);
   return (
-    <button onclick={() => count.update((value) => value + 1)}>
-      {count()} doubled is {doubled()}
-    </button>
-  );
-});
-```
-
-The core model is straightforward:
-
-- **Props** are values passed into the component.
-- **State** is reactive data owned by one island instance.
-- **Derived** is a computed value based on props or reactive state.
-- **Render** returns HTML through JSX or an `` `html` `` template.
-- **Mount** activates events, bindings, and effects in the browser.
-
-## `$props` vs component props
-
-Svelte’s `$props()` declares values a component accepts from its parent. In Ilha, props are normal function arguments. Type the props on `ilha<Props>()`, or pass a Standard Schema-compatible validator when you need runtime validation, coercion, or defaults.
-
-### Svelte
-
-```svelte
-<script lang="ts">
-  let { label = "Click me", count = 0 } = $props();
-</script>
-
-<button>{label}: {count}</button>
-```
-
-### Ilha
-
-```tsx
-import { ilha } from "ilha";
-
-export const Button = ilha<{
-  label?: string;
-  count?: number;
-}>(({ label = "Click me", count = 0 }) => (
-  <button>
-    {label}: {count}
-  </button>
-));
-```
-
-For runtime validation and defaults, pass the schema first:
-
-```tsx
-import { z } from "zod";
-import { ilha } from "ilha";
-
-export const Button = ilha(
-  z.object({
-    label: z.string().default("Click me"),
-    count: z.number().default(0),
-  }),
-  ({ label, count }) => (
-    <button>
-      {label}: {count}
-    </button>
-  ),
-);
-```
-
-### Prop-seeded state
-
-As in Svelte, a prop is not automatically mutable local state. Initialize an island’s state from a prop when you want the initial value to be editable locally.
-
-```tsx
-import { ilha, state } from "ilha";
-
-export const Counter = ilha<{ start: number }>(({ start }) => {
-  const count = state(start);
-
-  return <p>{count()}</p>;
-});
-```
-
-The initializer is used when the island instance is created. If `start` changes later, the component rerenders with the new prop, but `count` is not reset automatically.
-
-## `$state` vs `state()`
-
-Svelte’s `$state` lets you read and write a reactive variable directly. Ilha’s `state()` returns a signal accessor: call it with no argument to read, use `.set()` to replace the value, or `.update()` when the next value depends on the previous one.
-
-### Svelte
-
-```svelte
-<script>
-  let count = $state(0);
-</script>
-
-<button onclick={() => count++}>
-  clicks: {count}
-</button>
-```
-
-### Ilha
-
-```tsx
-import { ilha, state } from "ilha";
-
-export const Counter = ilha(() => {
-  const count = state(0);
-
-  return (
-    <button onclick={() => count.update((value) => value + 1)}>
-      clicks: {count()}
-    </button>
-  );
-});
-```
-
-| Action                    | Svelte      | Ilha                                 |
-| ------------------------- | ----------- | ------------------------------------ |
-| Read                      | `count`     | `count()`                            |
-| Set                       | `count = 5` | `count.set(5)`                       |
-| Update from current value | `count++`   | `count.update((value) => value + 1)` |
-
-Svelte’s `$state` can deeply proxy arrays and simple objects. Ilha signals use explicit writes instead: replace the value, or use `.select()` to create a writable accessor for a nested field.
-
-```tsx
-import { ilha, state } from "ilha";
-
-const Profile = ilha(() => {
-  const user = state({ profile: { name: "Ada" }, role: "dev" });
-
-  return <input bind:value={user.select("profile", "name")} />;
-});
-```
-
-Each mounted island instance gets its own `state()` slots. To share a reactive value across islands, use a named `context()` signal rather than local state.
-
-## `$derived` vs `derived()`
-
-Svelte’s `$derived` creates a value computed from reactive values read inside it. Ilha’s `derived()` serves the same purpose and is also the home for async computed data. Read a derived accessor with the same `value()` syntax as state.
-
-### Svelte
-
-```svelte
-<script>
-  let count = $state(0);
-  let doubled = $derived(count * 2);
-</script>
-
-<p>{count} doubled is {doubled}</p>
-```
-
-### Ilha
-
-```tsx
-import { derived, ilha, state } from "ilha";
-
-export const Totals = ilha(() => {
-  const count = state(0);
-  const doubled = derived(() => count() * 2);
-
-  return (
-    <p>
-      {count()} doubled is {doubled()}
-    </p>
-  );
-});
-```
-
-For async work, the derived accessor exposes `loading`, `value`, and `error`. Ilha gives the callback an `AbortSignal`; pass it to `fetch` so superseded requests can be cancelled when dependencies change or the island unmounts.
-
-```tsx
-import { derived, ilha, state } from "ilha";
-
-export const Search = ilha(() => {
-  const query = state("");
-  const results = derived(async ({ signal }) => {
-    const response = await fetch(
-      `/api/search?q=${encodeURIComponent(query())}`,
-      { signal },
-    );
-
-    if (!response.ok) throw new Error("Search failed");
-    return response.json() as Promise<string[]>;
-  });
-
-  return (
-    <>
-      <input bind:value={query} type="search" />
-      {results.loading && <p>Searching…</p>}
-      {results.error && (
-        <p role="alert">{results.error.message}</p>
-      )}
-      {results.value && (
-        <ul>
-          {results.value.map((item) => (
-            <li>{item}</li>
-          ))}
-        </ul>
-      )}
-    </>
-  );
-});
-```
-
-A rejected async derived value stays on `results.error`; handle it in the render path rather than expecting it to reach `onError()`.
-
-## `$effect` vs `effect()`
-
-Svelte’s `$effect` runs browser-side after the component mounts, tracks the reactive values it reads, reruns as they change, and can return cleanup. Ilha’s `effect()` has the same broad role: synchronize browser APIs, timers, subscriptions, or external systems with reactive data.
-
-### Svelte
-
-```svelte
-<script>
-  let title = $state("Hello");
-
-  $effect(() => {
-    document.title = title;
-  });
-</script>
-```
-
-### Ilha
-
-```tsx
-import { effect, ilha, state } from "ilha";
-
-export const PageTitle = ilha(() => {
-  const title = state("Hello");
-
-  effect(() => {
-    document.title = title();
-  });
-
-  return <input bind:value={title} />;
-});
-```
-
-Return a cleanup function for timers, subscriptions, and other resources. Ilha runs it before the effect reruns and again when the island unmounts.
-
-```tsx
-import { effect, ilha, state } from "ilha";
-
-const Clock = ilha(() => {
-  const delay = state(1_000);
-
-  effect(() => {
-    const id = setInterval(() => console.log("tick"), delay());
-    return () => clearInterval(id);
-  });
-
-  return <p>Interval: {delay()}ms</p>;
-});
-```
-
-Use `effect.once()` for one-time, client-only setup such as focusing an element, measuring layout, or initializing a third-party widget. Its callback receives `{ host, signal, hydrated }` and may also return cleanup.
-
-## `bind:value` vs `bind:*`
-
-Svelte’s `bind:value={name}` creates two-way synchronization between an element and a reactive variable. Ilha keeps the binding in the template, too: use `bind:property={signal}` directly on a native element.
-
-### Svelte
-
-```svelte
-<script>
-  let name = $state("");
-</script>
-
-<input bind:value={name} />
-<p>Hello, {name}</p>
-```
-
-### Ilha
-
-```tsx
-import { ilha, state } from "ilha";
-
-export const Greeting = ilha(() => {
-  const name = state("");
-
-  return (
-    <>
-      <input bind:value={name} />
-      <p>Hello, {name()}</p>
-    </>
-  );
-});
-```
-
-Supported bindings include:
-
-| Ilha binding   | Use                                 |
-| -------------- | ----------------------------------- |
-| `bind:value`   | Text inputs, textareas, and selects |
-| `bind:checked` | A checkbox’s Boolean checked state  |
-| `bind:group`   | Radio groups and checkbox groups    |
-| `bind:open`    | A `<details>` element               |
-| `bind:files`   | A file input’s `files` property     |
-| `bind:this`    | An element reference                |
-
-Use lowercase native event props such as `onclick`, `oninput`, and `onsubmit` for custom behavior. Use a plain function for ordinary event work; use `action()` only when the UI needs operation state such as `pending`, `data`, `error`, or automatic cancellation.
-
-## Events and actions
-
-An ordinary event handler is just a function in Ilha.
-
-```tsx
-import { ilha, state } from "ilha";
-
-const NameForm = ilha(() => {
-  const message = state("");
-
-  const submit = async (event: SubmitEvent) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    const name = String(new FormData(form).get("name") ?? "");
-
-    await fetch("/api/profile", {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    });
-
-    message(`Saved ${name}`);
-  };
-
-  return (
-    <form onsubmit={submit}>
-      <input name="name" required />
-      <button>Save</button>
-      <p>{message()}</p>
-    </form>
-  );
-});
-```
-
-When the operation itself needs reactive status, wrap it with `action()`.
-
-```tsx
-import { action, ilha } from "ilha";
-
-const ProfileForm = ilha(() => {
-  const save = action(async (form: FormData, { signal }) => {
-    const response = await fetch("/api/profile", {
-      method: "POST",
-      body: form,
-      signal,
-    });
-
-    if (!response.ok) throw new Error("Could not save profile");
-    return response.json() as Promise<{ name: string }>;
-  });
-
-  return (
-    <form
-      onsubmit={(event) => {
-        event.preventDefault();
-        save(new FormData(event.currentTarget));
-      }}
+    <button
+      type="button"
+      onclick={() => count.update((n: number) => n + 1)}
     >
-      <input name="name" required />
-      <button disabled={save.pending}>
-        {save.pending ? "Saving…" : "Save"}
-      </button>
-      {save.error && <p role="alert">{save.error.message}</p>}
-      {save.data && <p>Saved {save.data.name}</p>}
-    </form>
-  );
-});
-```
-
-## Styling and component boundaries
-
-The older fluent `.css()` API is not part of the current component API. Style Ilha components with your project’s normal CSS approach—global CSS, CSS Modules, a bundler-supported CSS import, utility classes, or another existing styling system—and use ordinary `class` attributes in JSX.
-
-```tsx
-import { ilha, state } from "ilha";
-import "./button.css";
-
-export const Button = ilha(() => {
-  const kind = state("primary");
-  return (
-    <button class={`button button--${kind()}`}>Save</button>
-  );
-});
-```
-
-The meaningful Ilha boundary is the island boundary, not a built-in scoped-style boundary. A plain component shares its containing island’s rendering and event lifecycle; an `ilha()` component owns an independent reactive scope, lifecycle, and hydration boundary.
-
-## Server rendering and hydration
-
-The same island can render static HTML on the server or mount in the browser.
-
-```tsx
-import { ilha, state } from "ilha";
-
-const Counter = ilha(() => {
-  const count = state(0);
-  return (
-    <button onclick={() => count.update((value) => value + 1)}>
-      {count()}
+      {count}
     </button>
   );
-});
-
-const html = Counter.toString();
+};
 ```
 
-For async derived data, use `await Counter.toStringAsync()`. For SSR markup that will hydrate in place, use `await Island.hydratable(props, { name, snapshot: true })`, then register the island client-side with `mount({ Island })`. Hydration restores serialized props and optional state/derived snapshots before wiring events, avoiding a visual reset.
+## `$state` vs `atom()`
 
-## Svelte → Ilha reference
+Svelte reads and writes a variable. Ilha reads with `count()` and writes with `.set()` / `.update()`. In JSX, `{count}` subscribes.
 
-| Svelte              | Ilha                                        | Purpose                | Key difference                                                                                                  |
-| ------------------- | ------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `$props()`          | Function props or `ilha(schema, component)` | Inputs                 | Props are ordinary component arguments; a schema can validate and apply defaults at runtime.                    |
-| `$state`            | `state(initial)`                            | Local reactive state   | Svelte reads/writes variables; Ilha reads and writes through signal accessors.                                  |
-| `$derived`          | `derived(() => value)`                      | Computed values        | Ilha supports sync, async, and streamed derived values; async accessors expose `loading`, `value`, and `error`. |
-| `$effect`           | `effect(() => cleanup?)`                    | Reactive side effects  | Both track dependencies and support cleanup; Ilha effects are client-side only.                                 |
-| `onMount`           | `effect.once()`                             | One-time browser setup | Ilha provides the island host, an abort signal, and whether the island hydrated existing markup.                |
-| `bind:value`        | `bind:value={signal}`                       | Two-way input binding  | Both are inline template bindings; Ilha binds a signal accessor.                                                |
-| Component `<style>` | Your project’s CSS system                   | Styling                | Current Ilha has no fluent `.css()` API or built-in scoped-style primitive.                                     |
-| `.svelte` component | Plain function or `ilha(() => JSX)`         | Component form         | Use `ilha()` only when the component needs its own island lifecycle, mount, or hydration boundary.              |
+```tsx twoslash
+import { atom } from "ilha";
 
-## Closing thought
+export const Counter = () => {
+  const count = atom(0);
+  return (
+    <button
+      type="button"
+      onclick={() => count.update((n: number) => n + 1)}
+    >
+      {count}
+    </button>
+  );
+};
+```
 
-Ilha is not trying to recreate a `.svelte` file in JavaScript. Its core abstraction is a small, independently interactive island written as a function component. If what you enjoy about Svelte is fine-grained reactivity and keeping state close to the markup it drives, Ilha should feel approachable. The main adjustment is to think in signal accessors and explicit island boundaries rather than compiler-defined component syntax.
+## `$derived` vs computed `atom()`
+
+```tsx twoslash
+import { atom } from "ilha";
+
+export const Totals = () => {
+  const count = atom(0);
+  const doubled = atom(() => count() * 2);
+  return <p>{doubled}</p>;
+};
+```
+
+Async and streamed data use `when` / Stream views, not a derived accessor with `.loading`.
+
+## `$effect` vs `watch`
+
+```tsx twoslash
+import { atom, watch } from "ilha";
+
+function* Title() {
+  const title = atom("Hello");
+  yield* watch(title, (value) => {
+    document.title = value;
+  });
+  yield <p>{title}</p>;
+}
+```
+
+DOM events stay on the element: `onclick={handler}`.
+
+## Props
+
+Props are ordinary function arguments. There is no `$props()` rune.
+
+## Boundaries
+
+A nested function shares the parent component. `mount` / `renderToString` on a function makes it a root.
+
+## SSR
+
+`await renderToString(Counter)` for HTML. `mount(host, Counter, { hydrate: true })` to attach events.
+
+| Svelte              | Ilha                   |
+| ------------------- | ---------------------- |
+| `$state`            | `atom(value)`          |
+| `$derived`          | `atom(() => expr)`     |
+| `$effect`           | `watch` in a generator |
+| `bind:value`        | `oninput` + `atom`     |
+| `.svelte` component | function component     |

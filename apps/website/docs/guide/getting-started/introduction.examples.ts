@@ -1,17 +1,15 @@
-export const example = `import { ilha, state } from "ilha";
-import { Button } from "areia";
+export const example = `import { atom } from "ilha";
 
-export default ilha(() => {
-  const count = state(0);
-
-  const increment = () =>
-    count.update((value) => value + 1);
+export default function Counter() {
+  const count = atom(0);
 
   return (
     <div class="flex flex-col gap-2">
-      <p>Count: {count()}</p>
-      <Button onclick={increment}>Increment</Button>
+      <p>Count: {count}</p>
+      <button type="button" class="btn btn-primary" onclick={() => count.update((n: number) => n + 1)}>
+        Increment
+      </button>
     </div>
   );
-});
+}
 `;

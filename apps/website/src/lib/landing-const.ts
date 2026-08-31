@@ -1,7 +1,6 @@
 export const URLS = {
   SANDBOX: "https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/{template}",
   GITHUB: "https://github.com/ilhajs/ilha",
-  AREIA: "https://areia.ilha.build",
   DISCORD: "https://discord.gg/WnVTMCTz74",
   X_COM: "https://x.com/ilha_js",
 } as const;
@@ -64,21 +63,13 @@ const Search = ilha(() => {
   );
 });`;
 
-export const RENDERING_CODE = `import { mount } from "ilha";
+export const RENDERING_CODE = `import { mount, renderToString } from "ilha";
 import { ProductCard } from "./product-card";
 
-// Static HTML — instant first paint.
-const html = ProductCard.toString({ featured: true });
+const html = await renderToString(() => ProductCard({ featured: true }));
 
-// Hydrate only where you need interactivity.
-const island = await ProductCard.hydratable(
-  { featured: true },
-  { name: "ProductCard", snapshot: true },
-);
-
-// Or render directly into a client-side host.
 const host = document.querySelector("#product-card")!;
-ProductCard.mount(host, { featured: true });`;
+mount(host, () => ProductCard({ featured: true }), { hydrate: true });`;
 
 export const ILHA_ROUTER_CODE = `// vite.config.ts
 import { pages } from "@ilha/router/vite";
@@ -92,8 +83,8 @@ export default defineConfig({
 //   index.tsx        → /
 //   pricing.tsx      → /pricing
 //   blog/[slug].tsx  → /blog/:slug
-import { pageRouter, registry } from "ilha:pages/client";
-pageRouter.hydrate(registry);`;
+import { pageRouter } from "ilha:pages/client";
+pageRouter.mount("#app", { hydrate: true });`;
 
 export const ILHA_STORE_CODE = `// src/lib/cart.ts
 import { context, persist } from "ilha";
@@ -116,84 +107,60 @@ export default defineConfig({
   integrations: [ilha()],
 });`;
 
-export const PREVIEW_CODE = `import { ilha, state, derived } from "ilha";
-import { Button, Checkbox, Input, LayerCard } from "areia";
+export const PREVIEW_CODE = `import { atom } from "ilha";
 
 let nextId = 4;
 
-export default ilha(() => {
-  const tasks = state([
+export default function Tasks() {
+  const tasks = atom([
     { id: 1, label: "Ship the landing page", done: true },
     { id: 2, label: "Write unit tests", done: false },
     { id: 3, label: "Update README", done: false },
   ]);
-  const draft = state("");
-  const pending = derived(() =>
-    tasks().filter((task) => !task.done)
-  );
+  const pending = atom(() => tasks().filter((task) => !task.done).length);
 
   const add = (event: SubmitEvent) => {
     event.preventDefault();
-    const label = draft().trim();
+    const form = event.currentTarget as HTMLFormElement;
+    const label = String(new FormData(form).get("text") ?? "").trim();
     if (!label) return;
-    tasks.update((current) => [
-      ...current,
-      { id: nextId++, label, done: false },
-    ]);
-    draft.set("");
-  };
-  const remove = (id: number) => {
-    tasks.update((current) =>
-      current.filter((task) => task.id !== id)
-    );
+    tasks.update((current) => [...current, { id: nextId++, label, done: false }]);
+    form.reset();
   };
 
   return (
-    <LayerCard>
-      <LayerCard.Title>
-        My Tasks ({pending()?.length ?? 0})
-      </LayerCard.Title>
-      <LayerCard.Content class="p-0">
-        <ul class="divide-y divide-areia-border">
-          {tasks().map((task, index) => (
-            <li
-              key={task.id}
-              class="flex items-center gap-2 p-2"
-            >
-              <div class="flex-1">
-                <Checkbox
-                  bind:checked={tasks.select(
-                    (current) => current[index].done
-                  )}
-                  label={task.label}
+    <div class="card bg-base-100 shadow">
+      <div class="card-body gap-3 p-3">
+        <h2 class="card-title text-base">My Tasks <span class="badge badge-primary">{pending}</span></h2>
+        <ul class="flex flex-col gap-1">
+          {tasks().map((task) => (
+            <li key={task.id} class="flex items-center justify-between gap-2">
+              <label class="label cursor-pointer justify-start gap-2">
+                <input
+                  type="checkbox"
+                  class="checkbox"
+                  checked={task.done}
+                  onchange={(event: Event) => {
+                    const done = (event.currentTarget as HTMLInputElement).checked;
+                    tasks.update((current) =>
+                      current.map((item) => (item.id === task.id ? { ...item, done } : item)),
+                    );
+                  }}
                 />
-              </div>
-              <Button
-                onclick={() => remove(task.id)}
-                size="sm"
-              >
-                ✕
-              </Button>
+                <span>{task.label}</span>
+              </label>
+              <button type="button" class="btn btn-ghost btn-xs" onclick={() => tasks.update((current) => current.filter((item) => item.id !== task.id))}>\u2715</button>
             </li>
           ))}
         </ul>
-        <form
-          onsubmit={add}
-          class="flex gap-2 border-t border-areia-border p-2"
-        >
-          <Input
-            placeholder="New task…"
-            bind:value={draft}
-            class="flex-1"
-          />
-          <Button type="submit" disabled={!draft()}>
-            Add
-          </Button>
+        <form onsubmit={add} class="flex gap-2">
+          <input name="text" class="input input-bordered input-sm w-full" placeholder="New task\u2026" />
+          <button type="submit" class="btn btn-primary btn-sm">Add</button>
         </form>
-      </LayerCard.Content>
-    </LayerCard>
+      </div>
+    </div>
   );
-});
+}
 `;
 
 export const PRIMARY_ILHA_CARDS = [

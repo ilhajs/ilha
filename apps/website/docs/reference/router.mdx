@@ -1,65 +1,35 @@
 ---
 title: Router reference
-description: Compact index of @ilha/router exports mapped to the routing guides.
+description: Public exports from @ilha/router.
 ---
 
-A map of the public `@ilha/router` API. For how-to guidance, start with [Router overview](/guide/routing/overview).
+See [Router overview](/guide/routing/overview) for a guided tour.
 
-## Builder and routing
+## `@ilha/router`
 
-| Export / method                                       | Guide                                                         |
-| ----------------------------------------------------- | ------------------------------------------------------------- |
-| `router(options)`                                     | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `.route(pattern, island, loader?)`                    | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `.mount(target, options?)`                            | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `.hydrate(registry)` / `.prime()`                     | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `navigate` / `prefetch` / `invalidate` / `navigating` | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `useRoute` / `isActive`                               | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `RouterView` / `RouterLink`                           | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| Export                     | Purpose                 |
+| -------------------------- | ----------------------- |
+| `router()`                 | Build and mount a SPA   |
+| `navigate` / `isActive`    | Programmatic navigation |
+| `useRoute`                 | Path, params, search    |
+| `head`                     | Document title and tags |
+| `wrapLayout` / `wrapError` | Used by generated code  |
 
-## Loaders
+## `@ilha/router/vite` and `/rsbuild`
 
-| Export / method                         | Guide                             |
-| --------------------------------------- | --------------------------------- |
-| `loader` / `loader.client` / `load`     | [Loaders](/guide/routing/loaders) |
-| `redirect` / `error` / `composeLoaders` | [Loaders](/guide/routing/loaders) |
-| `InferLoader` / `MergeLoaders`          | [Loaders](/guide/routing/loaders) |
-| `.runLoader`                            | [Loaders](/guide/routing/loaders) |
+`pages(options?)` — file-system routing plugin. Default dir `src/pages`.
 
-## File-system routing
+## `@ilha/router/ssr`
 
-| Export / method                                  | Guide                                                                              |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `defineLayout()`                                 | [File-system routing](/guide/routing/file-system-routing)                          |
-| `wrapLayout()` / `wrapError()`                   | [File-system routing](/guide/routing/file-system-routing) — used by generated code |
-| Pages plugin (Vite/Rsbuild)                      | [File-system routing](/guide/routing/file-system-routing)                          |
-| Virtual modules (`ilha:pages/*`, `ilha:loaders`) | [File-system routing](/guide/routing/file-system-routing)                          |
+Production middleware for `POST /__ilha/frame`.
 
-## Navigation hooks
+| Export          | Purpose                        |
+| --------------- | ------------------------------ |
+| `setFrameAuth`  | `open` / `deny`, origins, CSRF |
+| `setFrameGuard` | Per-request allow/deny         |
 
-| Export / method      | Guide                                                         |
-| -------------------- | ------------------------------------------------------------- |
-| `beforeNavigate(fn)` | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `afterNavigate(fn)`  | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `head(input)`        | [Loaders](/guide/routing/loaders)                             |
+## `@ilha/router/server-island`
 
-## Server rendering
+Generated client proxies. You do not import this in app code.
 
-| Export / method                                     | Guide                                                                                |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `.render` / `.renderHydratable` / `.renderResponse` | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
-| `.respond(urlOrRequest, registry, options?)`        | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
-| `httpResponse(body, options)` / `serializeHead`     | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
-| `useContext()`                                      | [Server islands](/guide/routing/server-islands#read-the-request-during-rendering)    |
-
-## Server islands and security
-
-| Topic                                               | Guide                                                             |
-| --------------------------------------------------- | ----------------------------------------------------------------- |
-| `*.server.tsx` / `*.server.ts` islands              | [Server islands](/guide/routing/server-islands)                   |
-| `@ilha/router/ssr` middleware                       | [Deployment](/guide/routing/deployment)                           |
-| `setFrameGuard` / `setLoaderGuard` / `setFrameAuth` | [Middleware and security](/guide/routing/middleware-and-security) |
-
-## Related
-
-[Router overview](/guide/routing/overview) · [Astro integration](/guide/astro)
+There is no loader helper. Fetch in the page, or stream from a `*.server` module.

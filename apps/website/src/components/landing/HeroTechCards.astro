@@ -1,26 +1,24 @@
 ---
-import { LayerCard } from "areia";
-
 const cards = [
   {
     icon: "/code.svg",
     title: "Start with a function",
-    description: "Write plain components first. Add an island boundary only when the UI needs one.",
+    description: "Write a component that returns JSX. Mount it when the UI needs to live in the browser.",
   },
   {
     icon: "/thumb.svg",
     title: "Grow one capability at a time",
-    description: "Add state, derived values, actions, and lifecycle hooks through one typed builder.",
+    description: "Add atom(), streams, and when/watch/wait only where the view needs them.",
   },
   {
     icon: "/link.svg",
     title: "Keep your server",
-    description: "Any HTTP server can return Ilha’s rendered HTML. Client hydration stays opt-in.",
+    description: "Any HTTP server can return Ilha HTML. Client hydration stays opt-in.",
   },
   {
     icon: "/drop.svg",
     title: "Hydrate on demand",
-    description: "Ship plain HTML first. Mount only the independently interactive islands that need JavaScript.",
+    description: "Ship plain HTML first. Mount only the interactive regions that need JavaScript.",
   },
 ] as const;
 ---
@@ -31,14 +29,13 @@ const cards = [
 >
   {
     cards.map((card) => (
-      <LayerCard data-hero-card class="h-full p-4">
-        <div class="grid gap-1.5">
+      <div data-hero-card class="card bg-base-100 h-full shadow">
+        <div class="card-body gap-1.5 p-4">
           <img src={card.icon} alt="" class="size-6 opacity-75" />
-          <h3 class="text-base font-medium">{card.title}</h3>
-          <p class="text-muted-foreground text-sm">{card.description}</p>
+          <h3 class="card-title text-base">{card.title}</h3>
+          <p class="text-base-content/70 text-sm">{card.description}</p>
         </div>
-      </LayerCard>
+      </div>
     ))
   }
 </div>
-

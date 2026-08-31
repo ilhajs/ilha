@@ -11,7 +11,7 @@ export type View =
   | AtomHandle<any>
   | Stream.Stream<View, any, any>
   | GeneratorFn
-  | Setup
+  | Component
   | View[]
   | Iterable<View>;
 
@@ -36,7 +36,7 @@ export interface Instruction<A, E = unknown>
   readonly effect: Effect.Effect<A, E, AtomRegistry>;
 }
 
-export type Setup = GeneratorFn | (() => View | void | Promise<View | void>);
+export type Component = GeneratorFn | (() => View | void | Promise<View | void>);
 
 export interface IlhaRuntime {
   readonly registry: AtomRegistry;

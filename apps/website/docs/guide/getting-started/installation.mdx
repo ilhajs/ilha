@@ -1,126 +1,114 @@
 ---
 title: Installation
-description: Install ilha and start building with official templates for Vite SPA and Oxide SPA.
+description: Install ilha and start from official templates for Vite SPA and Oxide SPA.
 ---
 
-ilha can be installed with your package manager of choice. For a beta project, start from a template when possible so SSR, mounting, and deployment wiring are already in place.
+Install ilha with your package manager. For a new project, start from a template so routing and mounting are already wired.
 
 ## Install
 
-Install with your package manager:
-
 ```package-install
-npm i ilha
+npm i ilha effect
 ```
 
-## Templates
+`effect` is a peer dependency. Ilha atoms and streams sit on Effect.
 
-If you want to start from a ready-made project instead of wiring everything manually, use one of the official templates.
+## Templates
 
 | Template                                                                  | Command                                               | Sandbox                                                                         |
 | ------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------- |
 | [Vite SPA](https://github.com/ilhajs/ilha/tree/main/templates/vite-spa)   | `npx giget@latest gh:ilhajs/ilha/templates/vite-spa`  | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite-spa)  |
 | [Oxide SPA](https://github.com/ilhajs/ilha/tree/main/templates/oxide-spa) | `npx giget@latest gh:ilhajs/ilha/templates/oxide-spa` | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/oxide-spa) |
 
-Templates are the fastest way to get a working project structure for SSR, routing, and deployment targets without setting everything up from scratch.
+Vite SPA is a client app with file routes. Oxide SPA adds server pages, frames, and `action` from `oxidejs`.
 
 ## Requirements
 
-ilha is designed for modern JavaScript and TypeScript projects.
-
-- Use it in apps that can run ESM modules.
-- Use TypeScript if you want the best editor support.
-- Use a browser environment for mounting and hydration.
-- Keep props and hydration snapshots JSON-serializable when rendering on the server.
+- ESM modules.
+- TypeScript for the best editor support.
+- A browser for `mount()`.
+- JSON-serializable atom snapshots when you hydrate.
 
 ## Import
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { atom, mount, renderToString } from "ilha";
 ```
 
-Use other named exports for the primitives and helpers you need:
+Named exports you will use most:
 
 ```tsx twoslash
 import {
-  ilha,
-  state,
-  derived,
-  action,
-  effect,
-  onError,
-  signal,
-  html,
-  raw,
+  atom,
+  when,
+  watch,
+  wait,
   mount,
-  context,
+  renderToString,
+  h,
+  Fragment,
 } from "ilha";
+```
+
+Custom elements come from `ilha/define`:
+
+```tsx twoslash
+import { define } from "ilha/define";
 ```
 
 ## Minimal example
 
-Create an island directly with a function component:
-
 ```tsx twoslash
-import { ilha } from "ilha";
+import { atom } from "ilha";
 
-const Greeting = ilha(() => <p>Hello, ilha!</p>);
-```
+const Greeting = () => <p>Hello, ilha!</p>;
 
-Add local capabilities with primitives inside the component:
-
-```tsx twoslash
-import { ilha, state } from "ilha";
-
-const Counter = ilha(() => {
-  const count = state(0);
-
-  const increment = () => {
-    count.update((value) => value + 1);
-  };
-
-  return <button onclick={increment}>Count: {count()}</button>;
-});
+const Counter = () => {
+  const count = atom(0);
+  return (
+    <button
+      type="button"
+      onclick={() => count.update((n: number) => n + 1)}
+    >
+      Count: {count}
+    </button>
+  );
+};
 ```
 
 ## Server-side rendering
 
-Render the island to an HTML string with `toString()`:
-
 ```tsx twoslash
-import { ilha, state } from "ilha";
+import { atom, renderToString } from "ilha";
 
-const Counter = ilha(() => {
-  const count = state(0);
-  const increment = () => count.update((value) => value + 1);
-  return <button onclick={increment}>Count: {count()}</button>;
-});
+const Counter = () => {
+  const count = atom(0);
+  return (
+    <button
+      type="button"
+      onclick={() => count.update((n: number) => n + 1)}
+    >
+      Count: {count}
+    </button>
+  );
+};
 
-const htmlOutput = Counter.toString();
+const html = await renderToString(Counter);
 ```
 
-If your island uses async derived values, render it with `toStringAsync()`:
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const Counter = ilha(() => "<p>Count</p>");
-const htmlOutput = await Counter.toStringAsync();
-```
+`renderToString` waits until in-flight work is idle, then serializes. Pass `{ timeout: ms }` to cut off early.
 
 ## Client-side mounting
 
-Mount the island into a DOM element:
-
 ```tsx twoslash
-import { ilha } from "ilha";
+import { mount } from "ilha";
 
-const Counter = ilha(() => "<p>Count</p>");
+const Counter = () => <p>Count</p>;
 
 const root = document.getElementById("app");
 if (root) {
-  const unmount = Counter.mount(root);
+  const unmount = mount(root, Counter);
 }
 ```
 
-The returned function stops listeners, effects, and other active behavior. Call it when removing the host element manually or when integrating ilha into another router.
+The returned function stops listeners and in-flight work. Call it when you remove the host.

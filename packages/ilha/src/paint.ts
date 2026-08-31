@@ -9,7 +9,7 @@ import { KEY_ATTR, SLOT_ATTR, morphInner } from "./morph.ts";
 import { closeFiber, makeFiber, type FiberLocal } from "./runtime.ts";
 import { isSafeUrlAttrValue, isUrlAttributeName, serializeStyle } from "./security.ts";
 import { runSetup } from "./start.ts";
-import { Fragment, type Setup, type View } from "./types.ts";
+import { Fragment, type Component, type View } from "./types.ts";
 import { isSetupFn, isVNode } from "./vnode.ts";
 
 const ISLAND = Symbol.for("ilha.island");
@@ -231,7 +231,7 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
   if (isSetupFn(view)) {
     const { fiber: hole, nodes } = openHole(fiber);
     fiber.runtime.later(() => {
-      if (!hole.closed) runSetup(hole, view as Setup);
+      if (!hole.closed) runSetup(hole, view as Component);
     });
     trackHole(fiber, hole);
     return nodes;
@@ -273,7 +273,8 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
         fiber.keyedHoles.set(k, hole);
       }
       fiber.runtime.later(() => {
-        if (!hole.closed) runSetup(hole, () => type(hole.propsBox!.current) as ReturnType<Setup>);
+        if (!hole.closed)
+          runSetup(hole, () => type(hole.propsBox!.current) as ReturnType<Component>);
       });
       trackHole(fiber, hole);
       return nodes;
