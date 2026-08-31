@@ -44,20 +44,19 @@ Define an island as usual, then use it in a page with a client directive:
 
 ```tsx twoslash
 // src/islands/counter.tsx
-import { ilha, state } from "ilha";
+import { atom } from "ilha";
 
-export const Counter = ilha(
-  ({ start = 0 }: { start?: number }) => {
-    const count = state(start);
-    const increment = () => count.update((value) => value + 1);
-
-    return (
-      <button type="button" onclick={increment}>
-        {count()}
-      </button>
-    );
-  },
-);
+export const Counter = ({ start = 0 }: { start?: number }) => {
+  const count = atom(start);
+  return (
+    <button
+      type="button"
+      onclick={() => count.update((value: number) => value + 1)}
+    >
+      {count}
+    </button>
+  );
+};
 ```
 
 ```astro
@@ -68,14 +67,14 @@ import { Counter } from "../islands/counter";
 <Counter client:load start={10} />
 ```
 
-Astro SSR-renders the island on the server. On the client, `@ilha/astro` calls the island's own `.mount()` against the existing markup — no flicker, and `effect.once()` is skipped when the state snapshot already matches the DOM.
+Astro SSR-renders the component on the server. On the client, `@ilha/astro` calls `mount()` against the existing markup.
 
 ## How it works
 
-| Phase  | What happens                                                                                                                                                      |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Server | The renderer calls [`.hydratable()`](/guide/island/render#emit-hydration-markup), which wraps SSR output in a `[data-ilha]` host with serialized props and state. |
-| Client | The client entry finds that `[data-ilha]` host inside Astro's `<astro-island>` and calls `.mount()` for hydration.                                                |
+| Phase  | What happens                                                                                                |
+| ------ | ----------------------------------------------------------------------------------------------------------- |
+| Server | The renderer calls `renderToString()`, which wraps output in a `[data-ilha]` host with a state snapshot.    |
+| Client | The client entry finds that host inside Astro's `<astro-island>` and calls `mount(..., { hydrate: true })`. |
 
 Hydration is driven by Ilha's `data-ilha-*` attributes, so every Astro client directive works as expected.
 

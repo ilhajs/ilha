@@ -1,2 +1,2 @@
-export { Fragment, jsxDEV } from "./jsx-runtime";
-export type { JSX } from "./jsx-types";
+export { Fragment, jsx, jsxDEV, jsxs } from "./jsx-runtime.ts";
+export type { JSX } from "./jsx-types.ts";

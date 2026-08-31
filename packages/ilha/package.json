@@ -1,18 +1,15 @@
 {
   "name": "ilha",
   "version": "0.13.0",
-  "description": "A tiny, framework-free island architecture library",
+  "description": "Generator-first island UI on Effect",
   "keywords": [
-    "framework-free",
+    "effect",
     "frontend",
     "hydration",
     "island-architecture",
     "islands",
     "jsx",
-    "reactive",
-    "signals",
-    "ssr",
-    "web-components"
+    "ssr"
   ],
   "homepage": "https://github.com/ilhajs/ilha#readme",
   "bugs": {
@@ -41,30 +38,37 @@
       "import": "./dist/index.js"
     },
     "./jsx-runtime": {
-      "types": "./dist/jsx-runtime.d.ts",
-      "import": "./dist/jsx-runtime.js"
+      "types": "./src/jsx-runtime.ts",
+      "import": "./dist/jsx-runtime.js",
+      "default": "./src/jsx-runtime.ts"
     },
+    "./jsx-runtime.ts": "./src/jsx-runtime.ts",
     "./jsx-dev-runtime": {
-      "types": "./dist/jsx-dev-runtime.d.ts",
-      "import": "./dist/jsx-dev-runtime.js"
+      "types": "./src/jsx-dev-runtime.ts",
+      "import": "./dist/jsx-dev-runtime.js",
+      "default": "./src/jsx-dev-runtime.ts"
     },
-    "./internal": {
-      "types": "./dist/internal.d.ts",
-      "import": "./dist/internal.js"
+    "./jsx-dev-runtime.ts": "./src/jsx-dev-runtime.ts",
+    "./define": {
+      "types": "./dist/define.d.ts",
+      "import": "./dist/define.js"
     }
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && tsdown",
+    "build": "tsdown",
     "cleanup": "rimraf dist node_modules",
     "test": "bun test"
   },
   "dependencies": {
-    "alien-signals": "3.2.1"
+    "@happy-dom/global-registrator": "^20.11.2"
   },
   "devDependencies": {
-    "zod": "^4.4.3"
+    "effect": "^4.0.0-rc.112"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0-rc.112"
   }
 }

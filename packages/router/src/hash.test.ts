@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
 
-import { ilha } from "ilha";
-
 import { getAdapter } from "./hash";
 import {
   router,
@@ -10,18 +8,13 @@ import {
   routePath,
   routeSearch,
   routeHash,
-  RouterLink,
   setHistoryMode,
   getHistoryMode,
 } from "./index";
 
-// ─────────────────────────────────────────────
-// Shared Page islands
-// ─────────────────────────────────────────────
-
-const HomePage = ilha(() => `<p>home</p>`);
-const AboutPage = ilha(() => `<p>about</p>`);
-const UserPage = ilha(() => `<p>user</p>`);
+const HomePage = async () => "home";
+const AboutPage = async () => "about";
+const UserPage = async () => "user";
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -29,7 +22,10 @@ const UserPage = ilha(() => `<p>user</p>`);
 
 function makeEl(inner = ""): Element {
   const el = document.createElement("div");
-  el.innerHTML = inner;
+  if (inner) {
+    const parsed = new DOMParser().parseFromString(`<div>${inner}</div>`, "text/html");
+    el.replaceChildren(...Array.from(parsed.body.firstElementChild?.childNodes ?? []));
+  }
   document.body.appendChild(el);
   return el;
 }
@@ -108,20 +104,22 @@ describe("hash mode — initial mount", () => {
     window.location.href = "http://localhost/";
   });
 
-  it("reads route from location.hash on mount", () => {
+  it("reads route from location.hash on mount", async () => {
     setHashLocation("/about");
     el = makeEl();
     unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    await Bun.sleep(20);
     expect(routePath()).toBe("/about");
-    expect(el.innerHTML).toContain("about");
+    expect(el.textContent).toContain("about");
   });
 
-  it("treats empty hash as root path", () => {
+  it("treats empty hash as root path", async () => {
     window.location.href = "http://localhost/";
     el = makeEl();
     unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    await Bun.sleep(20);
     expect(routePath()).toBe("/");
-    expect(el.innerHTML).toContain("home");
+    expect(el.textContent).toContain("home");
   });
 
   it("treats bare '#' as root path", () => {
@@ -186,10 +184,12 @@ describe("hash mode — navigate()", () => {
     expect(routePath()).toBe("/about");
   });
 
-  it("re-renders outlet to matched island", () => {
-    expect(el.innerHTML).toContain("home");
+  it("re-renders outlet to matched island", async () => {
+    await Bun.sleep(20);
+    expect(el.textContent).toContain("home");
     navigate("/about");
-    expect(el.innerHTML).toContain("about");
+    await Bun.sleep(20);
+    expect(el.textContent).toContain("about");
   });
 
   it("pushes a new history entry by default", () => {
@@ -241,18 +241,20 @@ describe("hash mode — change events", () => {
     window.location.href = "http://localhost/";
   });
 
-  it("syncs route when popstate fires (back/forward)", () => {
+  it("syncs route when popstate fires (back/forward)", async () => {
     setHashLocation("/about");
     popstate();
+    await Bun.sleep(20);
     expect(routePath()).toBe("/about");
-    expect(el.innerHTML).toContain("about");
+    expect(el.textContent).toContain("about");
   });
 
-  it("syncs route when hashchange fires (address bar edit)", () => {
+  it("syncs route when hashchange fires (address bar edit)", async () => {
     setHashLocation("/about");
     hashchange();
+    await Bun.sleep(20);
     expect(routePath()).toBe("/about");
-    expect(el.innerHTML).toContain("about");
+    expect(el.textContent).toContain("about");
   });
 
   it("does NOT respond to hashchange after unmount", () => {
@@ -292,20 +294,22 @@ describe("hash mode — link interception", () => {
     window.location.href = "http://localhost/";
   });
 
-  it("intercepts hash-form links (#/about)", () => {
+  it("intercepts hash-form links (#/about)", async () => {
     const link = document.createElement("a");
     link.setAttribute("href", "#/about");
     el.appendChild(link);
     link.click();
+    await Bun.sleep(20);
     expect(routePath()).toBe("/about");
-    expect(el.innerHTML).toContain("about");
+    expect(el.textContent).toContain("about");
   });
 
-  it("intercepts plain-path links (/about) — same logical path", () => {
+  it("intercepts plain-path links (/about) — same logical path", async () => {
     const link = document.createElement("a");
     link.setAttribute("href", "/about");
     el.appendChild(link);
     link.click();
+    await Bun.sleep(20);
     expect(routePath()).toBe("/about");
     expect(window.location.hash).toBe("#/about");
   });
@@ -377,34 +381,6 @@ describe("hash mode — link interception", () => {
     link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     stop();
     expect(routePath()).toBe("/about");
-  });
-});
-
-// ─────────────────────────────────────────────
-// RouterLink rendering
-// ─────────────────────────────────────────────
-
-describe("hash mode — RouterLink", () => {
-  beforeEach(() => {
-    setHistoryMode("hash");
-  });
-
-  afterEach(() => {
-    resetMode();
-  });
-
-  it("renders an empty-state link with '#' as the href in hash mode", () => {
-    // With no state seeded, state.href() returns "" so toLinkHref produces "#"
-    const html = RouterLink.toString();
-    expect(html).toContain("data-link");
-    expect(html).toContain("data-prefetch");
-  });
-
-  it("renders the empty-state RouterLink without errors in history mode", () => {
-    resetMode();
-    const html = RouterLink.toString();
-    expect(html).toContain("data-link");
-    expect(html).toContain("data-prefetch");
   });
 });
 
@@ -527,29 +503,33 @@ describe("hash mode — navigation sequences", () => {
     window.location.href = "http://localhost/";
   });
 
-  it("navigates between three routes correctly", () => {
+  it("navigates between three routes correctly", async () => {
     navigate("/about");
+    await Bun.sleep(20);
     expect(routePath()).toBe("/about");
-    expect(el.innerHTML).toContain("about");
+    expect(el.textContent).toContain("about");
 
     navigate("/user/42");
+    await Bun.sleep(20);
     expect(routePath()).toBe("/user/42");
-    expect(el.innerHTML).toContain("user");
+    expect(el.textContent).toContain("user");
 
     navigate("/");
+    await Bun.sleep(20);
     expect(routePath()).toBe("/");
-    expect(el.innerHTML).toContain("home");
+    expect(el.textContent).toContain("home");
   });
 
-  it("simulated back navigation re-renders prior route", () => {
+  it("simulated back navigation re-renders prior route", async () => {
     navigate("/about");
+    await Bun.sleep(20);
     expect(routePath()).toBe("/about");
 
-    // Simulate the user pressing back: the URL hash reverts and popstate fires.
     setHashLocation("/");
     popstate();
+    await Bun.sleep(20);
 
     expect(routePath()).toBe("/");
-    expect(el.innerHTML).toContain("home");
+    expect(el.textContent).toContain("home");
   });
 });

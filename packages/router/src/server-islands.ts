@@ -68,8 +68,9 @@ export interface ServerModuleScan {
 
 const EXPORT_RE =
   /(?:^|\n)\s*export\s+(?:declare\s+)?(?:async\s+)?(?:function\s*\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/g;
-const ISLAND_EXPORT_RE = /(?:^|\n)\s*export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*ilha\b/g;
-const DEFAULT_ISLAND_RE = /export\s+default\s+ilha\b/;
+const ISLAND_EXPORT_RE =
+  /(?:^|\n)\s*export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:ilha\b|async\s+function|function\s*\*)/g;
+const DEFAULT_ISLAND_RE = /export\s+default\s+(?:ilha\b|async\s+function|function\s*\*|function\b)/;
 // Slot tag option: current `{ as: "span" }` constructor option.
 const AS_RES = [/\{\s*as:\s*["'`]([a-z][a-z0-9-]*)["'`]\s*[,}]?/];
 
@@ -221,6 +222,12 @@ export function scanServerIslands(source: string): ServerModuleScan {
         // syntax — no key comma to split on. Scan invoked exports for the transport.
         const target = referencedExports(args, candidates);
         actions[`a${actionOrder++}`] = target ?? "";
+      }
+    }
+    for (const match of slice.matchAll(/fromAsyncIterable\(\s*([A-Za-z_$][\w$]*)\s*\(/g)) {
+      const target = match[1]!;
+      if (candidates.has(target) && !Object.values(streams).includes(target)) {
+        streams[`d${streamOrder++}`] = target;
       }
     }
     islands.push({ name, as, streams, actions });

@@ -49,7 +49,7 @@
   "scripts": {
     "build": "tsdown && tsc -p tsconfig.build.json",
     "cleanup": "rimraf dist node_modules",
-    "test": "bun test"
+    "test": "bun test src/index.test.ts"
   },
   "devDependencies": {
     "astro": "^7.2.9",

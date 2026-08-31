@@ -15,8 +15,6 @@
  *   `data-ilha-actions` manifest emitted by `hydratable()`.
  */
 
-import { morph } from "ilha";
-
 import { applyHeadEntriesToDocument } from "./head";
 import type { HeadInput } from "./head";
 import { parseSnapshotAttr } from "./snapshot";
@@ -73,7 +71,11 @@ function assertValidTag(tag: string): string {
 function belongsToHost(host: Element, candidate: Element): boolean {
   let el: Element | null = candidate.parentElement;
   while (el && el !== host) {
-    if (el.hasAttribute("data-ilha") || el.hasAttribute("data-ilha-slot")) return false;
+    if (el.hasAttribute("data-ilha")) return false;
+    // Stream holes use display:contents + data-ilha-slot; nested island slots do not.
+    if (el.hasAttribute("data-ilha-slot") && (el as HTMLElement).style.display !== "contents") {
+      return false;
+    }
     el = el.parentElement;
   }
   return el === host;
@@ -162,7 +164,8 @@ function hydrateServerIsland(
         if (controller.signal.aborted || !host.isConnected) return;
         const html = await frame(sent);
         if (controller.signal.aborted || typeof html !== "string") return;
-        morph(host, html);
+        const parsed = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
+        host.replaceChildren(...Array.from(parsed.body.firstElementChild?.childNodes ?? []));
         syncChildren();
         wireEvents();
       })
@@ -185,8 +188,8 @@ function hydrateServerIsland(
     // the attr carries the INITIAL SSR manifest, which goes stale as sentinel
     // indexes shift between renders.
     const raw =
-      Array.from(host.children)
-        .find((c) => c.matches(`template[${ACTIONS_ATTR}]`))
+      host
+        .querySelector(`:scope > template[${ACTIONS_ATTR}], template[${ACTIONS_ATTR}]`)
         ?.getAttribute(ACTIONS_ATTR) ??
       host.getAttribute(ACTIONS_ATTR) ??
       null;

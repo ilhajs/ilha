@@ -17,8 +17,7 @@
  *   runner (`setFrameLoaderRunner`, wired by the generated server module).
  */
 
-import "ilha";
-import { bindServerAction, setServerManifestSerializer, type ServerAction } from "ilha/internal";
+import { recordServerAction, renderToString } from "ilha";
 
 import type { HeadInput } from "./head";
 import { resolveRedirectTarget } from "./index";
@@ -280,28 +279,24 @@ export function getFrameLoaderRunner(): FrameLoaderRunner | undefined {
   ];
 }
 
-// ─── Server-manifest serialization (owned by @ilha/router) ──────────────
-// Core only collects event→action manifest data; the markup format is a
-// router integration detail. Every `.server` module transform imports this
-// module, so registering here covers dev frames, production frames, and
-// prerendered server graphs alike.
-setServerManifestSerializer({
-  template(manifest) {
-    // Escape for a single-quoted attribute (& first — mirrors core's escapeHtml).
-    const json = JSON.stringify(Object.fromEntries(manifest))
-      .replace(/&/g, "&amp;")
-      .replace(/'/g, "&#39;")
-      .replace(/</g, "&lt;");
-    return `<template data-ilha-actions='${json}'></template>`;
-  },
-});
+const ACTION_CALL = Symbol.for("ilha.actionCall");
 
 /** @internal Brand an exported server action with its generated RPC transport key. */
 export function __ilhaServerAction<A extends unknown[], R>(
   key: string,
   fn: (...args: A) => R,
-): ServerAction<A, R> {
-  return bindServerAction(fn, key);
+): ((...args: A) => R) & { with: (...args: A) => (...ev: unknown[]) => R } {
+  const wrapped = ((...args: A) => {
+    if (recordServerAction(key, args)) return undefined as R;
+    return fn(...args);
+  }) as ((...args: A) => R) & { with: (...args: A) => (...ev: unknown[]) => R };
+  wrapped.with = (...args: A) => {
+    const handler = ((..._ev: unknown[]) => wrapped(...args)) as ((...ev: unknown[]) => R) &
+      Record<symbol, { k: string; a: unknown[] }>;
+    handler[ACTION_CALL] = { k: key, a: args };
+    return handler;
+  };
+  return wrapped;
 }
 
 export function registerServerIsland(
@@ -399,8 +394,12 @@ export async function renderServerIsland(
   }
   const render = entry.render();
   if (typeof render !== "function") throw new FrameError(400, "unknown island");
-  const html = await runWithScope(request, () => render(props));
-  return String(html);
+  const html = await runWithScope(request, async () => {
+    const out = await Promise.resolve((render as (p?: unknown) => unknown)(props));
+    if (typeof out === "string") return out;
+    return renderToString(() => out as never, { captureActions: true, markers: false });
+  });
+  return html;
 }
 
 // ─── Endpoints ───────────────────────────────────────────────────────────
@@ -660,6 +659,6 @@ async function ssr(request: Request): Promise<Response | undefined> {
 /** Side-effect imports required alongside this handler. */
 // SAFETY: the imports array is read by the oxidejs middleware loader to pull
 // the generated pages/loaders modules into the SSR graph alongside this file.
-(ssr as unknown as { imports: string[] }).imports = ["ilha:pages/server", "ilha:loaders"];
+(ssr as unknown as { imports: string[] }).imports = ["ilha:pages/server"];
 
 export default ssr;

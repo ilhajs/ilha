@@ -450,7 +450,6 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
                 // render their JSX in one ilha and mount via another, and nothing
                 // hydrates. Pre-bundling it pins it to the shared `ilha` chunk.
                 "ilha/jsx-dev-runtime",
-                "alien-signals",
               ]),
             ],
           },
@@ -497,7 +496,7 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
                   ? `, { load: __ilhaSelf.load, pattern: ${JSON.stringify(fileToPattern(state.pagesDir, file))} }`
                   : "";
               lines.push(
-                `registerServerIsland(${JSON.stringify(id2)}, () => __ilhaSelf[${JSON.stringify(island.name)}]?.[Symbol.for("ilha.renderState")]${isServerPage});`,
+                `registerServerIsland(${JSON.stringify(id2)}, () => __ilhaSelf[${JSON.stringify(island.name)}]${isServerPage});`,
               );
             }
           }

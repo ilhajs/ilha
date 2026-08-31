@@ -34,8 +34,7 @@ Put the island in a `*.server.ts` or `*.server.tsx` file. Its render function an
 
 ```tsx
 // src/lib/tasks.server.tsx
-import { action } from "@ilha/router/server";
-import { derived, each, ilha } from "ilha";
+import { action } from "oxidejs";
 
 export const deleteTask = action(async (id: string) => {
   await db.tasks.delete(id);
@@ -51,7 +50,7 @@ export const TaskList = ilha(() => {
       {each(items() ?? []).as((task) => (
         <li key={task.id}>
           {task.text}
-          <button onclick={deleteTask.with(task.id)}>
+          <button onclick={() => deleteTask(task.id)}>
             Remove
           </button>
         </li>
@@ -73,7 +72,7 @@ export default ilha(() => <TaskList />);
 
 The router plugin replaces the server module with a small client proxy. The proxy requests the first frame, morphs the returned HTML into place, and reconnects events to server actions.
 
-Import server actions from `@ilha/router/server`. The router gives each exported action an RPC transport and makes `.with()` references replayable without a second Ilha action.
+Mark RPC functions with `action` from `oxidejs`. The router rewrites those exports so event handlers serialize into the frame HTML.
 
 ## Render a whole route on the server
 

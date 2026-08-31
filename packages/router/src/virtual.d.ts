@@ -1,9 +1,11 @@
 declare module "ilha:pages/server" {
-  import type { Island } from "ilha";
-
-  import type { RouterBuilder } from "./index";
+  import type { Page, RouterBuilder } from "./index";
   export const pageRouter: RouterBuilder;
-  export const registry: Record<string, Island<any>>;
+  export const registry: Record<string, Page>;
 }
 
-declare module "ilha:loaders" {}
+declare module "ilha:pages/client" {
+  import type { Page, RouterBuilder } from "./index";
+  export const pageRouter: RouterBuilder;
+  export const registry: Record<string, Page>;
+}

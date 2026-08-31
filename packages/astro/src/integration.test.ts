@@ -27,33 +27,18 @@ const ASTRO_BIN = join(
 );
 
 const JSX_COUNTER = `/** @jsxImportSource ilha */
-import { ilha, state, action } from "ilha";
-export const Counter = ilha<{ start?: number }>(({ start = 0 }) => {
-  const count = state(start);
-  const increment = action(() => count.update((value) => value + 1));
+import { atom } from "ilha";
+export const Counter = ({ start = 0 }: { start?: number }) => {
+  const count = atom(start);
   return (
     <div class="flex gap-2">
-      {count()}
-      <button type="button" onclick={increment}>Increment with Ilha-JSX</button>
-    </div>
-  );
-});
-`;
-
-const HTML_COUNTER = `/** @jsxImportSource ilha */
-import { ilha, html, state, action } from "ilha";
-export const Counter = ilha<{ start?: number }>(({ start = 0 }) => {
-  const count = state(start);
-  const increment = action(() => count.update((value) => value + 1));
-  return html\`
-    <div class="flex gap-2">
-      \${count()}
-      <button type="button" onclick=\${increment}>
-        Increment with Ilha-HTML
+      {count}
+      <button type="button" onclick={() => count.update((value: number) => value + 1)}>
+        Increment with Ilha-JSX
       </button>
     </div>
-  \`;
-});
+  );
+};
 `;
 
 const SOLID_COUNTER = `/** @jsxImportSource fake-js */
@@ -73,14 +58,12 @@ export function Counter(props: { start?: number }) {
 const PAGE = `---
 import { Counter as SolidCounter } from "../components/solid/Counter";
 import { Counter as IlhaCounter } from "../components/ilha/Counter";
-import { Counter as IlhaHtmlCounter } from "../components/ilha/CounterHtml";
 ---
 <html>
   <head><title>Fixture</title></head>
   <body>
     <SolidCounter client:load />
     <IlhaCounter start={4} client:load />
-    <IlhaHtmlCounter start={5} client:load />
   </body>
 </html>
 `;
@@ -150,7 +133,6 @@ function setupFixture() {
   writeFileSync(join(fixtureDir, "package.json"), JSON.stringify({ type: "module" }, null, 2));
   writeFileSync(join(fixtureDir, "tsconfig.json"), TSCONFIG);
   writeFileSync(join(src, "components", "ilha", "Counter.tsx"), JSX_COUNTER);
-  writeFileSync(join(src, "components", "ilha", "CounterHtml.tsx"), HTML_COUNTER);
   writeFileSync(join(src, "components", "solid", "Counter.tsx"), SOLID_COUNTER);
   writeFileSync(join(src, "pages", "index.astro"), PAGE);
 
@@ -242,15 +224,15 @@ describe("@ilha/astro + fake permissive renderer real build", () => {
     it(`routes ilha islands to the ilha renderer when ${label} in astro.config`, () => {
       const html = runBuild(ilhaFirst, true);
       const list = islands(html);
-      expect(list.length).toBe(3);
+      expect(list.length).toBe(2);
 
       // Solid SSR emits `data-hk`; ilha islands emit `data-ilha`. If Solid had
       // claimed an ilha island it would carry `data-hk` + a Solid render id and
       // lose its `data-ilha` markup — the exact regression this test locks in.
-      const ilhaIslands = list.filter((i) => i.content.includes("data-ilha="));
+      const ilhaIslands = list.filter((i) => i.content.includes("data-ilha"));
       const solidIslands = list.filter((i) => i.content.includes("data-hk"));
 
-      expect(ilhaIslands.length).toBe(2);
+      expect(ilhaIslands.length).toBe(1);
       expect(solidIslands.length).toBe(1);
 
       for (const island of ilhaIslands) {
@@ -258,7 +240,6 @@ describe("@ilha/astro + fake permissive renderer real build", () => {
         expect(island.content).not.toContain("data-hk");
       }
       expect(ilhaIslands.some((i) => i.content.includes("Increment with Ilha-JSX"))).toBe(true);
-      expect(ilhaIslands.some((i) => i.content.includes("Increment with Ilha-HTML"))).toBe(true);
 
       // The Solid island is untouched: Solid SSR markers + a Solid render id.
       expect(solidIslands[0].solidRenderId).toBeDefined();

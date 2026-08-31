@@ -29,7 +29,7 @@ Open [http://localhost:5173](http://localhost:5173).
 src/
   pages/       # File-based routes (+layout, index, learn, …)
   main.ts      # Client entry — mounts islands
-  app.css      # Tailwind + Areia styles
+  app.css      # Tailwind + daisyUI
 ```
 
-The demo includes a todo island (plain client `state()` — no loaders needed for a static app) and [Areia](https://areia.ilha.build) UI components.
+The demo is a todo page: `atom()` for local state, file-system routes under `src/pages/`.

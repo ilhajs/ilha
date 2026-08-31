@@ -1,26 +1,21 @@
-import { isActive, defineLayout, head } from "@ilha/router";
-import { LinkButton } from "areia";
-import { ilha } from "ilha";
+import { head, isActive } from "@ilha/router";
+import type { View } from "ilha";
 
-export default defineLayout((Children) =>
-  ilha(({ input }) => {
-    head({
-      titleTemplate: (title) => `${title} · Ilha + Vite`,
-    });
-    return (
-      <div class="mt-2 flex flex-col gap-2">
-        <nav class="container mx-auto flex max-w-xl items-center gap-2">
-          <LinkButton href="/" variant={isActive("/") ? "secondary" : "ghost"}>
-            Home
-          </LinkButton>
-          <LinkButton href="/learn" variant={isActive("/learn") ? "secondary" : "ghost"}>
-            Learn
-          </LinkButton>
-        </nav>
-        <main class="container mx-auto max-w-xl">
-          <Children {...input} />
-        </main>
-      </div>
-    );
-  }),
-);
+export default function Layout({ children }: { children?: View }) {
+  head({
+    titleTemplate: (title) => `${title} · Ilha + Vite`,
+  });
+  return (
+    <div class="mx-auto mt-4 flex max-w-xl flex-col gap-4 p-4">
+      <nav class="flex items-center gap-2">
+        <a href="/" class={isActive("/") ? "btn btn-sm" : "btn btn-sm btn-ghost"}>
+          Home
+        </a>
+        <a href="/learn" class={isActive("/learn") ? "btn btn-sm" : "btn btn-sm btn-ghost"}>
+          Learn
+        </a>
+      </nav>
+      <main>{children}</main>
+    </div>
+  );
+}

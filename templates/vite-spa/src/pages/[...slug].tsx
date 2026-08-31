@@ -1,8 +1,6 @@
 import { useRoute } from "@ilha/router";
-import { LinkButton } from "areia";
-import { ilha } from "ilha";
 
-export default ilha(() => {
+export default function NotFound() {
   const { path } = useRoute();
   return (
     <section class="flex flex-col gap-2">
@@ -10,9 +8,7 @@ export default ilha(() => {
       <p>
         No page found for <code>{path()}</code>.
       </p>
-      <LinkButton href="/" variant="outline">
-        Go home
-      </LinkButton>
+      <a href="/">Go home</a>
     </section>
   );
-});
+}
