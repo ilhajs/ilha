@@ -16,6 +16,8 @@ export function instr<A, E = never>(effect: Effect.Effect<A, E, AtomRegistry>): 
     *[Symbol.iterator](): Iterator<Instruction<A, E>, A> {
       return (yield out) as A;
     },
+    // SAFETY: thenable is the point — `yield*` and await consume Instructions.
+    // oxlint-disable-next-line unicorn/no-thenable
     then(onFulfilled, onRejected) {
       return new Promise<A>((res, rej) => {
         fiber.run(

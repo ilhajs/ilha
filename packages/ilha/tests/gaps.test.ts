@@ -13,9 +13,14 @@ import "../src/jsx-dev-runtime.ts";
 
 test("generator throw paints error", async () => {
   const el = document.createElement("div");
-  mount(el, function* () {
-    throw new Error("boom");
-  });
+  mount(
+    el,
+    // SAFETY: throw before the first yield is the behavior under test.
+    // oxlint-disable-next-line require-yield
+    function* () {
+      throw new Error("boom");
+    },
+  );
   await Bun.sleep(5);
   expect(el.querySelector("[data-ilha-error]")?.textContent).toContain("boom");
 });

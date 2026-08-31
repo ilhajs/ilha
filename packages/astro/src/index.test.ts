@@ -130,4 +130,25 @@ describe("@ilha/astro client hydration", () => {
     el.dispatchEvent(new Event("astro:unmount"));
     el.remove();
   });
+
+  it('mounts fresh when Astro leaves ssr="" on a client:only island', async () => {
+    // Regression: Astro emits ssr="" even for client:only, where the host has
+    // no [data-ilha] child. Hydrating that empty host would render nothing.
+    const el = document.createElement("div");
+    el.setAttribute("ssr", "");
+    document.body.appendChild(el);
+
+    await hydrate(el)(Counter, { label: "Clicks" }, {}, { client: "only" });
+    await Bun.sleep(10);
+
+    const button = el.querySelector("button")!;
+    expect(button).not.toBeNull();
+    expect(button.textContent).toContain("Clicks:0");
+    button.click();
+    await Bun.sleep(10);
+    expect(button.textContent).toContain("Clicks:1");
+
+    el.dispatchEvent(new Event("astro:unmount"));
+    el.remove();
+  });
 });

@@ -440,6 +440,8 @@ export function resolveRedirectTarget(
   base: URL,
   allowExternal: boolean,
 ): { ok: true; to: string } | { ok: false } {
+  // SAFETY: reject control characters in redirect targets — intentional range.
+  // oxlint-disable-next-line no-control-regex
   if (/[\\\u0000-\u0020]/.test(to)) return { ok: false };
   try {
     const u = new URL(to, base);

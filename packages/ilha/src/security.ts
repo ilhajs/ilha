@@ -14,7 +14,12 @@ const SAFE_DATA_IMAGE_RE = /^data:image\/(png|jpe?g|gif|webp|avif)[;,]/i;
 const UNSAFE_SCHEME_RE = /^(?:javascript|vbscript):/i;
 const DATA_IMAGE_CONTEXTS = new Set(["img:src", "source:srcset", "link:imagesrcset"]);
 
+// SAFETY: strips raw control characters from URL attribute values — the
+// control-character range is the point of the regex.
 function normalizeUrl(value: string): string {
+  // SAFETY: strips raw control characters from URL attribute values — the
+  // control-character range is the point of the regex.
+  // oxlint-disable-next-line no-control-regex
   return value.replace(/[\u0000-\u0020]/g, "");
 }
 

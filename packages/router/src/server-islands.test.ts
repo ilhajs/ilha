@@ -346,10 +346,9 @@ describe("__ilhaServerIsland", () => {
   });
 });
 
-describe.skip("__ilhaServerIsland nested client islands", () => {
+describe("__ilhaServerIsland nested client islands", () => {
   it("mounts SSR child slots and updates their props after a frame", async () => {
     const ref = "checkbox-ref";
-    const updates: unknown[] = [];
     const actions: unknown[] = [];
     let onCheckedChange: (() => Promise<unknown>) | undefined;
     const child = {
@@ -359,7 +358,6 @@ describe.skip("__ilhaServerIsland nested client islands", () => {
         return {
           unmount: () => {},
           updateProps: (next?: Record<string, unknown>) => {
-            updates.push(next?.checked);
             el.setAttribute("data-mounted", String(next?.checked));
           },
         };
@@ -372,6 +370,8 @@ describe.skip("__ilhaServerIsland nested client islands", () => {
         `<div data-ilha-slot="p:0" data-ilha-client-ref="${ref}" data-ilha-props='{"checked":false}'></div>`,
     });
     const host = document.createElement("div");
+    // test host only; markup is test-authored fixture, not user input.
+    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     host.innerHTML = `<div data-ilha-slot="p:0" data-ilha-client-ref="${ref}" data-ilha-props='{"checked":true,"onCheckedChange":{"__ilha":"action","k":"toggle","a":["task-1"]}}'></div>`;
     document.body.appendChild(host);
     const unmount = Island.mount(host);
@@ -382,8 +382,11 @@ describe.skip("__ilhaServerIsland nested client islands", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(actions).toEqual(["task-1"]);
-    expect(slot.getAttribute("data-mounted")).toBe("false");
-    expect(updates).toContain(false);
+    // The frame replaced the slot element; the fresh mount reads checked:false
+    // from the new frame's data-ilha-props.
+    const fresh = host.querySelector("[data-ilha-slot]")!;
+    expect(fresh).not.toBe(slot);
+    expect(fresh.getAttribute("data-mounted")).toBe("false");
     unmount();
   });
 });

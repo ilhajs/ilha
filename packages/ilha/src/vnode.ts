@@ -7,7 +7,8 @@ export function h(
   props: Record<string, unknown> | null | undefined,
   ...rest: View[]
 ): VNode {
-  const p = { ...(props ?? {}) };
+  // SAFETY: props may be null/undefined; spreading either yields {}.
+  const p = { ...props };
   const fromProps = p.children;
   delete p.children;
   const children = flatten([...(fromProps === undefined ? [] : [fromProps as View]), ...rest]);

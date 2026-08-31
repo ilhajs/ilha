@@ -23,3 +23,13 @@ const Counter = () => {
 ```
 
 `h(type, props, ...children)` is the same factory JSX uses. There is no `html` tagged template in this API.
+
+## Tagged templates
+
+If you want markup that looks like the old html tagged-template helper, look at [@knighted/jsx](https://github.com/knightedcodemonkey/jsx). It is a tagged-template JSX runtime. It is **not** built into Ilha.
+
+It is compatible with Ilha **only if** the tag emits `h()` vnodes (`$$ilha: 1`), not DOM nodes or `React.createElement`. The package defaults to React; override its `createElement` / `fragment` to `h` and `Fragment` from `ilha` if that option exists in the version you install.
+
+Use lowercase event props (`onclick`, not `onClick`). Ilha only binds all-lowercase `on*` keys. `class` and `className` both work.
+
+Prefer real JSX or `h()` for anything you ship. Treat `@knighted/jsx` as an optional authoring layer, not part of the Ilha contract.
