@@ -111,18 +111,18 @@ function morphChildren(fromParent: Element, toParent: Element): void {
       if (fromNode instanceof Element) {
         const fromKey = morphKeyOf(fromNode);
         if (fromKey !== null && fromKey !== toKey && toKeys!.has(fromKey)) {
-          fromParent.insertBefore(toNode.cloneNode(true), fromNode);
+          fromParent.insertBefore(toNode, fromNode);
           continue;
         }
       }
     }
 
     if (!fromNode) {
-      fromParent.appendChild(toNode.cloneNode(true));
+      fromParent.appendChild(toNode);
       continue;
     }
     if (fromNode.nodeType !== toNode.nodeType) {
-      fromParent.replaceChild(toNode.cloneNode(true), fromNode);
+      fromParent.replaceChild(toNode, fromNode);
       continue;
     }
     if (fromNode.nodeType === 3 || fromNode.nodeType === 8) {
@@ -133,7 +133,7 @@ function morphChildren(fromParent: Element, toParent: Element): void {
       const fromEl = fromNode as Element;
       const toEl = toNode as Element;
       if (fromEl.localName !== toEl.localName) {
-        fromParent.replaceChild(toEl.cloneNode(true), fromEl);
+        fromParent.replaceChild(toEl, fromEl);
         continue;
       }
       const slotId = toEl.getAttribute(SLOT_ATTR);

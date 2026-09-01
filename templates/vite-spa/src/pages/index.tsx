@@ -1,7 +1,6 @@
 import { head } from "@ilha/router";
-import * as Stream from "effect/Stream";
 import * as Atom from "effect/unstable/reactivity/Atom";
-import { atom } from "ilha";
+import { atom, batch } from "ilha";
 
 type Todo = { id: string; text: string; completed: boolean };
 
@@ -14,7 +13,9 @@ const DEFAULT_TODOS: Todo[] = [
 export default function Home() {
   head({ title: "Home" });
   const items = atom(DEFAULT_TODOS);
-  const pending = atom(() => items().filter((todo) => !todo.completed).length);
+  const pending = atom(
+    Atom.map(items.atom, (list) => list.filter((todo) => !todo.completed).length),
+  );
 
   const addItem = (event: SubmitEvent) => {
     event.preventDefault();
@@ -38,39 +39,41 @@ export default function Home() {
             Add
           </button>
         </form>
-        {Stream.map(Atom.toStream(items.atom), (list) => (
-          <div class="flex flex-col gap-2">
-            {list.map((todo) => (
-              <div key={todo.id} class="flex items-center justify-between gap-2">
-                <label class="label cursor-pointer justify-start gap-2">
-                  <input
-                    type="checkbox"
-                    class="checkbox"
-                    checked={todo.completed}
-                    onchange={(event: Event) => {
-                      const checked = (event.currentTarget as HTMLInputElement).checked;
+        <div class="flex flex-col gap-2">
+          {items().map((todo) => (
+            <div key={todo.id} class="flex items-center justify-between gap-2">
+              <label class="label cursor-pointer justify-start gap-2">
+                <input
+                  type="checkbox"
+                  class="checkbox"
+                  checked={todo.completed}
+                  onchange={(event: Event) => {
+                    const checked = (event.currentTarget as HTMLInputElement).checked;
+                    batch(() =>
                       items.update((current) =>
                         current.map((item) =>
                           item.id === todo.id ? { ...item, completed: checked } : item,
                         ),
-                      );
-                    }}
-                  />
-                  <span>{todo.text}</span>
-                </label>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-ghost"
-                  onclick={() =>
-                    items.update((current) => current.filter((item) => item.id !== todo.id))
-                  }
-                >
-                  Delete
-                </button>
-              </div>
-            ))}
-          </div>
-        ))}
+                      ),
+                    );
+                  }}
+                />
+                <span>{todo.text}</span>
+              </label>
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost"
+                onclick={() =>
+                  batch(() =>
+                    items.update((current) => current.filter((item) => item.id !== todo.id)),
+                  )
+                }
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -57,13 +57,14 @@ test("flags conditional primitives", async () => {
   expect(blob).toContain("no-conditional-primitive");
 });
 
-test("flags when/watch/wait outside a generator", async () => {
+test("flags when() outside a generator", async () => {
   const { messages, raw } = await lint(`
-    import { atom, watch } from "ilha";
-    export default function Logger() {
-      const n = atom(0);
-      watch(n, (value) => console.log(value));
-      return <p>{n}</p>;
+    import * as Stream from "effect/Stream";
+    import { when } from "ilha";
+    export default function App() {
+      when(Stream.fromIterable([1]), function* (n) {
+        yield n;
+      });
     }
   `);
   const blob = JSON.stringify(messages) + raw;
@@ -128,13 +129,54 @@ test("flags storing a function value in atom()", async () => {
   expect(blob).toContain("function-in-atom");
 });
 
-test("accepts a computed atom initializer", async () => {
+test("accepts Atom.transform for derived values", async () => {
+  const { messages, raw } = await lint(`
+    import { atom } from "ilha";
+    import * as Atom from "effect/unstable/reactivity/Atom";
+    export default function Cart() {
+      const items = atom([{ n: 1 }]);
+      const total = atom(Atom.transform(items.atom, (get, source) => get(source).reduce((sum, item) => sum + item.n, 0)));
+      return <p>{total}</p>;
+    }
+  `);
+  const blob = JSON.stringify(messages) + raw;
+  expect(blob).not.toContain("function-in-atom");
+});
+
+test("accepts Atom.map for derived values", async () => {
+  const { messages, raw } = await lint(`
+    import { atom } from "ilha";
+    import * as Atom from "effect/unstable/reactivity/Atom";
+    export default function Board() {
+      const items = atom([{ done: false }]);
+      const pending = atom(Atom.map(items.atom, (list) => list.filter((item) => !item.done).length));
+      return <span>{pending}</span>;
+    }
+  `);
+  const blob = JSON.stringify(messages) + raw;
+  expect(blob).not.toContain("function-in-atom");
+});
+
+test("flags atom(() => ...) derived initializer", async () => {
   const { messages, raw } = await lint(`
     import { atom } from "ilha";
     export default function Cart() {
       const items = atom([{ n: 1 }]);
       const total = atom(() => items().reduce((sum, item) => sum + item.n, 0));
       return <p>{total}</p>;
+    }
+  `);
+  const blob = JSON.stringify(messages) + raw;
+  expect(blob).toContain("function-in-atom");
+});
+
+test("ignores shadowed non-function bindings passed to atom()", async () => {
+  const { messages, raw } = await lint(`
+    import { atom } from "ilha";
+    function save() { return 1; }
+    export default function Box() {
+      const save = "email";
+      return <p>{atom(save)}</p>;
     }
   `);
   const blob = JSON.stringify(messages) + raw;

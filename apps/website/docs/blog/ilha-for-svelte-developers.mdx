@@ -2,7 +2,7 @@
 title: Ilha for Svelte Developers
 type: blog
 date: 2026-04-27
-description: A practical map from Svelte $state, $derived, and $effect to ilha atoms, computed atoms, and watch.
+description: A practical map from Svelte $state, $derived, and $effect to ilha atoms and Effect derived atoms.
 authors:
   - name: awskir
     url: https://github.com/rago4
@@ -54,35 +54,36 @@ export const Counter = () => {
 };
 ```
 
-## `$derived` vs computed `atom()`
+## `$derived` vs `Atom.map`
 
 ```tsx twoslash
+import * as Atom from "effect/unstable/reactivity/Atom";
 import { atom } from "ilha";
 
 export const Totals = () => {
   const count = atom(0);
-  const doubled = atom(() => count() * 2);
+  const doubled = atom(Atom.map(count.atom, (n) => n * 2));
   return <p>{doubled}</p>;
 };
 ```
 
 Async and streamed data use `when` / Stream views, not a derived accessor with `.loading`.
 
-## `$effect` vs `watch`
+## `$effect` vs `watch()`
 
 ```tsx twoslash
 import { atom, watch } from "ilha";
 
-function* Title() {
+const Title = () => {
   const title = atom("Hello");
-  yield* watch(title, (value) => {
+  watch(title, (value) => {
     document.title = value;
   });
-  yield <p>{title}</p>;
-}
+  return <p>{title}</p>;
+};
 ```
 
-DOM events stay on the element: `onclick={handler}`.
+For stream-driven ongoing logic, use `when` with `Atom.toStream` — see [Streams](/guide/ui/streams). For write-site DOM effects, handlers are fine.
 
 ## Props
 
@@ -96,10 +97,10 @@ A nested function shares the parent component. `mount` / `renderToString` on a f
 
 `await renderToString(Counter)` for HTML. `mount(host, Counter, { hydrate: true })` to attach events.
 
-| Svelte              | Ilha                   |
-| ------------------- | ---------------------- |
-| `$state`            | `atom(value)`          |
-| `$derived`          | `atom(() => expr)`     |
-| `$effect`           | `watch` in a generator |
-| `bind:value`        | `oninput` + `atom`     |
-| `.svelte` component | function component     |
+| Svelte              | Ilha                                                 |
+| ------------------- | ---------------------------------------------------- |
+| `$state`            | `atom(value)`                                        |
+| `$derived`          | `atom(Atom.map(...))` or `atom(Atom.transform(...))` |
+| `$effect`           | `watch()` or event handlers                          |
+| `bind:value`        | `oninput` + `atom`                                   |
+| `.svelte` component | function component                                   |

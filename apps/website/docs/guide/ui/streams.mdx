@@ -1,93 +1,153 @@
 ---
 title: Streams
-description: when, watch, wait, and live lists from a Stream.
+description: Paint Effect Streams of views, bridge atoms with Atom.toStream, and use when for per-emission generator bodies.
 ---
 
-Use `when`, `watch`, and `wait` from a **generator** component. `yield*` the instruction.
+## Streams
 
-## `when`
-
-`when(stream, body)` runs `body` for each value. On the client it keeps listening. On SSR it takes the first value.
+Generator components can **yield** a `Stream` of views. Compose with Effect (`Stream.map`, `Stream.pipe`, …) — Ilha repaints on each emission. SSR takes the first value only; the client keeps listening after `mount`.
 
 ```tsx twoslash
 import * as Stream from "effect/Stream";
-import { when } from "ilha";
 
 function* Status() {
-  yield* when(
+  yield Stream.map(
     Stream.fromIterable(["idle", "ready"]),
-    function* (value) {
-      yield <p>{value}</p>;
+    (value) => <p>{value}</p>,
+  );
+}
+```
+
+Async components can return a `Stream` directly — no generator required.
+
+## Atom.toStream
+
+Turn an atom into a change feed with [`Atom.toStream`](https://www.effect.website/docs/v4/api/effect/unstable/reactivity/Atom#tostream):
+
+```tsx twoslash
+import * as Stream from "effect/Stream";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { atom } from "ilha";
+
+function* List() {
+  const items = atom(["a", "b"]);
+  yield Stream.map(Atom.toStream(items.atom), (list) => (
+    <ul>
+      {list.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  ));
+}
+```
+
+Use `items().map(...)` in a sync component for a simple list. Reach for `Atom.toStream` when a stream pipeline should drive updates (debounce, merge, server feeds).
+
+## when
+
+`when(stream, body)` runs a generator `body` per emission. A new value interrupts the previous body — stale async work does not paint.
+
+```tsx twoslash
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { atom, when } from "ilha";
+
+function* Search() {
+  const query = atom("");
+  yield (
+    <input
+      value={query}
+      oninput={(e: Event) =>
+        query.set((e.currentTarget as HTMLInputElement).value)
+      }
+    />
+  );
+  yield* when(
+    Atom.toStream(query.atom).pipe(
+      Stream.debounce("200 millis"),
+    ),
+    function* (q) {
+      if (!q) {
+        yield <p>Type to search</p>;
+        return;
+      }
+      const items = yield* Effect.tryPromise({
+        try: (signal) =>
+          fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+            signal,
+          }).then((r) => r.json()),
+        catch: (e) => e,
+      });
+      yield (
+        <ul>
+          {(items as string[]).map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      );
     },
   );
 }
 ```
 
-A new value closes the previous body and starts a fresh one. Stale work does not paint.
+`yield Stream.map(...)` is enough for a stream of views. Use `when` when each emission needs its own async generator.
 
-## `watch`
+## Generators
 
-`watch(source, fn)` runs `fn` whenever an atom or Stream emits. It does not render.
+| Yield              | Meaning                                    |
+| ------------------ | ------------------------------------------ |
+| `yield <p>…</p>`   | Paint this view                            |
+| `yield stream`     | Subscribe to a `Stream` of views           |
+| `yield* effect`    | Run an `Effect` (fetch, sleep, `Deferred`) |
+| `yield* when(...)` | Per-emission body; stale bodies interrupt  |
+
+Uncaught failures paint an error view.
+
+## Side effects
+
+For atom-driven side effects in any component, use [`watch()`](/guide/ui/state#side-effects). In generators, `yield* Stream.runForEach` works for finite streams:
 
 ```tsx twoslash
-import { atom, watch } from "ilha";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 
-function* Logger() {
-  const n = atom(0);
-  yield* watch(n, (value) => {
-    console.log(value);
-  });
-  yield <p>{n}</p>;
+function* Boot() {
+  yield* Stream.runForEach(
+    Stream.fromIterable([1, 2, 3]),
+    (n) => Effect.sync(() => console.log(n)),
+  );
+  yield <p>Ready</p>;
 }
 ```
 
-## `wait`
+Co-locate DOM effects in event handlers when you own the write site.
 
-`wait(body)` paints `body` until you call `done(value)`. Then the generator continues with that value.
+## Deferred
+
+Paint UI, wait for input, then continue:
 
 ```tsx twoslash
-import { wait } from "ilha";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
 
 function* Gate() {
-  const name = yield* wait(function* (done) {
-    yield (
-      <button type="button" onclick={() => done("Ada")}>
-        Continue
-      </button>
-    );
-  });
+  const deferred = yield* Deferred.make<string>();
+  yield (
+    <button
+      type="button"
+      onclick={() =>
+        Effect.runSync(Deferred.succeed(deferred, "Ada"))
+      }
+    >
+      Continue
+    </button>
+  );
+  const name = yield* Deferred.await(deferred);
   yield <p>Hello, {name}</p>;
 }
 ```
 
-## Live lists
+## Server feeds
 
-On the server, subscribe to a PubSub or RPC generator and map it to JSX:
-
-```tsx
-import * as Stream from "effect/Stream";
-import { action } from "oxidejs";
-
-export const getTasks = action(async function* () {
-  yield [{ id: "1", text: "One" }];
-});
-
-export const TaskList = async function TaskList() {
-  return Stream.map(
-    Stream.fromAsyncIterable(getTasks(), (error: unknown) =>
-      error instanceof Error ? error : new Error(String(error)),
-    ),
-    (list: { id: string; text: string }[]) => (
-      <ul>
-        {list.map((item) => (
-          <li key={item.id}>{item.text}</li>
-        ))}
-      </ul>
-    ),
-  );
-};
-```
-
-SSR takes the first Stream value (`take(1)`), then serializes. The client proxy resumes the stream and refetches frames. See [Server islands](/guide/routing/server-islands).
-
-You can `yield Effect.sleep(ms)` or other Effects in a generator. Failures paint an error view unless you handle them.
+Map a server stream to JSX with `Stream.fromAsyncIterable`. SSR serializes the first value; the client resumes the feed. See [Server islands](/guide/routing/server-islands) and [PubSub state](/guide/recipes/pubsub-state).

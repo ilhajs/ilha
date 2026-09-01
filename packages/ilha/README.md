@@ -48,43 +48,48 @@ count.set(1); // replace
 count.update((n) => n + 1); // patch
 ```
 
-In JSX, `{count}` subscribes the render. A function initializer is a **computed** atom:
+In JSX, `{count}` subscribes the render. Derived values use Effect's `Atom.map` or `Atom.transform`:
 
 ```tsx
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { atom } from "ilha";
+
 const items = atom([{ n: 1 }, { n: 2 }]);
-const total = atom(() => items().reduce((sum, item) => sum + item.n, 0));
+const total = atom(Atom.map(items.atom, (list) => list.reduce((sum, item) => sum + item.n, 0)));
 ```
+
+Wrap multiple writes in `batch()`. Derived and mutation atoms use Effect's `Atom.map`, `Atom.transform`, and `Atom.fn` — pass `handle.atom`, then wrap in `atom()`. Use `watch(source, fn)` for side effects on atom changes.
+
+Use `atom.lazy(() => …)` for one-time initialization or to store a function value.
 
 Atoms hold data. Do not store JSX in an atom.
 
 ---
 
-## Streams, when, watch, wait
+## Streams and when
 
-Use a generator when you `yield*` instructions.
+Paint [Effect `Stream`](https://www.effect.website/docs/v4/api/effect/Stream) values. Yield a stream of views from a generator, or return one from an async component:
 
 ```tsx
 import * as Stream from "effect/Stream";
 import * as Atom from "effect/unstable/reactivity/Atom";
-import { atom, when } from "ilha";
+import { atom } from "ilha";
 
-const Search = function* () {
-  const q = atom("");
-  yield (
-    <input value={q} oninput={(e: Event) => q.set((e.currentTarget as HTMLInputElement).value)} />
-  );
-  yield* when(Atom.toStream(q.atom).pipe(Stream.debounce("200 millis")), function* (query) {
-    if (!query) return;
-    yield <p>{query}</p>;
-  });
-};
+function* List() {
+  const items = atom(["a", "b"]);
+  yield Stream.map(Atom.toStream(items.atom), (list) => (
+    <ul>
+      {list.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  ));
+}
 ```
 
-- `when(stream, body)` — render `body` for each value (SSR takes the first).
-- `watch(source, fn)` — side effect on an atom or Stream.
-- `wait(body)` — paint until `done(value)`, then continue the generator.
+SSR takes the first emission (`take(1)`); the client keeps listening after `mount`.
 
-Map a Stream of arrays to JSX for lists (`Stream.map`, `Atom.toStream`).
+Ilha also ships `when` for per-emission generator bodies (stale work interrupted). Side effects and pauses use Effect directly — see the [Streams guide](https://ilha.build/guide/ui/streams).
 
 ---
 

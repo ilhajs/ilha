@@ -1,9 +1,11 @@
 ---
 title: State management
-description: Declare reactive values with atom(), read them, write them, and compute from other atoms.
+description: Declare reactive values with atom(), derive with Effect Atom.map and Atom.transform, and react with watch().
 ---
 
-You declare local state with `atom()`. When a value changes, the component that read it reruns and morphs its host.
+## atom()
+
+Declare local state with `atom()`. Reads during render subscribe the component; writes rerun it.
 
 ```tsx twoslash
 import { atom } from "ilha";
@@ -21,8 +23,6 @@ const Counter = () => {
 };
 ```
 
-## Read and write
-
 | Call                         | Meaning                |
 | ---------------------------- | ---------------------- |
 | `count()`                    | Read the current value |
@@ -30,26 +30,18 @@ const Counter = () => {
 | `count.set(1)`               | Replace                |
 | `count.update((n) => n + 1)` | Patch from previous    |
 
-If the initializer is a function, ilha treats it as computed, not as a stored function:
+### Where you read matters
+
+A read in the component body (`count()` or `String(count())`) subscribes the **whole component** to rerun. Passing the handle in JSX (`{count}`) gives that node its own subscription and updates only that subtree. Prefer `{count}` in markup when you do not need the value in logic.
+
+In `async` components, declare atoms before the first `await`. After an `await`, pass handles in JSX instead of calling them in the body — only the synchronous setup pass collects render dependencies.
+
+## Derived atoms
+
+Pass `handle.atom` to Effect, wrap the result in `atom()`:
 
 ```tsx twoslash
-import { atom } from "ilha";
-
-const Box = () => {
-  const ready = atom(() => expensive());
-  return <p>{ready() ? "ok" : "…"}</p>;
-};
-
-function expensive() {
-  return true;
-}
-```
-
-## Computed atoms
-
-Pass a function to read other atoms:
-
-```tsx twoslash
+import * as Atom from "effect/unstable/reactivity/Atom";
 import { atom } from "ilha";
 
 const Cart = () => {
@@ -57,31 +49,149 @@ const Cart = () => {
     { id: "a", n: 1 },
     { id: "b", n: 2 },
   ]);
-  const total = atom(() =>
-    items().reduce((sum, item) => sum + item.n, 0),
+  const total = atom(
+    Atom.map(items.atom, (list) =>
+      list.reduce((sum, item) => sum + item.n, 0),
+    ),
   );
   return <p>{total}</p>;
 };
 ```
 
-Computed atoms are read-only. Do not call `.set()` on them.
+| API                                          | Use when                           |
+| -------------------------------------------- | ---------------------------------- |
+| `Atom.map(source, f)`                        | Pure function of one atom          |
+| `Atom.transform(source, (get, source) => …)` | Reads more than one atom via `get` |
 
-A count is a number atom, not `.length` on a handle:
+```tsx twoslash
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { atom } from "ilha";
+
+const Form = () => {
+  const first = atom("");
+  const last = atom("");
+  const fullName = atom(
+    Atom.transform(first.atom, (get) =>
+      `${get(first.atom)} ${get(last.atom)}`.trim(),
+    ),
+  );
+  return <p>{fullName}</p>;
+};
+```
+
+## Side effects
+
+Render subscription reruns the component — it is not `useEffect`. Use `watch()` for callbacks on atom changes:
+
+```tsx twoslash
+import { atom, watch } from "ilha";
+
+const Profile = () => {
+  const name = atom("john");
+  watch(name, (value) => {
+    document.title = value;
+  });
+  return (
+    <input
+      value={name}
+      oninput={(e: Event) =>
+        name.set((e.currentTarget as HTMLInputElement).value)
+      }
+    />
+  );
+};
+```
+
+Call `watch()` before any `await` in async components. Guard DOM access on the server. For streams and `when`, see [Streams](/guide/ui/streams).
+
+## Batching writes
+
+`batch()` notifies subscribers once after multiple writes:
+
+```tsx twoslash
+import { atom, batch } from "ilha";
+
+const Panel = () => {
+  const a = atom(0);
+  const b = atom(0);
+  const reset = () => {
+    batch(() => {
+      a.set(0);
+      b.set(0);
+    });
+  };
+  return (
+    <button type="button" onclick={reset}>
+      {a}-{b}
+    </button>
+  );
+};
+```
+
+## Async mutations
+
+`atom(Atom.fn(...))` runs an Effect when you call `.set()`:
+
+```tsx twoslash
+import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Effect from "effect/Effect";
+import { atom } from "ilha";
+
+const Form = () => {
+  const save = atom(
+    Atom.fn((email: string) =>
+      Effect.tryPromise({
+        try: () =>
+          fetch("/api/waitlist", {
+            method: "POST",
+            body: JSON.stringify({ email }),
+          }).then((r) => r.json()),
+        catch: (e) => e,
+      }),
+    ),
+  );
+  return (
+    <form
+      onsubmit={(e: SubmitEvent) => {
+        e.preventDefault();
+        const email = String(
+          new FormData(e.currentTarget as HTMLFormElement).get(
+            "email",
+          ) ?? "",
+        );
+        if (Atom.isWritable(save.atom))
+          save.set(email as never);
+      }}
+    >
+      <input
+        name="email"
+        type="email"
+        placeholder="you@company.com"
+      />
+      <button type="submit">Join waitlist</button>
+    </form>
+  );
+};
+```
+
+For optimistic updates, use [`Atom.optimisticFn`](https://www.effect.website/docs/v4/api/effect/unstable/reactivity/Atom#optimisticfn).
+
+## Lazy initialization
+
+`atom.lazy(() => …)` runs once per slot. Use it for expensive init or to store a function value — not `atom(fn)`.
 
 ```tsx twoslash
 import { atom } from "ilha";
 
-const Board = () => {
-  const items = atom([{ done: false }, { done: true }]);
-  const pending = atom(
-    () => items().filter((item) => !item.done).length,
-  );
-  return <span>{pending}</span>;
+const Panel = () => {
+  const settings = atom.lazy(() => {
+    if (typeof localStorage === "undefined") return {};
+    return JSON.parse(localStorage.getItem("prefs") ?? "{}");
+  });
+  return <p>{JSON.stringify(settings())}</p>;
 };
 ```
 
 ## Props vs state
 
-State you initialize from props does not reset when props change later. Read props during render if the view should follow the parent.
-
-Atoms hold data. Do not store JSX in an atom. For lists, see [Templating](/guide/ui/templating).
+State initialized from props does not reset when props change. Atoms hold data, not JSX.

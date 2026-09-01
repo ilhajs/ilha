@@ -37,30 +37,25 @@ On a server island, bind `oxidejs` `action`s with `.with(...)` on event props so
 
 ## Lists
 
-Atoms hold data. Map an array during render, or paint a Stream of arrays into a hole.
+Atoms hold data. Map an array during render:
 
 ```tsx twoslash
-import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
 import { atom } from "ilha";
 
 type Item = { id: string; text: string };
 
 const List = () => {
   const items = atom<Item[]>([{ id: "1", text: "One" }]);
-  return Stream.map(
-    Atom.toStream(items.atom),
-    (list: Item[]) => (
-      <ul>
-        {list.map((item) => (
-          <li key={item.id}>{item.text}</li>
-        ))}
-      </ul>
-    ),
+  return (
+    <ul>
+      {items().map((item) => (
+        <li key={item.id}>{item.text}</li>
+      ))}
+    </ul>
   );
 };
 ```
 
-The Stream paints into a hole. Each emission replaces that hole. Keys on `li` reuse DOM nodes when the array shifts.
+When `items` changes, the component reruns and morphs the list. Keys on `li` reuse DOM nodes when the array shifts.
 
-Live server lists and `when` / `watch` / `wait` are in [Streams](/guide/ui/streams).
+For live server lists, paint a Stream into a hole. See [Streams](/guide/ui/streams).

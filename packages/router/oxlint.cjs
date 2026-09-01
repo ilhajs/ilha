@@ -1,6 +1,5 @@
-const PRIMITIVES = new Set(["atom", "when", "watch", "wait"]);
-// when/watch/wait return Instructions — they are only consumable by a generator frame.
-const INSTRUCTIONS = new Set(["when", "watch", "wait"]);
+const PRIMITIVES = new Set(["atom", "watch", "when"]);
+const INSTRUCTIONS = new Set(["when"]);
 const CONDITIONAL = new Set([
   "IfStatement",
   "ForStatement",
@@ -38,8 +37,48 @@ function ancestorsOf(context, node) {
   return [];
 }
 
-function calleeName(node) {
-  return node.type === "Identifier" ? node.name : null;
+function blockBody(node) {
+  if (node.type === "BlockStatement") return node.body;
+  if (
+    node.type === "FunctionDeclaration" ||
+    node.type === "FunctionExpression" ||
+    node.type === "ArrowFunctionExpression"
+  ) {
+    const body = node.body;
+    if (body?.type === "BlockStatement") return body.body;
+  }
+  return null;
+}
+
+function bindingInitType(name, ancestors) {
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const a = ancestors[i];
+    if (a.type === "VariableDeclarator" && a.id?.type === "Identifier" && a.id.name === name) {
+      return a.init?.type ?? "none";
+    }
+    if (a.type === "FunctionDeclaration" && a.id?.name === name) {
+      return "FunctionDeclaration";
+    }
+    const stmts = blockBody(a);
+    if (stmts) {
+      for (const stmt of stmts) {
+        if (stmt.type !== "VariableDeclaration") continue;
+        for (const decl of stmt.declarations) {
+          if (decl.id?.type === "Identifier" && decl.id.name === name) {
+            return decl.init?.type ?? "none";
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function isFunctionBinding(name, ancestors, moduleFns) {
+  const local = bindingInitType(name, ancestors);
+  if (local === "FunctionDeclaration") return true;
+  if (local !== null) return FN_TYPES.has(local);
+  return moduleFns.has(name);
 }
 
 function enclosingFunctions(ancestors) {
@@ -49,7 +88,7 @@ function enclosingFunctions(ancestors) {
 const noConditionalPrimitive = {
   meta: {
     type: "problem",
-    docs: { description: "Disallow atom/when/watch/wait inside conditionals or loops" },
+    docs: { description: "Disallow atom/watch/when inside conditionals or loops" },
     messages: {
       conditional:
         "Do not call {{name}}() inside a condition or loop. Primitive registration order must be stable — put the branch inside the primitive or the view.",
@@ -83,7 +122,7 @@ const noPrimitiveOutsideComponent = {
   meta: {
     type: "problem",
     docs: {
-      description: "Call atom/when/watch/wait inside a component, never at module top level",
+      description: "Call atom/watch/when inside a component, never at module top level",
     },
     messages: {
       outside:
@@ -112,7 +151,7 @@ const noPrimitiveOutsideComponent = {
 const noInstructionOutsideGenerator = {
   meta: {
     type: "problem",
-    docs: { description: "Use when/watch/wait only inside a generator, with yield*" },
+    docs: { description: "Use when only inside a generator, with yield*" },
     messages: {
       notGenerator:
         "{{name}}() returns an instruction that only a generator frame can run. Make the enclosing component a generator and yield* it.",
@@ -186,18 +225,20 @@ const preferLowercaseEvents = {
 const functionInAtom = {
   meta: {
     type: "problem",
-    docs: { description: "atom(fn) is a computed initializer — wrap function values" },
+    docs: {
+      description:
+        "atom(fn) and atom(() => …) are invalid — use atom.lazy, Atom.map, or Atom.transform",
+    },
     messages: {
-      init: "atom({{name}}) treats the function as a computed initializer. Wrap it: atom(() => {{name}}).",
-      set: "{{setter}}({{name}}) is fine as a value, but computed atoms reject set(). Store a function with a plain wrapper if you really mean it.",
+      init: "atom({{name}}) is not valid. Use atom.lazy(() => {{name}}) to store a function value.",
+      derived:
+        "atom(() => …) is not supported. Use atom(Atom.map(...)) or atom(Atom.transform(...)) for derived values, or atom.lazy() for one-time init.",
     },
     schema: [],
   },
   create(context) {
     const b = bindings();
     const fns = new Set();
-    const atoms = new Set();
-    const computed = new Set();
     return {
       ImportDeclaration(node) {
         takeImport(b, node);
@@ -215,23 +256,26 @@ const functionInAtom = {
           fns.add(node.id.name);
         }
         if (!init || primitiveName(init, b) !== "atom") return;
-        atoms.add(node.id.name);
-        // atom(() => …) or atom(function…) — computed; flag set() on it.
-        if (init.arguments[0] && FN_TYPES.has(init.arguments[0].type)) computed.add(node.id.name);
+        const arg = init.arguments[0];
+        if (arg && FN_TYPES.has(arg.type)) {
+          context.report({ node: arg, messageId: "derived" });
+        }
+        if (
+          arg?.type === "Identifier" &&
+          isFunctionBinding(arg.name, ancestorsOf(context, arg), fns)
+        ) {
+          context.report({ node: arg, messageId: "init", data: { name: arg.name } });
+        }
       },
       CallExpression(node) {
         if (node.arguments.length === 0) return;
         const arg = node.arguments[0];
-        if (arg.type !== "Identifier" || !fns.has(arg.name)) return;
-        if (primitiveName(node, b) === "atom") {
+        if (arg.type !== "Identifier") return;
+        if (
+          primitiveName(node, b) === "atom" &&
+          isFunctionBinding(arg.name, ancestorsOf(context, arg), fns)
+        ) {
           context.report({ node: arg, messageId: "init", data: { name: arg.name } });
-          return;
-        }
-        const setter = calleeName(node.callee);
-        // set(fn) on a computed atom never makes sense; on a writable atom it
-        // is the classic "I meant to store this function" mistake.
-        if (setter && atoms.has(setter) && computed.has(setter)) {
-          context.report({ node: arg, messageId: "set", data: { setter, name: arg.name } });
         }
       },
     };

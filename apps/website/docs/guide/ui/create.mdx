@@ -3,7 +3,7 @@ title: Create component
 description: Write a component — a function, async function, or generator that returns JSX.
 ---
 
-A component is a function that returns a view. Sync functions return JSX. Async functions can await. Generators `yield*` instructions such as `when`, `watch`, and `wait`.
+A component is a function that returns a view. Sync functions return JSX. Async functions can await. Generators `yield` streams or `yield*` Effects and `when`.
 
 ```tsx twoslash
 const Hello = () => <p>Hello</p>;
@@ -69,7 +69,7 @@ const Page = async () => {
 
 ## Generator component
 
-Use a generator when you `yield*` `when`, `watch`, or `wait`. See [Streams](/guide/ui/streams).
+Use a generator when you `yield` a `Stream` of views or `yield* when(...)`. See [Streams](/guide/ui/streams).
 
 ## JSX config
 

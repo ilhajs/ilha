@@ -6,7 +6,7 @@ import { isAtomHandle } from "./atom.ts";
 import { failureMessage } from "./errors.ts";
 import { bindEvents, isEventProp } from "./events.ts";
 import { KEY_ATTR, SLOT_ATTR, morphInner } from "./morph.ts";
-import { closeFiber, makeFiber, withFiber, type FiberLocal } from "./runtime.ts";
+import { closeFiber, makeFiber, withFiber, type FiberLocal, type Hole } from "./runtime.ts";
 import { isSafeUrlAttrValue, isUrlAttributeName, serializeStyleAttr } from "./security.ts";
 import { runSetup } from "./start.ts";
 import { Fragment, type Component, type View } from "./types.ts";
@@ -20,9 +20,16 @@ function insert(fiber: FiberLocal, nodes: Node[]): void {
   for (const n of nodes) fiber.root.appendChild(n);
 }
 
-function disposeHoles(fiber: FiberLocal): void {
-  for (const h of fiber.holes) h.dispose();
-  fiber.holes = [];
+function disposeHoles(fiber: FiberLocal, opts?: { morph?: boolean }): void {
+  const keep: Hole[] = [];
+  for (const h of fiber.holes) {
+    if (opts?.morph && h.keepOnMorph) {
+      keep.push(h);
+      continue;
+    }
+    h.dispose();
+  }
+  fiber.holes = keep;
 }
 
 function skip(x: unknown): boolean {
@@ -179,8 +186,69 @@ function errorView(e: unknown): View {
   };
 }
 
-function trackHole(parent: FiberLocal, hole: FiberLocal, extra?: () => void): void {
+function findReusableAtomHost(
+  fiber: FiberLocal,
+  atom: import("effect/unstable/reactivity/Atom").Atom<unknown>,
+): { host: Element; hole: FiberLocal } | undefined {
+  for (const h of fiber.holes) {
+    if (h.atom === atom && h.host?.isConnected && h.holeFiber && !h.holeFiber.closed) {
+      return { host: h.host, hole: h.holeFiber };
+    }
+  }
+}
+
+function refreshAtomHost(
+  fiber: FiberLocal,
+  atom: import("effect/unstable/reactivity/Atom").Atom<unknown>,
+  host: Element,
+  hole: FiberLocal,
+): void {
+  if (hole.closed || !host.isConnected) return;
+  const next = unwrap(fiber.registry.get(atom), undefined);
+  if (next === KEEP) return;
+  paintHole(hole, next as View);
+}
+
+function refreshAllAtomHosts(fiber: FiberLocal): void {
+  for (const h of fiber.holes) {
+    if (h.atom && h.host && h.holeFiber) {
+      refreshAtomHost(fiber, h.atom, h.host, h.holeFiber);
+    }
+  }
+}
+
+function pruneDisconnectedAtomHoles(fiber: FiberLocal): void {
+  fiber.holes = fiber.holes.filter((h) => {
+    if (!h.atom || !h.host || !h.holeFiber) return true;
+    if (h.host.isConnected) return true;
+    h.dispose();
+    return false;
+  });
+}
+
+function atomHostPlaceholder(host: Element): Element {
+  const placeholder = document.createElement("span");
+  const slot = host.getAttribute(SLOT_ATTR);
+  if (slot !== null) placeholder.setAttribute(SLOT_ATTR, slot);
+  placeholder.style.display = "contents";
+  return placeholder;
+}
+
+function trackHole(
+  parent: FiberLocal,
+  hole: FiberLocal,
+  extra?: () => void,
+  meta?: {
+    atom?: import("effect/unstable/reactivity/Atom").Atom<unknown>;
+    host?: Element;
+    keyed?: boolean;
+  },
+): void {
   parent.holes.push({
+    keepOnMorph: !!(meta?.atom && meta?.host) || !!meta?.keyed,
+    atom: meta?.atom,
+    host: meta?.host,
+    holeFiber: hole,
     dispose() {
       extra?.();
       closeFiber(hole);
@@ -194,7 +262,13 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
     return [document.createTextNode(String(view))];
   }
   if (isAtomHandle(view)) {
+    const reused = findReusableAtomHost(fiber, view.atom);
+    if (reused) {
+      return [atomHostPlaceholder(reused.host)];
+    }
+
     const { fiber: hole, nodes } = openHole(fiber);
+    const host = nodes[0]!;
     let unsub = () => {};
     fiber.runtime.later(() => {
       if (hole.closed) return;
@@ -211,7 +285,7 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
         { immediate: true },
       );
     });
-    trackHole(fiber, hole, () => unsub());
+    trackHole(fiber, hole, () => unsub(), { atom: view.atom, host });
     return nodes;
   }
   if (Stream.isStream(view)) {
@@ -282,7 +356,7 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
         if (!hole.closed)
           runSetup(hole, () => type(hole.propsBox!.current) as ReturnType<Component>);
       });
-      trackHole(fiber, hole);
+      trackHole(fiber, hole, undefined, k ? { keyed: true } : undefined);
       return nodes;
     }
     const el = document.createElement(view.type);
@@ -344,10 +418,13 @@ export function paint(fiber: FiberLocal, view: View): void {
     typeof view.type === "string" &&
     fiber.liveEl.localName === view.type
   ) {
+    disposeHoles(fiber, { morph: true });
     applyProps(fiber.liveEl, view.props, fiber);
     const tmp = document.createElement(fiber.liveEl.localName);
     for (const c of view.children) for (const n of materialize(c, fiber)) tmp.appendChild(n);
     morphInner(fiber.liveEl, tmp);
+    refreshAllAtomHosts(fiber);
+    pruneDisconnectedAtomHoles(fiber);
     return;
   }
   disposeHoles(fiber);

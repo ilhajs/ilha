@@ -14,7 +14,6 @@ export const COUNTER_CODE = `import { atom, mount } from "ilha";
 
 const Signup = () => {
   const email = atom("");
-  const ready = atom(() => email().includes("@"));
 
   const join = (event: SubmitEvent) => {
     event.preventDefault();
@@ -29,37 +28,52 @@ const Signup = () => {
       <input
         name="email"
         placeholder="you@company.com"
-        oninput={(e) => email.set((e.currentTarget as HTMLInputElement).value)}
+        value={email}
+        oninput={(e: Event) =>
+          email.set((e.currentTarget as HTMLInputElement).value)
+        }
       />
-      <button disabled={!ready()}>Join waitlist</button>
+      <button disabled={!email().includes("@")}>Join waitlist</button>
     </form>
   );
 };
 
 mount(document.getElementById("signup")!, Signup);`;
 
-export const SIGNALS_CODE = `import { atom, mount } from "ilha";
-import * as Effect from "effect/Effect";
+export const SIGNALS_CODE = `import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { atom, mount, when } from "ilha";
 
-const Search = () => {
+function* Search() {
   const query = atom("");
-  const results = atom(
-    Effect.promise(() =>
-      fetch(\`/api/search?q=\${encodeURIComponent(query())}\`).then((r) => r.json()),
-    ),
-  );
-
-  return (
+  yield (
     <section class="card">
       <input
         name="q"
         placeholder="Search…"
-        oninput={(e) => query.set((e.currentTarget as HTMLInputElement).value)}
+        value={query}
+        oninput={(e: Event) =>
+          query.set((e.currentTarget as HTMLInputElement).value)
+        }
       />
-      <ul>{(results() ?? []).map((item) => <li>{item}</li>)}</ul>
     </section>
   );
-};
+  yield* when(
+    Atom.toStream(query.atom).pipe(Stream.debounce("200 millis")),
+    function* (q) {
+      if (!q) return;
+      const items = yield* Effect.tryPromise({
+        try: (signal) =>
+          fetch(\`/api/search?q=\${encodeURIComponent(q)}\`, { signal }).then(
+            (r) => r.json(),
+          ),
+        catch: (e) => e,
+      });
+      yield <ul>{(items as string[]).map((item) => <li>{item}</li>)}</ul>;
+    },
+  );
+}
 
 mount(document.getElementById("search")!, Search);`;
 
@@ -105,7 +119,8 @@ export default defineConfig({
   integrations: [ilha()],
 });`;
 
-export const PREVIEW_CODE = `import { atom } from "ilha";
+export const PREVIEW_CODE = `import * as Atom from "effect/unstable/reactivity/Atom";
+import { atom } from "ilha";
 
 let nextId = 4;
 
@@ -115,9 +130,12 @@ export default function Tasks() {
     { id: 2, label: "Write unit tests", done: false },
     { id: 3, label: "Update README", done: false },
   ]);
-  const pending = atom(() => tasks().filter((task) => !task.done).length);
 
-  const add = (event: SubmitEvent) => {
+  const pending = atom(
+    Atom.map(tasks.atom, (list) => list.filter((task) => !task.done).length),
+  );
+
+  const addItem = (event: SubmitEvent) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const label = String(new FormData(form).get("text") ?? "").trim();
@@ -129,7 +147,9 @@ export default function Tasks() {
   return (
     <div class="card bg-base-100 shadow">
       <div class="card-body gap-3 p-3">
-        <h2 class="card-title text-base">My Tasks <span class="badge badge-primary">{pending}</span></h2>
+        <h2 class="card-title text-base">
+          My Tasks <span class="badge badge-primary">{pending}</span>
+        </h2>
         <ul class="flex flex-col gap-1">
           {tasks().map((task) => (
             <li key={task.id} class="flex items-center justify-between gap-2">
@@ -141,19 +161,35 @@ export default function Tasks() {
                   onchange={(event: Event) => {
                     const done = (event.currentTarget as HTMLInputElement).checked;
                     tasks.update((current) =>
-                      current.map((item) => (item.id === task.id ? { ...item, done } : item)),
+                      current.map((item) =>
+                        item.id === task.id ? { ...item, done } : item,
+                      ),
                     );
                   }}
                 />
                 <span>{task.label}</span>
               </label>
-              <button type="button" class="btn btn-ghost btn-xs" onclick={() => tasks.update((current) => current.filter((item) => item.id !== task.id))}>\u2715</button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                onclick={() =>
+                  tasks.update((current) => current.filter((item) => item.id !== task.id))
+                }
+              >
+                {'\\u2715'}
+              </button>
             </li>
           ))}
         </ul>
-        <form onsubmit={add} class="flex gap-2">
-          <input name="text" class="input input-bordered input-sm w-full" placeholder="New task\u2026" />
-          <button type="submit" class="btn btn-primary btn-sm">Add</button>
+        <form onsubmit={addItem} class="flex gap-2">
+          <input
+            name="text"
+            class="input input-bordered input-sm w-full"
+            placeholder="New task\\u2026"
+          />
+          <button type="submit" class="btn btn-primary btn-sm">
+            Add
+          </button>
         </form>
       </div>
     </div>
@@ -168,7 +204,7 @@ export const PRIMARY_ILHA_CARDS = [
     title: "Keep each interaction in one clear place.",
     description:
       "The data, user actions, and HTML for a feature stay together. You can understand it at a glance, move it between pages, or remove it cleanly.",
-    points: ["Familiar event handling", "Type-safe actions", "No app shell required"],
+    points: ["Familiar event handling", "Local state with atom()", "No app shell required"],
     file: "signup.tsx",
     code: COUNTER_CODE,
   },

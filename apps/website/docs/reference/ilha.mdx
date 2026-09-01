@@ -35,15 +35,18 @@ Nested functions share the parent fiber. `mount` / `renderToString` on a functio
 
 ## Named exports
 
-| Export               | Purpose                                  | Learn more                         |
-| -------------------- | ---------------------------------------- | ---------------------------------- |
-| `atom(init)`         | Writable or computed reactive value      | [State](/guide/ui/state)           |
-| `when(stream, body)` | Render a generator body per Stream value | [Streams](/guide/ui/streams)       |
-| `watch(source, fn)`  | Side effect on atom or Stream            | [Streams](/guide/ui/streams)       |
-| `wait(body)`         | Pause a generator until `done(value)`    | [Streams](/guide/ui/streams)       |
-| `h` / `Fragment`     | JSX factory                              | [Templating](/guide/ui/templating) |
-| `mount`              | Activate a component in the DOM          | [Render](/guide/ui/render)         |
-| `renderToString`     | Serialize a component to HTML            | [Render](/guide/ui/render)         |
+| Export               | Purpose                                   | Learn more                         |
+| -------------------- | ----------------------------------------- | ---------------------------------- |
+| `atom(init)`         | Writable reactive value                   | [State](/guide/ui/state)           |
+| `atom.lazy(init)`    | One-time initializer                      | [State](/guide/ui/state)           |
+| `batch(fn)`          | Coalesce multiple atom writes             | [State](/guide/ui/state)           |
+| `watch(source, fn)`  | Callback on atom or stream changes        | [State](/guide/ui/state)           |
+| `when(stream, body)` | Per-emission generator (interrupts stale) | [Streams](/guide/ui/streams)       |
+| `h` / `Fragment`     | JSX factory                               | [Templating](/guide/ui/templating) |
+| `mount`              | Activate a component in the DOM           | [Render](/guide/ui/render)         |
+| `renderToString`     | Serialize a component to HTML             | [Render](/guide/ui/render)         |
+
+Paint Effect [`Stream`](https://www.effect.website/docs/v4/api/effect/Stream) values with `yield Stream.map(...)` — see [Streams](/guide/ui/streams).
 
 `define` lives at `ilha/define` — see [Custom elements](/guide/ui/custom-elements).
 
@@ -52,11 +55,26 @@ Nested functions share the parent fiber. `mount` / `renderToString` on a functio
 | Call               | Meaning                |
 | ------------------ | ---------------------- |
 | `atom(value)`      | Writable atom          |
-| `atom(() => expr)` | Computed atom          |
+| `atom.lazy(fn)`    | Run `fn` once on init  |
+| `atom(effectAtom)` | Wrap an Effect atom    |
 | `count()`          | Read                   |
 | `count.set(v)`     | Replace                |
 | `count.update(fn)` | Patch                  |
 | `count.atom`       | Underlying Effect atom |
+
+Derived values use Effect's `Atom.map` or `Atom.transform` — pass `handle.atom`, then wrap in `atom()`:
+
+```tsx twoslash
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { atom } from "ilha";
+
+const items = atom([1, 2]);
+const sum = atom(
+  Atom.map(items.atom, (list) =>
+    list.reduce((total, n) => total + n, 0),
+  ),
+);
+```
 
 ### Atoms from Effect
 
@@ -73,16 +91,22 @@ const status = atom(effect);
 
 The value of an Effect-backed atom is an Effect `AsyncResult`. During paint, waiting results keep the previous view, failures render the error text, and successes render the value. Use this to hold async data in atoms; for streams of views, prefer [Streams](/guide/ui/streams).
 
-## when, watch, wait
+## watch
 
-- `when(stream, body)` — render `body` for each value. **SSR takes the first value** (`take(1)`); the client keeps listening after mount.
-- `watch(source, fn)` — `fn` on every emission. `source` is an atom handle, a raw Effect atom, or a Stream.
-- `wait(body)` — paint `body` until `done(value)`, then continue the generator with that value.
+Order-based primitive — call at the top level of a component. Runs `fn` when `source` changes and once on mount. Accepts an atom handle, `handle.atom`, or a `Stream`.
+
+## when
+
+Generator instruction — use with `yield*` inside a generator component. Prefer yielding a `Stream` of views directly when you do not need per-emission interruption.
+
+- `when(stream, body)` — run generator `body` for each value; a new value interrupts the previous body. SSR takes the first value.
+
+Stream views (`yield Stream.map(...)`) also take one value on SSR. Side effects and user-gated flows use Effect (`Stream.runForEach`, `Deferred`) — see [Streams](/guide/ui/streams).
 
 ## renderToString
 
 ```ts
-awaitrenderToString(component, {
+await renderToString(component, {
   snapshot?: boolean;      // embed atom values for hydration (default true)
   markers?: boolean;       // wrap in <div data-ilha> (default true)
   timeout?: number;        // serialize after this many ms even if busy
@@ -95,7 +119,7 @@ Waits until in-flight work is idle, then serializes. `when` and Stream views tak
 ## mount
 
 ```ts
-constunmount = mount(element, component, {
+const unmount = mount(element, component, {
   hydrate?: boolean;              // restore snapshots from existing markup
   onError?: (error) => void;      // component failure hook
 });
@@ -103,4 +127,4 @@ constunmount = mount(element, component, {
 
 ## Types
 
-`Component`, `View`, `AtomHandle`, `Done`, `MountOptions`, `RenderToStringOptions`.
+`Component`, `View`, `AtomHandle`, `MountOptions`, `RenderToStringOptions`.

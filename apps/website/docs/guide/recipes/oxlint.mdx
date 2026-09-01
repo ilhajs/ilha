@@ -34,14 +34,14 @@ Point Oxlint at the export and turn on the rules you want.
 
 Save this as `.oxlintrc.json` at the repo root. Run `oxlint` in your lint script.
 
-The plugin only treats `atom`, `when`, `watch`, and `wait` as primitives when you import them from `"ilha"`. A router `action()` or a local binding does not match.
+The plugin only treats `atom`, `watch`, and `when` as primitives when you import them from `"ilha"`. A router `action()` or a local binding does not match.
 
 ## Rules
 
-| Rule                               | Catches                                                                   |
-| ---------------------------------- | ------------------------------------------------------------------------- |
-| `no-conditional-primitive`         | `atom()` / `when()` / `watch()` / `wait()` inside `if` or a loop          |
-| `no-primitive-outside-component`   | Primitive calls at module top level — there is no fiber there             |
-| `no-instruction-outside-generator` | `when` / `watch` / `wait` outside a generator, or without `yield*`        |
-| `prefer-lowercase-events`          | `onClick` instead of `onclick`                                            |
-| `function-in-atom`                 | `atom(fn)` misread as a computed initializer instead of a stored function |
+| Rule                               | Catches                                                                                                                                                     |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `no-conditional-primitive`         | `atom()` / `watch()` / `when()` inside `if` or a loop                                                                                                       |
+| `no-primitive-outside-component`   | Primitive calls at module top level — there is no fiber there                                                                                               |
+| `no-instruction-outside-generator` | `when` outside a generator, or without `yield*`                                                                                                             |
+| `prefer-lowercase-events`          | `onClick` instead of `onclick`                                                                                                                              |
+| `function-in-atom`                 | `atom(fn)` misread as a derived initializer instead of a stored function — use `atom(Atom.map(...))`, `atom(Atom.transform(...))`, or `atom.lazy(() => fn)` |

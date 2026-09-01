@@ -36,11 +36,11 @@ The same function can render to a string on the server and mount into the DOM on
 
 ## Choose the smallest component form
 
-| Start with               | Use it when                                   |
-| ------------------------ | --------------------------------------------- |
-| `const View = () => JSX` | Reusable markup inside a parent component     |
-| `const View = function*` | You need `when`, `watch`, or `wait`           |
-| `mount(el, View)`        | The function is the root you hydrate or mount |
+| Start with               | Use it when                                            |
+| ------------------------ | ------------------------------------------------------ |
+| `const View = () => JSX` | Reusable markup inside a parent component              |
+| `const View = function*` | You need `yield Stream.map(...)` or `yield* when(...)` |
+| `mount(el, View)`        | The function is the root you hydrate or mount          |
 
 Start plain:
 
@@ -73,7 +73,7 @@ Atoms keep updates local. Changing one value does not rerender an entire applica
 
 ### Function components
 
-You write functions that return JSX. Generators `yield*` instructions. Async functions can await before they return a view.
+You write functions that return JSX. Generators `yield` streams and `yield*` Effects. Async functions can await before they return a view.
 
 ### JSX-first authoring
 

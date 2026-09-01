@@ -61,21 +61,24 @@ const Counter = () => {
 };
 ```
 
-Computed atoms take a function:
+Derived values use Effect's `Atom.map` or `Atom.transform`:
 
 ```tsx twoslash
+import * as Atom from "effect/unstable/reactivity/Atom";
 import { atom } from "ilha";
 
 const Cart = () => {
   const items = atom([{ n: 1 }, { n: 2 }]);
-  const total = atom(() =>
-    items().reduce((sum, item) => sum + item.n, 0),
+  const total = atom(
+    Atom.map(items.atom, (list) =>
+      list.reduce((sum, item) => sum + item.n, 0),
+    ),
   );
   return <p>{total}</p>;
 };
 ```
 
-Do not put JSX in an atom. Atoms hold data. Lists go through a Stream.
+Do not put JSX in an atom. Atoms hold data. Map arrays during render with `items().map(...)`, or paint a Stream for live server data. Use [`watch()`](/guide/ui/state#side-effects) for side effects on atom changes.
 
 ## JSX
 
