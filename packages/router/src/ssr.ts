@@ -20,7 +20,7 @@ import * as Result from "effect/Result";
 import { renderToString } from "ilha";
 
 import { runWithIslandRequest } from "./request-scope";
-import { sanitizeSnapshotObject } from "./snapshot.ts";
+import { sanitizeSnapshotObject } from "./snapshot";
 
 /**
  * Server-frame state shared by the dev middleware and the production
