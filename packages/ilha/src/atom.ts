@@ -58,8 +58,22 @@ export function resetRenderTracking(): void {
 }
 
 export function beginPrimitiveFrame(fiber: FiberLocal): void {
+  const used = fiber.primitiveI ?? 0;
+  const slots = fiber.primitives?.length ?? 0;
+  if (used > 0 && used !== slots) {
+    console.warn(
+      `ilha: atom/watch slot count changed between renders (${slots} → ${used}); keep primitive order stable`,
+    );
+  }
   fiber.primitiveI = 0;
   fiber.watchI = 0;
+}
+
+function readTracked(atom: Atom.Atom<unknown>, registry: AtomRegistry): unknown {
+  const frame = trackStack.at(-1);
+  const active = getActiveFiber();
+  if (trackGet && frame && active === frame.fiber) return trackGet(atom);
+  return registry.get(atom);
 }
 
 function usePrimitiveSlot<A>(
@@ -104,14 +118,13 @@ export function withTrackGetRun<A>(
   try {
     const result = withFiber(fiber, () => fn());
     if (result instanceof Promise) {
+      restore();
       void result
         .then((value) => {
-          restore();
           if (fiber.closed) return;
           onOk({ value, deps });
         })
         .catch((e) => {
-          restore();
           if (fiber.closed) return;
           onErr(e);
         });
@@ -151,7 +164,7 @@ export function wrapHandle<A>(atom: Atom.Atom<A>, fiber: FiberLocal): AtomHandle
   const registry = fiber.registry;
   const read = (() => {
     guardHandleFiber(read);
-    return trackGet ? trackGet(atom) : registry.get(atom);
+    return readTracked(atom, registry);
   }) as AtomHandle<A>;
   handleOwner.set(read, fiber);
   Object.defineProperties(read, {

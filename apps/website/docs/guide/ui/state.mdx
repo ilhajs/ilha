@@ -30,6 +30,12 @@ const Counter = () => {
 | `count.set(1)`               | Replace                |
 | `count.update((n) => n + 1)` | Patch from previous    |
 
+### Where you read matters
+
+A read in the component body (`count()` or `String(count())`) subscribes the **whole component** to rerun. Passing the handle in JSX (`{count}`) gives that node its own subscription and updates only that subtree. Prefer `{count}` in markup when you do not need the value in logic.
+
+In `async` components, declare atoms before the first `await`. After an `await`, pass handles in JSX instead of calling them in the body — only the synchronous setup pass collects render dependencies.
+
 ## Derived atoms
 
 Pass `handle.atom` to Effect, wrap the result in `atom()`:

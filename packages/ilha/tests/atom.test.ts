@@ -259,9 +259,10 @@ test("primitive slots persist across render reruns", async () => {
   el.remove();
 });
 
-test("async setup tracks atoms read after await", async () => {
+test("async setup updates jsx atom children after await", async () => {
   const App = async () => {
     const items = atom(["a", "b", "c"]);
+    const count = atom(Atom.map(items.atom, (list) => String(list.length)));
     await Bun.sleep(5);
     return {
       $$ilha: 1 as const,
@@ -269,7 +270,7 @@ test("async setup tracks atoms read after await", async () => {
       props: {
         onclick: () => items.update((list) => list.slice(1)),
       },
-      children: [String(items().length)],
+      children: [count],
     };
   };
   const el = document.createElement("div");
@@ -330,7 +331,7 @@ test("overlapping async setups track reads after await per fiber", async () => {
       $$ilha: 1 as const,
       type: "button",
       props: { onclick: () => n.update((x: number) => x + 1) },
-      children: [String(n())],
+      children: [n],
     };
   };
   const B = async () => {
@@ -340,7 +341,7 @@ test("overlapping async setups track reads after await per fiber", async () => {
       $$ilha: 1 as const,
       type: "button",
       props: { onclick: () => n.update((x: number) => x + 10) },
-      children: [String(n())],
+      children: [n],
     };
   };
 
@@ -364,4 +365,79 @@ test("overlapping async setups track reads after await per fiber", async () => {
   unmountB();
   aEl.remove();
   bEl.remove();
+});
+
+test("sync reads while async setups are suspended do not leak trackGet", async () => {
+  let releaseA!: () => void;
+  let releaseB!: () => void;
+  const gateA = new Promise<void>((resolve) => {
+    releaseA = resolve;
+  });
+  const gateB = new Promise<void>((resolve) => {
+    releaseB = resolve;
+  });
+
+  const aEl = document.createElement("div");
+  const bEl = document.createElement("div");
+  const cEl = document.createElement("div");
+  document.body.append(aEl, bEl, cEl);
+
+  const A = async () => {
+    const n = atom(0);
+    await gateA;
+    return {
+      $$ilha: 1 as const,
+      type: "p",
+      props: { id: "a" },
+      children: [n],
+    };
+  };
+  const B = async () => {
+    const n = atom(0);
+    await gateB;
+    return {
+      $$ilha: 1 as const,
+      type: "p",
+      props: { id: "b" },
+      children: [n],
+    };
+  };
+  const C = () => {
+    const count = atom(0);
+    return {
+      $$ilha: 1 as const,
+      type: "button",
+      props: {
+        id: "c",
+        onclick: () => count.update((n: number) => n + 1),
+      },
+      children: [String(count())],
+    };
+  };
+
+  mount(aEl, A);
+  mount(bEl, B);
+  const unmountC = mount(cEl, C);
+  await Bun.sleep(5);
+
+  (cEl.querySelector("#c") as HTMLButtonElement).click();
+  await Bun.sleep(10);
+  expect(cEl.textContent).toBe("1");
+
+  releaseA();
+  await Bun.sleep(15);
+  expect(aEl.textContent).toBe("0");
+
+  releaseB();
+  await Bun.sleep(15);
+  expect(bEl.textContent).toBe("0");
+
+  (cEl.querySelector("#c") as HTMLButtonElement).click();
+  await Bun.sleep(10);
+  expect(cEl.textContent).toBe("2");
+
+  unmountC();
+  aEl.remove();
+  bEl.remove();
+  cEl.remove();
 });
