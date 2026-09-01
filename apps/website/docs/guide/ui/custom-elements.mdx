@@ -3,7 +3,7 @@ title: Custom elements
 description: Register a component as a custom element with define().
 ---
 
-`define(name, setup)` registers a custom element. On connect it mounts the component. If the host has `data-ilha`, it hydrates.
+`define(name, component)` registers a custom element. On connect it mounts the component. If the host has `data-ilha`, it hydrates.
 
 ```tsx twoslash
 import { atom } from "ilha";
