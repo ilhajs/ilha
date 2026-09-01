@@ -39,7 +39,7 @@ export default defineConfig({
 Export a default component:
 
 ```tsx
-impot { head } from "@ilha/router";
+import { head } from "@ilha/router";
 
 export default function Home() {
   head({ title: "Home" });
@@ -71,7 +71,7 @@ export default function Layout({
 ## Client entry
 
 ```ts
-impor { pageRouter } from "ilha:pages/client";
+import { pageRouter } from "ilha:pages/client";
 
 pageRouter.mount("#app");
 ```
@@ -79,5 +79,5 @@ pageRouter.mount("#app");
 Hydrate when the host already has SSR markup:
 
 ```ts
-pageRoutermount("#app", { hydrate: true });
+pageRouter.mount("#app", { hydrate: true });
 ```
