@@ -8,60 +8,58 @@ export const URLS = {
 export const META_DESCRIPTION =
   "Build fast, interactive websites with JavaScript only where you need it. Ilha works with your existing stack and keeps every page lightweight.";
 
-export const COUNTER_CODE = `import { ilha, state, derived, action, mount } from "ilha";
+export const COUNTER_CODE = `import { atom, mount } from "ilha";
 
-const Signup = ilha(() => {
-  const email = state("");
-  const ready = derived(() => email().includes("@"));
-  const join = action(async (event: SubmitEvent) => {
+const Signup = () => {
+  const email = atom("");
+  const ready = atom(() => email().includes("@"));
+
+  const join = (event: SubmitEvent) => {
     event.preventDefault();
-    await fetch("/api/waitlist", {
+    fetch("/api/waitlist", {
       method: "POST",
       body: JSON.stringify({ email: email() }),
     });
-  });
+  };
 
   return (
     <form class="card" onsubmit={join}>
       <input
         name="email"
-        bind:value={email}
         placeholder="you@company.com"
+        oninput={(e) => email.set((e.currentTarget as HTMLInputElement).value)}
       />
-      <button disabled={!ready()}>
-        {join.pending ? "Joining…" : "Join waitlist"}
-      </button>
+      <button disabled={!ready()}>Join waitlist</button>
     </form>
   );
-});
+};
 
-// Hydrate matching server-rendered Signup hosts.
-mount({ Signup });`;
+mount(document.getElementById("signup")!, Signup);`;
 
-export const SIGNALS_CODE = `import { ilha, state, derived } from "ilha";
+export const SIGNALS_CODE = `import { atom, mount } from "ilha";
+import * as Effect from "effect/Effect";
 
-const Search = ilha(() => {
-  const query = state("");
-  const results = derived(async ({ signal }) => {
-    if (!query()) return [];
-    const res = await fetch(
-      \`/api/search?q=\${encodeURIComponent(query())}\`,
-      { signal }
-    );
-    return res.json() as Promise<string[]>;
-  });
+const Search = () => {
+  const query = atom("");
+  const results = atom(
+    Effect.promise(() =>
+      fetch(\`/api/search?q=\${encodeURIComponent(query())}\`).then((r) => r.json()),
+    ),
+  );
 
   return (
     <section class="card">
       <input
         name="q"
         placeholder="Search…"
-        bind:value={query}
+        oninput={(e) => query.set((e.currentTarget as HTMLInputElement).value)}
       />
-      <Results items={results() ?? []} />
+      <ul>{(results() ?? []).map((item) => <li>{item}</li>)}</ul>
     </section>
   );
-});`;
+};
+
+mount(document.getElementById("search")!, Search);`;
 
 export const RENDERING_CODE = `import { mount, renderToString } from "ilha";
 import { ProductCard } from "./product-card";
@@ -87,16 +85,14 @@ import { pageRouter } from "ilha:pages/client";
 pageRouter.mount("#app", { hydrate: true });`;
 
 export const ILHA_STORE_CODE = `// src/lib/cart.ts
-import { context, persist } from "ilha";
+import { atom } from "ilha";
+import type { Item } from "./types";
 
-export const cart = context("cart.items", [] as Item[]);
-persist(cart, "cart");
-
+export const cart = atom<Item[]>([]);
 export const add = (product: Item) =>
-  cart((items) => [...items, product]);
+  cart.update((items) => [...items, product]);
 export const remove = (id: string) =>
-  cart((items) => items.filter((p) => p.id !== id));
-
+  cart.update((items) => items.filter((p) => p.id !== id));
 export const count = () => cart().length;`;
 
 export const ILHA_ASTRO_CODE = `// astro.config.ts
