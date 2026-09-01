@@ -24,12 +24,12 @@ A nested plain function belongs to the parent component. Its `atom()` calls shar
 ```tsx twoslash
 import { atom } from "ilha";
 
-const Badge = ({ label }: { label: string }) => (
-  <span>{label}</span>
+const Badge = (props: Record<string, unknown>) => (
+  <span>{String(props.label)}</span>
 );
 
-const Label = ({ label }: { label: string }) => {
-  const text = atom(label);
+const Label = (props: Record<string, unknown>) => {
+  const text = atom(String(props.label));
   return <Badge label={text()} />;
 };
 ```

@@ -36,7 +36,7 @@ export interface Instruction<A, E = unknown>
   readonly effect: Effect.Effect<A, E, AtomRegistry>;
 }
 
-export type Component = GeneratorFn | (() => View | void | Promise<View | void>);
+export type Component = (() => View | void | Promise<View | void>) | GeneratorFn;
 
 export interface IlhaRuntime {
   readonly registry: AtomRegistry;

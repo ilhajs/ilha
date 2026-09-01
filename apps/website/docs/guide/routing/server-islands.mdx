@@ -5,7 +5,7 @@ description: Render selected components on the server with Oxide, frames, and ox
 
 Use [Oxide](https://npmjs.com/package/oxidejs) when a component must close over server data. You keep the SPA authoring model. Files named `*.server.tsx` never ship their render function to the browser.
 
-```ts
+```ts twoslash
 import pages from "@ilha/router/vite";
 import oxide from "oxidejs/vite";
 import { defineConfig } from "vite";
@@ -90,7 +90,7 @@ Name the page `foo.server.tsx`. Export a default component. The client still mou
 
 Frames are deny-by-default in production. For a public demo:
 
-```ts
+```ts twoslash
 import { setFrameAuth } from "@ilha/router/ssr";
 
 setFrameAuth({ defaultAction: "open" });

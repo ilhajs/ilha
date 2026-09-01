@@ -7,29 +7,92 @@ See [Router overview](/guide/routing/overview) for a guided tour.
 
 ## `@ilha/router`
 
-| Export                     | Purpose                 |
-| -------------------------- | ----------------------- |
-| `router()`                 | Build and mount a SPA   |
-| `navigate` / `isActive`    | Programmatic navigation |
-| `useRoute`                 | Path, params, search    |
-| `head`                     | Document title and tags |
-| `wrapLayout` / `wrapError` | Used by generated code  |
+### Router
+
+```ts
+route(options?: RouterOptions): RouterBuilder
+```
+
+| Router option     | Meaning                                             |
+| ----------------- | --------------------------------------------------- |
+| `mode`            | `"spa"` (default) or `"static"` (registry only)     |
+| `notFound`        | Component for unmatched paths                       |
+| `interceptLinks`  | Intercept same-origin `<a>` clicks (default `true`) |
+| `viewTransitions` | Wrap navigations in the View Transition API         |
+
+### Builder
+
+| Method                                         | Purpose                             |
+| ---------------------------------------------- | ----------------------------------- |
+| `route(pattern, page)`                         | Register a URL pattern              |
+| `errorBoundary(pattern, handler)`              | Catch failures for a pattern        |
+| `mount(target, { hydrate?, interceptLinks? })` | Activate in the browser             |
+| `render(url)`                                  | HTML string                         |
+| `renderResponse(url)`                          | `{ kind, html / to, status, head }` |
+| `respond(url)`                                 | `Response` with security headers    |
+
+Render results are discriminated: `{ kind: "html" }`, `{ kind: "redirect", to, status }`, or `{ kind: "error", status, html, message }`.
+
+### Route context
+
+| Export                                            | Meaning                              |
+| ------------------------------------------------- | ------------------------------------ |
+| `useRoute()`                                      | `{ path, params, search }` accessors |
+| `routePath()` / `routeParams()` / `routeSearch()` | Standalone accessors                 |
+| `navigate(to, { replace?, scroll? })`             | Programmatic navigation              |
+| `isActive(href)`                                  | True when the current path matches   |
+| `afterNavigate(fn)`                               | Hook after every navigation          |
+| `setHistoryMode(mode)`                            | `"history"` (default) or `"hash"`    |
+
+### Head
+
+```ts
+head(
+  title?: string;
+  titleTemplate?: string | ((title?: string) => string);
+  meta?: Array<Record<string, string>>;
+  link?: Array<Record<string, string>>;
+  script?: Array<Record<string, string> & { children?: string }>;
+});
+```
+
+Call inside a page or layout. Layouts typically set `titleTemplate`; pages set `title`.
+
+### Pages and errors
+
+| Export                                                                         | Purpose                                         |
+| ------------------------------------------------------------------------------ | ----------------------------------------------- |
+| `wrapLayout(layout, page)`                                                     | Wrap a page in a layout (`children` carries it) |
+| `wrapError(handler, page)`                                                     | Catch page throws, render a fallback view       |
+| `defineLayout(layout)`                                                         | Type helper for layout components               |
+| `redirect(to, status?)` / `error(status, message)`                             | Throw `Redirect` / `RouteError`                 |
+| `httpResponse(html, { status?, headers?, cspNonce?, contentSecurityPolicy? })` | Headered `Response`                             |
+
+`AppError` is `{ message, status?, stack? }`. See [Error boundaries](/guide/routing/error-boundaries).
 
 ## `@ilha/router/vite` and `/rsbuild`
 
-`pages(options?)` — file-system routing plugin. Default dir `src/pages`.
+`pages(options?)` — file-system routing plugin. Default dir `src/pages`, out `.ilha`.
+
+| Option           | Meaning                           |
+| ---------------- | --------------------------------- |
+| `dir`            | Pages directory                   |
+| `outDir`         | Generated modules directory       |
+| `mode`           | `"spa"` or `"static"`             |
+| `frameGuard`     | Dev frame guard                   |
+| `trustedOrigins` | Explicit origins for frame checks |
+
+Virtual modules: `ilha:pages/client`, `ilha:pages/server` — see [File-system routing](/guide/routing/file-system-routing).
 
 ## `@ilha/router/ssr`
 
 Production middleware for `POST /__ilha/frame`.
 
-| Export          | Purpose                        |
-| --------------- | ------------------------------ |
-| `setFrameAuth`  | `open` / `deny`, origins, CSRF |
-| `setFrameGuard` | Per-request allow/deny         |
+| Export          | Purpose                                   |
+| --------------- | ----------------------------------------- |
+| `setFrameAuth`  | `defaultAction`, `trustedOrigins`, `csrf` |
+| `setFrameGuard` | Per-request allow/deny                    |
 
 ## `@ilha/router/server-island`
 
 Generated client proxies. You do not import this in app code.
-
-There is no loader helper. Fetch in the page, or stream from a `*.server` module.

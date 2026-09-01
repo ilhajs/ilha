@@ -38,13 +38,13 @@
       "import": "./dist/index.js"
     },
     "./jsx-runtime": {
-      "types": "./src/jsx-runtime.ts",
+      "types": "./dist/jsx-runtime.d.ts",
       "import": "./dist/jsx-runtime.js",
       "default": "./src/jsx-runtime.ts"
     },
     "./jsx-runtime.ts": "./src/jsx-runtime.ts",
     "./jsx-dev-runtime": {
-      "types": "./src/jsx-dev-runtime.ts",
+      "types": "./dist/jsx-dev-runtime.d.ts",
       "import": "./dist/jsx-dev-runtime.js",
       "default": "./src/jsx-dev-runtime.ts"
     },

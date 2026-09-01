@@ -1,0 +1,119 @@
+---
+title: Error boundaries
+description: Catch render failures with +error.tsx boundaries, errorBoundary(), and wrapError().
+---
+
+A render failure in a page or layout does not take down the app. The nearest error boundary catches it and renders a fallback view.
+
+## Throw from a page
+
+Throw `RouteError` with `error()` (or `redirect()` for navigation):
+
+```tsx twoslash
+import { error } from "@ilha/router";
+
+export default async function User({
+  params,
+}: {
+  params: { id: string };
+}) {
+  const user = await findUser(params.id);
+  if (!user) error(404, "No such user");
+  return <h1>{user.name}</h1>;
+}
+
+async function findUser(_id: string) {
+  return null as null | { name: string };
+}
+```
+
+`error(status, message)` throws a `RouteError`; `redirect(to, status?)` throws a `Redirect` that the router converts into a client navigation.
+
+## +error.tsx files
+
+Drop a `+error.tsx` next to a page (or in a parent folder) to catch failures for everything under that folder. The nearest boundary wins:
+
+```text
+src/pages/
+  +error.tsx          ← catches all routes
+  user/
+    +error.tsx        ← catches /user/*
+    [id].server.tsx
+```
+
+```tsx twoslash
+// src/pages/user/+error.tsx
+import type { AppError } from "@ilha/router";
+import type { View } from "ilha";
+
+export default function ErrorPage({
+  error,
+  children,
+}: {
+  error: AppError;
+  children?: View;
+}) {
+  return (
+    <div class="card bg-base-100 shadow">
+      <div class="card-body">
+        <h2 class="card-title">{error.status ?? 500}</h2>
+        <p>{error.message}</p>
+        {children}
+      </div>
+    </div>
+  );
+}
+```
+
+Boundary components receive the `error` and the failed route as `children`.
+
+## errorBoundary() on the builder
+
+With a hand-built router, register a boundary per pattern:
+
+```tsx twoslash
+import { router } from "@ilha/router";
+import { h } from "ilha";
+
+const UserPage = async () => {
+  throw new Error("boom");
+};
+
+// ---cut---
+router()
+  .route("/user/:id", UserPage)
+  .errorBoundary("/user/:id", (err) =>
+    h("p", null, `Oops: ${err.message}`),
+  );
+```
+
+The handler receives an `AppError` (`message`, `status?`) and a route snapshot, and returns a view or a component.
+
+## wrapError()
+
+Wrap a single page when you want the fallback inline instead of a boundary file:
+
+```tsx twoslash
+import { error, wrapError } from "@ilha/router";
+import { h } from "ilha";
+
+const UserPage = async () => {
+  error(418, "short and stout");
+};
+
+// ---cut---
+export default wrapError(
+  ({ message }) => h("p", null, message),
+  UserPage,
+);
+```
+
+`wrapError` catches everything the page throws — `RouteError` or any exception — and calls your handler with `{ message, status? }`.
+
+## Related
+
+| Topic                      | Guide                                                             |
+| -------------------------- | ----------------------------------------------------------------- |
+| Throwing redirects         | [Routes and navigation](/guide/routing/routes-and-navigation)     |
+| Server pages and frames    | [Server islands](/guide/routing/server-islands)                   |
+| Hardening and status codes | [Middleware and security](/guide/routing/middleware-and-security) |

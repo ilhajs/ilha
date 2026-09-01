@@ -1,0 +1,81 @@
+---
+title: Server state with PubSub
+description: Fan out server-side state to every connected client with an Effect PubSub and a streaming action.
+---
+
+Server islands hold state in server memory. To push changes to every connected client, publish snapshots to an [Effect PubSub](https://effect.website/docs/v4/api/effect/PubSub) and expose one streaming action per module.
+
+## The hub pattern
+
+```tsx twoslash
+// src/lib/tasks.server.tsx
+import * as Effect from "effect/Effect";
+import * as PubSub from "effect/PubSub";
+import * as Stream from "effect/Stream";
+import { action } from "oxidejs";
+
+type Task = { id: string; text: string; completed: boolean };
+
+const tasks: Task[] = [];
+const hub = Effect.runSync(
+  PubSub.unbounded<Task[]>({ replay: 1 }),
+);
+const notify = () =>
+  Effect.runSync(PubSub.publish(hub, [...tasks]));
+
+// The streaming transport: one async generator per module.
+export const getTasks = action(async function* () {
+  yield* Stream.toAsyncIterable(Stream.fromPubSub(hub));
+});
+
+export const addTask = action(async (text: string) => {
+  tasks.push({
+    id: crypto.randomUUID(),
+    text,
+    completed: false,
+  });
+  notify();
+});
+```
+
+Three pieces:
+
+1. **The hub** holds the change feed. `replay: 1` gives late subscribers the latest snapshot immediately — this is your initial render.
+2. **Mutations publish** a fresh snapshot after each change.
+3. **One streaming action** is the transport the router wires to the client.
+
+`replay: 1` is what makes SSR work: `renderToString` takes the first stream value, and the replay buffer delivers it instantly.
+
+## Subscribe from an island
+
+```tsx
+// src/li/tasks.server.tsx
+export const TaskList = async function TaskList() {
+  return Stream.map(
+    Stream.fromAsyncIterable(getTasks(), (error: unknown) =>
+      error instanceof Error ? error : new Error(String(error)),
+    ),
+    (list: Task[]) => (
+      <ul>
+        {list.map((task) => (
+          <li key={task.id}>{task.text}</li>
+        ))}
+      </ul>
+    ),
+  );
+};
+```
+
+The scanner sees `Stream.fromAsyncIterable(getTasks(), …)` and wires `getTasks` as the client transport. On the browser, the proxy resumes the same generator over RPC — every publish repaints the island.
+
+## Why the transport action stays
+
+`getTasks` looks redundant — the hub is right there. It is the boundary: the hub lives in server memory, and the browser can only reach it through an RPC generator. Keep one streaming export per server module and call it with `Stream.fromAsyncIterable` inside each island that needs live updates.
+
+## Related
+
+| Topic                  | Guide                                           |
+| ---------------------- | ----------------------------------------------- |
+| Server islands         | [Server islands](/guide/routing/server-islands) |
+| Streams and generators | [Streams](/guide/ui/streams)                    |
+| Triggering frames      | [Server islands](/guide/routing/server-islands) |

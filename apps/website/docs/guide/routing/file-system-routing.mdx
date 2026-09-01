@@ -12,7 +12,7 @@ The pages plugin scans `src/pages/`, wraps layouts, and generates a router. Pick
 
 ## Setup
 
-```ts
+```ts twoslash
 import pages from "@ilha/router/vite";
 import { defineConfig } from "vite";
 
@@ -38,8 +38,8 @@ export default defineConfig({
 
 Export a default component:
 
-```tsx twoslash
-import { head } from "@ilha/router";
+```tsx
+impot { head } from "@ilha/router";
 
 export default function Home() {
   head({ title: "Home" });
@@ -71,7 +71,7 @@ export default function Layout({
 ## Client entry
 
 ```ts
-import { pageRouter } from "ilha:pages/client";
+impor { pageRouter } from "ilha:pages/client";
 
 pageRouter.mount("#app");
 ```
@@ -79,5 +79,5 @@ pageRouter.mount("#app");
 Hydrate when the host already has SSR markup:
 
 ```ts
-pageRouter.mount("#app", { hydrate: true });
+pageRoutermount("#app", { hydrate: true });
 ```

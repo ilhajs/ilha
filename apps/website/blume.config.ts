@@ -40,6 +40,7 @@ export default defineConfig({
             items: [
               "/guide/routing/overview",
               "/guide/routing/routes-and-navigation",
+              "/guide/routing/error-boundaries",
               "/guide/routing/file-system-routing",
               "/guide/routing/server-islands",
               "/guide/routing/middleware-and-security",
@@ -52,7 +53,13 @@ export default defineConfig({
           },
           {
             label: "Recipes",
-            items: ["/guide/recipes/h", "/guide/recipes/view-transitions", "/guide/recipes/oxlint"],
+            items: [
+              "/guide/recipes/h",
+              "/guide/recipes/pubsub-state",
+              "/guide/recipes/testing",
+              "/guide/recipes/view-transitions",
+              "/guide/recipes/oxlint",
+            ],
           },
           {
             label: "Resources",

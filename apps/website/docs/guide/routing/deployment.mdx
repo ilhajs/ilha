@@ -7,9 +7,9 @@ How you deploy depends on whether your app needs SSR/server islands or renders t
 
 ## SPA + SSR (server-rendered)
 
-For file-system routing with [oxidejs](https://npmjs.com/package/oxidejs), the SSR middleware serves both internal endpoints in production — the route-graph imports are implicit:
+For file-system routing with [oxidejs](https://npmjs.com/package/oxidejs), the SSR middleware serves the internal frame endpoint in production — the route-graph imports are implicit:
 
-```ts
+```ts twoslash
 // vite.config.ts
 import pages from "@ilha/router/vite";
 import oxide from "oxidejs/vite";
@@ -25,20 +25,16 @@ export default defineConfig({
 
 The `@ilha/router/ssr` middleware serves `POST /__ilha/frame` for server-island and server-page re-renders.
 
-Any host that runs an oxidejs fetch handler serves these. See [Server islands](/guide/routing/server-islands) and [Middleware and security](/guide/routing/middleware-and-security).
+Any host that runs an oxidejs fetch handler serves it. See [Server islands](/guide/routing/server-islands) and [Middleware and security](/guide/routing/middleware-and-security).
 
-If you host the router in your own fetch handler instead, use the manual render methods — `render()`, `renderHydratable()`, `renderResponse()`, or `respond()` — described in [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed).
+If you host the router in your own fetch handler instead, use the manual render methods — `render()`, `renderResponse()`, or `respond()` — described in [Server islands](/guide/routing/server-islands).
 
 ## Registering guards in production
 
-Deny-by-default means `/__ilha/frame` and `/__ilha/loader` return `403` until you install a guard. Call the guards once at server startup, before handling requests:
+Deny-by-default means `/__ilha/frame` returns `403` until you install a guard. Call the guard once at server startup, before handling requests:
 
 ```ts twoslash
-import {
-  setFrameAuth,
-  setFrameGuard,
-  setLoaderGuard,
-} from "@ilha/router/ssr";
+import { setFrameGuard } from "@ilha/router/ssr";
 
 function isSignedIn(_request: Request) {
   return true;
@@ -49,33 +45,28 @@ setFrameGuard((request) =>
     ? undefined
     : new Response("Unauthorized", { status: 401 }),
 );
-setLoaderGuard((request) =>
-  isSignedIn(request)
-    ? undefined
-    : new Response("Unauthorized", { status: 401 }),
-);
 ```
 
 See [Middleware and security](/guide/routing/middleware-and-security) for the full guard, origin, and CSRF model.
 
 ## Static prerendering (MPA)
 
-When you do not need runtime SSR or server islands, use `mode: "static"` and hydrate each pre-rendered page. Set `mode: "static"` in the plugin options, then hydrate with `hydrateStatic`:
+When you do not need runtime SSR or server islands, set `mode: "static"` in the plugin options. The generated client module then exports a `registry` of pages without a route graph. Prerender each route's HTML at build time (for example with `renderResponse`), and mount the matching page from the registry:
 
 ```ts
-import { pageRouter, registry } from "ilha:pages/client";
+import { mount } from "ilha";
+import { registry } from "ilha:pages/client";
 
-pageRouter.hydrateStatic(registry);
+const host = document.querySelector<HTMLDivElement>("#app")!;
+mount(host, registry["about"]);
 ```
 
-Prerender each route's HTML at build time (for example with a site generator or `renderResponse`), and the client mounts per page. See [Virtual modules](/guide/routing/file-system-routing#virtual-modules) for the client entry.
-
-Hash mode (`setHistoryMode("hash")`) is another static-host option when you cannot serve an SPA fallback for every URL — see [Hash mode](/guide/routing/routes-and-navigation#hash-mode). SSR + hydration is not supported in hash mode.
+Hash mode (`setHistoryMode("hash")`) is another static-host option when you cannot serve an SPA fallback for every URL. SSR + hydration is not supported in hash mode.
 
 ## Related
 
-| Topic                             | Guide                                                                                |
-| --------------------------------- | ------------------------------------------------------------------------------------ |
-| Guards in production              | [Middleware and security](/guide/routing/middleware-and-security)                    |
-| SSR render methods                | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
-| Plugin `mode` and virtual modules | [File-system routing](/guide/routing/file-system-routing)                            |
+| Topic                             | Guide                                                             |
+| --------------------------------- | ----------------------------------------------------------------- |
+| Guards in production              | [Middleware and security](/guide/routing/middleware-and-security) |
+| Error handling                    | [Error boundaries](/guide/routing/error-boundaries)               |
+| Plugin `mode` and virtual modules | [File-system routing](/guide/routing/file-system-routing)         |

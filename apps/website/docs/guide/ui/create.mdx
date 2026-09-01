@@ -9,7 +9,8 @@ A component is a function that returns a view. Sync functions return JSX. Async 
 const Hello = () => <p>Hello</p>;
 ```
 
-Call `Hello` from another component as a nested function. Call `mount` or `renderToString` with `Hello` when it is the root.
+Call `Hello` from another component as a nested function.
+Call `mount` or `renderToString` with `Hello` when it is the root.
 
 ## Props
 
@@ -41,8 +42,8 @@ A nested function shares the parent fiber. Atoms you declare there still belong 
 ```tsx twoslash
 import { atom } from "ilha";
 
-const Label = ({ text }: { text: string }) => (
-  <span>{text}</span>
+const Label = (props: Record<string, unknown>) => (
+  <span>{String(props.text)}</span>
 );
 
 const Card = () => {

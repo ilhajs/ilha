@@ -31,6 +31,8 @@ const Counter = () => {
 };
 ```
 
+Nested functions share the parent fiber. `mount` / `renderToString` on a function makes it a root.
+
 ## Named exports
 
 | Export              | Purpose                                  | Learn more                         |
@@ -43,7 +45,7 @@ const Counter = () => {
 | `mount`             | Activate a component in the DOM          | [Render](/guide/ui/render)         |
 | `renderToString`    | Serialize a component to HTML            | [Render](/guide/ui/render)         |
 
-`define` lives at `ilha/define`.
+`define` lives at `ilha/define` — see [Custom elements](/guide/ui/custom-elements).
 
 ## atom
 
@@ -56,21 +58,47 @@ const Counter = () => {
 | `count.update(fn)` | Patch                  |
 | `count.atom`       | Underlying Effect atom |
 
+### Atoms from Effect
+
+The initializer also accepts an Effect atom, an Effect, or a Stream:
+
+```tsx twoslash
+import * as Effect from "effect/Effect";
+import { atom } from "ilha";
+
+declare const effect: Effect.Effect<string>;
+// ---cut---
+const status = atom(effect);
+```
+
+The value of an Effect-backed atom is an Effect `AsyncResult`. During paint, waiting results keep the previous view, failures render the error text, and successes render the value. Use this to hold async data in atoms; for streams of views, prefer [Streams](/guide/ui/streams).
+
+## when, watch, wait
+
+- `when(stream, body)` — render `body` for each value. **SSR takes the first value** (`take(1)`); the client keeps listening after mount.
+- `watch(source, fn)` — `fn` on every emission. `source` is an atom handle, a raw Effect atom, or a Stream.
+- `wait(body)` — paint `body` until `done(value)`, then continue the generator with that value.
+
 ## renderToString
 
 ```ts
-await renderToString(setup, {
-  snapshot?: boolean;
-  markers?: boolean;
-  timeout?: number;
-  captureActions?: boolean;
+awaitrenderToString(component, {
+  snapshot?: boolean;      // embed atom values for hydration (default true)
+  markers?: boolean;       // wrap in <div data-ilha> (default true)
+  timeout?: number;        // serialize after this many ms even if busy
+  captureActions?: boolean; // probe handlers for server-action calls
 });
 ```
+
+Waits until in-flight work is idle, then serializes. `when` and Stream views take one value.
 
 ## mount
 
 ```ts
-const unmount = mount(element, setup, { hydrate?: boolean; onError?: (e) => void });
+constunmount = mount(element, component, {
+  hydrate?: boolean;              // restore snapshots from existing markup
+  onError?: (error) => void;      // component failure hook
+});
 ```
 
 ## Types
