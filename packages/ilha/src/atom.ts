@@ -3,7 +3,7 @@ import * as Stream from "effect/Stream";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import type { AtomRegistry } from "effect/unstable/reactivity/AtomRegistry";
 
-import { getFiber, setIsland, type FiberLocal } from "./runtime.ts";
+import { getFiber, withFiber, type FiberLocal } from "./runtime.ts";
 import type { AtomHandle, Instruction } from "./types.ts";
 
 export const handleOwner = new WeakMap<object, FiberLocal>();
@@ -23,8 +23,7 @@ export function instr<A, E = never>(effect: Effect.Effect<A, E, AtomRegistry>): 
         fiber.run(
           out.effect,
           (a) => {
-            setIsland(fiber);
-            res(a as A);
+            withFiber(fiber, () => res(a as A));
           },
           rej,
         );
@@ -69,7 +68,6 @@ export function atom<A>(
   init: A | (() => A) | Atom.Atom<A> | Effect.Effect<A, any, any> | Stream.Stream<A, any, any>,
 ): AtomHandle<A> {
   const fiber = getFiber();
-  setIsland(fiber);
   const computed =
     typeof init === "function" &&
     !Atom.isAtom(init) &&

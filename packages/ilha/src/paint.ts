@@ -6,7 +6,7 @@ import { isAtomHandle } from "./atom.ts";
 import { failureMessage } from "./errors.ts";
 import { bindEvents, isEventProp } from "./events.ts";
 import { KEY_ATTR, SLOT_ATTR, morphInner } from "./morph.ts";
-import { closeFiber, makeFiber, type FiberLocal } from "./runtime.ts";
+import { closeFiber, makeFiber, withFiber, type FiberLocal } from "./runtime.ts";
 import { isSafeUrlAttrValue, isUrlAttributeName, serializeStyle } from "./security.ts";
 import { runSetup } from "./start.ts";
 import { Fragment, type Component, type View } from "./types.ts";
@@ -260,7 +260,7 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
       const reuse = k ? fiber.keyedHoles?.get(k) : undefined;
       if (reuse && !reuse.closed) {
         if (reuse.propsBox) reuse.propsBox.current = props;
-        const next = type(reuse.propsBox?.current ?? props);
+        const next = withFiber(fiber, () => type(reuse.propsBox?.current ?? props));
         if (next && typeof (next as Promise<unknown>).then !== "function" && !isSetupFn(next)) {
           reuse.paint(next as View);
         }

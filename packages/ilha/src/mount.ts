@@ -1,5 +1,5 @@
 import { paint, paintError } from "./paint.ts";
-import { closeFiber, makeFiber, makeRuntime, popIsland } from "./runtime.ts";
+import { closeFiber, makeFiber, makeRuntime } from "./runtime.ts";
 import { decodeSnapshot, encodeSnapshot, STATE_COMMENT } from "./snapshot.ts";
 import { runSetup } from "./start.ts";
 import type { Component, IlhaRuntime } from "./types.ts";
@@ -66,7 +66,6 @@ function attach(
       closeFiber(fiber);
       runtime.close();
       if (!opts?.hydrate) el.innerHTML = "";
-      popIsland(fiber);
     },
   };
 }

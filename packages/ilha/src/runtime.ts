@@ -33,9 +33,8 @@ export interface FiberLocal {
 }
 
 const stack: FiberLocal[] = [];
-const islands: FiberLocal[] = [];
 export const getFiber = (): FiberLocal => {
-  const f = stack.findLast((x) => !x.closed) ?? islands.findLast((x) => !x.closed);
+  const f = stack.findLast((x) => !x.closed);
   if (!f) throw new Error("ilha: no fiber");
   return f;
 };
@@ -46,16 +45,6 @@ export const withFiber = <A>(fiber: FiberLocal, fn: () => A): A => {
   } finally {
     stack.pop();
   }
-};
-export const setIsland = (fiber: FiberLocal | undefined): void => {
-  if (!fiber) return;
-  const i = islands.lastIndexOf(fiber);
-  if (i >= 0) islands.splice(i, 1);
-  islands.push(fiber);
-};
-export const popIsland = (fiber: FiberLocal): void => {
-  const i = islands.lastIndexOf(fiber);
-  if (i >= 0) islands.splice(i, 1);
 };
 
 const provide = (
@@ -176,11 +165,11 @@ export function makeFiber(
         fiber.scope,
         onOk &&
           ((a) => {
-            if (!fiber.closed) onOk(a);
+            if (!fiber.closed) withFiber(fiber, () => onOk(a));
           }),
         onErr &&
           ((e) => {
-            if (!fiber.closed) onErr(e);
+            if (!fiber.closed) withFiber(fiber, () => onErr(e));
           }),
         onOk && (() => fiber.runtime.end()),
       );
