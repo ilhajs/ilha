@@ -1,17 +1,16 @@
 ---
 title: Routes and navigation
-description: Register routes, navigate between them, read route state, and show navigation feedback.
+description: Register routes, navigate between them, and read route state.
 ---
 
-Create a router, register each URL pattern, then mount it into a browser element:
+Create a router, register each URL pattern, then mount it:
 
 ```tsx twoslash
 import { router } from "@ilha/router";
-import { ilha } from "ilha";
 
-const Home = ilha(() => <h1>Home</h1>);
-const User = ilha(() => <h1>User</h1>);
-const NotFound = ilha(() => <h1>Not found</h1>);
+const Home = () => <h1>Home</h1>;
+const User = () => <h1>User</h1>;
+const NotFound = () => <h1>Not found</h1>;
 
 router({ notFound: NotFound })
   .route("/", Home)
@@ -19,13 +18,7 @@ router({ notFound: NotFound })
   .mount("#app");
 ```
 
-Create a fresh router for each server request. Do not share a mutable router instance between requests.
-
-See the [router reference](/reference/router#builder-and-routing) for the complete builder, mount, hydration, and navigation API.
-
 ## Match route patterns
-
-Patterns support named parameters and a trailing catch-all:
 
 | Pattern         | Example URL         | Params                            |
 | --------------- | ------------------- | --------------------------------- |
@@ -35,21 +28,19 @@ Patterns support named parameters and a trailing catch-all:
 | `/docs/**:slug` | `/docs/guide/intro` | `{ slug: "guide/intro" }`         |
 | `/**`           | any unmatched path  | `{}`                              |
 
-The router prioritizes static segments, then parameters, then catch-alls. Registration order does not change that priority.
+Static segments win over parameters, then catch-alls.
 
-## Add links and navigate from code
+## Links and navigate
 
-Use an ordinary anchor for declarative navigation. A mounted SPA router intercepts same-origin links automatically:
+Use an ordinary `<a href>`. A mounted SPA router intercepts same-origin clicks:
 
 ```tsx twoslash
-import { ilha } from "ilha";
-
-const Navigation = ilha(() => (
+const Navigation = () => (
   <nav>
     <a href="/">Home</a>
     <a href="/about">About</a>
   </nav>
-));
+);
 ```
 
 Use `navigate()` after application logic:
@@ -62,108 +53,32 @@ navigate("/account", { replace: true });
 navigate("/results?page=2", { scroll: false });
 ```
 
-Different-page navigation scrolls to the top or the URL hash target. Parameter and query changes on the same page retain scroll because they update the existing island.
-
-Add `data-prefetch` to an anchor when its loader data should be fetched on hover. Call `prefetch(path)` when you need the same behavior from code.
-
 ## Read the current route
-
-`useRoute()` exposes reactive route accessors inside any island:
 
 ```tsx twoslash
 import { useRoute } from "@ilha/router";
-import { ilha } from "ilha";
 
-const UserPage = ilha(() => {
+const UserPage = () => {
   const { path, params, search } = useRoute();
-
   return (
-    <main>
-      <h1>User {params().id}</h1>
-      <p>Path: {path()}</p>
-      <p>Query: {search()}</p>
-    </main>
+    <p>
+      {path()} {params().id} {search()}
+    </p>
   );
-});
+};
 ```
 
-Use `isActive()` to style navigation according to the matched route:
+`isActive(href)` is true when the current path matches.
 
-```tsx twoslash
-import { isActive } from "@ilha/router";
+## Head
 
-<a
-  href="/about"
-  aria-current={isActive("/about") ? "page" : undefined}
->
-  About
-</a>;
-```
+```tsx
+import { head } from "@ilha/router";
 
-The standalone `routePath`, `routeParams`, `routeSearch`, and `routeHash` signals expose the same state when you do not need the convenience object. See the [router reference](/reference/router#builder-and-routing) for their signatures.
-
-## Refresh route data
-
-After a mutation, call `invalidate()` to rerun the current loader and update the mounted page in place:
-
-```ts twoslash
-import { invalidate } from "@ilha/router";
-
-async function deleteItem(id: string) {
-  await fetch(`/api/items/${id}`, { method: "DELETE" });
-  await invalidate();
+export default function About() {
+  head({ title: "About" });
+  return <h1>About</h1>;
 }
 ```
 
-The page keeps its island state, focus, selection, and scroll while the new loader result renders. See [Loaders](/guide/routing/loaders) for data-loading behavior.
-
-## Transitions
-
-Use CSS for simple pending feedback. The router sets `data-router-pending` on `<html>` while navigation is running:
-
-```css
-[data-router-pending] [data-router-view] {
-  opacity: 0.4;
-  pointer-events: none;
-}
-```
-
-Read `navigating()` when a component needs reactive feedback:
-
-```tsx twoslash
-import { navigating } from "@ilha/router";
-import { ilha } from "ilha";
-
-const Progress = ilha(() =>
-  navigating() ? (
-    <div class="progress" aria-label="Loading" />
-  ) : (
-    ""
-  ),
-);
-```
-
-Set `router({ viewTransitions: true })` to wrap view swaps in the browser View Transitions API. See the [View Transitions recipe](/guide/recipes/view-transitions) for animation CSS.
-
-## Hash mode
-
-Use hash mode for `file://`, Electron, or static hosts that cannot serve an SPA fallback:
-
-```ts twoslash
-import { router, setHistoryMode } from "@ilha/router";
-import { ilha } from "ilha";
-
-const Home = ilha(() => <h1>Home</h1>);
-const About = ilha(() => <h1>About</h1>);
-
-setHistoryMode("hash");
-
-router()
-  .route("/", Home)
-  .route("/about", About)
-  .mount("#app");
-```
-
-URLs become `index.html#/about`, but `navigate()` still receives `/about`. Set the process-global mode once before mounting or hydrating.
-
-SSR and hydration do not support hash mode because browsers never send the hash to the server. Mount the SPA without hydration instead.
+Layouts can set `titleTemplate`. See the [router reference](/reference/router).

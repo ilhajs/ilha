@@ -3,8 +3,9 @@ import PageLayout from "blume/components/layout/PageLayout.astro";
 import Preview from "../src/components/Preview.astro";
 import HeroTechCards from "../src/components/landing/HeroTechCards.astro";
 import { ProjectCreatorForm } from "../src/components/landing/Landing";
-import { Badge, ClipboardText, LayerCard, LinkButton, Tabs } from "areia";
+
 import {
+  DEFAULT_INSTALL_COMMAND,
   ILHA_ASTRO_CODE,
   ILHA_ROUTER_CODE,
   ILHA_STORE_CODE,
@@ -66,65 +67,63 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
             </div>
             <div class="grid w-full min-w-0 max-w-xl justify-items-stretch gap-3.5 sm:justify-items-center">
               <div class="flex w-full min-w-0 flex-col items-stretch gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-3">
-                <LinkButton
+                <a
                   href="/guide/getting-started/installation"
-                  variant="primary"
-                  class="w-full justify-center sm:w-auto sm:flex-none"
+                  class="btn btn-primary w-full justify-center sm:w-auto sm:flex-none"
                 >
                   Get started
-                </LinkButton>
-                <LinkButton
+                </a>
+                <a
                   href={OXIDE_SANDBOX}
-                  variant="secondary"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="w-full justify-center sm:w-auto sm:flex-none"
+                  class="btn w-full justify-center sm:w-auto sm:flex-none"
                 >
                   Try it online
-                </LinkButton>
+                </a>
               </div>
-              <div class="landing-install">
-                <ClipboardText
-                  client:idle
-                  text="npx giget@latest gh:ilhajs/ilha/templates/vite-spa my-app"
-                  tooltip
-                  class="w-full min-w-0 text-left"
-                />
-              </div>
+              <button
+                type="button"
+                class="btn btn-outline w-full min-w-0 justify-start overflow-hidden text-left"
+                data-copy-command
+                data-copy-value={DEFAULT_INSTALL_COMMAND}
+              >
+                <img src="/copy.svg" class="size-5 shrink-0" alt="" />
+                <span class="block truncate" data-copy-label>{DEFAULT_INSTALL_COMMAND}</span>
+              </button>
             </div>
           </div>
 
           <div class="landing-hero-visual w-full min-w-0 max-w-full">
-            <LayerCard class="!pb-0">
-              <div class="flex flex-row items-center justify-between gap-3 p-4">
-                <div>
-                  <h3 class="text-base font-medium">playground.ilha.build</h3>
-                  <p class="text-muted-foreground text-sm">Run this island in the playground.</p>
-                </div>
-                <LinkButton
-                  href={PLAYGROUND_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  variant="outline"
-                  shape="square"
-                  aria-label="Open playground"
-                >
-                  <svg class="size-4" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M15 3h6v6" />
-                    <path d="M10 14 21 3" />
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  </svg>
-                </LinkButton>
-              </div>
-              <div class="border-border border-t">
-                <div class="landing-preview-split">
-                  <div class="landing-preview-code font-mono" set:html={previewHtml} />
-                  <div class="landing-preview-run">
-                    <Preview code={PREVIEW_CODE} size="lg" mobilePreview activate="click" />
+            <div class="card bg-base-100 w-full shadow">
+              <div class="card-body">
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 class="card-title">playground.ilha.build</h2>
+                    <p>Run this island in the playground.</p>
                   </div>
+                  <a
+                    href={PLAYGROUND_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn btn-square btn-ghost"
+                    aria-label="Open playground"
+                  >
+                    <svg class="size-4" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M15 3h6v6" />
+                      <path d="M10 14 21 3" />
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    </svg>
+                  </a>
                 </div>
               </div>
-            </LayerCard>
+              <div class="landing-preview-split border-base-200 border-t">
+                <div class="landing-preview-code font-mono" set:html={previewHtml} />
+                <div class="landing-preview-run">
+                  <Preview code={PREVIEW_CODE} size="lg" mobilePreview activate="click" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -132,9 +131,9 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
       <section class="border-border border-b">
         <div class="landing-shell py-8 sm:py-10">
           <p class="landing-proof m-0 justify-self-center">
-            <Badge variant="secondary">Works with your existing tools</Badge>
-            <Badge variant="secondary">JavaScript only where needed</Badge>
-            <Badge variant="secondary">Type-safe by default</Badge>
+            <span class="badge badge-ghost">Works with your existing tools</span>
+            <span class="badge badge-ghost">JavaScript only where needed</span>
+            <span class="badge badge-ghost">Type-safe by default</span>
           </p>
         </div>
       </section>
@@ -179,15 +178,17 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
                       ))}
                     </ul>
                   </div>
-                  <LayerCard class="min-w-0">
-                    <div class="flex flex-row items-center justify-between gap-3 p-4">
-                      <h3 class="text-base font-medium">{tab.file}</h3>
-                      <p class="text-muted-foreground text-sm">tsx</p>
+                  <div class="card bg-base-100 min-w-0 shadow">
+                    <div class="card-body">
+                      <h2 class="card-title">
+                        {tab.file}
+                        <span class="badge badge-ghost badge-sm">tsx</span>
+                      </h2>
+                      <div class="font-mono">
+                        <Fragment set:html={highlight(tab.code, "ts")} />
+                      </div>
                     </div>
-                    <div class="border-border border-t p-4 font-mono">
-                      <Fragment set:html={highlight(tab.code, "ts")} />
-                    </div>
-                  </LayerCard>
+                  </div>
                 </div>
               </div>
             </section>
@@ -213,42 +214,38 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
                 }
               </ul>
             </div>
-            <Tabs defaultValue="routing" class="min-w-0" client:load>
-              <Tabs.List>
-                <Tabs.Trigger value="routing">@ilha/router</Tabs.Trigger>
-                <Tabs.Trigger value="store">Shared signals</Tabs.Trigger>
-                <Tabs.Trigger value="astro">@ilha/astro</Tabs.Trigger>
-              </Tabs.List>
-              <Tabs.Content value="routing">
-                <LayerCard><div class="p-4 font-mono"><Fragment set:html={routingHtml} /></div></LayerCard>
-              </Tabs.Content>
-              <Tabs.Content value="store">
-                <LayerCard><div class="p-4 font-mono"><Fragment set:html={storeHtml} /></div></LayerCard>
-              </Tabs.Content>
-              <Tabs.Content value="astro">
-                <LayerCard><div class="p-4 font-mono"><Fragment set:html={astroHtml} /></div></LayerCard>
-              </Tabs.Content>
-            </Tabs>
+            <div class="tabs tabs-lift min-w-0">
+              <input type="radio" name="landing_extras" class="tab" aria-label="@ilha/router" checked />
+              <div class="tab-content border-base-300 bg-base-100 p-4 font-mono">
+                <Fragment set:html={routingHtml} />
+              </div>
+              <input type="radio" name="landing_extras" class="tab" aria-label="Shared signals" />
+              <div class="tab-content border-base-300 bg-base-100 p-4 font-mono">
+                <Fragment set:html={storeHtml} />
+              </div>
+              <input type="radio" name="landing_extras" class="tab" aria-label="@ilha/astro" />
+              <div class="tab-content border-base-300 bg-base-100 p-4 font-mono">
+                <Fragment set:html={astroHtml} />
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       <section class="border-border border-b">
         <div class="landing-shell py-16 sm:py-20 lg:py-24">
-          <LayerCard>
-            <div class="grid gap-2 p-4">
+          <div class="card bg-base-100 shadow">
+            <div class="card-body">
               <p class="landing-eyebrow">Start your way</p>
-              <h2 class="landing-section-title">Add Ilha without rebuilding your stack.</h2>
-              <p class="landing-lede">
+              <h2 class="card-title text-2xl">Add Ilha without rebuilding your stack.</h2>
+              <p>
                 Choose a starter for Vite or your server. You get a working, type-safe project with
                 fast server-rendered pages and focused interactivity—without adopting a full
                 application framework.
               </p>
+              <ProjectCreatorForm client:only="@ilha/astro" />
             </div>
-            <div class="p-4 pt-0">
-              <ProjectCreatorForm client:load />
-            </div>
-          </LayerCard>
+          </div>
         </div>
       </section>
 
@@ -265,20 +262,12 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
             </p>
           </div>
           <div class="flex w-full shrink-0 flex-col gap-2.5 sm:w-auto sm:flex-row sm:gap-3">
-            <LinkButton
-              href="/guide/getting-started/introduction"
-              variant="primary"
-              class="w-full sm:w-auto"
-            >
+            <a href="/guide/getting-started/introduction" class="btn btn-primary w-full sm:w-auto">
               Read the quick start
-            </LinkButton>
-            <LinkButton
-              href="/tutorial/counter/state"
-              variant="secondary"
-              class="w-full sm:w-auto"
-            >
+            </a>
+            <a href="/tutorial/counter/atom" class="btn btn-ghost w-full sm:w-auto">
               Build the counter
-            </LinkButton>
+            </a>
           </div>
         </div>
       </section>
@@ -300,4 +289,10 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
       </a>
     </footer>
   </div>
+  <script>
+    import { bindCopyCommandButtons } from "../src/scripts/copy-command.ts";
+
+    bindCopyCommandButtons();
+    document.addEventListener("astro:page-load", () => bindCopyCommandButtons());
+  </script>
 </PageLayout>

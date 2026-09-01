@@ -1,27 +1,5 @@
 import type { AstroIntegration, AstroRenderer } from "astro";
 
-// Tag ilha islands with Astro's `astro:renderer` symbol (via a global core
-// reads at island construction) so Astro routes them to this renderer
-// regardless of the integration's position in `astro.config`. Astro picks the
-// first renderer whose `check()` accepts a component; without this tag a
-// permissive renderer registered first (e.g. `@astrojs/solid-js`, whose check
-// accepts any function whose output stringifies) would claim ilha components
-// and render their markup as escaped raw HTML.
-const ASTRO_RENDERER_GLOBAL = Symbol.for("ilha.astroRenderer");
-const rendererName = "@ilha/astro";
-
-function setRendererMarker(): void {
-  // SAFETY: ASTRO_RENDERER_GLOBAL is a Symbol.for key this module owns; the
-  // Record cast is the cross-realm globalThis branding surface.
-  (globalThis as unknown as Record<symbol, unknown>)[ASTRO_RENDERER_GLOBAL] = rendererName;
-}
-
-// Set the marker immediately so a direct `import "@ilha/astro"` (e.g. from
-// `astro.config` or a separate-process entrypoint) tags islands before any
-// constructor can run in this realm — even if a bundler tree-shakes this bare
-// side-effect statement into nothing.
-setRendererMarker();
-
 export interface IlhaIntegrationOptions {
   include?: string | string[];
   exclude?: string | string[];
@@ -96,10 +74,6 @@ export default function ilhaIntegration(options: IlhaIntegrationOptions = {}): A
     name: "@ilha/astro",
     hooks: {
       "astro:config:setup": ({ addRenderer, updateConfig }) => {
-        // Re-assert at config time: this hook always runs when Astro loads the
-        // integration, so the marker is set even if the module's top-level
-        // side effect was tree-shaken away.
-        setRendererMarker();
         addRenderer(getRenderer());
         updateConfig({ vite: getViteConfig(options) });
       },

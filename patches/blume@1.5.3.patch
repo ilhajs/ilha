@@ -1,13 +1,17 @@
+diff --git a/node_modules/blume/.bun-tag-162e10d46fe0c2d5 b/.bun-tag-162e10d46fe0c2d5
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/src/markdown/twoslash.ts b/src/markdown/twoslash.ts
-index 98142c16544a61e67ffae021eec32d475f1dab74..96f14498cc2aea561e9f903758f8620ff4541029 100644
+index 98142c16544a61e67ffae021eec32d475f1dab74..63503ca1438edd8f396655db3f71db730561433f 100644
 --- a/src/markdown/twoslash.ts
 +++ b/src/markdown/twoslash.ts
-@@ -45,7 +45,14 @@ export const blumeTwoslashTransformer = (): ShikiTransformer => {
+@@ -45,7 +45,15 @@ export const blumeTwoslashTransformer = (): ShikiTransformer => {
      // Match the stock transformer's default: fence snippets are authored
      // bundler-style (extensionless relative imports, package imports).
      compilerOptions: {
 +      jsx: tsModule.JsxEmit.ReactJSX,
 +      jsxImportSource: "ilha",
++      types: ["bun"],
 +      module: tsModule.ModuleKind.ESNext,
        moduleResolution: tsModule.ModuleResolutionKind.Bundler,
 +      target: tsModule.ScriptTarget.ESNext,
@@ -17,12 +21,17 @@ index 98142c16544a61e67ffae021eec32d475f1dab74..96f14498cc2aea561e9f903758f8620f
      },
      // `require.resolve("typescript")` is the package's main entry,
      // `lib/typescript.js`; its directory holds the `lib.*.d.ts` default libs.
-@@ -58,5 +65,8 @@ export const blumeTwoslashTransformer = (): ShikiTransformer => {
+@@ -58,5 +66,13 @@ export const blumeTwoslashTransformer = (): ShikiTransformer => {
      rendererRich()
    )({
      explicitTrigger: true,
 +    // Documentation snippets are intentionally partial; enhance valid spans
 +    // without turning unresolved tutorial placeholders into build failures.
 +    throws: false,
++    // Surface type errors in the build log — silent failures hide broken docs.
++    onTwoslashError: (error: unknown, code: string) => {
++      console.error(`[twoslash-code] >>>${code}<<<`);
++      console.error(`[twoslash-error] ${String(error).slice(0, 400)}`);
++    },
    });
  };

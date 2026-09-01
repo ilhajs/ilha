@@ -25,19 +25,14 @@ export default defineConfig({
             ],
           },
           {
-            label: "Build islands",
+            label: "Build UI",
             items: [
-              "/guide/island/create",
-              "/guide/island/state",
-              "/guide/island/derived",
-              "/guide/island/action",
-              "/guide/island/effect",
-              "/guide/island/errors",
-              "/guide/island/render",
-              "/guide/island/compose",
-              "/guide/island/bindings",
-              "/guide/island/signals",
-              "/guide/island/define",
+              "/guide/ui/create",
+              "/guide/ui/state",
+              "/guide/ui/templating",
+              "/guide/ui/streams",
+              "/guide/ui/render",
+              "/guide/ui/custom-elements",
             ],
           },
           {
@@ -45,7 +40,7 @@ export default defineConfig({
             items: [
               "/guide/routing/overview",
               "/guide/routing/routes-and-navigation",
-              "/guide/routing/loaders",
+              "/guide/routing/error-boundaries",
               "/guide/routing/file-system-routing",
               "/guide/routing/server-islands",
               "/guide/routing/middleware-and-security",
@@ -59,8 +54,9 @@ export default defineConfig({
           {
             label: "Recipes",
             items: [
-              "/guide/recipes/helpers",
-              "/guide/recipes/jsx-less",
+              "/guide/recipes/h",
+              "/guide/recipes/pubsub-state",
+              "/guide/recipes/testing",
               "/guide/recipes/view-transitions",
               "/guide/recipes/oxlint",
             ],
@@ -88,14 +84,7 @@ export default defineConfig({
         items: [
           {
             label: "Build a counter",
-            items: [
-              "/tutorial/counter/state",
-              "/tutorial/counter/action",
-              "/tutorial/counter/derived",
-              "/tutorial/counter/bind",
-              "/tutorial/counter/effect",
-              "/tutorial/counter/onmount",
-            ],
+            items: ["/tutorial/counter/atom", "/tutorial/counter/events", "/tutorial/counter/ssr"],
           },
         ],
       },
@@ -103,7 +92,7 @@ export default defineConfig({
     tabs: [
       { label: "Guide", path: "/guide", href: "/guide/getting-started/introduction" },
       { label: "Reference", path: "/reference", href: "/reference/ilha" },
-      { label: "Tutorial", path: "/tutorial", href: "/tutorial/counter/state" },
+      { label: "Tutorial", path: "/tutorial", href: "/tutorial/counter/atom" },
     ],
   },
   ai: { llmsTxt: true },

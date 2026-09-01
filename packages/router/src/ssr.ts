@@ -1,5 +1,5 @@
 /**
- * Production SSR endpoints for server-owned islands and regular-page loads.
+ * Production SSR endpoint for server-owned islands.
  *
  * Default export is an oxidejs-style fetch middleware:
  * `(request) => Response | undefined`. Returns `undefined` for any request it
@@ -9,21 +9,18 @@
  * oxide({ middleware: ["@ilha/router/ssr"] });
  * ```
  *
- * Serves:
- * - `POST /__ilha/frame` — re-renders a server island (JSON `{ id, path }` in,
- *   `{ html }` out). Renderers come from the process-global registry
- *   populated by self-registration code appended to `.server` modules.
- * - `GET /__ilha/loader?path=…` — regular-page server loads via the loader
- *   runner (`setFrameLoaderRunner`, wired by the generated server module).
+ * Serves `POST /__ilha/frame` — re-renders a server island (JSON `{ id, path }`
+ * in, `{ html }` out). Renderers come from the process-global registry
+ * populated by self-registration code appended to `.server` modules.
  */
 
-import "ilha";
-import { bindServerAction, setServerManifestSerializer, type ServerAction } from "ilha/internal";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import { renderToString } from "ilha";
 
-import type { HeadInput } from "./head";
-import { resolveRedirectTarget } from "./index";
 import { runWithIslandRequest } from "./request-scope";
-import { matchSegments, parsePattern, safeDecode } from "./route-match";
+import { sanitizeSnapshotObject } from "./snapshot";
 
 /**
  * Server-frame state shared by the dev middleware and the production
@@ -40,27 +37,10 @@ import { matchSegments, parsePattern, safeDecode } from "./route-match";
  * run the loader with matched params.
  */
 
-/** Loader context for server-page `load` — mirrors the router's shape. */
-export interface FrameLoaderContext {
-  params: Record<string, string>;
-  request: Request;
-  url: URL;
-  signal: AbortSignal;
-  /** Contribute `<head>` data for this route. Safe to call multiple times. */
-  head: (input: HeadInput) => void;
-}
-
-export type ServerPageLoader = (ctx: FrameLoaderContext) => unknown;
-
 /** A frame render: optionally preceded by running the page's `load`. */
 export interface ServerIslandEntry {
   /** Returns the renderState fn (`Symbol.for("ilha.renderState")` getter). */
   render: () => unknown;
-  /** The module's `load` export — runs at frame time; its return value
-   * becomes the island's render props. */
-  load?: ServerPageLoader;
-  /** Route pattern for the page (`/user/:id`) — matches params for `load`. */
-  pattern?: string;
 }
 
 export type FrameGuard = (request: Request) => Response | void | Promise<Response | void>;
@@ -98,26 +78,6 @@ export function setFrameGuard(guard: FrameGuard): void {
 export function getFrameGuard(): FrameGuard | undefined {
   // SAFETY: mirrors the setter's symbol slot contract.
   return (globalThis as unknown as Record<symbol, FrameGuard | undefined>)[GUARD_KEY];
-}
-
-const LOADER_GUARD_KEY = Symbol.for("ilha.loaderGuard");
-
-/**
- * Install a guard consulted only by `GET /__ilha/loader`. When absent, the
- * loader endpoint falls back to `getFrameGuard()` for backwards compatibility.
- * Prefer a dedicated loader guard so gating the loader endpoint is independent
- * of frame rendering.
- */
-export function setLoaderGuard(guard: FrameGuard): void {
-  // SAFETY: global symbol slot shared across module copies; undefined means
-  // the loader endpoint falls back to the frame guard.
-  const g = globalThis as unknown as Record<symbol, FrameGuard | undefined>;
-  g[LOADER_GUARD_KEY] = guard;
-}
-
-export function getLoaderGuard(): FrameGuard | undefined {
-  // SAFETY: mirrors the setter's symbol slot contract.
-  return (globalThis as unknown as Record<symbol, FrameGuard | undefined>)[LOADER_GUARD_KEY];
 }
 
 /** Frame-authorization policy, installed via {@link setFrameAuth}. */
@@ -203,6 +163,44 @@ export function isSafeFramePath(path: string): boolean {
   );
 }
 
+/**
+ * Build the scoped frame render URL from the incoming request URL and frame
+ * path. Absolute `incomingUrl` values supply the origin. Relative values (for
+ * example Vite's `req.url`) require an explicit trusted `serverOrigin` — never
+ * a client `Host` header.
+ */
+export function frameScopedUrl(
+  incomingUrl: string,
+  framePath: string,
+  serverOrigin?: string,
+): string {
+  let origin: string;
+  try {
+    const incoming = new URL(incomingUrl);
+    if (incoming.protocol !== "http:" && incoming.protocol !== "https:") {
+      throw new TypeError("unsupported protocol");
+    }
+    origin = incoming.origin;
+  } catch {
+    if (serverOrigin == null) {
+      throw new Error("frameScopedUrl: relative incomingUrl requires serverOrigin");
+    }
+    origin = parseServerOrigin(serverOrigin);
+  }
+  return new URL(framePath, origin).href;
+}
+
+function parseServerOrigin(value: string): string {
+  if (!value.includes("://")) {
+    throw new Error("frameScopedUrl: serverOrigin must be an absolute URL");
+  }
+  const parsed = new URL(value);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("frameScopedUrl: serverOrigin must be http(s)");
+  }
+  return parsed.origin;
+}
+
 /** Identity headers forwarded onto scoped render/loader requests. */
 const FORWARD_IDENTITY_HEADERS = ["cookie", "authorization", "user-agent"] as const;
 
@@ -246,98 +244,39 @@ export function frameEnvelope(status: number, body: Record<string, unknown>): Fr
   };
 }
 
-export type FrameLoaderRunner = (
-  path: string,
-  request?: Request,
-) => Promise<{
-  kind: string;
-  data?: unknown;
-  headEntries?: unknown;
-  status?: number;
-  to?: string;
-  message?: string;
-}>;
-
-const LOADER_RUNNER_KEY = Symbol.for("ilha.frameLoaderRunner");
-
-/**
- * Install the handler backing `GET /__ilha/loader` in production. The
- * generated `pages.server.ts` wires this to `pageRouter.runLoader`, so
- * regular-page server loads get full route matching, layout chains, and
- * redirect/error semantics. Dev and prod handlers share the slot.
- */
-export function setFrameLoaderRunner(runner: FrameLoaderRunner): void {
-  // SAFETY: global symbol slot shared across module copies; the generated
-  // server module installs the runner against pageRouter.runLoader.
-  const g = globalThis as unknown as Record<symbol, FrameLoaderRunner | undefined>;
-  g[LOADER_RUNNER_KEY] = runner;
-}
-
-export function getFrameLoaderRunner(): FrameLoaderRunner | undefined {
-  // SAFETY: mirrors the setter's symbol slot contract.
-  return (globalThis as unknown as Record<symbol, FrameLoaderRunner | undefined>)[
-    LOADER_RUNNER_KEY
-  ];
-}
-
-// ─── Server-manifest serialization (owned by @ilha/router) ──────────────
-// Core only collects event→action manifest data; the markup format is a
-// router integration detail. Every `.server` module transform imports this
-// module, so registering here covers dev frames, production frames, and
-// prerendered server graphs alike.
-setServerManifestSerializer({
-  template(manifest) {
-    // Escape for a single-quoted attribute (& first — mirrors core's escapeHtml).
-    const json = JSON.stringify(Object.fromEntries(manifest))
-      .replace(/&/g, "&amp;")
-      .replace(/'/g, "&#39;")
-      .replace(/</g, "&lt;");
-    return `<template data-ilha-actions='${json}'></template>`;
-  },
-});
+const ACTION_CALL = Symbol.for("ilha.actionCall");
 
 /** @internal Brand an exported server action with its generated RPC transport key. */
 export function __ilhaServerAction<A extends unknown[], R>(
   key: string,
   fn: (...args: A) => R,
-): ServerAction<A, R> {
-  return bindServerAction(fn, key);
+): ((...args: A) => R) & { with: (...args: A) => (...ev: unknown[]) => R } {
+  const wrapped = ((...args: A) => fn(...args)) as ((...args: A) => R) & {
+    with: (...args: A) => (...ev: unknown[]) => R;
+  };
+  wrapped.with = (...args: A) => {
+    const handler = ((..._ev: unknown[]) => wrapped(...args)) as ((...ev: unknown[]) => R) &
+      Record<symbol, { k: string; a: unknown[] }>;
+    handler[ACTION_CALL] = { k: key, a: args };
+    return handler;
+  };
+  return wrapped;
 }
 
-export function registerServerIsland(
-  id: string,
-  render: () => unknown,
-  options?: { load?: ServerPageLoader; pattern?: string },
-): void {
-  registry().set(id, { render, load: options?.load, pattern: options?.pattern });
+export function registerServerIsland(id: string, render: () => unknown): void {
+  registry().set(id, { render });
 }
 
 export function getServerIslandEntry(id: string): ServerIslandEntry | undefined {
   return registry().get(id);
 }
 
-/** Client-facing frame failure. `redirect` carries a loader redirect target. */
-export class FrameError extends Error {
+/** Client-facing frame failure. `redirect` carries a same-origin redirect target. */
+export class FrameError extends Data.TaggedError("FrameError")<{
   status: number;
+  message?: string;
   redirect?: string;
-
-  constructor(status: number, message: string, redirect?: string) {
-    super(message);
-    this.status = status;
-    this.redirect = redirect;
-  }
-}
-
-/** Match a route pattern (`/user/:id`, `/docs/**:slug`) against a pathname.
- * Returns decoded params, or null when the path doesn't match. Shares the
- * router's matcher semantics via `route-match.ts`. */
-function matchPatternParams(pattern: string, pathname: string): Record<string, string> | null {
-  const raw = matchSegments(parsePattern(pattern).segments, pathname);
-  if (!raw) return null;
-  const params: Record<string, string> = {};
-  for (const [k, v] of Object.entries(raw)) params[k] = safeDecode(v);
-  return params;
-}
+}> {}
 
 /**
  * Shared tail of every frame request: run the page's `load` when registered
@@ -345,78 +284,80 @@ function matchPatternParams(pattern: string, pathname: string): Record<string, s
  * caller's scope. Throws `FrameError` with an HTTP status for client-facing
  * failures; loader redirects surface via `FrameError.redirect`.
  */
-export async function renderServerIsland(
+const frameFail = (status: number, message?: string): FrameError =>
+  new FrameError({ status, message: message ?? "frame failed" });
+
+/**
+ * Render a registered server island. Typed error channel: the only failure is
+ * `FrameError`; everything else is a defect surfaced as a 400 to the client.
+ */
+export function renderServerIsland(
   id: string,
   request: Request,
   runWithScope: <T>(request: Request, fn: () => T) => T | Promise<T>,
-  onHead?: (entries: HeadInput[]) => void,
   incomingProps?: Record<string, unknown>,
+): Effect.Effect<string, FrameError> {
+  return Effect.gen(function* () {
+    const entry = registry().get(id);
+    if (!entry) return yield* Effect.fail(frameFail(400, "unknown island"));
+    const render = entry.render();
+    if (typeof render !== "function") {
+      return yield* Effect.fail(frameFail(400, "unknown island"));
+    }
+    return yield* Effect.tryPromise({
+      try: async () => {
+        const out = (await runWithScope(request, () =>
+          renderToStringOf(render, incomingProps),
+        )) as string;
+        return out;
+      },
+      catch: (error): FrameError =>
+        error instanceof FrameError
+          ? error
+          : frameFail(400, error instanceof Error ? error.message : undefined),
+    });
+  });
+}
+
+/** Convenience for non-Effect callers: run the render and resolve to a Result. */
+export function renderServerIslandResult(
+  id: string,
+  request: Request,
+  runWithScope: <T>(request: Request, fn: () => T) => T | Promise<T>,
+  incomingProps?: Record<string, unknown>,
+): Promise<Result.Result<string, FrameError>> {
+  return Effect.runPromise(
+    Effect.result(renderServerIsland(id, request, runWithScope, incomingProps)),
+  );
+}
+
+function renderToStringOf(
+  render: unknown,
+  props: Record<string, unknown> | undefined,
 ): Promise<string> {
-  const entry = registry().get(id);
-  if (!entry) throw new FrameError(400, "unknown island");
-  let props: unknown = incomingProps;
-  if (entry.load) {
-    let url: URL;
-    try {
-      url = new URL(request.url);
-    } catch {
-      throw new FrameError(400, "frame failed");
-    }
-    const params = entry.pattern ? matchPatternParams(entry.pattern, url.pathname) : {};
-    if (!params) throw new FrameError(400, "frame failed");
-    try {
-      const headEntries: HeadInput[] = [];
-      const result = await entry.load({
-        params,
-        request,
-        url,
-        signal: request.signal,
-        head: (input) => headEntries.push(input),
-      });
-      if (headEntries.length > 0) onHead?.(headEntries);
-      // Same load envelope as client loaders and regular-page loads.
-      props = {
-        load: { loading: false, value: result ?? {}, error: undefined },
-      };
-    } catch (error) {
-      const marker = error as { __ilhaRedirect?: boolean; __ilhaLoaderError?: boolean };
-      if (marker.__ilhaRedirect === true) {
-        const r = error as { to: string; status: number };
-        // Gate the frame redirect target like the loader path does — only
-        // same-origin targets are allowed (frames have no per-router
-        // `allowExternalRedirects`). Unsafe targets surface as a 500, never
-        // an open redirect to a foreign origin.
-        const safe = resolveRedirectTarget(r.to, url, false);
-        if (!safe.ok) throw new FrameError(500, "unsafe redirect target");
-        throw new FrameError(r.status || 302, "frame failed", safe.to);
-      }
-      if (marker.__ilhaLoaderError === true) {
-        const e = error as { status: number };
-        throw new FrameError(e.status || 500, "frame failed");
-      }
-      throw error;
-    }
-  }
-  const render = entry.render();
-  if (typeof render !== "function") throw new FrameError(400, "unknown island");
-  const html = await runWithScope(request, () => render(props));
-  return String(html);
+  const out = (render as (p?: unknown) => unknown)(props);
+  return Promise.resolve(out).then((view) =>
+    typeof view === "string"
+      ? view
+      : renderToString(() => view as never, { captureActions: true, markers: false }),
+  );
 }
 
 // ─── Endpoints ───────────────────────────────────────────────────────────
 
 export const FRAME_ENDPOINT = "/__ilha/frame";
-/** Regular-page server loads: served through the loader-runner slot. */
-export const LOADER_ENDPOINT = "/__ilha/loader";
-
 /** Max request body size — matches the dev middleware cap. */
 export const MAX_BODY = 16 * 1024;
 
 /** Parent-island props on a frame POST. Missing is fine; anything else is 400. */
 export function parseFrameProps(value: unknown): Record<string, unknown> | undefined {
   if (value == null) return undefined;
-  if (typeof value !== "object" || Array.isArray(value)) throw new FrameError(400, "frame failed");
-  return value as Record<string, unknown>;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new FrameError({ status: 400, message: "frame failed" });
+  }
+  const sanitized = sanitizeSnapshotObject(value);
+  if (!sanitized) throw new FrameError({ status: 400, message: "frame failed" });
+  return sanitized;
 }
 
 export function json(status: number, body: Record<string, unknown>): Response {
@@ -490,136 +431,75 @@ export async function authorizeFrameRequest(
 }
 
 async function ssr(request: Request): Promise<Response | undefined> {
-  let pathname: string;
+  let url: URL;
   try {
-    pathname = new URL(request.url).pathname;
+    url = new URL(request.url);
   } catch {
     return json(400, { error: "frame failed" });
   }
-  if (pathname !== FRAME_ENDPOINT && pathname !== LOADER_ENDPOINT) return;
+  if (url.pathname !== FRAME_ENDPOINT) return undefined;
 
-  // Same-origin defense for every owned endpoint. Browsers always send
-  // `Origin` on POST/GET-over-fetch; a missing header implies a non-browser
-  // caller, which is gated by the guards below / the CSRF check for frames.
-  const auth = getFrameAuth();
-  if (!isTrustedOrigin(request, auth)) {
-    return json(403, { error: "frame failed" });
-  }
+  const program: Effect.Effect<Response, FrameError> = Effect.gen(function* () {
+    const auth = getFrameAuth();
+    // Same-origin defense for every owned endpoint. Browsers always send
+    // `Origin` on POST/GET-over-fetch; a missing header implies a non-browser
+    // caller, which is gated by the guards below / the CSRF check for frames.
+    if (!isTrustedOrigin(request, auth)) return yield* Effect.fail(frameFail(403));
 
-  // ── Loader endpoint: regular-page server loads via pageRouter.runLoader ──
-  if (pathname === LOADER_ENDPOINT) {
-    if (request.method !== "GET") return json(405, { error: "method not allowed" });
-    // Deny by default when no guard is registered — mirrors the frame
-    // endpoint. Loader output is served to any caller that reaches the
-    // endpoint; gating it keeps client-navigation data behind app auth.
-    const guard = getLoaderGuard() ?? getFrameGuard();
-    if (!guard && (auth?.defaultAction ?? "deny") === "deny") {
-      return json(403, { error: "loader failed" });
+    // ── Frame endpoint: re-render a server island ──────────────────────────
+    if (request.method !== "POST") return yield* Effect.fail(frameFail(405));
+    if (!(request.headers.get("content-type") ?? "").startsWith("application/json")) {
+      return yield* Effect.fail(frameFail(415));
     }
-    try {
-      // Loader guard is preferred; fall back to the legacy frame guard so
-      // apps already gating loader data keep working.
-      const denied = await guard?.(request);
-      if (denied) return denied;
-    } catch {
-      return json(403, { error: "loader failed" });
-    }
-    const runner = getFrameLoaderRunner();
-    if (!runner) return json(404, { kind: "error", status: 404, message: "not found" });
-    const cl = request.headers.get("content-length");
-    if (cl && Number(cl) > MAX_BODY) return json(413, { error: "frame failed" });
-    let target = "/";
-    try {
-      target = new URL(request.url).searchParams.get("path") ?? "/";
-    } catch {
-      return json(400, { kind: "error", status: 400, message: "bad request" });
-    }
-    // Path-only: leading slash, no `//` or backslash (a WHATWG URL turns
-    // `\` into `/`, which would smuggle a foreign authority), bounded length.
-    if (!isSafeFramePath(target)) {
-      return json(400, { kind: "error", status: 400, message: "bad request" });
-    }
-    try {
-      // Forward the originating request so client-navigation loaders keep
-      // cookies/identity and observe the real request's abort signal, and
-      // seed the island-request scope (useContext().request) like frames do.
-      const result = await runWithIslandRequest(request, () => runner(target, request));
-      if (result.kind === "redirect") {
-        return json(result.status || 302, {
-          kind: "redirect",
-          to: result.to,
-          status: result.status,
-        });
+
+    // Guard hook (see setFrameGuard) + CSRF, shared with the dev middleware.
+    const authorized = yield* Effect.tryPromise({
+      try: () =>
+        authorizeFrameRequest(request, {
+          defaultAction: auth?.defaultAction ?? "deny",
+          onGuardError: (error) => console.error("[ilha-router] frame guard failed:", error),
+        }),
+      catch: () => frameFail(403),
+    });
+    if (!authorized.ok) return yield* Effect.fail(frameFail(authorized.status));
+
+    let id: string;
+    let path = "/";
+    let incomingProps: Record<string, unknown> | undefined;
+    {
+      const text = yield* Effect.tryPromise({
+        try: () => readBodyBounded(request, MAX_BODY),
+        catch: () => frameFail(400),
+      });
+      if (text === null) return yield* Effect.fail(frameFail(413));
+      try {
+        const body = JSON.parse(text) as { id?: unknown; path?: unknown; props?: unknown };
+        id = String(body.id ?? "");
+        incomingProps = parseFrameProps(body.props);
+        // Route context: the frame renders as if requested at the client's
+        // current URL. Only path+search are honored — never a full foreign
+        // origin. Backslash is rejected too: WHATWG URLs treat `\\` as `/`
+        // for http(s), so a `\\evil.com` prefix would smuggle a new
+        // authority past the plain `//` check. A supplied-but-invalid path
+        // fails closed (400) instead of silently re-rendering at "/".
+        if (typeof body.path === "string") {
+          if (!isSafeFramePath(body.path)) return yield* Effect.fail(frameFail(400));
+          path = body.path;
+        }
+      } catch {
+        return yield* Effect.fail(frameFail(400));
       }
-      if (result.kind !== "data") {
-        // Preserve runner outcomes (not-found, error) with their status.
-        const status = result.status || 500;
-        return json(status, { kind: result.kind, status, message: result.message });
-      }
-      return json(200, result);
-    } catch (error) {
-      console.error("[ilha-router] loader endpoint failed:", error);
-      return json(500, { kind: "error", status: 500, message: "loader failed" });
     }
-  }
 
-  // ── Frame endpoint: re-render a server island ─────────────────────────────
-  if (request.method !== "POST") return json(405, { error: "frame failed" });
-  if (!(request.headers.get("content-type") ?? "").startsWith("application/json")) {
-    return json(415, { error: "frame failed" });
-  }
-
-  // Guard hook (see setFrameGuard) + CSRF, shared with the dev middleware.
-  const authorized = await authorizeFrameRequest(request, {
-    defaultAction: auth?.defaultAction ?? "deny",
-    onGuardError: (error) => console.error("[ilha-router] frame guard failed:", error),
-  });
-  if (!authorized.ok) return json(authorized.status, { error: "frame failed" });
-
-  let id: string;
-  let path = "/";
-  let incomingProps: Record<string, unknown> | undefined;
-  try {
-    const text = await readBodyBounded(request, MAX_BODY);
-    if (text === null) return json(413, { error: "frame failed" });
-    const body = JSON.parse(text) as { id?: unknown; path?: unknown; props?: unknown };
-    id = String(body.id ?? "");
-    incomingProps = parseFrameProps(body.props);
-    // Route context for server pages: the frame renders as if requested at
-    // the client's current URL. Only path+search are honored — never a full
-    // foreign origin. Backslash is rejected too: WHATWG URLs treat `\` as
-    // `/` for http(s), so a `\evil.com` prefix would smuggle a new authority
-    // past the plain `//` check. A supplied-but-invalid path fails closed
-    // (400) instead of silently re-rendering at "/".
-    if (typeof body.path === "string") {
-      if (!isSafeFramePath(body.path)) {
-        return json(400, { error: "frame failed" });
-      }
-      path = body.path;
-    }
-  } catch {
-    return json(400, { error: "frame failed" });
-  }
-
-  try {
     // Base the scoped request on the request's own URL origin — never the raw
     // `Host` header, which an Origin-less (server-to-server) caller can set to
-    // an arbitrary host. Deriving from request.url keeps the scoped URL
-    // same-origin with what the platform actually received.
-    let origin: string;
-    try {
-      origin = new URL(request.url).origin;
-    } catch {
-      return json(400, { error: "frame failed" });
-    }
-    // Synthesize a Request for the render/loader scope: the frame's route
-    // path with identity headers (cookie, auth, UA) forwarded. Client-supplied
-    // `x-forwarded-for` is NOT forwarded — it is spoofable and must not be
-    // trusted by loaders for IP checks.
-    const headers = forwardIdentityHeaders(request.headers);
-    const scoped = new Request(new URL(path, origin), {
+    // an arbitrary host. Synthesize a Request for the render scope: the
+    // frame's route path with identity headers (cookie, auth, UA) forwarded.
+    // Client-supplied `x-forwarded-for` is NOT forwarded — it is spoofable
+    // and must not be trusted for IP checks.
+    const scoped = new Request(frameScopedUrl(url.href, path), {
       method: "POST",
-      headers,
+      headers: forwardIdentityHeaders(request.headers),
     });
     // Forward framework request context (symbol-keyed expandos, e.g.
     // oxidejs's env/fetch-ctx marker) to the scoped request.
@@ -637,29 +517,34 @@ async function ssr(request: Request): Promise<Response | undefined> {
         // non-writable expando — skip
       }
     }
-    let head: HeadInput[] | undefined;
-    const html = await renderServerIsland(
+
+    const html = yield* renderServerIsland(
       id,
       scoped,
       (scopedRequest, fn) => Promise.resolve(runWithIslandRequest(scopedRequest, fn)),
-      (entries) => (head = entries),
       incomingProps,
     );
-    return json(200, { html, head });
-  } catch (error) {
-    if (error instanceof FrameError) {
-      if (error.redirect) return json(error.status, { redirect: error.redirect });
-      if (error.status >= 500) console.error("[ilha-router] frame render failed:", error);
-      return json(error.status, { error: "frame failed" });
-    }
-    console.error("[ilha-router] frame render failed:", error);
-    return json(400, { error: "frame failed" });
-  }
+    return json(200, { html });
+  });
+
+  return Effect.runPromise(
+    Effect.map(
+      Effect.result(program),
+      Result.match({
+        onFailure: (error) => {
+          if (error.redirect) return json(error.status, { redirect: error.redirect });
+          if (error.status >= 500) console.error("[ilha-router] frame render failed:", error);
+          return json(error.status, { error: "frame failed" });
+        },
+        onSuccess: (response) => response,
+      }),
+    ),
+  );
 }
 
 /** Side-effect imports required alongside this handler. */
 // SAFETY: the imports array is read by the oxidejs middleware loader to pull
 // the generated pages/loaders modules into the SSR graph alongside this file.
-(ssr as unknown as { imports: string[] }).imports = ["ilha:pages/server", "ilha:loaders"];
+(ssr as unknown as { imports: string[] }).imports = ["ilha:pages/server"];
 
 export default ssr;

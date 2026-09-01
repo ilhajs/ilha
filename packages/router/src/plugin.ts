@@ -1,12 +1,13 @@
 import { existsSync, readFileSync, statSync, watch } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
+import * as Result from "effect/Result";
 import { createUnplugin } from "unplugin";
 import type { UnpluginFactory } from "unplugin";
+import type { ViteDevServer } from "vite";
 
-import { fileToPattern, generate, resolveGeneratedPaths, SERVER_PAGE_RE } from "./codegen";
+import { generate, resolveGeneratedPaths } from "./codegen";
 import type { PagesMode } from "./codegen";
-import type { HeadInput } from "./head";
 import { runWithIslandRequest } from "./request-scope";
 import {
   generateServerIslandModule,
@@ -25,11 +26,31 @@ import {
   getFrameGuard,
   isSafeFramePath,
   parseFrameProps,
-  renderServerIsland,
+  renderServerIslandResult,
+  frameScopedUrl,
   setFrameAuth,
   setFrameGuard,
-  setLoaderGuard,
 } from "./ssr";
+
+function devServerOrigin(server: ViteDevServer): string {
+  const configured = server.config.server.origin;
+  if (configured) {
+    const value = typeof configured === "string" ? configured : String(configured);
+    return new URL(value).origin;
+  }
+  const local = server.resolvedUrls?.local?.[0];
+  if (local) return new URL(local).origin;
+  const { host, port, https } = server.config.server;
+  const hostname =
+    host === true || host === undefined || host === ""
+      ? "localhost"
+      : host === false
+        ? "localhost"
+        : String(host);
+  const protocol = https ? "https" : "http";
+  const numericPort = typeof port === "number" ? port : port ? Number(port) : 5173;
+  return `${protocol}://${hostname}:${numericPort}`;
+}
 
 export const VIRTUAL_PAGES_SERVER = "ilha:pages/server";
 export const VIRTUAL_PAGES_CLIENT = "ilha:pages/client";
@@ -45,9 +66,6 @@ export const RESOLVED_VIRTUAL_IDS = [
 
 /** Query suffix used on page/layout imports in the client file. */
 export const CLIENT_QUERY = "?client";
-
-/** Query suffix that re-exports a page/layout's `load` (loader.client) for the browser bundle. */
-export const CLIENT_LOADER_QUERY = "?client-loader";
 
 function decodeServerIslandId(id: string): string | null {
   if (!id.startsWith(SERVER_ISLAND_PREFIX)) return null;
@@ -156,12 +174,6 @@ export interface IlhaPagesOptions {
    */
   frameGuard?: (request: Request) => Response | void | Promise<Response | void>;
   /**
-   * Guard consulted only by `GET /__ilha/loader` in production. When absent,
-   * the loader endpoint falls back to the frame guard for backwards
-   * compatibility. Mirrors `setLoaderGuard()`.
-   */
-  loaderGuard?: (request: Request) => Response | void | Promise<Response | void>;
-  /**
    * Explicit trusted origins for frame/loader requests (e.g. a `.vercel.app`
    * or custom domain). When unset, origin checks compare the `Origin` header
    * against the request's own `Host`. Mirrors `setFrameAuth({ trustedOrigins })`.
@@ -182,8 +194,8 @@ export interface IlhaPagesOptions {
 export function resolvePluginPaths(root: string, options: IlhaPagesOptions) {
   const pagesDir = resolve(root, options.dir ?? "src/pages");
   const outDir = resolve(root, options.outDir ?? ".ilha");
-  const { serverFile, clientFile, loadersFile } = resolveGeneratedPaths(outDir);
-  return { pagesDir, outDir, serverFile, clientFile, loadersFile };
+  const { serverFile, clientFile } = resolveGeneratedPaths(outDir);
+  return { pagesDir, outDir, serverFile, clientFile };
 }
 
 export interface PagesPluginState {
@@ -191,7 +203,6 @@ export interface PagesPluginState {
   outDir: string;
   serverFile: string;
   clientFile: string;
-  loadersFile: string;
   setPaths(root: string): void;
   regen(): Promise<void>;
   shouldRegenOnChange(file: string): boolean;
@@ -203,10 +214,9 @@ export function createPagesPluginState(options: IlhaPagesOptions): PagesPluginSt
   let outDir!: string;
   let serverFile!: string;
   let clientFile!: string;
-  let loadersFile!: string;
 
   const setPaths = (root: string) => {
-    ({ pagesDir, outDir, serverFile, clientFile, loadersFile } = resolvePluginPaths(root, options));
+    ({ pagesDir, outDir, serverFile, clientFile } = resolvePluginPaths(root, options));
   };
 
   const regen = async () => {
@@ -243,9 +253,6 @@ export function createPagesPluginState(options: IlhaPagesOptions): PagesPluginSt
     get clientFile() {
       return clientFile;
     },
-    get loadersFile() {
-      return loadersFile;
-    },
     setPaths,
     regen,
     shouldRegenOnChange,
@@ -267,9 +274,7 @@ export function resolvePagesId(state: PagesPluginState, id: string, importer?: s
   if (id === VIRTUAL_PAGES_CLIENT) return RESOLVED_PAGES_CLIENT;
   if (id === VIRTUAL_LOADERS) return RESOLVED_LOADERS;
 
-  // ?client-loader must be checked first — its suffix would otherwise never
-  // match after the ?client branch, but keep the order explicit regardless.
-  for (const query of [CLIENT_LOADER_QUERY, CLIENT_QUERY]) {
+  for (const query of [CLIENT_QUERY]) {
     if (!id.endsWith(query)) continue;
     const bare = id.slice(0, -query.length);
     const resolved = importer ? resolve(importer.replace(/\?.*$/, ""), "..", bare) : resolve(bare);
@@ -293,16 +298,8 @@ export function loadPagesModule(state: PagesPluginState, id: string) {
     return `export { pageRouter, registry } from ${JSON.stringify(spec)};`;
   }
   if (id === RESOLVED_LOADERS) {
-    const spec = state.loadersFile.replace(/\.tsx?$/, "");
-    return `import ${JSON.stringify(spec)};`;
+    return `// @generated by @ilha/router — do not edit\nexport {};\n`;
   }
-
-  if (id.endsWith(CLIENT_LOADER_QUERY)) {
-    const bare = id.slice(0, -CLIENT_LOADER_QUERY.length);
-    // Client loaders are declared as `export const load = loader.client(…)`.
-    return `export { load } from ${JSON.stringify(bare)};`;
-  }
-
   if (id.endsWith(CLIENT_QUERY)) {
     const bare = id.slice(0, -CLIENT_QUERY.length);
     return `export { default } from ${JSON.stringify(bare)};`;
@@ -401,8 +398,7 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
         const singletonPeers = [
           "ilha",
           "@ilha/router",
-          "alien-signals",
-          // Auto-detected app deps that bridge ilha (e.g. `areia`) — they must
+          // Auto-detected app deps that bridge ilha (e.g. a UI lib) — they must
           // share the single ilha instance, so the app never has to hand-write
           // `ssr.noExternal`/`resolve.dedupe` for its UI lib.
           ...detectIlhaConsumers(root),
@@ -410,12 +406,8 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
         // For SSR, externalized deps are loaded via the runtime's own resolver,
         // so a dep that imports `ilha` as a peer (e.g. a UI lib) ends up with a
         // *separate* ilha instance from the Vite-processed app code. Two ilha
-        // instances mean two render-context stacks, so `bind:*` directives in
-        // those components render outside any context and silently drop their
-        // `data-ilha-bind` sentinels — breaking hydration. Bundling the ilha
-        // singletons into the SSR graph keeps a single instance. Apps that use
-        // a UI lib bridging ilha (e.g. `areia`) must add it to `ssr.noExternal`
-        // too, since it also imports the shared singletons.
+        // instances break hydration. Bundling the ilha singletons into the SSR
+        // graph keeps a single instance.
         const existingNoExternal = userConfig.ssr?.noExternal;
         const noExternal =
           existingNoExternal === true
@@ -450,7 +442,6 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
                 // render their JSX in one ilha and mount via another, and nothing
                 // hydrates. Pre-bundling it pins it to the shared `ilha` chunk.
                 "ilha/jsx-dev-runtime",
-                "alien-signals",
               ]),
             ],
           },
@@ -487,17 +478,8 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             lines.unshift(`import * as __ilhaSelf from ${JSON.stringify(file)};`);
             lines.unshift(`import { registerServerIsland } from "@ilha/router/ssr";`);
             for (const island of scan.islands) {
-              const id2 = serverIslandPublicId(file, island.name);
-              // Server pages carry their `load` + route pattern so frame
-              // handlers can run the loader with matched params.
-              const isServerPage =
-                SERVER_PAGE_RE.test(file) &&
-                state.isUnderPagesDir(file) &&
-                scan.exports.includes("load")
-                  ? `, { load: __ilhaSelf.load, pattern: ${JSON.stringify(fileToPattern(state.pagesDir, file))} }`
-                  : "";
               lines.push(
-                `registerServerIsland(${JSON.stringify(id2)}, () => __ilhaSelf[${JSON.stringify(island.name)}]?.[Symbol.for("ilha.renderState")]${isServerPage});`,
+                `registerServerIsland(${JSON.stringify(serverIslandPublicId(file, island.name))}, () => __ilhaSelf[${JSON.stringify(island.name)}]);`,
               );
             }
           }
@@ -551,7 +533,6 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
       configureServer(server) {
         server.watcher.add(state.pagesDir);
         if (options.frameGuard) setFrameGuard(options.frameGuard);
-        if (options.loaderGuard) setLoaderGuard(options.loaderGuard);
         setFrameAuth({
           trustedOrigins: options.trustedOrigins,
           csrf: options.csrf,
@@ -580,7 +561,8 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
           // production `@ilha/router/ssr` handler so dev can never drift from
           // prod semantics. Dev stays permissive when no guard is registered
           // (defaultAction: "open" is installed in configureServer above).
-          const frameUrl = `http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`;
+          const serverOrigin = devServerOrigin(server);
+          const frameUrl = `${serverOrigin}${req.url ?? "/"}`;
           const authorized = await authorizeFrameRequest(
             new Request(frameUrl, {
               method: req.method,
@@ -640,34 +622,43 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
               }
               framePath = body.path;
             }
-            // Server pages run `load` via pageRouter — make sure the generated
-            // server module (which registers the loader runner) is loaded.
+            // Warm the module graph so the self-registration code appended to
+            // server modules populates the frame renderers registry.
             await server.ssrLoadModule(VIRTUAL_PAGES_SERVER);
-            const mod = (await server.ssrLoadModule(target.file)) as Record<string, unknown>;
-            const island = mod[target.name] as
-              | Record<symbol, ((s?: Record<string, unknown>) => string) | undefined>
-              | undefined;
-            const render = island?.[Symbol.for("ilha.renderState")];
-            if (typeof render !== "function") throw new Error("unknown island");
+            await server.ssrLoadModule(target.file);
             // Synthesize a Request for the render scope: same URL as the
             // page, forwarding identity headers (cookie, auth, UA).
             // Client-supplied `x-forwarded-for` is NOT forwarded — it is
-            // spoofable and must not be trusted by loaders for IP checks.
+            // spoofable and must not be trusted for IP checks.
             const headers = authorized.identityHeaders;
-            const requestOrigin = `http://${req.headers.host ?? "localhost"}`;
-            const request = new Request(new URL(framePath, requestOrigin), {
+            const request = new Request(frameScopedUrl(req.url ?? "/", framePath, serverOrigin), {
               method: "POST",
               headers,
             });
-            let head: HeadInput[] | undefined;
-            const html = await renderServerIsland(
+            const result = await renderServerIslandResult(
               body.id ?? "",
               request,
               (r, fn) => runWithIslandRequest(r, fn),
-              (entries) => (head = entries),
               incomingProps,
             );
-            const env = frameEnvelope(200, { html: String(html), head });
+            if (Result.isFailure(result)) {
+              const err = result.failure;
+              if (err.redirect) {
+                const env = frameEnvelope(err.status, { redirect: err.redirect });
+                res.statusCode = env.status;
+                for (const [k, v] of Object.entries(env.headers)) res.setHeader(k, v);
+                res.end(env.body);
+                return;
+              }
+              const status = err.status;
+              if (status >= 500) console.error("[ilha-router] frame render failed:", err);
+              const env = frameEnvelope(status, { error: "frame failed" });
+              res.statusCode = env.status;
+              for (const [k, v] of Object.entries(env.headers)) res.setHeader(k, v);
+              res.end(env.body);
+              return;
+            }
+            const env = frameEnvelope(200, { html: result.success });
             res.statusCode = env.status;
             for (const [k, v] of Object.entries(env.headers)) res.setHeader(k, v);
             res.end(env.body);

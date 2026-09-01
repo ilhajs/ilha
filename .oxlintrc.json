@@ -3,26 +3,21 @@
   "ignorePatterns": ["**/dist/**", "**/node_modules/**"],
   "jsPlugins": ["./packages/router/oxlint.cjs"],
   "rules": {
-    "oxlint-plugin-ilha/pascal-case": "error",
     "oxlint-plugin-ilha/no-conditional-primitive": "error",
-    "oxlint-plugin-ilha/no-primitive-outside-island": "error",
-    "oxlint-plugin-ilha/prefer-plain-handler": "warn",
+    "oxlint-plugin-ilha/no-primitive-outside-component": "error",
+    "oxlint-plugin-ilha/no-instruction-outside-generator": "error",
     "oxlint-plugin-ilha/prefer-lowercase-events": "error",
-    "oxlint-plugin-ilha/no-direct-island-call": "error",
-    "oxlint-plugin-ilha/require-ssr-api": "error",
-    "oxlint-plugin-ilha/function-in-state": "error"
+    "oxlint-plugin-ilha/function-in-atom": "error"
   },
   "overrides": [
     {
       "files": ["**/*.test.ts", "**/*.test.tsx", "**/*.test.js"],
       "rules": {
         "oxlint-plugin-ilha/no-conditional-primitive": "off",
-        "oxlint-plugin-ilha/no-primitive-outside-island": "off",
-        "oxlint-plugin-ilha/prefer-plain-handler": "off",
+        "oxlint-plugin-ilha/no-primitive-outside-component": "off",
+        "oxlint-plugin-ilha/no-instruction-outside-generator": "off",
         "oxlint-plugin-ilha/prefer-lowercase-events": "off",
-        "oxlint-plugin-ilha/no-direct-island-call": "off",
-        "oxlint-plugin-ilha/require-ssr-api": "off",
-        "oxlint-plugin-ilha/function-in-state": "off"
+        "oxlint-plugin-ilha/function-in-atom": "off"
       }
     }
   ]

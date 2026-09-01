@@ -2,5 +2,5 @@ import { defineMeta } from "blume";
 
 export default defineMeta({
   title: "Recipes",
-  pages: ["helpers", "jsx-less", "view-transitions", "oxlint"],
+  pages: ["h", "pubsub-state", "testing", "view-transitions", "oxlint"],
 });

@@ -1,140 +1,110 @@
 ---
-title: Core Concepts
-description: Learn the core ideas behind ilha — islands, signals, JSX rendering, and function-component primitives.
+title: Core concepts
+description: components, atoms, JSX, mount, and renderToString.
 ---
 
-ilha is built around a small set of ideas: islands, signals, JSX rendering, and function-component primitives. Once these click, the rest of the library feels straightforward.
+ilha is built around a small set of ideas: components, atoms, JSX, and isomorphic render. Once these click, the rest of the library feels straightforward.
 
-## Islands
+## Component
 
-An island is a function component that can render itself to HTML on the server and mount itself in the browser. It owns its own state, behavior, and rendering, so each piece of interactivity stays local and explicit.
+A component is a function that returns a view. It can be sync, async, or a generator.
 
-This makes ilha a good fit for server-rendered pages that only need interactivity in specific places. Instead of turning the whole page into one client app, you can activate only the parts that need to be interactive.
+The same component can render to HTML and mount in the browser. It owns the atoms you declare while it runs.
 
-A plain JSX function is not an island boundary. It is a transparent component whose events and reactive reads belong to the containing island. Wrap it with `ilha()` only when it needs independent ownership.
+A nested plain function belongs to the parent component. Its `atom()` calls share that parent.
 
-## Choose the smallest component form
+## Choose the smallest form
 
-Start with the least machinery your component needs:
-
-| Form                           | Ownership                                                           |
-| ------------------------------ | ------------------------------------------------------------------- |
-| `const View = () => JSX`       | The containing island owns its rendering, events, and cleanup       |
-| `const View = ilha(() => JSX)` | `View` owns an independent reactive scope, lifecycle, and hydration |
-
-Promotion keeps the markup intact. A component without props can wrap the same render function directly. For a component with props, pass them straight to the component:
+| Form                     | Ownership                               |
+| ------------------------ | --------------------------------------- |
+| `const View = () => JSX` | Parent component owns atoms and cleanup |
+| `mount(el, View)`        | `View` is the root fiber                |
+| `function*` / `async`    | Same root, with `yield*` / `await`      |
 
 ```tsx twoslash
-import { ilha } from "ilha";
+import { atom } from "ilha";
 
-const BadgeView = ({ label }: { label: string }) => (
-  <span>{label}</span>
+const Badge = (props: Record<string, unknown>) => (
+  <span>{String(props.label)}</span>
 );
 
-const Label = ilha<{ label: string }>(({ label }) => (
-  <BadgeView label={label} />
-));
+const Label = (props: Record<string, unknown>) => {
+  const text = atom(String(props.label));
+  return <Badge label={text()} />;
+};
 ```
+
+Read an atom with `text()` when you need the current value in JS. In JSX, `{text}` subscribes the render.
 
 ## Isomorphic components
 
-The same island can be used in two ways:
+Use the same function two ways:
 
-- Rendered to an HTML string for SSR.
-- Mounted into a DOM element for client-side interactivity.
+- `await renderToString(component)` for HTML.
+- `mount(element, component)` for the browser.
 
-That means you do not have to split a component into separate "server" and "client" versions. One definition can handle both output and activation.
+You do not split a component into server and client copies.
 
-## Signals
+## Atoms
 
-ilha uses signals for reactive state. A signal is a value you can read and update; when it changes, the island reacts.
+An atom is a value you can read and update. When it changes, the component that read it reruns.
 
-A state accessor is a function that reads; use `.set()` / `.update()` to write:
+```tsx twoslash
+import { atom } from "ilha";
 
-```ts twoslash
-import { ilha, state } from "ilha";
-
-const Counter = ilha(() => {
-  const count = state(0);
+const Counter = () => {
+  const count = atom(0);
   count(); // read
   count.set(5); // write
-  return null as unknown as string;
-});
+  count.update((n: number) => n + 1);
+  return <p>{count}</p>;
+};
 ```
 
-Inside JSX, render the signal value directly:
+Computed atoms take a function:
 
 ```tsx twoslash
-import { ilha, state } from "ilha";
+import { atom } from "ilha";
 
-const App = ilha(() => {
-  const count = state(0);
-  return <p>{count()}</p>;
-});
+const Cart = () => {
+  const items = atom([{ n: 1 }, { n: 2 }]);
+  const total = atom(() =>
+    items().reduce((sum, item) => sum + item.n, 0),
+  );
+  return <p>{total}</p>;
+};
 ```
 
-## Function-component primitives
+Do not put JSX in an atom. Atoms hold data. Lists go through a Stream.
 
-For an island, declare reactive capabilities as primitives inside the component, in a stable order:
+## JSX
+
+Prefer JSX. Interpolated values escape. Event props are lowercase (`onclick`, `onchange`).
 
 ```tsx twoslash
-import { ilha, state, derived } from "ilha";
+import { atom } from "ilha";
 
-const Counter = ilha(() => {
-  const count = state(0); // local reactive state
-  const double = derived(() => count() * 2); // derived computed value
-  const increment = () => count.update((v) => v + 1); // plain function — no action() needed
-
-  return <button onclick={increment}>{double()}</button>;
-});
+const App = () => {
+  const open = atom(false);
+  return (
+    <button type="button" onclick={() => open.set(true)}>
+      Open
+    </button>
+  );
+};
 ```
 
-Primitives persist across rerenders by call order — the component reruns in place when a reactive value it reads changes. In development, ilha warns about primitive calls outside an island render, hook count changes, and kind changes at a slot.
-
-## JSX rendering
-
-ilha renders islands with JSX. Configure TypeScript with `jsxImportSource: "ilha"`, then return JSX from the component:
-
-```tsx twoslash
-import { ilha } from "ilha";
-
-const userInput = "edited by the user";
-const Message = ilha(() => <p>{userInput}</p>);
-```
-
-JSX output follows safe rendering rules: interpolated values are escaped by default, arrays render without commas, and child islands can be nested directly. If you need to inject trusted markup, opt into that explicitly with [`raw()`](/guide/recipes/helpers#render-trusted-markup).
-
-## Derived values
-
-Not every value belongs in local state. Sometimes a component needs data that depends on state or props, including async data.
-
-That is what [`derived()`](/guide/island/derived) is for. Read it with the same call syntax as state. For async work, the accessor also exposes `loading`, `value`, and `error`, so loading and error states stay part of the normal rendering model.
-
-## Events and effects
-
-ilha separates user interaction from side effects.
-
-Use plain functions for most DOM events. Reach for [`action()`](/guide/island/action) only when an operation needs reactive status (`.pending`, `.data`, `.error`) or cancellation. Use [`effect()`](/guide/island/effect) for reactive behavior that reruns when its dependencies change. Use [`effect.once()`](/guide/island/effect) when something should run once after the island is attached to the DOM.
-
-This separation helps keep component logic easy to scan:
-
-- Events respond to user actions.
-- Effects respond to reactive changes; `effect.once()` handles one-time setup.
+Use a plain function for DOM events. You do not need a special action wrapper on the client.
 
 ## SSR and hydration
 
-ilha is designed to work naturally with server rendering and hydration. You can render HTML on the server, send it to the browser, and later activate the island in place.
+`renderToString(component)` paints into a DOM, waits until idle, then returns HTML. By default it wraps the output in `<div data-ilha data-ilha-state="…">`.
 
-When using hydratable output, ilha can embed snapshots of state and derived values. It restores them by primitive order, so the component renders immediately without recomputing on first mount.
+`mount(host, component, { hydrate: true })` restores atom snapshots from that host and attaches events.
 
 ## Mental model
 
-A useful way to think about an island:
-
-- **Props** are data coming in.
-- **State** is reactive data owned by the component.
-- **Derived** is data computed from props or state.
-- **Render** turns all of that into HTML.
-- **Mount** activates behavior in the browser.
-
-Keep this model in mind as you use the API. Each primitive adds one piece to the flow.
+1. A component runs and returns a view.
+2. Atoms it reads subscribe that run.
+3. A write schedules a rerun and morphs the DOM.
+4. Streams and generators paint into holes inside the host.

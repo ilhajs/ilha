@@ -1,5 +1,4 @@
-import { Button, Input, LinkButton, Radio, Switch } from "areia";
-import { derived, effect, ilha, state } from "ilha";
+import { atom } from "ilha";
 
 import { URLS } from "@/lib/landing-const";
 
@@ -8,26 +7,24 @@ const TEMPLATES = [
   { value: "oxide-spa", label: "Oxide SPA", icon: "/oxide.svg", sandbox: true },
 ] as const;
 
-export const ProjectCreatorForm = ilha(() => {
-  const name = state("");
-  const template = state("vite-spa");
-  const useBun = state(false);
-
-  const createCommand = derived(() => {
+export function ProjectCreatorForm() {
+  const name = atom("");
+  const template = atom<(typeof TEMPLATES)[number]["value"]>("vite-spa");
+  const useBun = atom(false);
+  const createCommand = atom(() => {
     const packageManager = useBun() ? "bunx" : "npx";
     const projectName = name() ? ` ${name()}` : "";
     return `${packageManager} giget@latest gh:ilhajs/ilha/templates/${template()}${projectName}`;
   });
-  const sandboxUrl = derived(() => URLS.SANDBOX.replace("{template}", template()));
-  const hasSandbox = derived(() => {
-    return TEMPLATES.find((candidate) => candidate.value === template())?.sandbox ?? true;
-  });
+  const sandboxUrl = atom(() => URLS.SANDBOX.replace("{template}", template()));
+  const hasSandbox = atom(
+    () => TEMPLATES.find((candidate) => candidate.value === template())?.sandbox ?? true,
+  );
 
   const copyCommand = async (event: MouseEvent) => {
     try {
-      await navigator.clipboard.writeText(createCommand()!);
+      await navigator.clipboard.writeText(createCommand());
     } catch {
-      // Clipboard can be denied without a user gesture; leave the label as-is.
       return;
     }
     const el = (event.currentTarget as HTMLElement | null)?.querySelector("span");
@@ -40,84 +37,69 @@ export const ProjectCreatorForm = ilha(() => {
     }
   };
 
-  let host: Element | null = null;
-  effect.once(({ host: mounted }) => {
-    host = mounted;
-  });
-
-  effect(() => {
-    if (!host) return;
-    const commandSpan = host.querySelector<HTMLElement>("[data-copy-command] span");
-    if (commandSpan && commandSpan.textContent !== "Copied!") {
-      commandSpan.textContent = createCommand()!;
-    }
-
-    const sandboxLink = host.querySelector<HTMLAnchorElement>("[data-sandbox-link]");
-    if (sandboxLink) {
-      if (hasSandbox()) {
-        sandboxLink.href = sandboxUrl()!;
-        sandboxLink.classList.remove("hidden");
-      } else {
-        sandboxLink.classList.add("hidden");
-      }
-    }
-  });
-
   return (
     <div class="flex flex-col gap-4">
-      <Input
-        id="project-name"
-        label="Project name"
-        name="name"
-        placeholder="my-app"
-        bind:value={name}
-      />
-      <Radio.Group
-        legend="Pick a template"
-        name="template"
-        appearance="card"
-        orientation="horizontal"
-        class="[&>div]:lg:grid-cols-2"
-      >
-        {TEMPLATES.map((candidate) => (
-          <Radio.Item
-            label={
-              <span class="flex items-center gap-2">
-                <img src={candidate.icon} class="size-6" alt="" />
-                <span>{candidate.label}</span>
-              </span>
-            }
-            value={candidate.value}
-            name="template"
-            appearance="card"
-            bind:group={template}
-          />
-        ))}
-      </Radio.Group>
-      <Switch label="Use Bun" name="useBun" bind:checked={useBun} />
+      <label class="form-control w-full">
+        <span class="label-text mb-1">Project name</span>
+        <input
+          id="project-name"
+          name="name"
+          class="input input-bordered w-full"
+          placeholder="my-app"
+          value={name}
+          oninput={(event: Event) => name.set((event.currentTarget as HTMLInputElement).value)}
+        />
+      </label>
+      <fieldset class="fieldset">
+        <legend class="fieldset-legend">Pick a template</legend>
+        <div class="grid gap-2 lg:grid-cols-2">
+          {TEMPLATES.map((candidate) => (
+            <label class="label rounded-box border-base-300 cursor-pointer justify-start gap-2 border p-3">
+              <input
+                type="radio"
+                class="radio"
+                name="template"
+                value={candidate.value}
+                checked={template() === candidate.value}
+                onchange={() => template.set(candidate.value)}
+              />
+              <img src={candidate.icon} class="size-6" alt="" />
+              <span>{candidate.label}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <label class="label cursor-pointer justify-start gap-2">
+        <input
+          type="checkbox"
+          class="toggle"
+          name="useBun"
+          checked={useBun()}
+          onchange={(event: Event) => useBun.set((event.currentTarget as HTMLInputElement).checked)}
+        />
+        <span>Use Bun</span>
+      </label>
       <div class="grid min-w-0 gap-2 sm:flex sm:items-center">
-        <Button
-          variant="outline"
-          class="w-full min-w-0 flex-1 justify-start overflow-hidden text-left"
+        <button
+          type="button"
+          class="btn btn-outline w-full min-w-0 flex-1 justify-start overflow-hidden text-left"
           data-copy-command
           onclick={copyCommand}
         >
           <img src="/copy.svg" class="size-5 shrink-0" alt="" />
-          <span class="block truncate">{createCommand()}</span>
-        </Button>
-        <LinkButton
+          <span class="block truncate">{createCommand}</span>
+        </button>
+        <a
           href={sandboxUrl()}
           target="_blank"
           rel="noopener noreferrer"
-          variant="primary"
-          external
-          class={`w-full justify-center sm:w-auto sm:justify-center ${hasSandbox() ? "" : "hidden"}`}
+          class={`btn btn-primary w-full justify-center sm:w-auto ${hasSandbox() ? "" : "hidden"}`}
           data-sandbox-link
         >
           <img src="/stackblitz.svg" class="size-4" alt="" />
           <span>Open Sandbox</span>
-        </LinkButton>
+        </a>
       </div>
     </div>
   );
-});
+}

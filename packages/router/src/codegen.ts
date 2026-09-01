@@ -17,14 +17,6 @@ interface PageEntry {
   name: string;
   layouts: string[];
   errors: string[];
-  /** True if the page module declares `export const load` / `export … function load`. */
-  hasLoader: boolean;
-  /** Subset of `layouts` whose modules declare a `load` export. */
-  loaderLayouts: string[];
-  /** True if the page declares a client loader (`export const load = loader.client(…)`). */
-  hasClientLoader: boolean;
-  /** Subset of `layouts` whose modules declare a client loader. */
-  clientLoaderLayouts: string[];
   /** True for `foo.server.tsx` pages — rendered server-side via the frame protocol. */
   server: boolean;
 }
@@ -38,53 +30,6 @@ const EXCLUDED_RE = /\.(test|spec|d)\.(ts|tsx)$/;
 
 /** Server pages: `foo.server.tsx` routes `/foo`, rendered through the frame protocol. */
 export const SERVER_PAGE_RE = /\.server\.(ts|tsx)$/;
-
-// ─────────────────────────────────────────────
-// Codegen — loader export detection
-// ─────────────────────────────────────────────
-
-/**
- * Match a top-of-statement `export const load`, `export let load`,
- * `export function load`, or `export async function load`. Intentionally
- * conservative: `export { load } from "./x"` re-exports are NOT detected
- * in v1. Declare `load` directly in the file to be picked up.
- */
-const LOADER_EXPORT_RE = /^\s*export\s+(?:const|let|var|async\s+function|function)\s+load\b/m;
-
-/** `export const load = loader.client(…)` — the only client-loader form. */
-
-/** `export const load = loader.client(…)` — client loader under the server name. */
-const LOAD_CLIENT_EXPORT_RE =
-  /(^|\n)\s*export\s+(?:const|let|var)\s+load\b\s*=\s*loader\.client\b/m;
-
-interface LoaderExports {
-  load: boolean;
-  isClientLoader: boolean;
-}
-
-async function detectLoaderExports(file: string): Promise<LoaderExports> {
-  try {
-    const src = await readFile(file, "utf8");
-    // Strip single-line comments at the start of lines to avoid matching
-    // commented-out loaders. Block comments are rare enough to skip.
-    const stripped = src.replace(/^\s*\/\/.*$/gm, "");
-    // `export const load = loader.client(…)` declares a CLIENT loader under
-    // the server export name.
-    const isClientLoader = LOAD_CLIENT_EXPORT_RE.test(stripped);
-    return {
-      load: LOADER_EXPORT_RE.test(stripped) && !isClientLoader,
-      isClientLoader,
-    };
-  } catch (err) {
-    // A missing file simply has no loaders; anything else (permissions,
-    // transient I/O) would silently drop `.markLoader`/`.clientLoader`
-    // wiring, so surface it.
-    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
-      console.warn(`[ilha-router] failed to read ${file} while detecting loader exports:`, err);
-    }
-    return { load: false, isClientLoader: false };
-  }
-}
 
 // ─────────────────────────────────────────────
 // Codegen — filename → rou3 pattern
@@ -214,43 +159,17 @@ async function scanPages(pagesDir: string): Promise<PageEntry[]> {
   const all = await collectFiles(pagesDir);
   const allSet = new Set(all);
   const pages = all.filter((f) => !basename(f).startsWith("+"));
-
-  const layoutLoaderCache = new Map<string, Promise<LoaderExports>>();
-  const getLayoutExports = (file: string): Promise<LoaderExports> => {
-    let cached = layoutLoaderCache.get(file);
-    if (!cached) {
-      cached = detectLoaderExports(file);
-      layoutLoaderCache.set(file, cached);
-    }
-    return cached;
-  };
-
-  return Promise.all(
-    pages.map(async (file) => {
-      const server = SERVER_PAGE_RE.test(basename(file));
-      const pattern = fileToPattern(pagesDir, file);
-      const layouts = chainForFile(pagesDir, file, allSet, "+layout");
-      const errors = chainForFile(pagesDir, file, allSet, "+error");
-      const [pageExports, ...layoutExports] = await Promise.all([
-        detectLoaderExports(file),
-        ...layouts.map(getLayoutExports),
-      ]);
-      const loaderLayouts = layouts.filter((_, i) => layoutExports[i]!.load);
-      const clientLoaderLayouts = layouts.filter((_, i) => layoutExports[i]!.isClientLoader);
-      return {
-        file,
-        pattern,
-        name: patternToName(pattern),
-        layouts,
-        errors,
-        hasLoader: pageExports.load,
-        loaderLayouts,
-        hasClientLoader: pageExports.isClientLoader,
-        clientLoaderLayouts,
-        server,
-      };
-    }),
-  );
+  return pages.map((file) => {
+    const pattern = fileToPattern(pagesDir, file);
+    return {
+      file,
+      pattern,
+      name: patternToName(pattern),
+      layouts: chainForFile(pagesDir, file, allSet, "+layout"),
+      errors: chainForFile(pagesDir, file, allSet, "+error"),
+      server: SERVER_PAGE_RE.test(basename(file)),
+    };
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -270,15 +189,13 @@ function validateEntries(entries: PageEntry[], pagesDir: string, strict: boolean
   for (const entry of entries) {
     if (entry.server) {
       // Structural errors — always fatal, they silently break the route.
-      // `loader.client` IS allowed on server pages: it executes over RPC when
-      // the view hydrates (side-effect loader — head, analytics).
       try {
         const scan = loadServerModuleScan(entry.file);
-        if (!scan.islands.some((island) => island.name === "default")) {
-          throw new Error(
-            `[ilha:pages] Server page ${entry.file} has no default island export.\n` +
-              `  A .server page must "export default ilha…" so it can be rendered server-side.`,
-          );
+        if (
+          !scan.islands.some((island) => island.name === "default") &&
+          !scan.exports.includes("default")
+        ) {
+          throw new Error(`[ilha:pages] Server page ${entry.file} has no default export.`);
         }
       } catch (err) {
         if (err instanceof Error && err.message.includes("[ilha:pages]")) throw err;
@@ -346,15 +263,12 @@ export interface GeneratedPaths {
   serverFile: string;
   /** Client module: ?client imports, browser-optimised. `ilha:pages/client` */
   clientFile: string;
-  /** Server-only loaders side-effect module. `ilha:loaders` */
-  loadersFile: string;
 }
 
 export function resolveGeneratedPaths(outDir: string): GeneratedPaths {
   return {
     serverFile: join(outDir, "pages.server.ts"),
     clientFile: join(outDir, "pages.client.ts"),
-    loadersFile: join(outDir, "loaders.ts"),
   };
 }
 
@@ -373,7 +287,7 @@ export async function generate(
 
   await mkdir(outDir, { recursive: true });
 
-  const { serverFile, clientFile, loadersFile } = resolveGeneratedPaths(outDir);
+  const { serverFile, clientFile } = resolveGeneratedPaths(outDir);
 
   // ─── Server file: raw imports, full route graph ──────────────────────────
   const serverCode = buildServerFile(entries, serverFile);
@@ -388,8 +302,6 @@ export async function generate(
 
   // ─── Loaders file (server-only, skipped in static mode) ─────────────────
   if (!isStatic) {
-    const loadersCode = buildLoadersFile(entries, loadersFile, serverFile);
-    await writeIfChanged(loadersFile, loadersCode);
   }
 
   if (serverChanged || clientChanged) {
@@ -433,12 +345,7 @@ function buildServerFile(entries: PageEntry[], serverFile: string): string {
     registryLines.push(
       `  ${JSON.stringify(entry.name)}: ${wrappedId}` + (i < entries.length - 1 ? "," : ""),
     );
-    routeLines.push(
-      `  .route(${JSON.stringify(entry.pattern)}, ${wrappedId})` +
-        (entry.hasLoader || entry.loaderLayouts.length > 0
-          ? `.markLoader(${JSON.stringify(entry.pattern)})`
-          : ""),
-    );
+    routeLines.push(`  .route(${JSON.stringify(entry.pattern)}, ${wrappedId})`);
     // Nearest +error boundary also handles *loader* errors (render errors are
     // covered by the wrapError chain inside the island).
     if (entry.errors.length > 0) {
@@ -454,16 +361,6 @@ function buildServerFile(entries: PageEntry[], serverFile: string): string {
     `// Import via: import { pageRouter, registry } from "ilha:pages/server";`,
     ``,
     ...imports,
-    // Wire the loader endpoint runner so the production frame middleware can
-    // serve GET /__ilha/loader for regular pages with server loads.
-    ...(entries.some((e) => e.hasLoader || e.loaderLayouts.length > 0)
-      ? [
-          `import { setFrameLoaderRunner } from "@ilha/router/ssr";`,
-          // Forward the originating request so client-navigation loaders keep
-          // cookies/identity and observe the real request's abort signal.
-          `setFrameLoaderRunner((path, request) => pageRouter.runLoader(path, request));`,
-        ]
-      : []),
     ``,
     ...wrappedIslandLines,
     ``,
@@ -492,9 +389,6 @@ function buildClientFile(
     return r.startsWith(".") ? r : `./${r}`;
   };
   const clientImport = (abs: string) => `${rel(abs)}?client`;
-  const clientLoaderImport = (abs: string) => `${rel(abs)}?client-loader`;
-  // The shim re-exports the module's `load` (declared via loader.client).
-  let needsComposeLoaders = false;
 
   const imports: string[] = isStatic
     ? [
@@ -572,51 +466,13 @@ function buildClientFile(
       `  ${JSON.stringify(entry.name)}: ${wrappedId}` + (i < entries.length - 1 ? "," : ""),
     );
     if (!isStatic) {
-      routeLines.push(
-        `  .route(${JSON.stringify(entry.pattern)}, ${wrappedId})` +
-          (entry.hasLoader || entry.loaderLayouts.length > 0
-            ? `.markLoader(${JSON.stringify(entry.pattern)})`
-            : ""),
-      );
-
-      // Browser-executed loaders (loader.client) — imported via the
-      // ?client-loader shim and attached so client navigations run them
-      // locally instead of calling the loader endpoint.
-      const clientLoaderIds: string[] = [];
-      for (const [j, layout] of entry.clientLoaderLayouts.entries()) {
-        const id = `_cl${i}_l${j}`;
-        imports.push(
-          `import { load as ${id} } from ${JSON.stringify(clientLoaderImport(layout))};`,
-        );
-        clientLoaderIds.push(id);
-      }
-      if (entry.hasClientLoader) {
-        const id = `_cl${i}`;
-        imports.push(
-          `import { load as ${id} } from ${JSON.stringify(clientLoaderImport(entry.file))};`,
-        );
-        clientLoaderIds.push(id);
-      }
-      if (clientLoaderIds.length > 0) {
-        const expr =
-          clientLoaderIds.length === 1
-            ? clientLoaderIds[0]
-            : `composeLoaders([${clientLoaderIds.join(", ")}])`;
-        if (clientLoaderIds.length > 1) needsComposeLoaders = true;
-        routeLines.push(`  .clientLoader(${JSON.stringify(entry.pattern)}, ${expr})`);
-      }
-
-      // Nearest +error boundary also handles *loader* errors on the client.
+      routeLines.push(`  .route(${JSON.stringify(entry.pattern)}, ${wrappedId})`);
       if (entry.errors.length > 0) {
         routeLines.push(
           `  .errorBoundary(${JSON.stringify(entry.pattern)}, _error${i}_${entry.errors.length - 1})`,
         );
       }
     }
-  }
-
-  if (needsComposeLoaders) {
-    imports[0] = imports[0]!.replace("{ router", "{ composeLoaders, router");
   }
 
   const routerExpr = isStatic
@@ -648,65 +504,6 @@ function buildClientFile(
 }
 
 // ─────────────────────────────────────────────
-// Codegen — server-only loaders file
-// ─────────────────────────────────────────────
-
-function buildLoadersFile(entries: PageEntry[], loadersFile: string, serverFile: string): string {
-  const relFromLoaders = (abs: string) => {
-    const r = toPosix(relative(dirname(loadersFile), abs));
-    return r.startsWith(".") ? r : `./${r}`;
-  };
-
-  const withLoaders = entries.filter((e) => e.hasLoader || e.loaderLayouts.length > 0);
-
-  if (withLoaders.length === 0) {
-    return [
-      `// @generated by @ilha/router — do not edit`,
-      `// This project has no loader exports; this file is intentionally empty.`,
-      ``,
-      `export {};`,
-      ``,
-    ].join("\n");
-  }
-
-  const serverRel = relFromLoaders(serverFile).replace(/\.tsx?$/, "");
-  const imports: string[] = [`import { pageRouter } from ${JSON.stringify(serverRel)};`];
-  let needsComposeLoaders = false;
-  const attachLines: string[] = [];
-
-  for (const [i, entry] of withLoaders.entries()) {
-    const loaderIds: string[] = [];
-    for (const [j, layout] of entry.loaderLayouts.entries()) {
-      const id = `_p${i}_l${j}`;
-      imports.push(`import { load as ${id} } from ${JSON.stringify(relFromLoaders(layout))};`);
-      loaderIds.push(id);
-    }
-    if (entry.hasLoader) {
-      const id = `_p${i}`;
-      imports.push(`import { load as ${id} } from ${JSON.stringify(relFromLoaders(entry.file))};`);
-      loaderIds.push(id);
-    }
-    const loadersExpr =
-      loaderIds.length === 1 ? loaderIds[0] : `composeLoaders([${loaderIds.join(", ")}])`;
-    if (loaderIds.length > 1) needsComposeLoaders = true;
-    attachLines.push(`pageRouter.attachLoader(${JSON.stringify(entry.pattern)}, ${loadersExpr});`);
-  }
-
-  if (needsComposeLoaders) imports.unshift(`import { composeLoaders } from "@ilha/router";`);
-
-  return [
-    `// @generated by @ilha/router — do not edit`,
-    `// Server-only. Import this module from your SSR entry to wire loaders`,
-    `// onto pageRouter. Importing it from the client is a no-op but wastes`,
-    `// bundle size — rely on the default build pipeline to keep it out.`,
-    ``,
-    ...imports,
-    ``,
-    ...attachLines,
-    ``,
-  ].join("\n");
-}
-
 // ─────────────────────────────────────────────
 // Write-if-changed helper
 // ─────────────────────────────────────────────
@@ -747,7 +544,7 @@ async function generateTypes(outDir: string): Promise<void> {
     `}`,
     ``,
     `declare module "ilha:loaders" {`,
-    `  // Side-effect-only module. Importing it attaches loaders to pageRouter.`,
+    `  // Side-effect-only module. oxidejs imports it alongside @ilha/router/ssr.`,
     `}`,
     ``,
   ].join("\n");

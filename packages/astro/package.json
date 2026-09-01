@@ -1,6 +1,6 @@
 {
   "name": "@ilha/astro",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Astro integration for Ilha islands",
   "keywords": [
     "astro-component",
@@ -27,6 +27,7 @@
   ],
   "type": "module",
   "sideEffects": false,
+  "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -49,14 +50,15 @@
   "scripts": {
     "build": "tsdown && tsc -p tsconfig.build.json",
     "cleanup": "rimraf dist node_modules",
-    "test": "bun test"
+    "test": "bun test src/index.test.ts",
+    "test:integration": "bun test src/integration.test.ts"
   },
   "devDependencies": {
     "astro": "^7.2.9",
-    "ilha": "0.13.0"
+    "ilha": "0.14.0"
   },
   "peerDependencies": {
     "astro": "^7.2.9",
-    "ilha": "^0.13.0"
+    "ilha": "^0.14.0"
   }
 }

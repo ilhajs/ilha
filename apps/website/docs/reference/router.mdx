@@ -1,65 +1,102 @@
 ---
 title: Router reference
-description: Compact index of @ilha/router exports mapped to the routing guides.
+description: Public exports from @ilha/router.
 ---
 
-A map of the public `@ilha/router` API. For how-to guidance, start with [Router overview](/guide/routing/overview).
+See [Router overview](/guide/routing/overview) for a guided tour.
 
-## Builder and routing
+## `@ilha/router`
 
-| Export / method                                       | Guide                                                         |
-| ----------------------------------------------------- | ------------------------------------------------------------- |
-| `router(options)`                                     | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `.route(pattern, island, loader?)`                    | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `.mount(target, options?)`                            | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `.hydrate(registry)` / `.prime()`                     | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `navigate` / `prefetch` / `invalidate` / `navigating` | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `useRoute` / `isActive`                               | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `RouterView` / `RouterLink`                           | [Routes and navigation](/guide/routing/routes-and-navigation) |
+### Router
 
-## Loaders
+```ts
+router(options?: RouterOptions): RouterBuilder
+```
 
-| Export / method                         | Guide                             |
-| --------------------------------------- | --------------------------------- |
-| `loader` / `loader.client` / `load`     | [Loaders](/guide/routing/loaders) |
-| `redirect` / `error` / `composeLoaders` | [Loaders](/guide/routing/loaders) |
-| `InferLoader` / `MergeLoaders`          | [Loaders](/guide/routing/loaders) |
-| `.runLoader`                            | [Loaders](/guide/routing/loaders) |
+| Router option            | Meaning                                             |
+| ------------------------ | --------------------------------------------------- |
+| `mode`                   | `"spa"` (default) or `"static"` (registry only)     |
+| `notFound`               | Component for unmatched paths                       |
+| `interceptLinks`         | Intercept same-origin `<a>` clicks (default `true`) |
+| `viewTransitions`        | Wrap navigations in the View Transition API         |
+| `allowExternalRedirects` | Allow cross-origin redirects (default `false`)      |
 
-## File-system routing
+### Builder
 
-| Export / method                                  | Guide                                                                              |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `defineLayout()`                                 | [File-system routing](/guide/routing/file-system-routing)                          |
-| `wrapLayout()` / `wrapError()`                   | [File-system routing](/guide/routing/file-system-routing) — used by generated code |
-| Pages plugin (Vite/Rsbuild)                      | [File-system routing](/guide/routing/file-system-routing)                          |
-| Virtual modules (`ilha:pages/*`, `ilha:loaders`) | [File-system routing](/guide/routing/file-system-routing)                          |
+| Method                                         | Purpose                             |
+| ---------------------------------------------- | ----------------------------------- |
+| `route(pattern, page)`                         | Register a URL pattern              |
+| `errorBoundary(pattern, handler)`              | Catch failures for a pattern        |
+| `mount(target, { hydrate?, interceptLinks? })` | Activate in the browser             |
+| `render(url)`                                  | HTML string                         |
+| `renderResponse(url)`                          | `{ kind, html / to, status, head }` |
+| `respond(url)`                                 | `Response` with security headers    |
 
-## Navigation hooks
+Render results are discriminated: `{ kind: "html" }`, `{ kind: "redirect", to, status }`, or `{ kind: "error", status, html, message }`.
 
-| Export / method      | Guide                                                         |
-| -------------------- | ------------------------------------------------------------- |
-| `beforeNavigate(fn)` | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `afterNavigate(fn)`  | [Routes and navigation](/guide/routing/routes-and-navigation) |
-| `head(input)`        | [Loaders](/guide/routing/loaders)                             |
+### Route context
 
-## Server rendering
+| Export                                            | Meaning                              |
+| ------------------------------------------------- | ------------------------------------ |
+| `useRoute()`                                      | `{ path, params, search }` accessors |
+| `routePath()` / `routeParams()` / `routeSearch()` | Standalone accessors                 |
+| `navigate(to, { replace?, scroll? })`             | Programmatic navigation              |
+| `isActive(href)`                                  | True when the current path matches   |
+| `afterNavigate(fn)`                               | Hook after every navigation          |
+| `setHistoryMode(mode)`                            | `"history"` (default) or `"hash"`    |
 
-| Export / method                                     | Guide                                                                                |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `.render` / `.renderHydratable` / `.renderResponse` | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
-| `.respond(urlOrRequest, registry, options?)`        | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
-| `httpResponse(body, options)` / `serializeHead`     | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed) |
-| `useContext()`                                      | [Server islands](/guide/routing/server-islands#read-the-request-during-rendering)    |
+### Head
 
-## Server islands and security
+```ts
+head(
+  title?: string;
+  titleTemplate?: string | ((title?: string) => string);
+  meta?: Array<Record<string, string>>;
+  link?: Array<Record<string, string>>;
+  script?: Array<Record<string, string> & { children?: string }>;
+});
+```
 
-| Topic                                               | Guide                                                             |
-| --------------------------------------------------- | ----------------------------------------------------------------- |
-| `*.server.tsx` / `*.server.ts` islands              | [Server islands](/guide/routing/server-islands)                   |
-| `@ilha/router/ssr` middleware                       | [Deployment](/guide/routing/deployment)                           |
-| `setFrameGuard` / `setLoaderGuard` / `setFrameAuth` | [Middleware and security](/guide/routing/middleware-and-security) |
+Call inside a page or layout. Layouts typically set `titleTemplate`; pages set `title`.
 
-## Related
+### Pages and errors
 
-[Router overview](/guide/routing/overview) · [Astro integration](/guide/astro)
+| Export                                                                         | Purpose                                         |
+| ------------------------------------------------------------------------------ | ----------------------------------------------- |
+| `wrapLayout(layout, page)`                                                     | Wrap a page in a layout (`children` carries it) |
+| `wrapError(handler, page)`                                                     | Catch page throws, render a fallback view       |
+| `defineLayout(layout)`                                                         | Type helper for layout components               |
+| `redirect(to, status?)` / `error(status, message)`                             | Throw `Redirect` / `RouteError`                 |
+| `httpResponse(html, { status?, headers?, cspNonce?, contentSecurityPolicy? })` | Headered `Response`                             |
+
+`AppError` is `{ message, status?, stack? }`. See [Error boundaries](/guide/routing/error-boundaries).
+
+## `@ilha/router/vite` and `/rsbuild`
+
+`pages(options?)` — file-system routing plugin. Default dir `src/pages`, out `.ilha`.
+
+| Option           | Meaning                                |
+| ---------------- | -------------------------------------- |
+| `dir`            | Pages directory                        |
+| `outDir`         | Generated modules directory            |
+| `mode`           | `"spa"` or `"static"`                  |
+| `frameGuard`     | Dev frame guard                        |
+| `trustedOrigins` | Explicit origins for frame checks      |
+| `csrf`           | Optional CSRF verifier for frame POSTs |
+
+Virtual modules: `ilha:pages/client`, `ilha:pages/server` — see [File-system routing](/guide/routing/file-system-routing).
+
+## `@ilha/router/ssr`
+
+Production middleware for `POST /__ilha/frame`.
+
+| Export                                                  | Purpose                                                                                                               |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `ssr` (default)                                         | The fetch handler itself                                                                                              |
+| `setFrameAuth`                                          | `defaultAction`, `trustedOrigins`, `csrf`                                                                             |
+| `setFrameGuard`                                         | Per-request allow/deny                                                                                                |
+| `renderServerIsland(id, request, runWithScope, props?)` | Render one server island — returns `Effect<string, FrameError>`. Use `renderServerIslandResult` for a plain `Promise` |
+
+## `@ilha/router/server-island`
+
+Generated client proxies. You do not import this in app code.

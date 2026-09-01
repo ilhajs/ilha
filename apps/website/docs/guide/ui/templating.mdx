@@ -1,0 +1,66 @@
+---
+title: Templating
+description: JSX, lowercase events, and lists from data.
+---
+
+Prefer JSX. Interpolated values escape. Use `class`, not `className`.
+
+```tsx twoslash
+const Hello = ({ name }: { name: string }) => (
+  <p class="lede">Hello, {name}</p>
+);
+```
+
+Use `h()` when a file cannot use the JSX runtime. See [Without JSX](/guide/recipes/h).
+
+## Events
+
+Event props are lowercase native names: `onclick`, `onchange`, `onsubmit`. Use a plain function. You do not need a special action wrapper on the client.
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Counter = () => {
+  const count = atom(0);
+  return (
+    <button
+      type="button"
+      onclick={() => count.update((n: number) => n + 1)}
+    >
+      {count}
+    </button>
+  );
+};
+```
+
+On a server island, bind `oxidejs` `action`s with `.with(...)` on event props so SSR can serialize frame sentinels. Plain client islands keep plain handlers. See [Server islands](/guide/routing/server-islands).
+
+## Lists
+
+Atoms hold data. Map an array during render, or paint a Stream of arrays into a hole.
+
+```tsx twoslash
+import * as Stream from "effect/Stream";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { atom } from "ilha";
+
+type Item = { id: string; text: string };
+
+const List = () => {
+  const items = atom<Item[]>([{ id: "1", text: "One" }]);
+  return Stream.map(
+    Atom.toStream(items.atom),
+    (list: Item[]) => (
+      <ul>
+        {list.map((item) => (
+          <li key={item.id}>{item.text}</li>
+        ))}
+      </ul>
+    ),
+  );
+};
+```
+
+The Stream paints into a hole. Each emission replaces that hole. Keys on `li` reuse DOM nodes when the array shifts.
+
+Live server lists and `when` / `watch` / `wait` are in [Streams](/guide/ui/streams).

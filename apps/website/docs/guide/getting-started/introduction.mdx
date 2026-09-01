@@ -1,46 +1,46 @@
 ---
 title: Introduction
-description: An introduction to ilha, a tiny isomorphic island framework with fine-grained signal reactivity.
+description: An introduction to ilha, a tiny isomorphic UI library with signal reactivity and no virtual DOM.
 ---
 
 import { example } from "./introduction.examples";
 
-ilha is a tiny, isomorphic island framework for building reactive UI components.
+ilha is a tiny, isomorphic UI library for building reactive components.
 
-It lets you render on the server and mount in the browser with fine-grained signal reactivity, without a virtual DOM or compiler overhead. The result is a UI model that stays close to HTML while still giving you state, events, lifecycle hooks, and hydration when you need them.
+You render on the server and mount in the browser with signal-based updates. There is no virtual DOM and no compiler. Markup stays close to HTML.
 
 ## What ilha is
 
-An **island** is a function component that knows how to render itself to HTML and how to activate itself in the browser. The same component works for server-side rendering, client-side mounting, or both together in a hydration flow.
+A **component** is a function, async function, or generator that returns a view. The same component produces HTML through `renderToString()` and activates in the browser through `mount()`.
 
-You can start with a plain JSX function, wrap it with `ilha()` when it needs an independent island boundary, then add reactive primitives inside the component when it needs local capabilities.
+You write a function component. You declare `atom()` values inside it. Reads during render subscribe that component; writes rerun it and morph the host.
 
 ## Why it exists
 
-Most UI stacks force you to choose between simplicity and interactivity. ilha keeps both close together: a small API surface, direct DOM updates through signals, and a rendering model that works naturally on the server.
+Most UI stacks force you to choose between simplicity and interactivity. ilha keeps both close together: a small API, direct DOM updates, and one component for server and client.
 
 This makes ilha a good fit when you want:
 
 - Server-rendered markup.
-- Small, focused interactive islands.
-- Explicit state and behavior.
-- No virtual DOM layer.
-- A lightweight mental model for UI code.
+- Small interactive regions.
+- Explicit state.
+- No virtual DOM.
 
 ## How it feels to use
 
-A typical island reads like a small HTML-aware module:
+A typical component reads like a small HTML-aware module:
 
 <Preview code={example} />
 
-The same component can render to a string on the server and mount into the DOM on the client. That keeps the component logic in one place instead of splitting it across separate templates and client scripts.
+The same function can render to a string on the server and mount into the DOM on the client.
 
 ## Choose the smallest component form
 
-| Start with                     | Use it when                                                                             |
-| ------------------------------ | --------------------------------------------------------------------------------------- |
-| `const View = () => JSX`       | You need reusable markup inside another island                                          |
-| `const View = ilha(() => JSX)` | The component needs an independent mount, hydration, reactive scope, or event lifecycle |
+| Start with               | Use it when                                   |
+| ------------------------ | --------------------------------------------- |
+| `const View = () => JSX` | Reusable markup inside a parent component     |
+| `const View = function*` | You need `when`, `watch`, or `wait`           |
+| `mount(el, View)`        | The function is the root you hydrate or mount |
 
 Start plain:
 
@@ -48,75 +48,44 @@ Start plain:
 const Status = () => <p>Ready</p>;
 ```
 
-Promote the same component when it needs an island boundary:
-
-```tsx
-import { ilha } from "ilha";
-
-const Status = ilha(() => <p>Ready</p>);
-```
-
-Add local capabilities with primitives inside the component:
+Add local state with `atom()`:
 
 ```tsx twoslash
-import { ilha, state } from "ilha";
+import { atom } from "ilha";
 
-const Status = ilha(() => {
-  const message = state("Ready");
-  return <p>{message()}</p>;
-});
+const Status = () => {
+  const message = atom("Ready");
+  return <p>{message}</p>;
+};
 ```
 
-Both forms return the same kind of `Island`.
+A nested function without its own `mount()` / `renderToString()` belongs to the parent component.
 
 ## Core ideas
 
 ### Isomorphic rendering
 
-ilha can produce HTML on the server and activate the same component in the browser. That makes it useful for SSR, hydration, and progressive enhancement.
+You produce HTML on the server and activate the same function in the browser.
 
 ### Fine-grained reactivity
 
-Signals keep state updates targeted and local. Changing one value does not rerender an entire application tree.
+Atoms keep updates local. Changing one value does not rerender an entire application tree.
 
 ### Function components
 
-An island is a plain function that returns JSX or `html``. Reactive primitives — `state()`, `derived()`, `action()`, `effect()`, `effect.once()`, and `onError()` — are registered by call order and persist across rerenders, so the component reruns in place when its dependencies change.
+You write functions that return JSX. Generators `yield*` instructions. Async functions can await before they return a view.
 
 ### JSX-first authoring
 
-ilha is designed to work naturally with JSX/TSX. The DOM-like syntax is familiar to most developers, and you get full TypeScript support, IDE autocompletion, and standard tooling out of the box.
-
-If you prefer a lower-level option or need to avoid a build step, the [`html`` `](/guide/recipes/helpers#build-html-strings) tagged-template API is also available. It uses the same runtime and reactivity model, so you can mix both styles or migrate incrementally.
-
-### Primitive-based composition
-
-Each primitive adds one capability, declared at the top level of the component:
-
-- [`ilha()`](/guide/island/create) for the component boundary and typed props.
-- [`state()`](/guide/island/state) for local reactive state.
-- [`derived()`](/guide/island/derived) for computed values.
-- [Native event handlers and `action()`](/guide/island/action) for events and operations.
-- [`effect()`](/guide/island/effect) and [`effect.once()`](/guide/island/effect) for side effects.
-- [`onError()`](/guide/island/errors) for error handling.
+Prefer JSX. It escapes interpolations. Use `h()` when you cannot use JSX.
 
 ## When to use ilha
 
-ilha is a strong fit when you want:
-
-- Interactive UI with small, explicit components.
-- SSR-friendly rendering without heavy framework machinery.
-- A simple way to mix server output and client behavior.
-- Reusable islands rather than one large application shell.
-
-It is less about building a giant monolithic app framework and more about composing focused UI pieces that each own their own state and behavior.
+Use ilha when you want server HTML plus a few interactive regions, not a full client app by default.
 
 ## Basic mental model
 
-Think of an island as a component with three parts:
-
-- **Props**: data from the outside world.
-- **State**: reactive values owned by the component.
-- **Render**: HTML output driven by that state and props.
-
-Then add behavior on top with events, effects, bindings, and lifecycle primitives. Once you understand that pattern, the rest of the API is mostly a set of focused ways to connect those pieces.
+1. Write a component that returns JSX.
+2. Declare `atom()` values you read in the view.
+3. Call `renderToString(component)` on the server.
+4. Call `mount(element, component, { hydrate: true })` in the browser.

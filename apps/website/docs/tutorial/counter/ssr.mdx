@@ -1,0 +1,32 @@
+---
+title: "Tutorial: SSR"
+description: Render HTML with renderToString and hydrate with mount.
+seo:
+  title: SSR and hydrate a counter - Ilha
+---
+
+On the server:
+
+```tsx twoslash
+import { atom, renderToString } from "ilha";
+
+const Counter = () => {
+  const count = atom(0);
+  return <p>{count}</p>;
+};
+
+const html = await renderToString(Counter);
+```
+
+In the browser, mount with `hydrate: true` when the host already contains that markup:
+
+```tsx twoslash
+import { mount } from "ilha";
+
+const Counter = () => <p>0</p>;
+
+const host = document.querySelector("[data-ilha]");
+if (host) mount(host, Counter, { hydrate: true });
+```
+
+`@ilha/router` and `@ilha/astro` do this for you.

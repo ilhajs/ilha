@@ -1,8 +1,7 @@
-import { action } from "@ilha/router/server";
-import { Badge, Button, Checkbox } from "areia";
-import { derived, each, ilha } from "ilha";
-import { useRequest } from "oxidejs";
-import { Publisher } from "tacho";
+import * as Effect from "effect/Effect";
+import * as PubSub from "effect/PubSub";
+import * as Stream from "effect/Stream";
+import { action } from "oxidejs";
 
 export type Task = {
   id: string;
@@ -15,20 +14,14 @@ const tasks: Task[] = [
   { id: "2", text: "Develop my Ilha app", completed: false },
   { id: "3", text: "Deploy my Ilha app", completed: false },
 ];
-const changes = new Publisher<{ change: Task[] }>();
 
+const hub = Effect.runSync(PubSub.unbounded<Task[]>({ replay: 1 }));
 const snapshot = () => tasks.map((task) => ({ ...task }));
-const notify = () => changes.publish("change", snapshot());
+const notify = () => Effect.runSync(PubSub.publish(hub, snapshot()));
+notify();
 
 export const getTasks = action(async function* () {
-  const signal = useRequest().signal;
-
-  try {
-    yield snapshot();
-    for await (const tasks of changes.subscribe("change", { signal })) yield tasks;
-  } catch (error) {
-    if ((error as { name?: string }).name !== "AbortError") throw error;
-  }
+  yield* Stream.toAsyncIterable(Stream.fromPubSub(hub));
 });
 
 export const createTask = action(async (text: string) => {
@@ -52,35 +45,45 @@ export const deleteTask = action(async (id: string) => {
   notify();
 });
 
-export const TaskCount = ilha(() => {
-  const items = derived(async function* () {
-    yield* getTasks();
-  });
-  const count = derived(() => items()?.filter((task) => !task.completed).length ?? 0);
-  return <Badge>{count()}</Badge>;
-});
-
-// Server-owned island: streams live task state and replays mutations over RPC.
-export const TaskList = ilha(() => {
-  const items = derived(async function* () {
-    yield* getTasks();
-  });
+function renderList(list: Task[]) {
   return (
     <div class="flex flex-col gap-2">
-      {each(items() ?? [])
-        .as((todo) => (
-          <div data-key={todo.id} class="flex items-center justify-between gap-2">
-            <Checkbox
+      {list.map((todo) => (
+        <div key={todo.id} class="flex items-center justify-between gap-2">
+          <label class="label cursor-pointer justify-start gap-2">
+            <input
+              type="checkbox"
+              class="checkbox"
               checked={todo.completed}
-              label={todo.text}
-              onCheckedChange={toggleTask.with(todo.id)}
+              onchange={toggleTask.with(todo.id)}
             />
-            <Button type="button" onclick={deleteTask.with(todo.id)}>
-              Delete
-            </Button>
-          </div>
-        ))
-        .else(<p>No todos.</p>)}
+            <span>{todo.text}</span>
+          </label>
+          <button type="button" class="btn btn-sm btn-ghost" onclick={deleteTask.with(todo.id)}>
+            Delete
+          </button>
+        </div>
+      ))}
     </div>
   );
-});
+}
+
+export const TaskCount = async function TaskCount() {
+  return Stream.map(
+    Stream.fromAsyncIterable(getTasks(), (error: unknown) =>
+      error instanceof Error ? error : new Error(String(error)),
+    ),
+    (list: Task[]) => (
+      <span class="badge badge-primary">{list.filter((task) => !task.completed).length}</span>
+    ),
+  );
+};
+
+export const TaskList = async function TaskList() {
+  return Stream.map(
+    Stream.fromAsyncIterable(getTasks(), (error: unknown) =>
+      error instanceof Error ? error : new Error(String(error)),
+    ),
+    renderList,
+  );
+};

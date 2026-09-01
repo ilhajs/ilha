@@ -32,7 +32,7 @@ src/
   lib/         # Server islands and actions
   client.ts    # Client entry — mounts islands
   server.ts    # Oxide server entry
-  app.css      # Tailwind + Areia styles
+  app.css      # Tailwind + daisyUI
 ```
 
-The UI matches the Vite template, but `<TaskList />` keeps its data and mutations on the server. `learn.server.tsx` demonstrates whole-page server rendering.
+The UI matches the Vite template, but `<TaskList />` keeps its data and mutations on the server. `learn.server.tsx` is a server page.

@@ -1,40 +1,33 @@
 import { createTask, TaskCount, TaskList } from "$lib/tasks.server";
-import { loader } from "@ilha/router";
-import { Button, Input, LayerCard } from "areia";
-import { ilha, state } from "ilha";
+import { head } from "@ilha/router";
 
-export const load = loader.client(({ head }) => {
+export default function Home() {
   head({ title: "Home" });
-});
 
-export default ilha(() => {
-  const draft = state("");
-
-  const addItem = async (event: SubmitEvent) => {
+  const addItem = (event: SubmitEvent) => {
     event.preventDefault();
-    const text = draft().trim();
+    const form = event.currentTarget as HTMLFormElement;
+    const text = String(new FormData(form).get("text") ?? "").trim();
     if (!text) return;
-    await createTask(text);
-    draft.set("");
+    void createTask(text);
+    form.reset();
   };
 
   return (
-    <div class="flex flex-col gap-4">
-      <LayerCard>
-        <LayerCard.Title>
-          <span>To Do</span>
+    <div class="card bg-base-100 shadow">
+      <div class="card-body gap-4">
+        <h2 class="card-title">
+          To Do
           <TaskCount />
-        </LayerCard.Title>
-        <LayerCard.Content>
-          <form onsubmit={addItem}>
-            <div class="flex items-center gap-2">
-              <Input placeholder="Add a new todo" class="w-full" bind:value={draft} />
-              <Button type="submit">Add</Button>
-            </div>
-          </form>
-          <TaskList />
-        </LayerCard.Content>
-      </LayerCard>
+        </h2>
+        <form onsubmit={addItem} class="flex items-center gap-2">
+          <input name="text" class="input input-bordered w-full" placeholder="Add a new todo" />
+          <button type="submit" class="btn btn-primary">
+            Add
+          </button>
+        </form>
+        <TaskList />
+      </div>
     </div>
   );
-});
+}

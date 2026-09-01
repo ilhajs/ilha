@@ -1,11 +1,11 @@
 ---
 title: Router overview
-description: An isomorphic router for ilha apps — synchronous HTML on the server, signal-driven SPA navigation in the browser.
+description: File routes, SPA navigation, and optional Oxide SSR for ilha apps.
 ---
 
-`@ilha/router` is an isomorphic router for ilha apps: synchronous HTML on the server, signal-driven SPA navigation in the browser. It is a separate package from `ilha`, so you only add it when you need multi-page routing.
+`@ilha/router` matches URLs to components. It is a separate package from `ilha`. Add it when you need more than one page.
 
-Every route is an ilha island. The router matches URLs, runs loaders, and mounts the active page. Route context (`routePath`, `routeParams`, and related signals) uses [`context()`](/guide/island/signals), so any island can read the current route without extra wiring.
+Every route is a component. The router matches the URL and mounts the page. Read the current route with `useRoute()`, `head()`, and `isActive()`.
 
 ## Install
 
@@ -15,42 +15,52 @@ Every route is an ilha island. The router matches URLs, runs loaders, and mounts
 
 ## Import paths
 
-| Import path                  | Use it for                                                                           |
-| ---------------------------- | ------------------------------------------------------------------------------------ |
-| `@ilha/router`               | Runtime router, loaders, navigation helpers, route context, and built-in islands.    |
-| `@ilha/router/vite`          | Vite file-system routing plugin.                                                     |
-| `@ilha/router/rsbuild`       | Rsbuild file-system routing plugin.                                                  |
-| `@ilha/router/server-island` | Client proxy factory for server-defined islands (used by generated code).            |
-| `@ilha/router/ssr`           | Production SSR endpoints middleware — `POST /__ilha/frame` and `GET /__ilha/loader`. |
-| `@ilha/router/ssr`           | `setFrameGuard()`, `setLoaderGuard()`, `setFrameAuth()` — gate frame requests.       |
+| Import path                  | Use it for                                        |
+| ---------------------------- | ------------------------------------------------- |
+| `@ilha/router`               | Runtime router, navigation, `head`, route hooks   |
+| `@ilha/router/vite`          | Vite file-system routing plugin                   |
+| `@ilha/router/rsbuild`       | Rsbuild file-system routing plugin                |
+| `@ilha/router/server-island` | Client proxies for `*.server` modules (generated) |
+| `@ilha/router/ssr`           | `POST /__ilha/frame` middleware and frame guards  |
+
+There is no loader API. Fetch in an async page, or stream from a server module.
 
 ## Quick start
 
-### Client-side SPA
+### Client SPA
 
-```ts twoslash
+```tsx twoslash
 import { router } from "@ilha/router";
-import { ilha } from "ilha";
 
-const HomePage = ilha(() => "<p>home</p>");
-const AboutPage = ilha(() => "<p>about</p>");
-const UserPage = ilha(() => "<p>user</p>");
-const NotFound = ilha(() => "<p>not found</p>");
+const HomePage = () => <p>home</p>;
+const AboutPage = () => <p>about</p>;
+const NotFound = () => <p>not found</p>;
 
 router()
   .route("/", HomePage)
   .route("/about", AboutPage)
-  .route("/user/:id", UserPage)
   .route("/**", NotFound)
   .mount("#app");
 ```
 
-### Server-side rendering
+### File-system routes
 
-SSR is built into the SPA router — no separate server entry or render call. Add the SSR middleware and mark what runs on the server:
+```ts twoslash
+import { pages } from "@ilha/router/vite";
+import { defineConfig } from "vite";
 
-```ts
-// vite.config.ts
+export default defineConfig({
+  plugins: [pages()],
+});
+```
+
+Put pages in `src/pages/`. See [File-system routing](/guide/routing/file-system-routing).
+
+### Server HTML
+
+Add Oxide and the SSR middleware when pages or islands run on the server:
+
+```ts twoslash
 import pages from "@ilha/router/vite";
 import oxide from "oxidejs/vite";
 import { defineConfig } from "vite";
@@ -63,27 +73,4 @@ export default defineConfig({
 });
 ```
 
-**Selective**: move a component into a `*.server.ts(x)` file, import it, and use it like any other element. Its markup renders on the server and stays live through frames:
-
-```tsx
-// src/pages/index.tsx
-import { TaskList } from "$lib/tasks.server";
-
-export default ilha(() => <TaskList />);
-```
-
-**Whole pages**: rename `src/pages/about.tsx` to `src/pages/about.server.tsx` and the entire route renders server-side.
-
-Details: [Server islands](/guide/routing/server-islands), [Server pages](/guide/routing/server-islands#server-pages--fooservertsx).
-
-## Where to go next
-
-| Topic                                 | Page                                                              |
-| ------------------------------------- | ----------------------------------------------------------------- |
-| Routes, navigation, route context     | [Routes and navigation](/guide/routing/routes-and-navigation)     |
-| Loaders and data fetching             | [Loaders](/guide/routing/loaders)                                 |
-| File-system routing with the plugin   | [File-system routing](/guide/routing/file-system-routing)         |
-| SSR, server islands, and server pages | [Server islands](/guide/routing/server-islands)                   |
-| Guards, origins, and security         | [Middleware and security](/guide/routing/middleware-and-security) |
-| Production deployment                 | [Deployment](/guide/routing/deployment)                           |
-| Package symbol reference              | [Router reference](/reference/router)                             |
+See [Server islands](/guide/routing/server-islands).

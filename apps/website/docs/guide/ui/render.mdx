@@ -1,0 +1,86 @@
+---
+title: Render and hydrate
+description: Render HTML with renderToString and activate it with mount.
+---
+
+A component returns JSX. You turn that into HTML on the server and into a live tree in the browser.
+
+| API                                                   | Env    | Output                  |
+| ----------------------------------------------------- | ------ | ----------------------- |
+| `await renderToString(component)`                     | Server | HTML plus snapshot wrap |
+| `await renderToString(component, { markers: false })` | Server | Inner HTML only         |
+| `mount(el, component)`                                | Client | Live tree               |
+| `mount(el, component, { hydrate: true })`             | Client | Hydrate existing HTML   |
+
+## Return a view
+
+Prefer JSX. Strings become text nodes.
+
+```tsx twoslash
+const A = () => <p>Hello</p>;
+const B = () => "hello";
+```
+
+## Server render
+
+```tsx twoslash
+import { atom, renderToString } from "ilha";
+
+const Counter = () => {
+  const count = atom(0);
+  return <p>{count}</p>;
+};
+
+const html = await renderToString(Counter);
+```
+
+Default output looks like:
+
+```html
+<div data-ilha data-ilha-state='{"v":[0]}'>
+  <p>0</p>
+</div>
+```
+
+| Option           | Default | Meaning                                      |
+| ---------------- | ------- | -------------------------------------------- |
+| `snapshot`       | `true`  | Embed atom values for hydration              |
+| `markers`        | `true`  | Wrap in `<div data-ilha>`                    |
+| `timeout`        | none    | Serialize after this many ms even if busy    |
+| `captureActions` | `false` | Probe event handlers for server-action calls |
+
+Pass `{ markers: false }` when a host already exists (for example a frame target).
+
+`renderToString` needs a DOM. In Node, ilha registers happy-dom when `document` is missing.
+
+## Mount
+
+```tsx twoslash
+import { mount } from "ilha";
+
+const App = () => <p>Hello</p>;
+
+const root = document.getElementById("app");
+if (root) {
+  const unmount = mount(root, App);
+}
+```
+
+## Hydrate
+
+If the host contains `[data-ilha]` markup from `renderToString`, pass `hydrate: true`:
+
+```tsx twoslash
+import { mount } from "ilha";
+
+const App = () => <p>Hello</p>;
+
+const root = document.querySelector("[data-ilha]");
+if (root) mount(root, App, { hydrate: true });
+```
+
+Hydration restores atom snapshots in declaration order, then attaches events. A mismatch logs a warning and does a full mount.
+
+## File routes
+
+`@ilha/router` calls `renderToString` and `mount` for you. See [Routing](/guide/routing/overview).

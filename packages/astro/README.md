@@ -1,6 +1,6 @@
 # `@ilha/astro`
 
-An [Astro](https://astro.build) integration that renders and hydrates [Ilha](https://github.com/ilhajs/ilha) islands as Astro components.
+An [Astro](https://astro.build) integration that renders and hydrates [Ilha](https://github.com/ilhajs/ilha) components as Astro islands.
 
 ---
 
@@ -34,9 +34,7 @@ export default defineConfig({
 
 You can also pass `exclude` globs. Files outside the filter remain available to other Astro JSX renderers.
 
-Other JSX renderers (e.g. `@astrojs/solid-js`) can appear before or after `@ilha/astro` — Ilha islands are tagged with Astro's `astro:renderer` symbol, so Astro routes them to Ilha's renderer regardless of integration order.
-
-Then use any Ilha island as an Astro component, with a [client directive](https://docs.astro.build/en/reference/directives-reference/#client-directives) to control hydration:
+Then use any Ilha component as an Astro component, with a [client directive](https://docs.astro.build/en/reference/directives-reference/#client-directives) to control hydration:
 
 ```astro
 ---
@@ -48,12 +46,12 @@ import { Counter } from "../islands/counter";
 
 ## How it works
 
-- **Server-side:** the component is rendered with [`.hydratable()`](https://github.com/ilhajs/ilha), which wraps the island's SSR output in a `[data-ilha]` element carrying serialized props and a state snapshot.
-- **Client-side:** on hydration, the renderer finds that `[data-ilha]` element inside Astro's island wrapper and calls the island's own `.mount()` — no re-render, no flicker, no post-mount setup needed since the snapshot already matches the DOM.
+- **Server-side:** the renderer calls `renderToString()`, which wraps output in a `[data-ilha]` element with a state snapshot.
+- **Client-side:** the renderer finds that host inside Astro's island wrapper and calls `mount(..., { hydrate: true })`.
 
-Because hydration is driven entirely by Ilha's own `data-ilha-*` attributes, every [Astro client directive](https://docs.astro.build/en/reference/directives-reference/#client-directives) (`client:load`, `client:idle`, `client:visible`, `client:media`, `client:only`) works as expected.
+Every [Astro client directive](https://docs.astro.build/en/reference/directives-reference/#client-directives) (`client:load`, `client:idle`, `client:visible`, `client:media`, `client:only`) works as expected.
 
 ## Notes
 
-- Ilha islands don't support Astro's `<slot />` / children forwarding — render everything through the island component and its props (via `Island.toString()` / `.hydratable()` on the server).
-- `client:only` skips SSR entirely and mounts fresh in the browser, matching Astro's usual behavior for other framework renderers.
+- Astro slots arrive as string children. Plain text renders; HTML in slot content is escaped — don't pass markup through slots.
+- `client:only` skips SSR and mounts fresh in the browser.

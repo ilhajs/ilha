@@ -1,0 +1,127 @@
+---
+title: Test components
+description: Render components in tests with renderToString, mount them with happy-dom, and assert updates.
+---
+
+Test components with Bun's runner plus happy-dom. No browser, no emulator.
+
+## Setup
+
+Install happy-dom's global registrator and preload it:
+
+```package-install
+bun add -d @happy-dom/global-registrator
+```
+
+```toml
+# bunfig.toml
+[test]
+preload = "./happydom.ts"
+```
+
+```ts twoslash
+// happydom.ts
+import { GlobalRegistrator } from "@happy-dom/global-registrator";
+
+GlobalRegistrator.register();
+```
+
+## Render to HTML
+
+`renderToString` is async — it waits until in-flight work is idle:
+
+```tsx twoslash
+import { atom, renderToString } from "ilha";
+import { expect, test } from "bun:test";
+
+const Counter = () => {
+  const count = atom(0);
+  return (
+    <button
+      type="button"
+      onclick={() => count.update((n: number) => n + 1)}
+    >
+      {count}
+    </button>
+  );
+};
+
+test("renders the count", async () => {
+  const html = await renderToString(Counter);
+  expect(html).toContain(">0<");
+});
+```
+
+`renderToString` needs a DOM. In Node, ilha registers happy-dom automatically when `document` is missing — the preload above covers browser-only APIs your component touches at import time.
+
+## Mount and simulate events
+
+For behavior, mount into a detached element and dispatch events:
+
+```tsx twoslash
+import { atom, mount } from "ilha";
+import { expect, test } from "bun:test";
+
+const Counter = () => {
+  const count = atom(0);
+  return (
+    <button
+      type="button"
+      onclick={() => count.update((n: number) => n + 1)}
+    >
+      {count}
+    </button>
+  );
+};
+
+test("clicking increments", async () => {
+  const el = document.createElement("div");
+  document.body.append(el);
+  const unmount = mount(el, Counter);
+  await new Promise((r) => setTimeout(r, 5));
+
+  const button = el.querySelector("button")!;
+  button.click();
+  await new Promise((r) => setTimeout(r, 5));
+
+  expect(button.textContent).toContain("1");
+  unmount();
+  el.remove();
+});
+```
+
+The short sleeps let microtasks paint. `unmount()` stops streams and listeners — call it before removing the host so a late event cannot paint into a detached tree.
+
+## Hydration round-trip
+
+Render, inject, then hydrate to verify a snapshot restores:
+
+```tsx twoslash
+import { atom, mount, renderToString } from "ilha";
+import { expect, test } from "bun:test";
+
+const App = () => <p>hello</p>;
+
+test("hydrates SSR markup", async () => {
+  const html = await renderToString(App);
+  const el = document.createElement("div");
+  el.innerHTML = html; // test host; markup is your own render output
+  document.body.append(el);
+
+  const unmount = mount(el, App, { hydrate: true });
+  await new Promise((r) => setTimeout(r, 5));
+  expect(el.textContent).toContain("hello");
+  unmount();
+  el.remove();
+});
+```
+
+A snapshot-order bug logs a `hydrate mismatch` warning and falls back to a full mount — assert on the warning in CI if hydration is load-bearing for you.
+
+## Related
+
+| Topic                 | Guide                                           |
+| --------------------- | ----------------------------------------------- |
+| Render and hydrate    | [Render](/guide/ui/render)                      |
+| Streams in tests      | [Streams](/guide/ui/streams)                    |
+| Server islands in dev | [Server islands](/guide/routing/server-islands) |

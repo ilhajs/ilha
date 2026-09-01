@@ -1,0 +1,85 @@
+---
+title: Create component
+description: Write a component — a function, async function, or generator that returns JSX.
+---
+
+A component is a function that returns a view. Sync functions return JSX. Async functions can await. Generators `yield*` instructions such as `when`, `watch`, and `wait`.
+
+```tsx twoslash
+const Hello = () => <p>Hello</p>;
+```
+
+Call `Hello` from another component as a nested function.
+Call `mount` or `renderToString` with `Hello` when it is the root.
+
+## Props
+
+Pass props as the first argument:
+
+```tsx twoslash
+const Greeting = ({ name }: { name: string }) => (
+  <p>Hello, {name}</p>
+);
+```
+
+When you mount a root that needs props, close over them:
+
+```tsx twoslash
+import { mount } from "ilha";
+
+const Greeting = ({ name }: { name: string }) => (
+  <p>Hello, {name}</p>
+);
+
+const root = document.getElementById("app");
+if (root) mount(root, () => Greeting({ name: "Ada" }));
+```
+
+## Nested functions
+
+A nested function shares the parent fiber. Atoms you declare there still belong to the parent. Keep call order stable across reruns.
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Label = (props: Record<string, unknown>) => (
+  <span>{String(props.text)}</span>
+);
+
+const Card = () => {
+  const title = atom("Inbox");
+  return (
+    <section>
+      <Label text={title()} />
+    </section>
+  );
+};
+```
+
+## Async component
+
+```tsx twoslash
+const Page = async () => {
+  const title = await Promise.resolve("Home");
+  return <h1>{title}</h1>;
+};
+```
+
+`renderToString` waits until the promise settles and later work goes idle.
+
+## Generator component
+
+Use a generator when you `yield*` `when`, `watch`, or `wait`. See [Streams](/guide/ui/streams).
+
+## JSX config
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "ilha"
+  }
+}
+```
+
+Markup, events, and lists are in [Templating](/guide/ui/templating).

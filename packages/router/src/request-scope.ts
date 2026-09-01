@@ -16,9 +16,10 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import { REQUEST_ALS_KEY } from "./als-key";
 import type { IslandContext } from "./index";
 
-export const REQUEST_ALS_KEY = Symbol.for("ilha.requestAls");
+export { REQUEST_ALS_KEY };
 
 /** Installed by oxidejs when its module loads. Lets `useRequest()` resolve
  * inside island renders and frames, not just `/__oxide/action`. */
@@ -28,6 +29,8 @@ const OXIDE_RUN_WITH_REQUEST = Symbol.for("oxidejs.runWithRequest");
  * is loaded, its action scope is entered too, so `useRequest()` works in
  * island renders and streamed frames. */
 export function runWithIslandRequest<T>(request: Request, fn: () => T): T {
+  // SAFETY: REQUEST_ALS_KEY / oxide runWithRequest live on globalThis so every
+  // module copy shares one AsyncLocalStorage.
   const g = globalThis as unknown as Record<symbol, AsyncLocalStorage<Request> | undefined>;
   const als = (g[REQUEST_ALS_KEY] ??= new AsyncLocalStorage<Request>());
   const oxide = g[OXIDE_RUN_WITH_REQUEST] as ((req: Request, fn: () => T) => T) | undefined;

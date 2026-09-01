@@ -1,0 +1,29 @@
+---
+title: Custom elements
+description: Register a component as a custom element with define().
+---
+
+`define(name, component)` registers a custom element. On connect it mounts the component. If the host has `data-ilha`, it hydrates.
+
+```tsx twoslash
+import { atom } from "ilha";
+import { define } from "ilha/define";
+
+define("ilha-counter", () => {
+  const count = atom(0);
+  return (
+    <button
+      type="button"
+      onclick={() => count.update((n: number) => n + 1)}
+    >
+      {count}
+    </button>
+  );
+});
+```
+
+```html
+<ilha-counter></ilha-counter>
+```
+
+Disconnect unmounts. Use this when you want HTML to instantiate the component without a JS `mount()` call site.

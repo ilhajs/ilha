@@ -15,8 +15,6 @@
  *   `data-ilha-actions` manifest emitted by `hydratable()`.
  */
 
-import { morph } from "ilha";
-
 import { applyHeadEntriesToDocument } from "./head";
 import type { HeadInput } from "./head";
 import { parseSnapshotAttr } from "./snapshot";
@@ -43,9 +41,6 @@ export interface ServerIslandWiring {
   actions?: Record<string, (payload?: unknown) => unknown>;
   /** Frame transport: re-renders the island with the latest parent props. */
   frame?: (props?: Record<string, unknown>) => unknown;
-  /** RPC transport for the module's `loader.client` export — invoked once
-   * when the view hydrates. Side-effect loader on server pages. */
-  clientLoader?: () => unknown;
   /** Client-capable islands nested in the server render, keyed by opaque ref. */
   children?: Record<string, unknown>;
 }
@@ -73,7 +68,11 @@ function assertValidTag(tag: string): string {
 function belongsToHost(host: Element, candidate: Element): boolean {
   let el: Element | null = candidate.parentElement;
   while (el && el !== host) {
-    if (el.hasAttribute("data-ilha") || el.hasAttribute("data-ilha-slot")) return false;
+    if (el.hasAttribute("data-ilha")) return false;
+    // Stream holes use display:contents + data-ilha-slot; nested island slots do not.
+    if (el.hasAttribute("data-ilha-slot") && (el as HTMLElement).style.display !== "contents") {
+      return false;
+    }
     el = el.parentElement;
   }
   return el === host;
@@ -162,7 +161,8 @@ function hydrateServerIsland(
         if (controller.signal.aborted || !host.isConnected) return;
         const html = await frame(sent);
         if (controller.signal.aborted || typeof html !== "string") return;
-        morph(host, html);
+        const parsed = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
+        host.replaceChildren(...Array.from(parsed.body.firstElementChild?.childNodes ?? []));
         syncChildren();
         wireEvents();
       })
@@ -185,8 +185,8 @@ function hydrateServerIsland(
     // the attr carries the INITIAL SSR manifest, which goes stale as sentinel
     // indexes shift between renders.
     const raw =
-      Array.from(host.children)
-        .find((c) => c.matches(`template[${ACTIONS_ATTR}]`))
+      host
+        .querySelector(`:scope > template[${ACTIONS_ATTR}], template[${ACTIONS_ATTR}]`)
         ?.getAttribute(ACTIONS_ATTR) ??
       host.getAttribute(ACTIONS_ATTR) ??
       null;
@@ -320,17 +320,6 @@ function hydrateServerIsland(
   // SPA navigation), the host starts empty — pull the first frame now.
   if (frame && !host.hasAttribute(STATE_ATTR) && host.childNodes.length === 0) {
     scheduleRepaint();
-  }
-
-  // `loader.client` on server pages: execute once when the view hydrates.
-  // Side-effect loader over RPC — head, analytics. Its return value cannot
-  // flow back into server-rendered island markup (the render fn never ships).
-  if (wiring.clientLoader) {
-    void Promise.resolve(wiring.clientLoader()).catch((err) => {
-      if (!controller.signal.aborted) {
-        console.error(`[ilha-router] client loader failed for "${id}":`, err);
-      }
-    });
   }
 
   return {

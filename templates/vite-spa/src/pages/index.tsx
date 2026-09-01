@@ -1,60 +1,77 @@
-import { Badge, Button, Checkbox, Input, LayerCard } from "areia";
-import { derived, each, ilha, state } from "ilha";
+import { head } from "@ilha/router";
+import * as Stream from "effect/Stream";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import { atom } from "ilha";
 
 type Todo = { id: string; text: string; completed: boolean };
 
-// A static app needs no loaders — plain client state is enough.
 const DEFAULT_TODOS: Todo[] = [
   { id: "1", text: "Start Ilha Dev Server", completed: true },
   { id: "2", text: "Develop my Ilha app", completed: false },
   { id: "3", text: "Deploy my Ilha app", completed: false },
 ];
 
-export default ilha(() => {
-  const items = state(DEFAULT_TODOS);
-  const draft = state("");
-  const pending = derived(() => items().filter((t) => !t.completed));
+export default function Home() {
+  head({ title: "Home" });
+  const items = atom(DEFAULT_TODOS);
+  const pending = atom(() => items().filter((todo) => !todo.completed).length);
 
   const addItem = (event: SubmitEvent) => {
     event.preventDefault();
-    const text = draft().trim();
+    const form = event.currentTarget as HTMLFormElement;
+    const text = String(new FormData(form).get("text") ?? "").trim();
     if (!text) return;
-    items.update((current) => [...current, { id: crypto.randomUUID(), text, completed: false }]);
-    draft.set("");
-  };
-  const deleteItem = (index: number) => {
-    items.update((current) => current.filter((_, i) => i !== index));
+    items.update((list) => [...list, { id: crypto.randomUUID(), text, completed: false }]);
+    form.reset();
   };
 
   return (
-    <div class="flex flex-col gap-4">
-      <LayerCard>
-        <LayerCard.Title>
-          <span>To Do</span>
-          <Badge>{pending()?.length ?? 0}</Badge>
-        </LayerCard.Title>
-        <LayerCard.Content>
-          <form onsubmit={addItem}>
-            <div class="flex items-center gap-2">
-              <Input placeholder="Add a new todo" class="w-full" bind:value={draft} />
-              <Button type="submit">Add</Button>
-            </div>
-          </form>
+    <div class="card bg-base-100 shadow">
+      <div class="card-body gap-4">
+        <h2 class="card-title">
+          To Do
+          <span class="badge badge-primary">{pending}</span>
+        </h2>
+        <form onsubmit={addItem} class="flex items-center gap-2">
+          <input name="text" class="input input-bordered w-full" placeholder="Add a new todo" />
+          <button type="submit" class="btn btn-primary">
+            Add
+          </button>
+        </form>
+        {Stream.map(Atom.toStream(items.atom), (list) => (
           <div class="flex flex-col gap-2">
-            {each(items())
-              .as((todo, index) => (
-                <div key={todo.id} class="flex items-center justify-between gap-2">
-                  <Checkbox
-                    label={todo.text}
-                    bind:checked={items.select((current) => current[index]?.completed ?? false)}
+            {list.map((todo) => (
+              <div key={todo.id} class="flex items-center justify-between gap-2">
+                <label class="label cursor-pointer justify-start gap-2">
+                  <input
+                    type="checkbox"
+                    class="checkbox"
+                    checked={todo.completed}
+                    onchange={(event: Event) => {
+                      const checked = (event.currentTarget as HTMLInputElement).checked;
+                      items.update((current) =>
+                        current.map((item) =>
+                          item.id === todo.id ? { ...item, completed: checked } : item,
+                        ),
+                      );
+                    }}
                   />
-                  <Button onclick={() => deleteItem(index)}>Delete</Button>
-                </div>
-              ))
-              .else(<p>No todos.</p>)}
+                  <span>{todo.text}</span>
+                </label>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-ghost"
+                  onclick={() =>
+                    items.update((current) => current.filter((item) => item.id !== todo.id))
+                  }
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
           </div>
-        </LayerCard.Content>
-      </LayerCard>
+        ))}
+      </div>
     </div>
   );
-});
+}

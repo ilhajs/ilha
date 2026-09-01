@@ -5,27 +5,20 @@ import { join } from "node:path";
 
 const plugin = join(import.meta.dir, "oxlint.cjs");
 
+const RULES = {
+  "oxlint-plugin-ilha/no-conditional-primitive": "error",
+  "oxlint-plugin-ilha/no-primitive-outside-component": "error",
+  "oxlint-plugin-ilha/no-instruction-outside-generator": "error",
+  "oxlint-plugin-ilha/prefer-lowercase-events": "error",
+  "oxlint-plugin-ilha/function-in-atom": "error",
+};
+
 async function lint(source: string) {
   const dir = await mkdtemp(join(tmpdir(), "ilha-oxlint-"));
   const file = join(dir, "case.tsx");
   const config = join(dir, ".oxlintrc.json");
   await writeFile(file, source);
-  await writeFile(
-    config,
-    JSON.stringify({
-      jsPlugins: [plugin],
-      rules: {
-        "oxlint-plugin-ilha/pascal-case": "error",
-        "oxlint-plugin-ilha/no-conditional-primitive": "error",
-        "oxlint-plugin-ilha/no-primitive-outside-island": "error",
-        "oxlint-plugin-ilha/prefer-plain-handler": "warn",
-        "oxlint-plugin-ilha/prefer-lowercase-events": "error",
-        "oxlint-plugin-ilha/no-direct-island-call": "error",
-        "oxlint-plugin-ilha/require-ssr-api": "error",
-        "oxlint-plugin-ilha/function-in-state": "error",
-      },
-    }),
-  );
+  await writeFile(config, JSON.stringify({ jsPlugins: [plugin], rules: RULES }));
   const proc = Bun.spawnSync(["bunx", "oxlint", "-c", config, "--format", "json", file], {
     cwd: dir,
     stdout: "pipe",
@@ -42,28 +35,108 @@ async function lint(source: string) {
   return { raw: out, messages };
 }
 
-test("flags first-pass island slop", async () => {
+test("flags atom() at module top level", async () => {
   const { messages, raw } = await lint(`
-    import { ilha, state, action } from "ilha";
-    const count = state(0);
-    const counter = ilha(() => {
-      if (true) state(1);
-      const save = action(() => 1);
-      const fn = () => 0;
-      const cb = state(0);
-      cb(fn);
-      return <button onClick={save}>{count()}</button>;
-    });
-    await counter();
-    counter();
+    import { atom } from "ilha";
+    const count = atom(0);
+    export default () => <p>{count}</p>;
   `);
   const blob = JSON.stringify(messages) + raw;
-  expect(blob).toContain("no-primitive-outside-island");
+  expect(blob).toContain("no-primitive-outside-component");
+});
+
+test("flags conditional primitives", async () => {
+  const { messages, raw } = await lint(`
+    import { atom } from "ilha";
+    export default function Counter({ open }: { open: boolean }) {
+      if (open) atom(1);
+      return <p>hi</p>;
+    }
+  `);
+  const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("no-conditional-primitive");
-  expect(blob).toContain("prefer-plain-handler");
+});
+
+test("flags when/watch/wait outside a generator", async () => {
+  const { messages, raw } = await lint(`
+    import { atom, watch } from "ilha";
+    export default function Logger() {
+      const n = atom(0);
+      watch(n, (value) => console.log(value));
+      return <p>{n}</p>;
+    }
+  `);
+  const blob = JSON.stringify(messages) + raw;
+  expect(blob).toContain("no-instruction-outside-generator");
+});
+
+test("flags when() called without yield* inside a generator", async () => {
+  const { messages, raw } = await lint(`
+    import * as Stream from "effect/Stream";
+    import { when } from "ilha";
+    export default function* Status() {
+      when(Stream.fromIterable([1]), function* (n) {
+        yield <p>{n}</p>;
+      });
+      yield <p>done</p>;
+    }
+  `);
+  const blob = JSON.stringify(messages) + raw;
+  expect(blob).toContain("no-instruction-outside-generator");
+});
+
+test("accepts yield* when() in a generator", async () => {
+  const { messages, raw } = await lint(`
+    import * as Stream from "effect/Stream";
+    import { when } from "ilha";
+    export default function* Status() {
+      yield* when(Stream.fromIterable([1]), function* (n) {
+        yield <p>{n}</p>;
+      });
+    }
+  `);
+  const blob = JSON.stringify(messages) + raw;
+  expect(blob).not.toContain("no-instruction-outside-generator");
+});
+
+test("flags camelCase event props", async () => {
+  const { messages, raw } = await lint(`
+    export default () => <button onClick={() => {}}>Go</button>;
+  `);
+  const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("prefer-lowercase-events");
-  expect(blob).toContain("no-direct-island-call");
-  expect(blob).toContain("require-ssr-api");
-  expect(blob).toContain("function-in-state");
-  expect(blob).toContain("pascal-case");
+});
+
+test("accepts lowercase event props", async () => {
+  const { messages, raw } = await lint(`
+    export default () => <button onclick={() => {}}>Go</button>;
+  `);
+  const blob = JSON.stringify(messages) + raw;
+  expect(blob).not.toContain("prefer-lowercase-events");
+});
+
+test("flags storing a function value in atom()", async () => {
+  const { messages, raw } = await lint(`
+    import { atom } from "ilha";
+    export default function Box() {
+      const save = () => 1;
+      const cb = atom(save);
+      return <p>{cb()()}</p>;
+    }
+  `);
+  const blob = JSON.stringify(messages) + raw;
+  expect(blob).toContain("function-in-atom");
+});
+
+test("accepts a computed atom initializer", async () => {
+  const { messages, raw } = await lint(`
+    import { atom } from "ilha";
+    export default function Cart() {
+      const items = atom([{ n: 1 }]);
+      const total = atom(() => items().reduce((sum, item) => sum + item.n, 0));
+      return <p>{total}</p>;
+    }
+  `);
+  const blob = JSON.stringify(messages) + raw;
+  expect(blob).not.toContain("function-in-atom");
 });

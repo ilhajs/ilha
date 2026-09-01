@@ -75,7 +75,7 @@ let _headAlsInit: Promise<HeadAls> | null = null;
 async function getHeadAlsAsync(): Promise<HeadAls> {
   if (_headAls) return _headAls;
   if (!_headAlsInit) {
-    _headAlsInit = import("node:async_hooks").then(({ AsyncLocalStorage }) => {
+    _headAlsInit = import(/* @vite-ignore */ "node:async_hooks").then(({ AsyncLocalStorage }) => {
       _headAls = new AsyncLocalStorage<HeadStore>();
       return _headAls;
     });

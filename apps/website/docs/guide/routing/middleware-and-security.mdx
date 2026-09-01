@@ -1,9 +1,9 @@
 ---
 title: Middleware and security
-description: Security headers, deny-by-default frame and loader guards, trusted origins, CSRF, and the production hardening model.
+description: Security headers, the deny-by-default frame guard, trusted origins, CSRF, and the production hardening model.
 ---
 
-`@ilha/router` hardens SSR and server-island endpoints by default. This page is the full guard and origin model behind [Server islands](/guide/routing/server-islands).
+`@ilha/router` hardens the server-island endpoint by default. This page is the full guard and origin model behind [Server islands](/guide/routing/server-islands).
 
 ## Security headers
 
@@ -18,7 +18,7 @@ Both `respond()` and the low-level `httpResponse()` emit sensible security heade
 
 A header is added only when the caller has not already set it, so you can override any default by passing `headers`.
 
-```ts twoslash
+```tsx twoslash
 import { httpResponse } from "@ilha/router";
 const html = "<h1>Hi</h1>";
 const nonce = "abc123";
@@ -44,28 +44,24 @@ const locked = httpResponse(html, {
 
 Prefer `respond()` when you are rendering a route — it runs the full render + head + headers pipeline. Reach for `httpResponse()` when you already have the HTML and only need a correctly-headered `Response`.
 
-## Deny-by-default endpoints
+## Deny-by-default frame endpoint
 
-In **production**, two internal endpoints are **denied unless you install a guard**:
+In **production**, the internal frame endpoint is **denied unless you install a guard**:
 
-| Endpoint         | Serves                                      | Method | Default when unguarded |
-| ---------------- | ------------------------------------------- | ------ | ---------------------- |
-| `/__ilha/frame`  | Re-render of a server island or server page | POST   | Denied (`403`)         |
-| `/__ilha/loader` | Loader data for a regular page navigation   | GET    | Denied (`403`)         |
+| Endpoint        | Serves                                      | Method | Default when unguarded |
+| --------------- | ------------------------------------------- | ------ | ---------------------- |
+| `/__ilha/frame` | Re-render of a server island or server page | POST   | Denied (`403`)         |
 
-An unguarded `/__ilha/frame` would let anyone re-render any server island by id — if an island's state holds private data you must install a session check. `/__ilha/loader` is gated the same way through the shared policy. The **dev** middleware stays permissive unless you register a guard, so local iteration works out of the box.
+An unguarded frame endpoint would let anyone re-render any server island by id — if an island's state holds private data you must install a session check. The **dev** middleware stays permissive unless you register a guard, so local iteration works out of the box.
 
 ## Installing guards
 
 Register guards once at server startup for production, via the shared registry:
 
 ```ts twoslash
-import {
-  setFrameAuth,
-  setFrameGuard,
-  setLoaderGuard,
-} from "@ilha/router/ssr";
+import { setFrameAuth, setFrameGuard } from "@ilha/router/ssr";
 
+const expectedToken = process.env.CSRF_TOKEN;
 function isSignedIn(_request: Request) {
   return true;
 }
@@ -76,13 +72,6 @@ setFrameGuard((request) => {
     return new Response("Unauthorized", { status: 401 });
 });
 
-// Gates /__ilha/loader independently (falls back to the frame guard when absent).
-setLoaderGuard((request) =>
-  isSignedIn(request)
-    ? undefined
-    : new Response("Unauthorized", { status: 401 }),
-);
-
 // Optional: explicit trusted origins and a CSRF verifier for the frame POST.
 setFrameAuth({
   trustedOrigins: ["https://app.example.com"],
@@ -90,40 +79,39 @@ setFrameAuth({
   // synchronizer token), compared in constant time. Never use a build-time
   // environment variable or literal string — anything shipped to the browser
   // is public and cannot be a CSRF secret.
-  csrf: (request) => verifySessionCsrfToken(request),
+  csrf: (request) =>
+    request.headers.get("x-csrf") === expectedToken,
 });
 ```
 
-In **dev**, configure the guards through the plugin options instead — see [Plugin options](/guide/routing/file-system-routing#plugin-options).
+In **dev**, configure the guard through the plugin options instead — pass `frameGuard` to the pages plugin.
 
 ### `setFrameAuth`
 
 Tuning the frame-auth policy:
 
-| Option           | Type                   | Behavior                                                                                                                               |
-| ---------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `defaultAction`  | `"open" \| "deny"`     | `"deny"` is the default. `"open"` opts out of deny-by-default (not recommended).                                                       |
-| `trustedOrigins` | `string[]`             | Explicit origins to accept for frame/loader origin checks. Otherwise the `Origin` header is compared against the request's own `Host`. |
-| `csrf`           | `(request) => boolean` | Extra verifier for the frame POST — covers non-browser callers that send no `Origin` header.                                           |
-
-The same `defaultAction` policy gates both the loader and the frame.
+| Option           | Type                   | Behavior                                                                                                                        |
+| ---------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `defaultAction`  | `"open" \| "deny"`     | `"deny"` is the default. `"open"` opts out of deny-by-default (not recommended).                                                |
+| `trustedOrigins` | `string[]`             | Explicit origins to accept for frame origin checks. Otherwise the `Origin` header is compared against the request's own `Host`. |
+| `csrf`           | `(request) => boolean` | Extra verifier for the frame POST — covers non-browser callers that send no `Origin` header.                                    |
 
 ## What is forwarded
 
-The middleware forwards only `cookie`, `authorization`, and `user-agent` headers to loaders and frames. It deliberately does **not** forward a client-supplied `x-forwarded-for` header — it is spoofable and must not be trusted for IP checks. If you relied on it for IP-based decisions, move that check to a trusted proxy layer instead.
+The middleware forwards only `cookie`, `authorization`, and `user-agent` headers to the scoped frame render. It deliberately does **not** forward a client-supplied `x-forwarded-for` header — it is spoofable and must not be trusted for IP checks. If you relied on it for IP-based decisions, move that check to a trusted proxy layer instead.
 
 ## Validation and status clamping
 
-- Frame bodies are streamed with a hard **16&nbsp;KiB cap**.
+- Frame bodies are streamed with a hard **16&nbsp;KiB cap**; oversized bodies return `413`.
 - Frame paths are validated and **fail closed** — an invalid path returns `400` instead of falling back to `/`.
-- `redirect()` coerces invalid statuses to `302`; `error()` coerces invalid statuses to `500` (silently).
-- Non-`LoaderError` loader failures surface as `"Internal error"` outside dev — error details are never leaked to clients in production.
+- Failures are typed: the frame render returns a `FrameError` result, and `redirect()` coerces invalid statuses to `302`; `error()` coerces invalid statuses to `500` (silently).
+- Render failures surface as `"frame failed"` — error details are never leaked to clients in production.
 
 ## Related
 
-| Topic                            | Guide                                                                                     |
-| -------------------------------- | ----------------------------------------------------------------------------------------- |
-| Server islands and frames        | [Server islands](/guide/routing/server-islands)                                           |
-| Rendering routes to a `Response` | [Server islands](/guide/routing/server-islands#use-a-custom-server-only-when-needed)      |
-| Guards via the pages plugin      | [File-system routing — plugin options](/guide/routing/file-system-routing#plugin-options) |
-| Production wiring                | [Deployment](/guide/routing/deployment)                                                   |
+| Topic                       | Guide                                                     |
+| --------------------------- | --------------------------------------------------------- |
+| Server islands and frames   | [Server islands](/guide/routing/server-islands)           |
+| Error handling              | [Error boundaries](/guide/routing/error-boundaries)       |
+| Guards via the pages plugin | [File-system routing](/guide/routing/file-system-routing) |
+| Production wiring           | [Deployment](/guide/routing/deployment)                   |
