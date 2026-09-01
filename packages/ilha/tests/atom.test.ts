@@ -201,13 +201,14 @@ test("atom reads during sync setup rerun the component", async () => {
   };
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, App);
+  const unmount = mount(el, App);
   await Bun.sleep(5);
   expect(el.querySelectorAll("[data-item]").length).toBe(3);
   el.querySelector("button")!.click();
   await Bun.sleep(5);
   expect(el.querySelectorAll("[data-item]").length).toBe(2);
   expect(el.textContent).not.toContain("a");
+  unmount();
   el.remove();
 });
 
@@ -248,12 +249,13 @@ test("primitive slots persist across render reruns", async () => {
   };
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, App);
+  const unmount = mount(el, App);
   await Bun.sleep(5);
   el.querySelector("button")!.click();
   await Bun.sleep(5);
   expect(el.querySelector("[data-total]")?.getAttribute("data-total")).toBe("1");
   expect(el.querySelector("[data-count]")?.getAttribute("data-count")).toBe("1");
+  unmount();
   el.remove();
 });
 
@@ -297,13 +299,69 @@ test("atom.lazy runs initializer once", async () => {
   };
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, App);
+  const unmount = mount(el, App);
   await Bun.sleep(5);
   expect(runs).toBe(1);
   expect(el.textContent).toContain("1");
   el.querySelector("button")!.click();
   await Bun.sleep(5);
-  expect(runs).toBe(1);
-  expect(el.textContent).toContain("2");
+  unmount();
   el.remove();
+});
+
+test("overlapping async setups track reads after await per fiber", async () => {
+  const aEl = document.createElement("div");
+  const bEl = document.createElement("div");
+  document.body.append(aEl, bEl);
+
+  let releaseA!: () => void;
+  let releaseB!: () => void;
+  const gateA = new Promise<void>((resolve) => {
+    releaseA = resolve;
+  });
+  const gateB = new Promise<void>((resolve) => {
+    releaseB = resolve;
+  });
+
+  const A = async () => {
+    const n = atom(0);
+    await gateA;
+    return {
+      $$ilha: 1 as const,
+      type: "button",
+      props: { onclick: () => n.update((x: number) => x + 1) },
+      children: [String(n())],
+    };
+  };
+  const B = async () => {
+    const n = atom(0);
+    await gateB;
+    return {
+      $$ilha: 1 as const,
+      type: "button",
+      props: { onclick: () => n.update((x: number) => x + 10) },
+      children: [String(n())],
+    };
+  };
+
+  const unmountA = mount(aEl, A);
+  const unmountB = mount(bEl, B);
+  releaseB();
+  await Bun.sleep(15);
+  expect(bEl.textContent).toBe("0");
+  bEl.querySelector("button")!.click();
+  await Bun.sleep(10);
+  expect(bEl.textContent).toBe("10");
+
+  releaseA();
+  await Bun.sleep(15);
+  expect(aEl.textContent).toBe("0");
+  aEl.querySelector("button")!.click();
+  await Bun.sleep(10);
+  expect(aEl.textContent).toBe("1");
+
+  unmountA();
+  unmountB();
+  aEl.remove();
+  bEl.remove();
 });

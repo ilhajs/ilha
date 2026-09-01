@@ -46,8 +46,14 @@ export function isAtomHandle(x: unknown): x is AtomHandle<unknown> {
 }
 
 let trackGet: ((atom: Atom.Atom<any>) => unknown) | undefined;
+const trackStack: Array<{
+  fiber: FiberLocal;
+  deps: Set<Atom.Atom<unknown>>;
+  get: (atom: Atom.Atom<any>) => unknown;
+}> = [];
 
 export function resetRenderTracking(): void {
+  trackStack.length = 0;
   trackGet = undefined;
 }
 
@@ -77,16 +83,23 @@ export function withTrackGetRun<A>(
   onErr: (e: unknown) => void,
 ): void {
   const deps = new Set<Atom.Atom<unknown>>();
-  const prev = trackGet;
-  const restore = () => {
-    if (fiber.trackRestore !== restore) return;
-    trackGet = prev;
-    fiber.trackRestore = undefined;
-  };
-  trackGet = (a) => {
+  const get = (a: Atom.Atom<any>) => {
     deps.add(a);
     return fiber.registry.get(a);
   };
+  const restore = () => {
+    if (fiber.trackRestore !== restore) return;
+    const top = trackStack.pop();
+    if (top?.get !== get) {
+      if (top) trackStack.push(top);
+      const i = trackStack.findIndex((frame) => frame.get === get);
+      if (i >= 0) trackStack.splice(i, 1);
+    }
+    trackGet = trackStack.at(-1)?.get;
+    fiber.trackRestore = undefined;
+  };
+  trackStack.push({ fiber, deps, get });
+  trackGet = get;
   fiber.trackRestore = restore;
   try {
     const result = withFiber(fiber, () => fn());

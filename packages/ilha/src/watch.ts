@@ -1,6 +1,10 @@
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type * as Atom from "effect/unstable/reactivity/Atom";
+import * as Registry from "effect/unstable/reactivity/AtomRegistry";
 
 import { handleOwner, instr, isAtomHandle } from "./atom.ts";
 import { getFiber, type FiberLocal } from "./runtime.ts";
@@ -11,6 +15,19 @@ export type WatchSlot = {
   fnRef: { current: (value: unknown) => void };
   dispose: () => void;
 };
+
+function runStreamWatch(
+  fiber: FiberLocal,
+  effect: Effect.Effect<unknown, unknown, Registry.AtomRegistry>,
+): () => void {
+  const scope = Scope.forkUnsafe(fiber.scope);
+  const provided = effect.pipe(Effect.provideService(Registry.AtomRegistry, fiber.registry));
+  const fork = Effect.runFork(provided);
+  Effect.runSync(Scope.addFinalizer(scope, Fiber.interrupt(fork)));
+  return () => {
+    Effect.runFork(Scope.close(scope, Exit.void));
+  };
+}
 
 function useWatchSlot(
   fiber: FiberLocal,
@@ -49,15 +66,17 @@ function registerWatch<A>(
       key,
       (run) => {
         let active = true;
-        fiber.run(
+        const stop = runStreamWatch(
+          fiber,
           Stream.runForEach(source, (v) =>
             Effect.sync(() => {
               if (active) run(v);
             }),
-          ) as Effect.Effect<unknown, unknown, never>,
+          ) as Effect.Effect<unknown, unknown, Registry.AtomRegistry>,
         );
         return () => {
           active = false;
+          stop();
         };
       },
       fn as (value: unknown) => void,

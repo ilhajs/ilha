@@ -169,3 +169,16 @@ test("flags atom(() => ...) derived initializer", async () => {
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("function-in-atom");
 });
+
+test("ignores shadowed non-function bindings passed to atom()", async () => {
+  const { messages, raw } = await lint(`
+    import { atom } from "ilha";
+    function save() { return 1; }
+    export default function Box() {
+      const save = "email";
+      return <p>{atom(save)}</p>;
+    }
+  `);
+  const blob = JSON.stringify(messages) + raw;
+  expect(blob).not.toContain("function-in-atom");
+});

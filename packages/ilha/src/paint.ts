@@ -217,6 +217,23 @@ function refreshAllAtomHosts(fiber: FiberLocal): void {
   }
 }
 
+function pruneDisconnectedAtomHoles(fiber: FiberLocal): void {
+  fiber.holes = fiber.holes.filter((h) => {
+    if (!h.atom || !h.host || !h.holeFiber) return true;
+    if (h.host.isConnected) return true;
+    h.dispose();
+    return false;
+  });
+}
+
+function atomHostPlaceholder(host: Element): Element {
+  const placeholder = document.createElement("span");
+  const slot = host.getAttribute(SLOT_ATTR);
+  if (slot !== null) placeholder.setAttribute(SLOT_ATTR, slot);
+  placeholder.style.display = "contents";
+  return placeholder;
+}
+
 function trackHole(
   parent: FiberLocal,
   hole: FiberLocal,
@@ -224,10 +241,11 @@ function trackHole(
   meta?: {
     atom?: import("effect/unstable/reactivity/Atom").Atom<unknown>;
     host?: Element;
+    keyed?: boolean;
   },
 ): void {
   parent.holes.push({
-    keepOnMorph: true,
+    keepOnMorph: !!(meta?.atom && meta?.host) || !!meta?.keyed,
     atom: meta?.atom,
     host: meta?.host,
     holeFiber: hole,
@@ -246,7 +264,7 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
   if (isAtomHandle(view)) {
     const reused = findReusableAtomHost(fiber, view.atom);
     if (reused) {
-      return [reused.host];
+      return [atomHostPlaceholder(reused.host)];
     }
 
     const { fiber: hole, nodes } = openHole(fiber);
@@ -338,7 +356,7 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
         if (!hole.closed)
           runSetup(hole, () => type(hole.propsBox!.current) as ReturnType<Component>);
       });
-      trackHole(fiber, hole);
+      trackHole(fiber, hole, undefined, k ? { keyed: true } : undefined);
       return nodes;
     }
     const el = document.createElement(view.type);
@@ -406,6 +424,7 @@ export function paint(fiber: FiberLocal, view: View): void {
     for (const c of view.children) for (const n of materialize(c, fiber)) tmp.appendChild(n);
     morphInner(fiber.liveEl, tmp);
     refreshAllAtomHosts(fiber);
+    pruneDisconnectedAtomHoles(fiber);
     return;
   }
   disposeHoles(fiber);

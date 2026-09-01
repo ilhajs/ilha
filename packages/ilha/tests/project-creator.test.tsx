@@ -54,7 +54,7 @@ function ProjectCreatorLike() {
 test("derived command survives repeated template toggles", async () => {
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, ProjectCreatorLike);
+  const unmount = mount(el, ProjectCreatorLike);
   await Bun.sleep(10);
 
   const cmd = () => el.querySelector("[data-cmd]")?.textContent ?? "";
@@ -81,5 +81,6 @@ test("derived command survives repeated template toggles", async () => {
   await Bun.sleep(5);
   expect(cmd()).toContain(" my-app");
 
+  unmount();
   el.remove();
 });

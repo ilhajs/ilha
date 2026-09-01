@@ -37,6 +37,50 @@ function ancestorsOf(context, node) {
   return [];
 }
 
+function blockBody(node) {
+  if (node.type === "BlockStatement") return node.body;
+  if (
+    node.type === "FunctionDeclaration" ||
+    node.type === "FunctionExpression" ||
+    node.type === "ArrowFunctionExpression"
+  ) {
+    const body = node.body;
+    if (body?.type === "BlockStatement") return body.body;
+  }
+  return null;
+}
+
+function bindingInitType(name, ancestors) {
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const a = ancestors[i];
+    if (a.type === "VariableDeclarator" && a.id?.type === "Identifier" && a.id.name === name) {
+      return a.init?.type ?? "none";
+    }
+    if (a.type === "FunctionDeclaration" && a.id?.name === name) {
+      return "FunctionDeclaration";
+    }
+    const stmts = blockBody(a);
+    if (stmts) {
+      for (const stmt of stmts) {
+        if (stmt.type !== "VariableDeclaration") continue;
+        for (const decl of stmt.declarations) {
+          if (decl.id?.type === "Identifier" && decl.id.name === name) {
+            return decl.init?.type ?? "none";
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function isFunctionBinding(name, ancestors, moduleFns) {
+  const local = bindingInitType(name, ancestors);
+  if (local === "FunctionDeclaration") return true;
+  if (local !== null) return FN_TYPES.has(local);
+  return moduleFns.has(name);
+}
+
 function enclosingFunctions(ancestors) {
   return ancestors.filter((a) => FN_TYPES.has(a.type));
 }
@@ -212,15 +256,25 @@ const functionInAtom = {
           fns.add(node.id.name);
         }
         if (!init || primitiveName(init, b) !== "atom") return;
-        if (init.arguments[0] && FN_TYPES.has(init.arguments[0].type)) {
-          context.report({ node: init.arguments[0], messageId: "derived" });
+        const arg = init.arguments[0];
+        if (arg && FN_TYPES.has(arg.type)) {
+          context.report({ node: arg, messageId: "derived" });
+        }
+        if (
+          arg?.type === "Identifier" &&
+          isFunctionBinding(arg.name, ancestorsOf(context, arg), fns)
+        ) {
+          context.report({ node: arg, messageId: "init", data: { name: arg.name } });
         }
       },
       CallExpression(node) {
         if (node.arguments.length === 0) return;
         const arg = node.arguments[0];
-        if (arg.type !== "Identifier" || !fns.has(arg.name)) return;
-        if (primitiveName(node, b) === "atom") {
+        if (arg.type !== "Identifier") return;
+        if (
+          primitiveName(node, b) === "atom" &&
+          isFunctionBinding(arg.name, ancestorsOf(context, arg), fns)
+        ) {
           context.report({ node: arg, messageId: "init", data: { name: arg.name } });
         }
       },

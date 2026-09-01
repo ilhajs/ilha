@@ -73,10 +73,10 @@ function* Search() {
         return;
       }
       const items = yield* Effect.tryPromise({
-        try: () =>
-          fetch(`/api/search?q=${encodeURIComponent(q)}`).then(
-            (r) => r.json(),
-          ),
+        try: (signal) =>
+          fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+            signal,
+          }).then((r) => r.json()),
         catch: (e) => e,
       });
       yield (

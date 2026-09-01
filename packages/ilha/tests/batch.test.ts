@@ -27,13 +27,14 @@ test("batch coalesces multiple writes", async () => {
   };
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, App);
+  const unmount = mount(el, App);
   await Bun.sleep(5);
   const before = renders;
   el.querySelector("button")!.click();
   await Bun.sleep(10);
   expect(el.textContent).toBe("1-2");
   expect(renders - before).toBe(1);
+  unmount();
   el.remove();
 });
 
@@ -50,10 +51,11 @@ test("Atom.fn mutation runs through handle.set", async () => {
   };
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, App);
+  const unmount = mount(el, App);
   await Bun.sleep(5);
   el.querySelector("button")!.click();
   await Bun.sleep(20);
   expect(el.textContent).toBe("1");
+  unmount();
   el.remove();
 });

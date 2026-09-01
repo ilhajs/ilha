@@ -153,10 +153,16 @@ const Form = () => {
             "email",
           ) ?? "",
         );
-        save.set(email);
+        if (Atom.isWritable(save.atom))
+          save.set(email as never);
       }}
     >
-      …
+      <input
+        name="email"
+        type="email"
+        placeholder="you@company.com"
+      />
+      <button type="submit">Join waitlist</button>
     </form>
   );
 };
@@ -172,9 +178,10 @@ For optimistic updates, use [`Atom.optimisticFn`](https://www.effect.website/doc
 import { atom } from "ilha";
 
 const Panel = () => {
-  const settings = atom.lazy(() =>
-    JSON.parse(localStorage.getItem("prefs") ?? "{}"),
-  );
+  const settings = atom.lazy(() => {
+    if (typeof localStorage === "undefined") return {};
+    return JSON.parse(localStorage.getItem("prefs") ?? "{}");
+  });
   return <p>{JSON.stringify(settings())}</p>;
 };
 ```

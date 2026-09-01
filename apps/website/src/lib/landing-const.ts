@@ -63,9 +63,13 @@ function* Search() {
     Atom.toStream(query.atom).pipe(Stream.debounce("200 millis")),
     function* (q) {
       if (!q) return;
-      const items = yield* Effect.tryPromise(() =>
-        fetch(\`/api/search?q=\${encodeURIComponent(q)}\`).then((r) => r.json()),
-      );
+      const items = yield* Effect.tryPromise({
+        try: (signal) =>
+          fetch(\`/api/search?q=\${encodeURIComponent(q)}\`, { signal }).then(
+            (r) => r.json(),
+          ),
+        catch: (e) => e,
+      });
       yield <ul>{(items as string[]).map((item) => <li>{item}</li>)}</ul>;
     },
   );
