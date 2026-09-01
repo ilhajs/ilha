@@ -13,12 +13,13 @@ See [Router overview](/guide/routing/overview) for a guided tour.
 router(options?: RouterOptions): RouterBuilder
 ```
 
-| Router option     | Meaning                                             |
-| ----------------- | --------------------------------------------------- |
-| `mode`            | `"spa"` (default) or `"static"` (registry only)     |
-| `notFound`        | Component for unmatched paths                       |
-| `interceptLinks`  | Intercept same-origin `<a>` clicks (default `true`) |
-| `viewTransitions` | Wrap navigations in the View Transition API         |
+| Router option            | Meaning                                             |
+| ------------------------ | --------------------------------------------------- |
+| `mode`                   | `"spa"` (default) or `"static"` (registry only)     |
+| `notFound`               | Component for unmatched paths                       |
+| `interceptLinks`         | Intercept same-origin `<a>` clicks (default `true`) |
+| `viewTransitions`        | Wrap navigations in the View Transition API         |
+| `allowExternalRedirects` | Allow cross-origin redirects (default `false`)      |
 
 ### Builder
 
