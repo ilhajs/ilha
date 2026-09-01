@@ -185,7 +185,7 @@ export default function Tasks() {
           <input
             name="text"
             class="input input-bordered input-sm w-full"
-            placeholder="New task\\u2026"
+            placeholder="New task..."
           />
           <button type="submit" class="btn btn-primary btn-sm">
             Add
