@@ -34,7 +34,7 @@ export default defineConfig({
 
 You can also pass `exclude` globs. Files outside the filter remain available to other Astro JSX renderers.
 
-Then use any Ilha setup as an Astro component, with a [client directive](https://docs.astro.build/en/reference/directives-reference/#client-directives) to control hydration:
+Then use any Ilha component as an Astro component, with a [client directive](https://docs.astro.build/en/reference/directives-reference/#client-directives) to control hydration:
 
 ```astro
 ---

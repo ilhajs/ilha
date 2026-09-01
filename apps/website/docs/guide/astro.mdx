@@ -73,9 +73,9 @@ import { Counter } from "../islands/counter";
 ```
 server                              client
 ──────────────────────────────────  ────────────────────────────────────
-.renderToStaticMarkup(setup)        @ilha/astro/client
-  → renderToString(setup)             → find [data-ilha] inside <astro-island>
-  → data-ilha-state snapshot          → mount(host, setup, { hydrate: true })
+.renderToStaticMarkup(component)        @ilha/astro/client
+  → renderToString(component)             → find [data-ilha] inside <astro-island>
+  → data-ilha-state snapshot          → mount(host, component, { hydrate: true })
                                       → astro:unmount → unmount()
 ```
 
@@ -114,7 +114,7 @@ ilha({ include: ["**/ilha/**"] });
 ## Notes
 
 - Ilha components do not support Astro `<slot />` forwarding. Pass data through props.
-- `client:only` mounts with `mount(element, setup)` against an empty host.
+- `client:only` mounts with `mount(element, component)` against an empty host.
 - Peer ranges: `astro` `^7.2.9`, `ilha` `^0.14.0`.
 
 ## Related
