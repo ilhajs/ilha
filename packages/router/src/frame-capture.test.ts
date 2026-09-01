@@ -1,9 +1,24 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import { h } from "ilha";
 
 import { __ilhaServerIsland } from "./server-island";
 import { __ilhaServerAction, registerServerIsland, renderServerIsland } from "./ssr";
+
+/** Run a render Effect to completion, rethrowing FrameError on failure. */
+const runIsland = async (
+  id: string,
+  request: Request,
+  incomingProps?: Record<string, unknown>,
+): Promise<string> => {
+  const result = await Effect.runPromise(
+    Effect.result(renderServerIsland(id, request, (_request, fn) => fn(), incomingProps)),
+  );
+  if (Result.isFailure(result)) throw result.failure;
+  return result.success;
+};
 
 /**
  * End-to-end seam test: the frame HTML emitted by SSR capture
@@ -33,10 +48,9 @@ afterEach(() => {
 describe("frame capture seam (SSR → client proxy)", () => {
   it("emits sentinels and an actions manifest from a real island render", async () => {
     registerServerIsland(SEAM_ID, () => Tasks);
-    const html = await renderServerIsland(
+    const html = await runIsland(
       SEAM_ID,
       new Request("http://localhost/__ilha/frame", { method: "POST" }),
-      (_request, fn) => fn(),
     );
     expect(html).toContain('data-ilha-on="click:0"');
     expect(html).toContain('data-ilha-on="click:1"');
@@ -49,10 +63,9 @@ describe("frame capture seam (SSR → client proxy)", () => {
 
   it("wires real SSR frame HTML to client actions and repaints", async () => {
     registerServerIsland(SEAM_ID, () => Tasks);
-    const html = await renderServerIsland(
+    const html = await runIsland(
       SEAM_ID,
       new Request("http://localhost/__ilha/frame", { method: "POST" }),
-      (_request, fn) => fn(),
     );
 
     const calls: unknown[][] = [];
@@ -95,10 +108,9 @@ describe("frame capture seam (SSR → client proxy)", () => {
   it("re-wires sentinels after a frame repaint with fresh args", async () => {
     let version = 0;
     registerServerIsland(SEAM_ID, () => Tasks);
-    const html = await renderServerIsland(
+    const html = await runIsland(
       SEAM_ID,
       new Request("http://localhost/__ilha/frame", { method: "POST" }),
-      (_request, fn) => fn(),
     );
     const calls: unknown[][] = [];
     const Island = __ilhaServerIsland("seam-client-2", "div", {
@@ -158,13 +170,19 @@ describe("__ilhaServerAction runtime wrapper", () => {
     await handler();
   });
 
-  it("renderServerIsland rejects unknown island ids", async () => {
-    await expect(
-      renderServerIsland(
-        "no-such-island",
-        new Request("http://localhost/__ilha/frame", { method: "POST" }),
-        (_request, fn) => fn(),
+  it("renderServerIsland fails with a 400 FrameError for unknown ids", async () => {
+    const result = await Effect.runPromise(
+      Effect.result(
+        renderServerIsland(
+          "no-such-island",
+          new Request("http://localhost/__ilha/frame", { method: "POST" }),
+          (_request, fn) => fn(),
+        ),
       ),
-    ).rejects.toThrow(/unknown island/);
+    );
+    expect(Result.isFailure(result)).toBe(true);
+    const error = (result as { failure: { status: number; message?: string } }).failure;
+    expect(error.status).toBe(400);
+    expect(error.message).toContain("unknown island");
   });
 });

@@ -61,18 +61,13 @@ export interface ServerModuleScan {
   rpcActions: Record<string, string>;
   /** Imported JSX components that must hydrate inside the server island. */
   clientRefs: ClientIslandRef[];
-  /** True when the module declares `export const load = loader.client(…)` —
-   * the proxy wires it as an RPC call invoked when the view hydrates. */
-  clientLoader?: boolean;
 }
 
 const EXPORT_RE =
   /(?:^|\n)\s*export\s+(?:declare\s+)?(?:async\s+)?(?:function\s*\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/g;
 const ISLAND_EXPORT_RE =
-  /(?:^|\n)\s*export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:ilha\b|async\s+function|function\s*\*)/g;
-const DEFAULT_ISLAND_RE = /export\s+default\s+(?:ilha\b|async\s+function|function\s*\*|function\b)/;
-// Slot tag option: current `{ as: "span" }` constructor option.
-const AS_RES = [/\{\s*as:\s*["'`]([a-z][a-z0-9-]*)["'`]\s*[,}]?/];
+  /(?:^|\n)\s*export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+function|function\s*\*)/g;
+const DEFAULT_ISLAND_RE = /export\s+default\s+(?:async\s+function|function\s*\*|function\b)/;
 
 export function clientRefPublicId(spec: string, imported: string): string {
   return createHash("sha256").update(`${spec}#${imported}`).digest("base64url");
@@ -188,41 +183,21 @@ export function scanServerIslands(source: string): ServerModuleScan {
   // generated client proxy can wire transports by the same ids.
   const collect = (name: string, start: number, sliceEnd: number): void => {
     const slice = source.slice(start, sliceEnd);
-    let as = "div";
-    for (const re of AS_RES) {
-      const hit = slice.match(re)?.[1];
-      if (hit) {
-        as = hit;
-        break;
-      }
-    }
+    const as = "div";
     const streams: Record<string, string> = {};
     const actions: Record<string, string> = {};
     let actionOrder = 0;
     let streamOrder = 0;
-    for (const kind of ["action", "derived"] as const) {
-      // Actions may be imported under an alias to avoid collisions (e.g.
-      // `islandAction(...)` when a server module also imports another
-      // framework's `action`), so accept any identifier ending in "action";
-      // derived has no common alias, so keep it word-bounded.
-      const pattern = kind === "action" ? "[A-Za-z0-9_$]*[Aa]ction\\s*\\(" : "\\bderived\\s*\\(";
-      const re = new RegExp(pattern, "g");
-      for (const match of slice.matchAll(re)) {
-        const openParen = match.index! + match[0].indexOf("(");
-        const args = extractCallArgs(slice, openParen);
-        if (!args) continue;
-        if (kind === "derived") {
-          // Only async generators stream; sync/promise deriveds don't.
-          if (!/(async\s+function\s*\*|yield\b|for\s+await)/.test(args)) continue;
-          const target = referencedExports(args, candidates);
-          if (target) streams[`d${streamOrder++}`] = target;
-          continue;
-        }
-        // The full args ARE the callback body in the new `action((payload) => ...)`
-        // syntax — no key comma to split on. Scan invoked exports for the transport.
-        const target = referencedExports(args, candidates);
-        actions[`a${actionOrder++}`] = target ?? "";
-      }
+    // Actions may be imported under an alias to avoid collisions (e.g.
+    // `islandAction(...)`), so accept any identifier ending in "action".
+    for (const match of slice.matchAll(/[A-Za-z0-9_$]*[Aa]ction\s*\(/g)) {
+      const openParen = match.index! + match[0].indexOf("(");
+      const args = extractCallArgs(slice, openParen);
+      if (!args) continue;
+      // The full args ARE the callback body in the `action((payload) => ...)`
+      // syntax. Scan invoked exports for the transport.
+      const target = referencedExports(args, candidates);
+      actions[`a${actionOrder++}`] = target ?? "";
     }
     for (const match of slice.matchAll(/fromAsyncIterable\(\s*([A-Za-z_$][\w$]*)\s*\(/g)) {
       const target = match[1]!;
@@ -260,9 +235,6 @@ export function scanServerIslands(source: string): ServerModuleScan {
     exports,
     rpcActions,
     clientRefs: scanClientRefs(source),
-    clientLoader: /(^|\n)\s*export\s+(?:const|let|var)\s+load\b\s*=\s*loader\.client\b/.test(
-      source,
-    ),
   };
 }
 
@@ -336,11 +308,6 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
     wiring.push(
       `frame: (props) => fetch("/__ilha/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ${JSON.stringify(id)}, path: location.pathname + location.search, props }) }).then((r) => { if (!r.ok) throw new Error("frame failed"); return r.json(); }).then((j) => { if (j.redirect) { location.assign(j.redirect); throw new Error("frame redirected"); } __ilhaApplyHead(j.head); return j.html; })`,
     );
-    // `loader.client` on server pages executes over RPC when the view
-    // hydrates — the module's code never ships to the browser.
-    if (scan.clientLoader) {
-      wiring.push(`clientLoader: () => $$call("load", [])`);
-    }
 
     const call = `__ilhaServerIsland(${JSON.stringify(id)}, ${JSON.stringify(island.as)}, { ${wiring.join(", ")} })`;
     if (island.name === "default") {

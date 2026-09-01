@@ -379,10 +379,7 @@ export function navigate(to: string, opts: NavigateOptions = {}): void {
   runAfterNavigateHooks({ from: current, to, type });
 }
 
-export interface LinkInterceptionOptions {
-  /** @deprecated prefetch was loader-only */
-  prefetch?: boolean;
-}
+export interface LinkInterceptionOptions {}
 
 export function enableLinkInterception(
   root: Element | Document = document,

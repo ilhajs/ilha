@@ -151,57 +151,6 @@ describe("pages — ?client virtual module", () => {
     expect(result).not.toContain("*");
   });
 
-  it("resolveId handles ?client-loader like ?client", () => {
-    const p = plugin();
-    p.configResolved({ root: "/proj" });
-    const resolved = p.resolveId(
-      "../src/pages/index.ts?client-loader",
-      "/proj/.ilha/pages.client.ts",
-    );
-    expect(resolved).toBe("/proj/src/pages/index.ts?client-loader");
-  });
-
-  it("resolveId refuses ?client-loader ids outside the pages dir", () => {
-    const p = plugin();
-    p.configResolved({ root: "/proj" });
-    const escape = p.resolveId("../../../etc/passwd?client-loader", "/proj/.ilha/pages.client.ts");
-    expect(escape).toBeUndefined();
-  });
-
-  it("load(?client-loader) re-exports `load` from the bare path", () => {
-    const p = plugin();
-    const result = p.load("/proj/src/pages/index.ts?client-loader");
-    expect(result).toMatch(/export\s*\{\s*load\s*\}/);
-    expect(result).toContain(`"/proj/src/pages/index.ts"`);
-    expect(result).not.toContain("default");
-  });
-});
-
-// ─────────────────────────────────────────────
-// Plugin — ilha:loaders virtual module
-// ─────────────────────────────────────────────
-
-describe("pages — ilha:loaders virtual module", () => {
-  it("resolves ilha:loaders virtual id", () => {
-    const p = plugin();
-    expect(p.resolveId("ilha:loaders")).toBe("\0ilha:loaders");
-  });
-
-  it("load for ilha:loaders imports the generated loaders file for side effects", async () => {
-    const root = await makeDir("loaders-virt");
-    const pagesDir = join(root, "src/pages");
-    const outDir = join(root, ".ilha");
-    await mkdir(pagesDir, { recursive: true });
-    const p = plugin({ dir: pagesDir, outDir });
-    p.configResolved({ root });
-    const result = p.load("\0ilha:loaders");
-    const loadersSpec = resolveGeneratedPaths(outDir).loadersFile.replace(/\.ts$/, "");
-    expect(result).toContain(loadersSpec);
-    expect(result).toMatch(/import\s+["']/);
-    expect(result).not.toContain("export");
-    await removeDir(root);
-  });
-
   it("plugin.resolveId returns undefined for unrelated ids", () => {
     const p = plugin();
     expect(p.resolveId("random-module")).toBeUndefined();

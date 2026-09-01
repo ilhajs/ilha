@@ -977,7 +977,11 @@ describe("codegen — server pages", () => {
   }
 
   it("maps index.server.tsx → / and emits a proxy import in the client graph", async () => {
-    await writePage(pagesDir, "index.server.tsx", `export default ilha(() => "<p>server</p>");`);
+    await writePage(
+      pagesDir,
+      "index.server.tsx",
+      `export default async function Server() { return "<p>server</p>"; }`,
+    );
     const { client, server } = await runCodegen();
     expect(server).toContain(`route("/"`);
     // Proxy virtual spec rides the base64url-encoded absolute path.
@@ -989,7 +993,7 @@ describe("codegen — server pages", () => {
   });
 
   it("maps about.server.tsx → /about", async () => {
-    await writePage(pagesDir, "about.server.tsx", `export default ilha;`);
+    await writePage(pagesDir, "about.server.tsx", `export default async function About() {}`);
     const { client } = await runCodegen();
     expect(client).toContain(`route("/about"`);
   });
@@ -998,17 +1002,17 @@ describe("codegen — server pages", () => {
     await writePage(
       pagesDir,
       "index.server.tsx",
-      `export const clientLoad = async () => ({});\nexport default ilha;`,
+      `export const clientLoad = async () => ({});\nexport default async function Server() {}`,
     );
     const { client } = await runCodegen();
     expect(client).toContain(`route("/"`);
   });
 
-  it("allows load on server pages", async () => {
+  it("ignores a load export on server pages", async () => {
     await writePage(
       pagesDir,
       "index.server.tsx",
-      `export const load = async () => ({});\nexport default ilha;`,
+      `export const load = async () => ({});\nexport default async function Server() {}`,
     );
     const { client, server } = await runCodegen();
     expect(client).toContain(`route("/"`);

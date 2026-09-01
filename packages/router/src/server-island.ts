@@ -41,9 +41,6 @@ export interface ServerIslandWiring {
   actions?: Record<string, (payload?: unknown) => unknown>;
   /** Frame transport: re-renders the island with the latest parent props. */
   frame?: (props?: Record<string, unknown>) => unknown;
-  /** RPC transport for the module's `loader.client` export — invoked once
-   * when the view hydrates. Side-effect loader on server pages. */
-  clientLoader?: () => unknown;
   /** Client-capable islands nested in the server render, keyed by opaque ref. */
   children?: Record<string, unknown>;
 }
@@ -323,17 +320,6 @@ function hydrateServerIsland(
   // SPA navigation), the host starts empty — pull the first frame now.
   if (frame && !host.hasAttribute(STATE_ATTR) && host.childNodes.length === 0) {
     scheduleRepaint();
-  }
-
-  // `loader.client` on server pages: execute once when the view hydrates.
-  // Side-effect loader over RPC — head, analytics. Its return value cannot
-  // flow back into server-rendered island markup (the render fn never ships).
-  if (wiring.clientLoader) {
-    void Promise.resolve(wiring.clientLoader()).catch((err) => {
-      if (!controller.signal.aborted) {
-        console.error(`[ilha-router] client loader failed for "${id}":`, err);
-      }
-    });
   }
 
   return {

@@ -16,28 +16,17 @@ import {
 
 describe("scanServerIslands", () => {
   const SOURCE = `
-import { ilha } from "ilha";
+import { action } from "oxidejs";
 
 export async function* getTasks() {
   yield [];
 }
 
-export async function toggleTask(id: string) {}
+export const toggleTask = action(async (id: string) => id);
 
-export const Tasks = ilha(
-  () => {
-    const items = derived(async function* () {
-      yield* getTasks();
-    });
-    const toggle = action((id: string) => toggleTask(id));
-    void items;
-    void toggle;
-    return html\`<p>x</p>\`;
-  },
-  { as: "section" },
-);
-
-export const Plain = ilha(() => html\`<p>hi</p>\`);
+export const Tasks = async function Tasks() {
+  return Stream.fromAsyncIterable(getTasks(), (e) => e);
+};
 
 export function helper(): string {
   return "x";
@@ -46,20 +35,22 @@ export function helper(): string {
 
   it("detects island exports and their wiring", () => {
     const scan = scanServerIslands(SOURCE);
-    expect(scan.exports.sort()).toEqual(["Plain", "Tasks", "getTasks", "helper", "toggleTask"]);
+    expect(scan.exports.sort()).toEqual(["Tasks", "getTasks", "helper", "toggleTask"]);
 
     const tasks = scan.islands.find((i) => i.name === "Tasks")!;
     expect(tasks).toBeDefined();
-    // { as: "section" } constructor option is scanned.
-    expect(tasks.as).toBe("section");
-    // Order-based ids: d0 = first streaming derived generator, a0 = first action.
+    // Server islands are async/generator function components; the slot tag is
+    // always div.
+    expect(tasks.as).toBe("div");
+    // d0 = stream transport, order-based id.
     expect(tasks.streams).toEqual({ d0: "getTasks" });
-    expect(tasks.actions).toEqual({ a0: "toggleTask" });
+    // Direct calls to exported actions need no slot wiring — they serialize
+    // through the __ilhaServerAction capture shim (rpcActions).
+    expect(tasks.actions).toEqual({});
+    expect(scan.rpcActions).toEqual({ toggleTask: "x:toggleTask" });
 
-    const plain = scan.islands.find((i) => i.name === "Plain")!;
-    expect(plain.as).toBe("div");
-    expect(plain.streams).toEqual({});
-    expect(plain.actions).toEqual({});
+    // Sync function exports are RPC transports, not islands.
+    expect(scan.islands.find((i) => i.name === "helper")).toBeUndefined();
   });
 
   it("wires Stream.fromAsyncIterable(getTasks()) as a stream", () => {
@@ -77,7 +68,9 @@ export function helper(): string {
     const source = `
       import { action } from "oxidejs";
       export const remove = action(async (id: string) => id);
-      export const Tasks = ilha(() => <button onclick={() => remove("t1")} />);
+      export const Tasks = async function Tasks() {
+        return <button onclick={() => remove("t1")} />;
+      };
     `;
     const scan = scanServerIslands(source);
     expect(scan.rpcActions).toEqual({ remove: "x:remove" });
@@ -91,7 +84,7 @@ export function helper(): string {
   });
 
   it("detects default island exports", () => {
-    const scan = scanServerIslands(`export default ilha(() => "x");`);
+    const scan = scanServerIslands(`export default async function Default() { return "x"; }`);
     expect(scan.islands.map((i) => i.name)).toEqual(["default"]);
   });
 
@@ -102,15 +95,17 @@ export function helper(): string {
 
   it("collects imported JSX islands for client hydration", () => {
     const scan = scanServerIslands(`
-      import { Checkbox as Box, Button } from "areia";
-      export const Tasks = ilha(() => <Box checked />);
+      import { Checkbox as Box } from "ui-lib";
+      export const Tasks = async function Tasks() {
+        return <Box checked />;
+      };
     `);
     expect(scan.clientRefs).toEqual([
       {
-        id: clientRefPublicId("areia", "Checkbox"),
+        id: clientRefPublicId("ui-lib", "Checkbox"),
         local: "Box",
         imported: "Checkbox",
-        spec: "areia",
+        spec: "ui-lib",
       },
     ]);
   });
@@ -124,13 +119,9 @@ describe("generateServerIslandModule", () => {
   it("wires streams to stub calls with signal threading", () => {
     const scan = scanServerIslands(`
       export async function* ticks(): AsyncGenerator<number> { yield 1; }
-      export const T = ilha(() => {
-        const tickStream = derived(async function* () {
-          yield* ticks();
-        });
-        void tickStream;
-        return "";
-      });
+      export const T = async function T() {
+        return Stream.fromAsyncIterable(ticks(), (e) => e);
+      };
     `);
     const code = generateServerIslandModule("/abs/tasks.server.ts", scan);
     // Plain JS only — \0 virtual modules bypass Vite's TS transform.
@@ -151,17 +142,19 @@ describe("generateServerIslandModule", () => {
 
   it("wires imported JSX islands into the client proxy", () => {
     const scan = scanServerIslands(`
-      import { Checkbox } from "areia";
-      export const T = ilha(() => <Checkbox checked />);
+      import { Checkbox } from "ui-lib";
+      export const T = async function T() {
+        return <Checkbox checked />;
+      };
     `);
     const code = generateServerIslandModule("/abs/tasks.server.tsx", scan);
-    const ref = clientRefPublicId("areia", "Checkbox");
-    expect(code).toContain(`import { Checkbox as $$child0 } from "areia"`);
+    const ref = clientRefPublicId("ui-lib", "Checkbox");
+    expect(code).toContain(`import { Checkbox as $$child0 } from "ui-lib"`);
     expect(code).toContain(`children: { "${ref}": $$child0 }`);
   });
 
   it("handles default exports", () => {
-    const scan = scanServerIslands(`export default ilha(() => "x");`);
+    const scan = scanServerIslands(`export default async function Default() { return "x"; }`);
     const code = generateServerIslandModule("/abs/x.server.ts", scan);
     expect(code).toContain("export default __ilhaServerIsland");
   });

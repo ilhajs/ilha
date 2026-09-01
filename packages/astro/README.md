@@ -53,5 +53,5 @@ Every [Astro client directive](https://docs.astro.build/en/reference/directives-
 
 ## Notes
 
-- Ilha components don't support Astro `<slot />` forwarding — pass data as props.
+- Astro slots arrive as string children. Plain text renders; HTML in slot content is escaped — don't pass markup through slots.
 - `client:only` skips SSR and mounts fresh in the browser.

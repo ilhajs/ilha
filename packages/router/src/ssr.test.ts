@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+
 const SLOTS = [
   Symbol.for("ilha.frameGuard"),
-  Symbol.for("ilha.loaderGuard"),
   Symbol.for("ilha.frameAuth"),
-  Symbol.for("ilha.frameLoaderRunner"),
   Symbol.for("oxidejs.runWithRequest"),
 ];
 
@@ -22,8 +23,6 @@ import {
   renderServerIsland,
   setFrameAuth,
   setFrameGuard,
-  setFrameLoaderRunner,
-  setLoaderGuard,
 } from "./ssr";
 import handleFrame from "./ssr";
 
@@ -51,64 +50,6 @@ describe("@ilha/router/ssr", () => {
     ).toBeUndefined();
     const res = await handleFrame(new Request("http://localhost/__ilha/frame", { method: "GET" }));
     expect(res?.status).toBe(405);
-  });
-
-  test("serves GET /__ilha/loader through the runner slot", async () => {
-    openFrames();
-    setFrameLoaderRunner(async (path: string) =>
-      path === "/data"
-        ? { kind: "data", data: { note: "hi" } }
-        : { kind: "error", status: 404, message: "not found" },
-    );
-    const ok = await handleFrame(new Request("http://localhost/__ilha/loader?path=/data"));
-    expect(ok?.status).toBe(200);
-    expect((await ok!.json()).data).toEqual({ note: "hi" });
-
-    const miss = await handleFrame(new Request("http://localhost/__ilha/loader?path=/nope"));
-    // Runner outcomes forward their original status (not-found → 404).
-    expect(miss?.status).toBe(404);
-  });
-
-  test("denies the loader endpoint by default when no guard is registered", async () => {
-    setFrameLoaderRunner(async () => ({ kind: "data", data: {} }));
-    const res = await handleFrame(new Request("http://localhost/__ilha/loader?path=/data"));
-    expect(res?.status).toBe(403);
-  });
-
-  test("forwards the originating request to the loader runner in request scope", async () => {
-    openFrames();
-    let received: Request | undefined;
-    (globalThis as unknown as Record<symbol, unknown>)[Symbol.for("oxidejs.runWithRequest")] = (
-      request: Request,
-      fn: () => unknown,
-    ) => {
-      received = request;
-      return fn();
-    };
-    const runnerCall: { path?: string; request?: Request } = {};
-    setFrameLoaderRunner(async (path: string, request?: Request) => {
-      runnerCall.path = path;
-      runnerCall.request = request;
-      return { kind: "data", data: {} };
-    });
-    const res = await handleFrame(
-      new Request("http://localhost/__ilha/loader?path=/data", {
-        headers: { authorization: "Bearer x" },
-      }),
-    );
-    expect(res?.status).toBe(200);
-    expect(runnerCall.path).toBe("/data");
-    expect(runnerCall.request?.headers.get("authorization")).toBe("Bearer x");
-    expect(received?.url).toBe("http://localhost/__ilha/loader?path=/data");
-  });
-
-  test("rejects backslash and double-slash loader targets", async () => {
-    openFrames();
-    setFrameLoaderRunner(async () => ({ kind: "data", data: {} }));
-    const bs = await handleFrame(new Request("http://localhost/__ilha/loader?path=/\\evil.com"));
-    expect(bs?.status).toBe(400);
-    const ds = await handleFrame(new Request("http://localhost/__ilha/loader?path=//evil.com"));
-    expect(ds?.status).toBe(400);
   });
 
   test("rejects backslash frame paths that would smuggle a foreign origin", async () => {
@@ -224,32 +165,20 @@ describe("@ilha/router/ssr", () => {
     expect(allowed?.status).not.toBe(403);
   });
 
-  test("a dedicated loader guard gates the loader endpoint", async () => {
-    const blocked = new Response("blocked", { status: 403 });
-    setLoaderGuard(() => blocked);
-    setFrameLoaderRunner(async () => ({ kind: "data", data: {} }));
-    const res = await handleFrame(new Request("http://localhost/__ilha/loader?path=/data"));
-    expect(res?.status).toBe(403);
-    // Falling back to the frame guard still gates loader data (compat).
-    setLoaderGuard(undefined as never);
-    setFrameGuard(() => blocked);
-    const res2 = await handleFrame(new Request("http://localhost/__ilha/loader?path=/data"));
-    expect(res2?.status).toBe(403);
-  });
-
   test("nested island frames render with parent props", async () => {
     registerServerIsland(
       "greet",
       () => (props?: { name?: string }) => `Hello, ${props?.name ?? ""}!`,
     );
-    const html = await renderServerIsland(
-      "greet",
-      new Request("http://localhost/"),
-      (_r, fn) => fn(),
-      undefined,
-      { name: "Ada" },
+    const result = await Effect.runPromise(
+      Effect.result(
+        renderServerIsland("greet", new Request("http://localhost/"), (_r, fn) => fn(), {
+          name: "Ada",
+        }),
+      ),
     );
-    expect(html).toBe("Hello, Ada!");
+    expect(Result.isSuccess(result)).toBe(true);
+    expect((result as { success: string }).success).toBe("Hello, Ada!");
   });
 
   test("frame POST applies parent props", async () => {
@@ -276,64 +205,6 @@ describe("@ilha/router/ssr", () => {
     expect(getServerIslandEntry("missing")).toBeUndefined();
     const entry = getServerIslandEntry("test-island-id");
     expect(typeof entry?.render).toBe("function");
-  });
-
-  test("server-page load receives decoded route params", async () => {
-    let captured: Record<string, string> | undefined;
-    registerServerIsland("decoded-page", () => () => "<p>ok</p>", {
-      pattern: "/user/:id",
-      load: async ({ params }) => {
-        captured = params;
-        return {};
-      },
-    });
-    const req = new Request("http://localhost/user/a%20b");
-    await renderServerIsland("decoded-page", req, (_r, fn) => fn());
-    expect(captured).toEqual({ id: "a b" });
-  });
-
-  test("server-page load exposes and returns head contributions", async () => {
-    registerServerIsland("head-page", () => () => "<p>ok</p>", {
-      load: ({ head }) => head({ title: "Server page" }),
-    });
-    let entries: unknown;
-    await renderServerIsland(
-      "head-page",
-      new Request("http://localhost/learn"),
-      (_request, fn) => fn(),
-      (value) => (entries = value),
-    );
-    expect(entries).toEqual([{ title: "Server page" }]);
-  });
-
-  test("same-origin frame load redirects are emitted; cross-origin are blocked", async () => {
-    openFrames();
-    registerServerIsland("safe-redirect", () => () => "<p>ok</p>", {
-      load: async () => {
-        throw Object.assign(new Error("redirect"), {
-          __ilhaRedirect: true,
-          to: "/login",
-          status: 302,
-        });
-      },
-    });
-    registerServerIsland("unsafe-redirect", () => () => "<p>ok</p>", {
-      load: async () => {
-        throw Object.assign(new Error("redirect"), {
-          __ilhaRedirect: true,
-          to: "https://evil.example/phish",
-          status: 302,
-        });
-      },
-    });
-
-    const safe = await handleFrame(post(JSON.stringify({ id: "safe-redirect", path: "/" })));
-    expect(safe?.status).toBe(302);
-    expect(((await safe!.json()) as { redirect: string }).redirect).toBe("/login");
-
-    const unsafe = await handleFrame(post(JSON.stringify({ id: "unsafe-redirect", path: "/" })));
-    expect(unsafe?.status).toBe(500);
-    expect(((await unsafe!.json()) as { redirect?: string }).redirect).toBeUndefined();
   });
 
   test("scoped request URL derives from the request origin, not the Host header", async () => {
