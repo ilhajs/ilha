@@ -5,6 +5,7 @@ import HeroTechCards from "../src/components/landing/HeroTechCards.astro";
 import { ProjectCreatorForm } from "../src/components/landing/Landing";
 
 import {
+  DEFAULT_INSTALL_COMMAND,
   ILHA_ASTRO_CODE,
   ILHA_ROUTER_CODE,
   ILHA_STORE_CODE,
@@ -81,9 +82,15 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
                   Try it online
                 </a>
               </div>
-                <button class="btn btn-outline">
-                  npx giget@latest gh:ilhajs/ilha/templates/vite-spa my-app
-                </button>
+              <button
+                type="button"
+                class="btn btn-outline w-full min-w-0 justify-start overflow-hidden text-left"
+                data-copy-command
+                data-copy-value={DEFAULT_INSTALL_COMMAND}
+              >
+                <img src="/copy.svg" class="size-5 shrink-0" alt="" />
+                <span class="block truncate" data-copy-label>{DEFAULT_INSTALL_COMMAND}</span>
+              </button>
             </div>
           </div>
 
@@ -282,4 +289,10 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
       </a>
     </footer>
   </div>
+  <script>
+    import { bindCopyCommandButtons } from "../src/scripts/copy-command.ts";
+
+    bindCopyCommandButtons();
+    document.addEventListener("astro:page-load", () => bindCopyCommandButtons());
+  </script>
 </PageLayout>

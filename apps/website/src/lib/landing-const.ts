@@ -5,6 +5,8 @@ export const URLS = {
   X_COM: "https://x.com/ilha_js",
 } as const;
 
+export const DEFAULT_INSTALL_COMMAND = "npx giget@latest gh:ilhajs/ilha/templates/vite-spa my-app";
+
 export const META_DESCRIPTION =
   "Build fast, interactive websites with JavaScript only where you need it. Ilha works with your existing stack and keeps every page lightweight.";
 
