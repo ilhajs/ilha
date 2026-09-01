@@ -90,10 +90,12 @@ Virtual modules: `ilha:pages/client`, `ilha:pages/server` — see [File-system r
 
 Production middleware for `POST /__ilha/frame`.
 
-| Export          | Purpose                                   |
-| --------------- | ----------------------------------------- |
-| `setFrameAuth`  | `defaultAction`, `trustedOrigins`, `csrf` |
-| `setFrameGuard` | Per-request allow/deny                    |
+| Export                                                  | Purpose                                                                                                               |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `ssr` (default)                                         | The fetch handler itself                                                                                              |
+| `setFrameAuth`                                          | `defaultAction`, `trustedOrigins`, `csrf`                                                                             |
+| `setFrameGuard`                                         | Per-request allow/deny                                                                                                |
+| `renderServerIsland(id, request, runWithScope, props?)` | Render one server island — returns `Effect<string, FrameError>`. Use `renderServerIslandResult` for a plain `Promise` |
 
 ## `@ilha/router/server-island`
 
