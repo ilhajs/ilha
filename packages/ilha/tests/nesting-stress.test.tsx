@@ -80,11 +80,11 @@ test("fifty keyed rows survive add, remove, and reorder", async () => {
   el.remove();
 });
 
-test("computed atoms track through nested components", async () => {
+test("Atom.transform tracks through nested components", async () => {
   let deep: AtomHandle<number> | undefined;
   function Level(props: Record<string, unknown>) {
     const depth = props.depth as number;
-    const derived = atom(() => (deep?.() ?? 0) + depth);
+    const derived = atom(Atom.transform(deep!.atom, (get, source) => get(source) + depth));
     if (depth === LEVELS) return <span data-out={depth}>{derived}</span>;
     return (
       <div>

@@ -118,7 +118,7 @@ function morphChildren(fromParent: Element, toParent: Element): void {
     }
 
     if (!fromNode) {
-      fromParent.appendChild(toNode.cloneNode(true));
+      fromParent.appendChild(toNode);
       continue;
     }
     if (fromNode.nodeType !== toNode.nodeType) {

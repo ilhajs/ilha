@@ -11,19 +11,21 @@ export function ProjectCreatorForm() {
   const name = atom("");
   const template = atom<(typeof TEMPLATES)[number]["value"]>("vite-spa");
   const useBun = atom(false);
-  const createCommand = atom(() => {
+
+  const command = () => {
     const packageManager = useBun() ? "bunx" : "npx";
     const projectName = name() ? ` ${name()}` : "";
     return `${packageManager} giget@latest gh:ilhajs/ilha/templates/${template()}${projectName}`;
-  });
-  const sandboxUrl = atom(() => URLS.SANDBOX.replace("{template}", template()));
-  const hasSandbox = atom(
-    () => TEMPLATES.find((candidate) => candidate.value === template())?.sandbox ?? true,
-  );
+  };
+
+  const sandboxUrl = () => URLS.SANDBOX.replace("{template}", template());
+
+  const hasSandbox = () =>
+    TEMPLATES.find((candidate) => candidate.value === template())?.sandbox ?? true;
 
   const copyCommand = async (event: MouseEvent) => {
     try {
-      await navigator.clipboard.writeText(createCommand());
+      await navigator.clipboard.writeText(command());
     } catch {
       return;
     }
@@ -87,7 +89,7 @@ export function ProjectCreatorForm() {
           onclick={copyCommand}
         >
           <img src="/copy.svg" class="size-5 shrink-0" alt="" />
-          <span class="block truncate">{createCommand}</span>
+          <span class="block truncate">{command()}</span>
         </button>
         <a
           href={sandboxUrl()}

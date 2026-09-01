@@ -27,7 +27,7 @@ Most UI frameworks hydrate an application. Ilha hydrates **only the components t
 - **One component, every environment** — the same function renders on the server, mounts in the browser, and hydrates in place.
 - **A consistent SSR story** — `renderToString()` waits until idle, then serializes HTML and an optional atom snapshot.
 - **Progressive by default** — add one component to server-rendered HTML or compose a complete SPA. You choose the boundary.
-- **Small API, strong TypeScript** — function components, `atom()`, `when` / `watch` / `wait`, and JSX.
+- **Small API, strong TypeScript** — function components, `atom()`, `watch()`, `when`, and JSX.
 - **Backend and runtime agnostic** — web platform primitives and ESM, so it fits existing servers, edge runtimes, static sites, and browsers.
 
 Because Ilha sends only the interactive parts of a page, real applications can ship **around 5× less client JavaScript than whole-page hydration**. The exact result depends on your component boundaries and dependencies—measure your production bundle, not the slogan.
@@ -116,18 +116,18 @@ No duplicate template. No separate client component. No hydration flicker.
 ## A small reactive toolbox
 
 ```tsx
-import { atom, when, watch, wait, mount, renderToString, h } from "ilha";
+import { atom, batch, watch, when, mount, renderToString, h } from "ilha";
 ```
 
-| Export             | Use it for                                    |
-| ------------------ | --------------------------------------------- |
-| `atom()`           | Local or computed reactive values             |
-| `when()`           | Render a generator body for each Stream value |
-| `watch()`          | Side effects on an atom or Stream             |
-| `wait()`           | Pause a generator until `done(value)`         |
-| `mount()`          | Activate a component in the DOM               |
-| `renderToString()` | Serialize a component to HTML                 |
-| `h` / `Fragment`   | JSX factory                                   |
+| Export             | Use it for                                          |
+| ------------------ | --------------------------------------------------- |
+| `atom()`           | Component-local reactive slots                      |
+| `batch()`          | Coalesce multiple atom writes                       |
+| `watch()`          | Side effects on atom or stream changes              |
+| `when()`           | Per-emission generator body (interrupts stale work) |
+| `mount()`          | Activate a component in the DOM                     |
+| `renderToString()` | Serialize a component to HTML                       |
+| `h` / `Fragment`   | JSX factory                                         |
 
 Ordinary event handlers stay ordinary functions (`onclick={handler}`). Lists are Streams of data, not atoms of JSX.
 

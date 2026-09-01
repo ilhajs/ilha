@@ -3,12 +3,19 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
+import type * as Atom from "effect/unstable/reactivity/Atom";
 import type { AtomRegistry } from "effect/unstable/reactivity/AtomRegistry";
 import * as Registry from "effect/unstable/reactivity/AtomRegistry";
 
 import type { View, IlhaRuntime } from "./types.ts";
 
-export type Hole = { dispose: () => void };
+export type Hole = {
+  dispose: () => void;
+  keepOnMorph?: boolean;
+  atom?: Atom.Atom<unknown>;
+  host?: Element;
+  holeFiber?: FiberLocal;
+};
 
 export interface FiberLocal {
   root: ParentNode;
@@ -21,6 +28,12 @@ export interface FiberLocal {
   hydrate?: boolean;
   keyedHoles?: Map<string, FiberLocal>;
   liveEl?: Element;
+  primitiveI?: number;
+  primitives?: import("effect/unstable/reactivity/Atom").Atom<unknown>[];
+  watchI?: number;
+  watchSlots?: import("./watch.ts").WatchSlot[];
+  renderSub?: () => void;
+  trackRestore?: () => void;
   propsBox?: { current: Record<string, unknown> };
   paint: (view: View) => void;
   run: (
@@ -88,6 +101,12 @@ const runInScope = (
 export function closeFiber(fiber: FiberLocal): void {
   if (fiber.closed) return;
   fiber.closed = true;
+  fiber.trackRestore?.();
+  fiber.trackRestore = undefined;
+  fiber.renderSub?.();
+  fiber.renderSub = undefined;
+  for (const slot of fiber.watchSlots ?? []) slot?.dispose();
+  fiber.watchSlots = [];
   for (const h of fiber.holes) h.dispose();
   fiber.holes = [];
   Effect.runFork(Scope.close(fiber.scope, Exit.void));

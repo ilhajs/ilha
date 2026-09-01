@@ -63,5 +63,3 @@ export interface AtomHandle<A> {
   set(next: A): void;
   update(f: (current: A) => A): void;
 }
-
-export type Done<A> = (value: A) => void;

@@ -7,7 +7,7 @@ import * as Atom from "effect/unstable/reactivity/Atom";
 
 import { define } from "../src/define.ts";
 import { failureMessage } from "../src/errors.ts";
-import { atom, h, mount, renderToString, watch } from "../src/index.ts";
+import { atom, h, mount, renderToString } from "../src/index.ts";
 import { encodeSnapshot } from "../src/snapshot.ts";
 import "../src/jsx-dev-runtime.ts";
 
@@ -34,18 +34,15 @@ test("yield Effect.fail paints error", async () => {
   expect(el.textContent).toContain("nope");
 });
 
-test("watch stream and Atom", async () => {
+test("yield* Stream.runForEach for finite stream side effects", async () => {
   const seen: number[] = [];
   const el = document.createElement("div");
   mount(el, function* () {
-    yield* watch(Stream.fromIterable([1, 2]), (n) => seen.push(n as number));
-    const a = Atom.make(3);
-    yield* watch(a, (n) => seen.push(n));
+    yield* Stream.runForEach(Stream.fromIterable([1, 2]), (n) => Effect.sync(() => seen.push(n)));
     yield "ok";
   });
   await Bun.sleep(10);
-  expect(seen).toContain(1);
-  expect(seen).toContain(3);
+  expect(seen).toEqual([1, 2]);
   expect(el.textContent).toBe("ok");
 });
 

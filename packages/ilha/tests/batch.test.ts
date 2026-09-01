@@ -1,0 +1,59 @@
+import { expect, test } from "bun:test";
+
+import * as Effect from "effect/Effect";
+import * as Atom from "effect/unstable/reactivity/Atom";
+
+import { atom, batch, mount } from "../src/index.ts";
+
+test("batch coalesces multiple writes", async () => {
+  let renders = 0;
+  const App = () => {
+    const a = atom(0);
+    const b = atom(0);
+    renders++;
+    return {
+      $$ilha: 1 as const,
+      type: "button",
+      props: {
+        onclick: () => {
+          batch(() => {
+            a.set(1);
+            b.set(2);
+          });
+        },
+      },
+      children: [`${a()}-${b()}`],
+    };
+  };
+  const el = document.createElement("div");
+  document.body.append(el);
+  mount(el, App);
+  await Bun.sleep(5);
+  const before = renders;
+  el.querySelector("button")!.click();
+  await Bun.sleep(10);
+  expect(el.textContent).toBe("1-2");
+  expect(renders - before).toBe(1);
+  el.remove();
+});
+
+test("Atom.fn mutation runs through handle.set", async () => {
+  const App = () => {
+    const total = atom(0);
+    const bump = atom(Atom.fn(() => Effect.sync(() => total.update((n) => n + 1))));
+    return {
+      $$ilha: 1 as const,
+      type: "button",
+      props: { onclick: () => bump.set(undefined) },
+      children: [total],
+    };
+  };
+  const el = document.createElement("div");
+  document.body.append(el);
+  mount(el, App);
+  await Bun.sleep(5);
+  el.querySelector("button")!.click();
+  await Bun.sleep(20);
+  expect(el.textContent).toBe("1");
+  el.remove();
+});
