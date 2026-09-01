@@ -75,13 +75,14 @@ Call inside a page or layout. Layouts typically set `titleTemplate`; pages set `
 
 `pages(options?)` — file-system routing plugin. Default dir `src/pages`, out `.ilha`.
 
-| Option           | Meaning                           |
-| ---------------- | --------------------------------- |
-| `dir`            | Pages directory                   |
-| `outDir`         | Generated modules directory       |
-| `mode`           | `"spa"` or `"static"`             |
-| `frameGuard`     | Dev frame guard                   |
-| `trustedOrigins` | Explicit origins for frame checks |
+| Option           | Meaning                                |
+| ---------------- | -------------------------------------- |
+| `dir`            | Pages directory                        |
+| `outDir`         | Generated modules directory            |
+| `mode`           | `"spa"` or `"static"`                  |
+| `frameGuard`     | Dev frame guard                        |
+| `trustedOrigins` | Explicit origins for frame checks      |
+| `csrf`           | Optional CSRF verifier for frame POSTs |
 
 Virtual modules: `ilha:pages/client`, `ilha:pages/server` — see [File-system routing](/guide/routing/file-system-routing).
 
