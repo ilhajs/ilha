@@ -16,8 +16,15 @@ export type MountOptions = {
   onError?: (error: unknown) => void;
 };
 
+// SAFETY: escapes values embedded in double-quoted HTML attributes only
+// (`data-ilha-state`, `data-ilha-actions`). Do not reuse for single-quoted or
+// unquoted attribute contexts without a different escaper.
 function escapeAttr(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function readHydrate(el: Element): unknown[] | undefined {

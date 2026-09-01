@@ -3,10 +3,18 @@ import * as Stream from "effect/Stream";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import type { AtomRegistry } from "effect/unstable/reactivity/AtomRegistry";
 
-import { getFiber, withFiber, type FiberLocal } from "./runtime.ts";
+import { getActiveFiber, getFiber, withFiber, type FiberLocal } from "./runtime.ts";
 import type { AtomHandle, Instruction } from "./types.ts";
 
 export const handleOwner = new WeakMap<object, FiberLocal>();
+
+function guardHandleFiber(handle: object): void {
+  const owner = handleOwner.get(handle);
+  if (!owner) return;
+  const active = getActiveFiber();
+  if (!active || active.registry === owner.registry) return;
+  throw new Error("ilha: atom handle used from a different island");
+}
 
 export function instr<A, E = never>(effect: Effect.Effect<A, E, AtomRegistry>): Instruction<A, E> {
   const fiber = getFiber();
@@ -41,18 +49,23 @@ let trackGet: ((atom: Atom.Atom<any>) => unknown) | undefined;
 
 export function wrapHandle<A>(atom: Atom.Atom<A>, fiber: FiberLocal): AtomHandle<A> {
   const registry = fiber.registry;
-  const read = (() => (trackGet ? trackGet(atom) : registry.get(atom))) as AtomHandle<A>;
+  const read = (() => {
+    guardHandleFiber(read);
+    return trackGet ? trackGet(atom) : registry.get(atom);
+  }) as AtomHandle<A>;
   handleOwner.set(read, fiber);
   Object.defineProperties(read, {
     $$atom: { value: 1 },
     atom: { value: atom },
     set: {
       value: (n: A) => {
+        guardHandleFiber(read);
         if (Atom.isWritable(atom)) registry.set(atom, n);
       },
     },
     update: {
       value: (f: (c: A) => A) => {
+        guardHandleFiber(read);
         if (Atom.isWritable(atom)) registry.update(atom, f);
       },
     },

@@ -8,6 +8,32 @@ test("atom outside island throws", () => {
   }).toThrow(/no fiber/);
 });
 
+test("atom handle from another island throws when a different island is active", async () => {
+  let foreign: (() => number) | undefined;
+
+  const A = () => {
+    const n = atom(0);
+    foreign = n;
+    return { $$ilha: 1 as const, type: "span", props: {}, children: [n] };
+  };
+  const B = () => {
+    atom(1);
+    expect(() => foreign!()).toThrow(/different island/);
+    return { $$ilha: 1 as const, type: "span", props: {}, children: ["b"] };
+  };
+
+  const root = document.createElement("div");
+  document.body.append(root);
+  const aHost = document.createElement("div");
+  const bHost = document.createElement("div");
+  root.append(aHost, bHost);
+  mount(aHost, A);
+  await Bun.sleep(5);
+  mount(bHost, B);
+  await Bun.sleep(5);
+  root.remove();
+});
+
 test("atom hole updates text without second root yield", async () => {
   const Counter = function* () {
     const count = atom(0);

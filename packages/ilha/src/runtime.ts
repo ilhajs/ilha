@@ -33,11 +33,15 @@ export interface FiberLocal {
 }
 
 const stack: FiberLocal[] = [];
+// Active render context for primitives. Callers must run island setup and
+// Effect continuations inside `withFiber`; async callbacks that call `atom()`
+// without it may bind to the wrong island when another mount is on the stack.
 export const getFiber = (): FiberLocal => {
   const f = stack.findLast((x) => !x.closed);
   if (!f) throw new Error("ilha: no fiber");
   return f;
 };
+export const getActiveFiber = (): FiberLocal | undefined => stack.findLast((x) => !x.closed);
 export const withFiber = <A>(fiber: FiberLocal, fn: () => A): A => {
   stack.push(fiber);
   try {
