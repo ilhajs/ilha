@@ -54,7 +54,7 @@ export const TaskList = async function TaskList() {
             {task.text}
             <button
               type="button"
-              onclick={() => deleteTask(task.id)}
+              onclick={deleteTask.with(task.id)}
             >
               Remove
             </button>
@@ -78,7 +78,7 @@ export default function Home() {
 
 The plugin replaces the server module with a client proxy. The proxy posts `/__ilha/frame`, morphs the HTML, and reconnects events.
 
-Mark RPC functions with `action` from `oxidejs`. Event closures that call those actions serialize into the frame HTML.
+Mark RPC functions with `action` from `oxidejs`. Bind them with `.with(...)` on event props so SSR can emit frame sentinels without running your handler during render.
 
 Subscribe with `Stream.fromAsyncIterable(getTasks())` so the scanner wires a live stream. Each yield refetches the frame.
 

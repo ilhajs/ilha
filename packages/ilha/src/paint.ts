@@ -7,7 +7,7 @@ import { failureMessage } from "./errors.ts";
 import { bindEvents, isEventProp } from "./events.ts";
 import { KEY_ATTR, SLOT_ATTR, morphInner } from "./morph.ts";
 import { closeFiber, makeFiber, withFiber, type FiberLocal } from "./runtime.ts";
-import { isSafeUrlAttrValue, isUrlAttributeName, serializeStyle } from "./security.ts";
+import { isSafeUrlAttrValue, isUrlAttributeName, serializeStyleAttr } from "./security.ts";
 import { runSetup } from "./start.ts";
 import { Fragment, type Component, type View } from "./types.ts";
 import { isSetupFn, isVNode } from "./vnode.ts";
@@ -41,11 +41,16 @@ function applyProps(el: Element, props: Record<string, unknown>, fiber: FiberLoc
       continue;
     }
     if (k.toLowerCase() === "srcdoc") continue;
-    if (k === "style" && v && typeof v === "object") {
-      (el as HTMLElement).style.cssText = serializeStyle(v as Record<string, unknown>);
+    if (k === "style" && v != null && v !== false) {
+      const css =
+        typeof v === "string" || typeof v === "object"
+          ? serializeStyleAttr(v as string | Record<string, unknown>)
+          : "";
+      if (css) (el as HTMLElement).style.cssText = css;
       continue;
     }
     if (isEventProp(k)) continue;
+    if (/^on[A-Z]/.test(k)) continue;
     if (k === "value" || k === "checked" || k === "selected") {
       const setProp = (x: unknown) => {
         const node = el as HTMLElement & {
@@ -73,6 +78,7 @@ function applyProps(el: Element, props: Record<string, unknown>, fiber: FiberLoc
       } else setProp(v);
       continue;
     }
+    if (typeof v === "function") continue;
     if (v === false || v === null || v === undefined) el.removeAttribute(k);
     else {
       const str = v === true ? "" : String(v);

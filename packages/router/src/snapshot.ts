@@ -37,6 +37,13 @@ function exceedsDepth(value: unknown, depth: number): boolean {
   return false;
 }
 
+export function sanitizeSnapshotObject(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  if (exceedsDepth(value, 1)) return undefined;
+  stripUnsafeKeys(value);
+  return value as Record<string, unknown>;
+}
+
 export function parseSnapshotAttr(raw: string): Record<string, unknown> | undefined {
   if (raw.length > MAX_SNAPSHOT_CHARS) return undefined;
   let parsed: unknown;
@@ -45,8 +52,5 @@ export function parseSnapshotAttr(raw: string): Record<string, unknown> | undefi
   } catch {
     return undefined;
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
-  if (exceedsDepth(parsed, 1)) return undefined;
-  stripUnsafeKeys(parsed);
-  return parsed as Record<string, unknown>;
+  return sanitizeSnapshotObject(parsed);
 }

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { h, mount } from "../src/index.ts";
+import { atom, h, mount, renderToString } from "../src/index.ts";
 
 function paint(view: ReturnType<typeof h>): HTMLElement {
   const el = document.createElement("div");
@@ -17,6 +17,16 @@ test("rejects javascript: href", () => {
 
 test("rejects control-char padded javascript href", () => {
   const el = paint(h("a", { href: "\njavascript:alert(1)" }, "x"));
+  expect(el.querySelector("a")?.getAttribute("href")).toBeNull();
+});
+
+test("rejects nbsp-padded javascript href", () => {
+  const el = paint(h("a", { href: "\u00a0javascript:alert(1)" }, "x"));
+  expect(el.querySelector("a")?.getAttribute("href")).toBeNull();
+});
+
+test("rejects zero-width padded javascript href", () => {
+  const el = paint(h("a", { href: "\u200bjavascript:alert(1)" }, "x"));
   expect(el.querySelector("a")?.getAttribute("href")).toBeNull();
 });
 
@@ -53,6 +63,65 @@ test("rejects javascript in srcset candidate", () => {
 test("drops style expression()", () => {
   const el = paint(h("div", { style: { color: "red", x: "expression(alert(1))" } }));
   expect(el.querySelector("div")?.getAttribute("style") ?? "").not.toContain("expression");
+});
+
+test("filters string style values through the allowlist", () => {
+  const div = paint(
+    h("div", { style: "color:red;background:url(javascript:alert(1))" }),
+  ).querySelector("div") as HTMLDivElement;
+  expect(div.style.color).toBe("red");
+  expect(div.style.background).toBe("");
+});
+
+test("drops mixed-case onClick string handlers", () => {
+  const el = paint(h("button", { onClick: "alert(1)" }, "x"));
+  expect(el.querySelector("button")?.getAttribute("onClick")).toBeNull();
+  expect(el.querySelector("button")?.getAttribute("onclick")).toBeNull();
+});
+
+test("drops invalid camelCase on-prefixed props", () => {
+  const el = paint(h("div", { onGo: "x", onOK: "y" }, "z"));
+  const div = el.querySelector("div")!;
+  expect(div.getAttribute("onGo")).toBeNull();
+  expect(div.getAttribute("onOK")).toBeNull();
+});
+
+test("keeps non-event once attribute", () => {
+  const el = paint(h("div", { once: "yes" }, "x"));
+  expect(el.querySelector("div")?.getAttribute("once")).toBe("yes");
+});
+
+test("rejects css url escapes and data urls in string styles", () => {
+  const escaped = paint(
+    h("div", { style: "background:url(\\6a avascript:alert(1))" }),
+  ).querySelector("div") as HTMLDivElement;
+  expect(escaped.style.background).toBe("");
+
+  const dataUrl = paint(
+    h("div", { style: "background:url(data:image/svg+xml,<svg></svg>)" }),
+  ).querySelector("div") as HTMLDivElement;
+  expect(dataUrl.style.background).toBe("");
+});
+
+test("never serializes function handlers as attributes", async () => {
+  const html = await renderToString(() =>
+    h("button", { onMouseOver: () => undefined, onClick: () => undefined }, "x"),
+  );
+  expect(html).not.toContain("onMouseOver");
+  expect(html).not.toContain("onClick");
+  expect(html).not.toContain("function");
+});
+
+test("markers off snapshot escapes comment breakout payloads", async () => {
+  const html = await renderToString(
+    async () => {
+      const evil = atom("--> <img src=x onerror=1>");
+      return h("p", null, evil);
+    },
+    { markers: false },
+  );
+  expect(html.startsWith('<template data-ilha-state="')).toBe(true);
+  expect(html).not.toContain("--> <img");
 });
 
 test("false null undefined drop attributes", () => {

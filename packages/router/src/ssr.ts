@@ -17,9 +17,10 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
-import { recordServerAction, renderToString } from "ilha";
+import { renderToString } from "ilha";
 
 import { runWithIslandRequest } from "./request-scope";
+import { sanitizeSnapshotObject } from "./snapshot.ts";
 
 /**
  * Server-frame state shared by the dev middleware and the production
@@ -162,6 +163,44 @@ export function isSafeFramePath(path: string): boolean {
   );
 }
 
+/**
+ * Build the scoped frame render URL from the incoming request URL and frame
+ * path. Absolute `incomingUrl` values supply the origin. Relative values (for
+ * example Vite's `req.url`) require an explicit trusted `serverOrigin` — never
+ * a client `Host` header.
+ */
+export function frameScopedUrl(
+  incomingUrl: string,
+  framePath: string,
+  serverOrigin?: string,
+): string {
+  let origin: string;
+  try {
+    const incoming = new URL(incomingUrl);
+    if (incoming.protocol !== "http:" && incoming.protocol !== "https:") {
+      throw new TypeError("unsupported protocol");
+    }
+    origin = incoming.origin;
+  } catch {
+    if (serverOrigin == null) {
+      throw new Error("frameScopedUrl: relative incomingUrl requires serverOrigin");
+    }
+    origin = parseServerOrigin(serverOrigin);
+  }
+  return new URL(framePath, origin).href;
+}
+
+function parseServerOrigin(value: string): string {
+  if (!value.includes("://")) {
+    throw new Error("frameScopedUrl: serverOrigin must be an absolute URL");
+  }
+  const parsed = new URL(value);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("frameScopedUrl: serverOrigin must be http(s)");
+  }
+  return parsed.origin;
+}
+
 /** Identity headers forwarded onto scoped render/loader requests. */
 const FORWARD_IDENTITY_HEADERS = ["cookie", "authorization", "user-agent"] as const;
 
@@ -212,10 +251,9 @@ export function __ilhaServerAction<A extends unknown[], R>(
   key: string,
   fn: (...args: A) => R,
 ): ((...args: A) => R) & { with: (...args: A) => (...ev: unknown[]) => R } {
-  const wrapped = ((...args: A) => {
-    if (recordServerAction(key, args)) return undefined as R;
-    return fn(...args);
-  }) as ((...args: A) => R) & { with: (...args: A) => (...ev: unknown[]) => R };
+  const wrapped = ((...args: A) => fn(...args)) as ((...args: A) => R) & {
+    with: (...args: A) => (...ev: unknown[]) => R;
+  };
   wrapped.with = (...args: A) => {
     const handler = ((..._ev: unknown[]) => wrapped(...args)) as ((...ev: unknown[]) => R) &
       Record<symbol, { k: string; a: unknown[] }>;
@@ -317,7 +355,9 @@ export function parseFrameProps(value: unknown): Record<string, unknown> | undef
   if (typeof value !== "object" || Array.isArray(value)) {
     throw new FrameError({ status: 400, message: "frame failed" });
   }
-  return value as Record<string, unknown>;
+  const sanitized = sanitizeSnapshotObject(value);
+  if (!sanitized) throw new FrameError({ status: 400, message: "frame failed" });
+  return sanitized;
 }
 
 export function json(status: number, body: Record<string, unknown>): Response {
@@ -457,7 +497,7 @@ async function ssr(request: Request): Promise<Response | undefined> {
     // frame's route path with identity headers (cookie, auth, UA) forwarded.
     // Client-supplied `x-forwarded-for` is NOT forwarded — it is spoofable
     // and must not be trusted for IP checks.
-    const scoped = new Request(new URL(path, url.origin), {
+    const scoped = new Request(frameScopedUrl(url.href, path), {
       method: "POST",
       headers: forwardIdentityHeaders(request.headers),
     });

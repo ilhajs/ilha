@@ -1,8 +1,10 @@
 import { existsSync, readFileSync, statSync, watch } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
+import * as Result from "effect/Result";
 import { createUnplugin } from "unplugin";
 import type { UnpluginFactory } from "unplugin";
+import type { ViteDevServer } from "vite";
 
 import { generate, resolveGeneratedPaths } from "./codegen";
 import type { PagesMode } from "./codegen";
@@ -24,10 +26,31 @@ import {
   getFrameGuard,
   isSafeFramePath,
   parseFrameProps,
-  renderServerIsland,
+  renderServerIslandResult,
+  frameScopedUrl,
   setFrameAuth,
   setFrameGuard,
 } from "./ssr";
+
+function devServerOrigin(server: ViteDevServer): string {
+  const configured = server.config.server.origin;
+  if (configured) {
+    const value = typeof configured === "string" ? configured : String(configured);
+    return new URL(value).origin;
+  }
+  const local = server.resolvedUrls?.local?.[0];
+  if (local) return new URL(local).origin;
+  const { host, port, https } = server.config.server;
+  const hostname =
+    host === true || host === undefined || host === ""
+      ? "localhost"
+      : host === false
+        ? "localhost"
+        : String(host);
+  const protocol = https ? "https" : "http";
+  const numericPort = typeof port === "number" ? port : port ? Number(port) : 5173;
+  return `${protocol}://${hostname}:${numericPort}`;
+}
 
 export const VIRTUAL_PAGES_SERVER = "ilha:pages/server";
 export const VIRTUAL_PAGES_CLIENT = "ilha:pages/client";
@@ -538,7 +561,8 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
           // production `@ilha/router/ssr` handler so dev can never drift from
           // prod semantics. Dev stays permissive when no guard is registered
           // (defaultAction: "open" is installed in configureServer above).
-          const frameUrl = `http://${req.headers.host ?? "localhost"}${req.url ?? "/"}`;
+          const serverOrigin = devServerOrigin(server);
+          const frameUrl = `${serverOrigin}${req.url ?? "/"}`;
           const authorized = await authorizeFrameRequest(
             new Request(frameUrl, {
               method: req.method,
@@ -607,18 +631,34 @@ const pagesFactory: UnpluginFactory<IlhaPagesOptions | undefined> = (options = {
             // Client-supplied `x-forwarded-for` is NOT forwarded — it is
             // spoofable and must not be trusted for IP checks.
             const headers = authorized.identityHeaders;
-            const requestOrigin = `http://${req.headers.host ?? "localhost"}`;
-            const request = new Request(new URL(framePath, requestOrigin), {
+            const request = new Request(frameScopedUrl(req.url ?? "/", framePath, serverOrigin), {
               method: "POST",
               headers,
             });
-            const html = await renderServerIsland(
+            const result = await renderServerIslandResult(
               body.id ?? "",
               request,
               (r, fn) => runWithIslandRequest(r, fn),
               incomingProps,
             );
-            const env = frameEnvelope(200, { html: String(html) });
+            if (Result.isFailure(result)) {
+              const err = result.failure;
+              if (err.redirect) {
+                const env = frameEnvelope(err.status, { redirect: err.redirect });
+                res.statusCode = env.status;
+                for (const [k, v] of Object.entries(env.headers)) res.setHeader(k, v);
+                res.end(env.body);
+                return;
+              }
+              const status = err.status;
+              if (status >= 500) console.error("[ilha-router] frame render failed:", err);
+              const env = frameEnvelope(status, { error: "frame failed" });
+              res.statusCode = env.status;
+              for (const [k, v] of Object.entries(env.headers)) res.setHeader(k, v);
+              res.end(env.body);
+              return;
+            }
+            const env = frameEnvelope(200, { html: result.success });
             res.statusCode = env.status;
             for (const [k, v] of Object.entries(env.headers)) res.setHeader(k, v);
             res.end(env.body);

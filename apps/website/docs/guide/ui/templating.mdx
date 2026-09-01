@@ -33,7 +33,7 @@ const Counter = () => {
 };
 ```
 
-On a server island, event closures that call `oxidejs` `action`s serialize into the frame HTML. See [Server islands](/guide/routing/server-islands).
+On a server island, bind `oxidejs` `action`s with `.with(...)` on event props so SSR can serialize frame sentinels. Plain client islands keep plain handlers. See [Server islands](/guide/routing/server-islands).
 
 ## Lists
 

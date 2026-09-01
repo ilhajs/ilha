@@ -16,6 +16,7 @@ afterEach(() => {
 });
 
 import {
+  frameScopedUrl,
   getServerIslandEntry,
   isTrustedOrigin,
   registerServerIsland,
@@ -201,10 +202,47 @@ describe("@ilha/router/ssr", () => {
     expect(() => parseFrameProps("x")).toThrow();
   });
 
+  test("parseFrameProps strips prototype pollution keys", () => {
+    const props = parseFrameProps(
+      JSON.parse('{"__proto__":{"polluted":1},"constructor":{"prototype":{"x":1}},"safe":"ok"}'),
+    );
+    expect(props?.safe).toBe("ok");
+    expect(Object.hasOwn(props ?? {}, "__proto__")).toBe(false);
+    expect(Object.hasOwn(props ?? {}, "constructor")).toBe(false);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  test("parseFrameProps rejects deeply nested props", () => {
+    let deep: unknown = { ok: true };
+    for (let i = 0; i < 64; i++) deep = { nested: deep };
+    expect(() => parseFrameProps({ nested: deep })).toThrow();
+  });
+
   test("registry lookup round-trips", () => {
     expect(getServerIslandEntry("missing")).toBeUndefined();
     const entry = getServerIslandEntry("test-island-id");
     expect(typeof entry?.render).toBe("function");
+  });
+
+  test("frameScopedUrl uses absolute incoming origins", () => {
+    expect(frameScopedUrl("http://app.example.com/__ilha/frame", "/tasks")).toBe(
+      "http://app.example.com/tasks",
+    );
+    expect(frameScopedUrl("http://app.example.com/__ilha/frame", "/tasks", "http://evil.com")).toBe(
+      "http://app.example.com/tasks",
+    );
+  });
+
+  test("frameScopedUrl resolves relative incoming URLs against serverOrigin", () => {
+    expect(frameScopedUrl("/__ilha/frame", "/tasks", "http://localhost:5173")).toBe(
+      "http://localhost:5173/tasks",
+    );
+  });
+
+  test("frameScopedUrl rejects host-only serverOrigin fallbacks", () => {
+    expect(() => frameScopedUrl("/__ilha/frame", "/tasks", "evil.com")).toThrow(
+      /serverOrigin must be an absolute URL/,
+    );
   });
 
   test("scoped request URL derives from the request origin, not the Host header", async () => {

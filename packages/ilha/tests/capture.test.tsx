@@ -1,7 +1,7 @@
 /** @jsxImportSource ../src */
 import { expect, test } from "bun:test";
 
-import { recordServerAction, renderToString } from "../src/index.ts";
+import { renderToString } from "../src/index.ts";
 
 const ACTION_CALL = Symbol.for("ilha.actionCall");
 
@@ -10,10 +10,6 @@ function branded(key: string, args: unknown[]) {
   (handler as unknown as Record<symbol, unknown>)[ACTION_CALL] = { k: key, a: args };
   return handler;
 }
-
-test("recordServerAction is inert outside SSR capture", () => {
-  expect(recordServerAction("x:del", ["1"])).toBe(false);
-});
 
 test("branded handler emits a sentinel without captureActions", async () => {
   const html = await renderToString(() => (
@@ -28,33 +24,29 @@ test("branded handler emits a sentinel without captureActions", async () => {
   expect(html).not.toContain("onclick");
 });
 
-test("captureActions probes plain handlers that call server actions", async () => {
-  const del = (id: string) => {
-    recordServerAction("x:del", [id]);
-  };
+test("plain handlers are not probed during SSR capture", async () => {
   const html = await renderToString(
     () => (
-      <button type="button" onclick={() => del("7")}>
+      <button type="button" onclick={() => undefined}>
         Delete
       </button>
     ),
     { captureActions: true },
   );
-  const decoded = html
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&");
-  expect(decoded).toContain('"k":"x:del"');
-  expect(decoded).toContain('"a":["7"]');
+  expect(html).not.toContain("data-ilha-on");
+  expect(html).not.toContain("data-ilha-actions");
 });
 
-test("two events on one element accumulate in data-ilha-on", async () => {
-  const toggle = () => {
-    recordServerAction("x:toggle", []);
-  };
+test("two branded events on one element accumulate in data-ilha-on", async () => {
   const html = await renderToString(
-    () => <input type="checkbox" class="checkbox" onchange={toggle} onclick={toggle} />,
+    () => (
+      <input
+        type="checkbox"
+        class="checkbox"
+        onchange={branded("x:toggle", [])}
+        onclick={branded("x:toggle", [])}
+      />
+    ),
     { captureActions: true },
   );
   const match = /data-ilha-on="([^"]+)"/.exec(html);

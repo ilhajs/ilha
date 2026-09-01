@@ -2,7 +2,15 @@ import { expect, test } from "bun:test";
 
 import * as Effect from "effect/Effect";
 
-import { atom, h, recordServerAction, renderToString } from "../src/index.ts";
+import { atom, h, renderToString } from "../src/index.ts";
+
+const ACTION_CALL = Symbol.for("ilha.actionCall");
+
+function branded(key: string, args: unknown[]) {
+  const handler = () => undefined;
+  (handler as unknown as Record<symbol, unknown>)[ACTION_CALL] = { k: key, a: args };
+  return handler;
+}
 
 test("renderToString paints text without handlers", async () => {
   const App = async () => {
@@ -16,13 +24,11 @@ test("renderToString paints text without handlers", async () => {
   expect(html).not.toContain("onclick");
 });
 
-test("renderToString captures server actions as sentinels", async () => {
-  const del = (id: string) => {
-    if (recordServerAction("x:del", [id])) return;
-  };
-  const html = await renderToString(() => h("button", { onclick: () => del("1") }, "Delete"), {
-    captureActions: true,
-  });
+test("renderToString captures branded server actions as sentinels", async () => {
+  const html = await renderToString(
+    () => h("button", { onclick: branded("x:del", ["1"]) }, "Delete"),
+    { captureActions: true },
+  );
   expect(html).toContain("data-ilha-on");
   expect(html).toContain("x:del");
   expect(html).toContain("data-ilha-actions");

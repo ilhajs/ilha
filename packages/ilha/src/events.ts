@@ -7,17 +7,17 @@ type IlhaNode = Element & {
   __ilhaEvents?: Set<string>;
 };
 
-export function isEventProp(key: string): boolean {
-  return key.length > 2 && key.startsWith("on") && key === key.toLowerCase();
+export function eventTypeFromProp(key: string): string | undefined {
+  if (key.length < 4) return undefined;
+  let type: string | undefined;
+  if (/^on[A-Z]/.test(key)) type = key.slice(2).toLowerCase();
+  else if (/^on[a-z]{3,}$/.test(key)) type = key.slice(2).toLowerCase();
+  else return undefined;
+  return type.length >= 3 ? type : undefined;
 }
 
-let capture: ((key: string, args: unknown[]) => void) | undefined;
-
-/** Record a server-action call during SSR event capture. Returns true when capturing. */
-export function recordServerAction(key: string, args: unknown[]): boolean {
-  if (!capture) return false;
-  capture(key, args);
-  return true;
+export function isEventProp(key: string): boolean {
+  return eventTypeFromProp(key) !== undefined;
 }
 
 export function bindEvents(node: Element, props: Record<string, unknown>, fiber: FiberLocal): void {
@@ -25,8 +25,8 @@ export function bindEvents(node: Element, props: Record<string, unknown>, fiber:
   el.__ilhaProps = props;
   el.__ilhaEvents ??= new Set();
   for (const key of Object.keys(props)) {
-    if (!isEventProp(key)) continue;
-    const type = key.slice(2);
+    const type = eventTypeFromProp(key);
+    if (!type) continue;
     if (el.__ilhaEvents.has(type)) continue;
     el.__ilhaEvents.add(type);
     if (fiber.runtime.ssr) {
@@ -37,29 +37,7 @@ export function bindEvents(node: Element, props: Record<string, unknown>, fiber:
       const branded = (fn as unknown as Record<symbol, { k?: string; a?: unknown[] }>)[
         Symbol.for("ilha.actionCall")
       ];
-      let rec: { k: string; a: unknown[] } | undefined = branded?.k
-        ? { k: branded.k, a: branded.a ?? [] }
-        : undefined;
-      if (!rec) {
-        if (!fiber.runtime.ssrCapture) continue;
-        const prev = capture;
-        capture = (k, a) => {
-          rec = { k, a };
-        };
-        try {
-          fn({
-            type,
-            preventDefault() {},
-            stopPropagation() {},
-            currentTarget: el,
-            target: el,
-          });
-        } catch {
-          /* capture only */
-        } finally {
-          capture = prev;
-        }
-      }
+      const rec = branded?.k ? { k: branded.k, a: branded.a ?? [] } : undefined;
       if (!rec) continue;
       const id = `${type}:${fiber.runtime.ssrEventI++}`;
       fiber.runtime.ssrActions[id] = rec;

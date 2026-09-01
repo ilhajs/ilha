@@ -1,6 +1,6 @@
 import { paint, paintError } from "./paint.ts";
 import { closeFiber, makeFiber, makeRuntime } from "./runtime.ts";
-import { decodeSnapshot, encodeSnapshot, STATE_COMMENT } from "./snapshot.ts";
+import { decodeSnapshot, encodeSnapshot } from "./snapshot.ts";
 import { runSetup } from "./start.ts";
 import type { Component, IlhaRuntime } from "./types.ts";
 
@@ -24,12 +24,13 @@ function readHydrate(el: Element): unknown[] | undefined {
   const host = el.hasAttribute("data-ilha") ? el : el.querySelector("[data-ilha]");
   const raw = host?.getAttribute("data-ilha-state");
   if (raw) return decodeSnapshot(raw);
-  const c = el.firstChild;
-  if (c?.nodeType !== 8) return;
-  const v = c.nodeValue;
-  if (!v?.startsWith(STATE_COMMENT)) return;
-  c.remove();
-  return decodeSnapshot(v.slice(STATE_COMMENT.length));
+  const first = el.firstElementChild;
+  if (first?.tagName === "TEMPLATE" && first.hasAttribute("data-ilha-state")) {
+    const tplRaw = first.getAttribute("data-ilha-state");
+    first.remove();
+    return tplRaw ? decodeSnapshot(tplRaw) : undefined;
+  }
+  return undefined;
 }
 
 function attach(
@@ -105,7 +106,7 @@ export async function renderToString(fn: Component, opts?: RenderToStringOptions
   const snap = snapshot ? encodeSnapshot(runtime.ssrValues) : undefined;
   unmount();
   if (!markers) {
-    return snap ? `<!--${STATE_COMMENT}${snap}-->${inner}` : inner;
+    return snap ? `<template data-ilha-state="${escapeAttr(snap)}"></template>${inner}` : inner;
   }
   const stateAttr = snap ? ` data-ilha-state="${escapeAttr(snap)}"` : "";
   return `<div data-ilha${stateAttr}>${inner}</div>`;

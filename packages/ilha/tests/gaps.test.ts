@@ -8,7 +8,7 @@ import * as Atom from "effect/unstable/reactivity/Atom";
 import { define } from "../src/define.ts";
 import { failureMessage } from "../src/errors.ts";
 import { atom, h, mount, renderToString, watch } from "../src/index.ts";
-import { encodeSnapshot, STATE_COMMENT } from "../src/snapshot.ts";
+import { encodeSnapshot } from "../src/snapshot.ts";
 import "../src/jsx-dev-runtime.ts";
 
 test("generator throw paints error", async () => {
@@ -168,16 +168,15 @@ test("hydrate empty host full mounts", async () => {
   expect(el.textContent).toContain("x");
 });
 
-test("hydrate from state comment", async () => {
+test("hydrate from state template", async () => {
   const App = async () => {
     const n = atom(0);
     return h("p", null, n);
   };
   const el = document.createElement("div");
-  el.append(
-    document.createComment(`${STATE_COMMENT}${encodeSnapshot([4])}`),
-    document.createElement("p"),
-  );
+  const tpl = document.createElement("template");
+  tpl.setAttribute("data-ilha-state", encodeSnapshot([4]));
+  el.append(tpl, document.createElement("p"));
   document.body.append(el);
   mount(el, App, { hydrate: true });
   await Bun.sleep(15);
@@ -185,7 +184,26 @@ test("hydrate from state comment", async () => {
   el.remove();
 });
 
-test("markers off snapshot on uses comment", async () => {
+test("hydrate ignores nested template state snapshots", async () => {
+  const App = async () => {
+    const n = atom(0);
+    return h("p", null, n);
+  };
+  const el = document.createElement("div");
+  const inner = document.createElement("div");
+  const nested = document.createElement("template");
+  nested.setAttribute("data-ilha-state", encodeSnapshot([99]));
+  inner.append(nested);
+  el.append(inner, document.createElement("p"));
+  document.body.append(el);
+  mount(el, App, { hydrate: true });
+  await Bun.sleep(15);
+  expect(el.textContent).toContain("0");
+  expect(el.textContent).not.toContain("99");
+  el.remove();
+});
+
+test("markers off snapshot uses escaped template state", async () => {
   const html = await renderToString(
     async () => {
       const n = atom(2);
@@ -193,8 +211,9 @@ test("markers off snapshot on uses comment", async () => {
     },
     { markers: false },
   );
-  expect(html.startsWith(`<!--${STATE_COMMENT}`)).toBe(true);
-  expect(html).toContain('"v":[2]');
+  expect(html.startsWith('<template data-ilha-state="')).toBe(true);
+  expect(html).toContain("&quot;v&quot;:[2]");
+  expect(html).not.toContain("<!--ilha-state:");
 });
 
 test("bigint and iterable children", () => {

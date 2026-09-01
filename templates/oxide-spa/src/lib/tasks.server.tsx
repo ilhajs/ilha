@@ -55,11 +55,11 @@ function renderList(list: Task[]) {
               type="checkbox"
               class="checkbox"
               checked={todo.completed}
-              onchange={() => toggleTask(todo.id)}
+              onchange={toggleTask.with(todo.id)}
             />
             <span>{todo.text}</span>
           </label>
-          <button type="button" class="btn btn-sm btn-ghost" onclick={() => deleteTask(todo.id)}>
+          <button type="button" class="btn btn-sm btn-ghost" onclick={deleteTask.with(todo.id)}>
             Delete
           </button>
         </div>

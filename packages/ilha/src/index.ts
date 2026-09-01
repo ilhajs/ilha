@@ -3,7 +3,6 @@ export { atom } from "./atom.ts";
 export { when } from "./when.ts";
 export { watch } from "./watch.ts";
 export { wait } from "./wait.ts";
-export { recordServerAction } from "./events.ts";
 export { mount, renderToString } from "./mount.ts";
 export type { MountOptions, RenderToStringOptions } from "./mount.ts";
 export { Fragment, h } from "./vnode.ts";
