@@ -10,9 +10,9 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@ilha/router": "workspace:*",
+    "@ilha/router": "^0.11.0",
     "effect": "^4.0.0-rc.112",
-    "ilha": "workspace:*",
+    "ilha": "^0.14.0",
     "tacho": "^0.6.1"
   },
   "devDependencies": {
