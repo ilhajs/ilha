@@ -542,7 +542,10 @@ async function generateTypes(outDir: string): Promise<void> {
     `  export const pageRouter: RouterBuilder;`,
     `  export const registry: Record<string, Island<any>>;`,
     `}`,
-
+    ``,
+    `declare module "ilha:loaders" {`,
+    `  // Side-effect-only module. oxidejs imports it alongside @ilha/router/ssr.`,
+    `}`,
     ``,
   ].join("\n");
 

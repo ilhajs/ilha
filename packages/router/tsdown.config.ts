@@ -5,5 +5,5 @@ export default defineConfig({
   platform: "neutral",
   dts: false,
   minify: false,
-  external: ["ilha", "ilha:pages/server", "node:async_hooks"],
+  external: ["ilha", "ilha:pages/server", "ilha:loaders", "node:async_hooks"],
 });
