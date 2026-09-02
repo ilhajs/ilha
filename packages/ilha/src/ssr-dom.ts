@@ -15,6 +15,9 @@ const VOID = new Set([
   "wbr",
 ]);
 
+/** Tags whose children are raw text — do not HTML-escape content. */
+const RAW_TEXT = new Set(["script", "style"]);
+
 export function escapeText(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -116,6 +119,12 @@ export function createSsrRoot(): SsrRoot {
   };
 }
 
+function serializeRawText(tag: string, text: string): string {
+  // Reject content that would close the element early (`</script`, `</style`).
+  if (new RegExp(`</${tag}\\b`, "i").test(text)) return "";
+  return text;
+}
+
 export function serializeNode(node: SsrNode): string {
   if (node.kind === "text") return escapeText(node.text);
   const parts: string[] = [];
@@ -125,5 +134,9 @@ export function serializeNode(node: SsrNode): string {
   const attr = parts.length > 0 ? ` ${parts.join(" ")}` : "";
   const tag = node.tag;
   if (VOID.has(tag)) return `<${tag}${attr}>`;
+  if (RAW_TEXT.has(tag)) {
+    const raw = serializeRawText(tag, node.textContent);
+    return `<${tag}${attr}>${raw}</${tag}>`;
+  }
   return `<${tag}${attr}>${node.children.map(serializeNode).join("")}</${tag}>`;
 }

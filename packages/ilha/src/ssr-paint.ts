@@ -132,6 +132,8 @@ function unwrap(value: unknown, keep: View | undefined): View | typeof KEEP {
 
 function paintHole(fiber: FiberLocal, view: View | typeof KEEP): void {
   if (view === KEEP) return;
+  const frame = (fiber.islandFrame ??= { i: 0, slots: [] });
+  frame.i = 0;
   const list = Array.isArray(view) ? view : null;
   if (list && list.length > 0 && list.every((v) => isVNode(v) && v.key != null)) {
     keyedPaintHole(fiber, list as import("./types.ts").VNode[]);
@@ -297,7 +299,7 @@ function materialize(view: View, fiber: FiberLocal): SsrNode[] {
       const props = { ...view.props, children: view.children };
       const type = view.type as ((p: Record<string, unknown>) => unknown) & Record<symbol, unknown>;
       if (type[ISLAND] === true) {
-        const frame = fiber.islandFrame!;
+        const frame = (fiber.islandFrame ??= { i: 0, slots: [] });
         const i = frame.i++;
         const existing = frame.slots[i];
         if (
