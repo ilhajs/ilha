@@ -133,6 +133,9 @@ describe("generateServerIslandModule", () => {
     expect(code).toContain(`export const ticks = (...args) => $$call("ticks", args)`);
     const id = serverIslandPublicId("/abs/tasks.server.ts", "T");
     expect(code).toContain(`export const T = __ilhaServerIsland("${id}", "div"`);
+    expect(code).toContain(`"${id}", "div", {`);
+    expect(code).toContain(`, "tasks")`);
+    expect(code).toContain(`$$rpc["tasks"][method](...args)`);
     expect(code).toContain(
       `JSON.stringify({ id: "${id}", path: location.pathname + location.search, props })`,
     );
@@ -460,6 +463,55 @@ describe("__ilhaServerIsland frames", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(calls).toEqual(["ping"]);
     unmount();
+  });
+});
+
+describe("__ilhaServerIsland shared module repaints", () => {
+  it("repaints every mounted island from the same server module", async () => {
+    let countFrames = 0;
+    let listFrames = 0;
+    const Count = __ilhaServerIsland(
+      "tasks.server.tsx#TaskCount",
+      "span",
+      {
+        frame: () => `<span class="badge">${++countFrames}</span>`,
+      },
+      "tasks",
+    );
+    const List = __ilhaServerIsland(
+      "tasks.server.tsx#TaskList",
+      "div",
+      {
+        actions: {
+          "x:toggle": () => Promise.resolve(),
+        },
+        frame: () =>
+          `<template data-ilha-actions='{"click:0":"x:toggle"}'></template><button data-ilha-on="click:0">go</button><p>list-${++listFrames}</p>`,
+      },
+      "tasks",
+    );
+
+    const countHost = document.createElement("div");
+    const listHost = document.createElement("div");
+    document.body.append(countHost, listHost);
+
+    const unmountCount = Count.mount(countHost);
+    const unmountList = List.mount(listHost);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(countFrames).toBe(1);
+    expect(listFrames).toBe(1);
+
+    listHost.querySelector<HTMLButtonElement>("button")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(countFrames).toBe(2);
+    expect(listFrames).toBe(2);
+
+    unmountCount();
+    unmountList();
   });
 });
 

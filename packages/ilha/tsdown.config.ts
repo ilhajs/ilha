@@ -6,5 +6,5 @@ export default defineConfig({
   platform: "neutral",
   dts: true,
   minify: false,
-  external: ["effect", "@happy-dom/global-registrator"],
+  external: ["effect"],
 });

@@ -4,39 +4,65 @@ import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
 import { isAtomHandle } from "./atom.ts";
 import { failureMessage } from "./errors.ts";
-import { bindEvents, isEventProp } from "./events.ts";
-import { KEY_ATTR, SLOT_ATTR, morphInner } from "./morph.ts";
-import { closeFiber, makeFiber, withFiber, type FiberLocal, type Hole } from "./runtime.ts";
+import { eventTypeFromProp, isEventProp } from "./events.ts";
+import { closeFiber, makeFiber, makeRuntime, withFiber, type FiberLocal } from "./runtime.ts";
 import { isSafeUrlAttrValue, isUrlAttributeName, serializeStyleAttr } from "./security.ts";
+import {
+  createSsrElement,
+  createSsrRoot,
+  createSsrText,
+  type SsrEl,
+  type SsrNode,
+  type SsrRoot,
+} from "./ssr-dom.ts";
 import { runSetup } from "./start.ts";
-import { Fragment, type Component, type View } from "./types.ts";
+import { Fragment, type Component, type IlhaRuntime, type View } from "./types.ts";
 import { isSetupFn, isVNode } from "./vnode.ts";
+
+const KEY_ATTR = "data-ilha-key";
+const SLOT_ATTR = "data-ilha-slot";
 
 const ISLAND = Symbol.for("ilha.island");
 const ISLAND_MOUNT_INTERNAL = Symbol.for("ilha.islandMountInternal");
 const ISLAND_SLOT_TAG = Symbol.for("ilha.islandSlotTag");
 
-function insert(fiber: FiberLocal, nodes: Node[]): void {
-  for (const n of nodes) fiber.root.appendChild(n);
+type SsrHost = SsrRoot | SsrEl;
+
+function insert(fiber: FiberLocal, nodes: SsrNode[]): void {
+  const root = fiber.root as SsrHost;
+  for (const n of nodes) root.appendChild(n);
 }
 
-function disposeHoles(fiber: FiberLocal, opts?: { morph?: boolean }): void {
-  const keep: Hole[] = [];
-  for (const h of fiber.holes) {
-    if (opts?.morph && h.keepOnMorph) {
-      keep.push(h);
-      continue;
-    }
-    h.dispose();
-  }
-  fiber.holes = keep;
+function disposeHoles(fiber: FiberLocal): void {
+  for (const h of fiber.holes) h.dispose();
+  fiber.holes = [];
 }
 
 function skip(x: unknown): boolean {
   return x === null || x === undefined || typeof x === "boolean";
 }
 
-function applyProps(el: Element, props: Record<string, unknown>, fiber: FiberLocal): void {
+function bindSsrEvents(el: SsrEl, props: Record<string, unknown>, fiber: FiberLocal): void {
+  const seen = new Set<string>();
+  for (const key of Object.keys(props)) {
+    const type = eventTypeFromProp(key);
+    if (!type || seen.has(type)) continue;
+    seen.add(type);
+    const fn = props[key];
+    if (typeof fn !== "function") continue;
+    const branded = (fn as unknown as Record<symbol, { k?: string; a?: unknown[] }>)[
+      Symbol.for("ilha.actionCall")
+    ];
+    const rec = branded?.k ? { k: branded.k, a: branded.a ?? [] } : undefined;
+    if (!rec) continue;
+    const id = `${type}:${fiber.runtime.ssrEventI++}`;
+    fiber.runtime.ssrActions[id] = rec;
+    const existing = el.getAttribute("data-ilha-on");
+    el.setAttribute("data-ilha-on", existing ? `${existing},${id}` : id);
+  }
+}
+
+function applyProps(el: SsrEl, props: Record<string, unknown>, fiber: FiberLocal): void {
   for (const [k, v] of Object.entries(props)) {
     if (k === "children" || k === "key" || k === "ref") continue;
     if (k === "className") {
@@ -53,34 +79,22 @@ function applyProps(el: Element, props: Record<string, unknown>, fiber: FiberLoc
         typeof v === "string" || typeof v === "object"
           ? serializeStyleAttr(v as string | Record<string, unknown>)
           : "";
-      if (css) (el as HTMLElement).style.cssText = css;
+      if (css) el.setAttribute("style", css);
       continue;
     }
     if (isEventProp(k)) continue;
     if (/^on[A-Z]/.test(k)) continue;
     if (k === "value" || k === "checked" || k === "selected") {
       const setProp = (x: unknown) => {
-        const node = el as HTMLElement & {
-          value?: string;
-          checked?: boolean;
-          selected?: boolean;
-        };
-        if (k === "value") node.value = String(x ?? "");
+        if (k === "value") el.setAttribute("value", String(x ?? ""));
         else if (k === "checked") {
-          node.checked = Boolean(x);
-          if (fiber.runtime.ssr) {
-            if (x) el.setAttribute("checked", "");
-            else el.removeAttribute("checked");
-          }
-        } else node.selected = Boolean(x);
+          if (x) el.setAttribute("checked", "");
+          else el.removeAttribute("checked");
+        } else if (x) el.setAttribute("selected", "");
+        else el.removeAttribute("selected");
       };
       if (isAtomHandle(v)) {
-        const elAny = el as Element & { __ilhaVal?: unknown };
-        if (elAny.__ilhaVal === v) continue;
-        elAny.__ilhaVal = v;
-        const unsub = fiber.registry.subscribe(v.atom, setProp, {
-          immediate: true,
-        });
+        const unsub = fiber.registry.subscribe(v.atom, setProp, { immediate: true });
         fiber.holes.push({ dispose: unsub });
       } else setProp(v);
       continue;
@@ -93,10 +107,10 @@ function applyProps(el: Element, props: Record<string, unknown>, fiber: FiberLoc
       el.setAttribute(k, str);
     }
   }
-  bindEvents(el, props, fiber);
+  bindSsrEvents(el, props, fiber);
   const ref = props.ref;
   if (typeof ref === "function") {
-    ref(el);
+    ref(el as unknown as Element);
     fiber.holes.push({ dispose: () => ref(null) });
   }
 }
@@ -124,7 +138,7 @@ function paintHole(fiber: FiberLocal, view: View | typeof KEEP): void {
     return;
   }
   disposeHoles(fiber);
-  if (fiber.root instanceof Element) fiber.root.replaceChildren();
+  (fiber.root as SsrHost).replaceChildren();
   insert(fiber, materialize(view, fiber));
 }
 
@@ -135,13 +149,13 @@ function keyedPaintHole(fiber: FiberLocal, views: import("./types.ts").VNode[]):
     if (!keep.has(k)) closeFiber(h);
   }
   const next = new Map<string, FiberLocal>();
-  const nodes: Node[] = [];
+  const nodes: SsrNode[] = [];
   for (const v of views) {
     const k = String(v.key);
     const reuse = prev.get(k);
     if (reuse && !reuse.closed) {
       next.set(k, reuse);
-      nodes.push(reuse.root as Node);
+      nodes.push(reuse.root as SsrNode);
       continue;
     }
     const made = materialize(v, fiber);
@@ -150,30 +164,21 @@ function keyedPaintHole(fiber: FiberLocal, views: import("./types.ts").VNode[]):
     nodes.push(...made);
   }
   fiber.keyedHoles = next;
-  if (fiber.root instanceof Element) fiber.root.replaceChildren();
+  (fiber.root as SsrHost).replaceChildren();
   insert(fiber, nodes);
 }
 
-function openHole(parent: FiberLocal): { fiber: FiberLocal; nodes: Element[] } {
+function openHole(parent: FiberLocal): { fiber: FiberLocal; nodes: SsrEl[] } {
   const id = parent.runtime.nextHole();
-  const host = document.createElement("span");
+  const host = createSsrElement("span");
   host.setAttribute(SLOT_ATTR, String(id));
-  host.style.display = "contents";
-  const child = makeFiber(
-    parent.runtime,
-    host,
-    (f, v) => {
-      disposeHoles(f);
-      if (f.root instanceof Element) f.root.replaceChildren();
-      insert(f, materialize(v, f));
+  host.setAttribute("style", "display:contents");
+  const child = makeFiber(parent.runtime, host as unknown as ParentNode, paint, {
+    onFail: (e) => {
+      console.error(e);
+      paintHole(child, errorView(e));
     },
-    {
-      onFail: (e) => {
-        console.error(e);
-        paintHole(child, errorView(e));
-      },
-    },
-  );
+  });
   return { fiber: child, nodes: [host] };
 }
 
@@ -189,48 +194,20 @@ function errorView(e: unknown): View {
 function findReusableAtomHost(
   fiber: FiberLocal,
   atom: import("effect/unstable/reactivity/Atom").Atom<unknown>,
-): { host: Element; hole: FiberLocal } | undefined {
+): { host: SsrEl; hole: FiberLocal } | undefined {
   for (const h of fiber.holes) {
-    if (h.atom === atom && h.host?.isConnected && h.holeFiber && !h.holeFiber.closed) {
-      return { host: h.host, hole: h.holeFiber };
+    const host = h.host as SsrEl | undefined;
+    if (h.atom === atom && host?.isConnected && h.holeFiber && !h.holeFiber.closed) {
+      return { host, hole: h.holeFiber };
     }
   }
 }
 
-function refreshAtomHost(
-  fiber: FiberLocal,
-  atom: import("effect/unstable/reactivity/Atom").Atom<unknown>,
-  host: Element,
-  hole: FiberLocal,
-): void {
-  if (hole.closed || !host.isConnected) return;
-  const next = unwrap(fiber.registry.get(atom), undefined);
-  if (next === KEEP) return;
-  paintHole(hole, next as View);
-}
-
-function refreshAllAtomHosts(fiber: FiberLocal): void {
-  for (const h of fiber.holes) {
-    if (h.atom && h.host && h.holeFiber) {
-      refreshAtomHost(fiber, h.atom, h.host, h.holeFiber);
-    }
-  }
-}
-
-function pruneDisconnectedAtomHoles(fiber: FiberLocal): void {
-  fiber.holes = fiber.holes.filter((h) => {
-    if (!h.atom || !h.host || !h.holeFiber) return true;
-    if (h.host.isConnected) return true;
-    h.dispose();
-    return false;
-  });
-}
-
-function atomHostPlaceholder(host: Element): Element {
-  const placeholder = document.createElement("span");
+function atomHostPlaceholder(host: SsrEl): SsrEl {
+  const placeholder = createSsrElement("span");
   const slot = host.getAttribute(SLOT_ATTR);
   if (slot !== null) placeholder.setAttribute(SLOT_ATTR, slot);
-  placeholder.style.display = "contents";
+  placeholder.setAttribute("style", "display:contents");
   return placeholder;
 }
 
@@ -240,32 +217,31 @@ function trackHole(
   extra?: () => void,
   meta?: {
     atom?: import("effect/unstable/reactivity/Atom").Atom<unknown>;
-    host?: Element;
+    host?: SsrEl;
     keyed?: boolean;
   },
 ): void {
   parent.holes.push({
     keepOnMorph: !!(meta?.atom && meta?.host) || !!meta?.keyed,
     atom: meta?.atom,
-    host: meta?.host,
+    host: meta?.host as Element | undefined,
     holeFiber: hole,
     dispose() {
       extra?.();
+      if (meta?.host) meta.host.isConnected = false;
       closeFiber(hole);
     },
   });
 }
 
-function materialize(view: View, fiber: FiberLocal): Node[] {
+function materialize(view: View, fiber: FiberLocal): SsrNode[] {
   if (skip(view)) return [];
   if (typeof view === "string" || typeof view === "number" || typeof view === "bigint") {
-    return [document.createTextNode(String(view))];
+    return [createSsrText(String(view))];
   }
   if (isAtomHandle(view)) {
     const reused = findReusableAtomHost(fiber, view.atom);
-    if (reused) {
-      return [atomHostPlaceholder(reused.host)];
-    }
+    if (reused) return [atomHostPlaceholder(reused.host)];
 
     const { fiber: hole, nodes } = openHole(fiber);
     const host = nodes[0]!;
@@ -290,9 +266,8 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
   }
   if (Stream.isStream(view)) {
     const { fiber: hole, nodes } = openHole(fiber);
-    const src = fiber.runtime.ssr ? view.pipe(Stream.take(1)) : view;
     hole.run(
-      Stream.runForEach(src, (v) =>
+      Stream.runForEach(view.pipe(Stream.take(1)), (v) =>
         Effect.sync(() => {
           if (!hole.closed) paintHole(hole, v);
         }),
@@ -303,7 +278,7 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
           }),
         ),
       ) as never,
-      fiber.runtime.ssr ? () => {} : undefined,
+      () => {},
     );
     trackHole(fiber, hole);
     return nodes;
@@ -328,16 +303,16 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
         if (
           existing &&
           existing.type === type &&
-          existing.host.isConnected &&
+          (existing.host as SsrEl).isConnected &&
           typeof existing.updateProps === "function"
         ) {
           existing.updateProps(props);
-          return [existing.host];
+          return [existing.host as SsrEl];
         }
         existing?.unmount?.();
         const tag =
           typeof type[ISLAND_SLOT_TAG] === "string" ? (type[ISLAND_SLOT_TAG] as string) : "div";
-        const el = document.createElement(tag);
+        const el = createSsrElement(tag);
         el.setAttribute("data-ilha", "");
         const mountFn = type[ISLAND_MOUNT_INTERNAL];
         if (typeof mountFn === "function") {
@@ -349,10 +324,10 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
               unmount?: () => void;
               updateProps?: (props?: Record<string, unknown>) => void;
             }
-          )(el, props);
+          )(el as unknown as Element, props);
           const slot = {
             type,
-            host: el,
+            host: el as unknown as Element,
             updateProps: handle?.updateProps,
             unmount: handle?.unmount,
           };
@@ -360,6 +335,7 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
           fiber.holes.push({
             keepOnMorph: true,
             dispose: () => {
+              el.isConnected = false;
               handle?.unmount?.();
               if (frame.slots[i] === slot) frame.slots[i] = undefined;
             },
@@ -375,7 +351,7 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
         if (next && typeof (next as Promise<unknown>).then !== "function" && !isSetupFn(next)) {
           reuse.paint(next as View);
         }
-        return [reuse.root as Node];
+        return [reuse.root as SsrNode];
       }
       const { fiber: hole, nodes } = openHole(fiber);
       hole.propsBox = { current: props };
@@ -390,13 +366,13 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
       trackHole(fiber, hole, undefined, k ? { keyed: true } : undefined);
       return nodes;
     }
-    const el = document.createElement(view.type);
+    const el = createSsrElement(view.type);
     if (view.key != null) el.setAttribute(KEY_ATTR, String(view.key));
     applyProps(el, view.props, fiber);
     fiber.keyedHoles ??= new Map();
     const childFiber: FiberLocal = {
       ...fiber,
-      root: el,
+      root: el as unknown as ParentNode,
       holes: fiber.holes,
       keyedHoles: fiber.keyedHoles,
     };
@@ -411,69 +387,54 @@ function materialize(view: View, fiber: FiberLocal): Node[] {
   ) {
     return [...(view as Iterable<View>)].flatMap((c) => materialize(c, fiber));
   }
-  return [document.createTextNode(String(view))];
-}
-
-function canHydrate(fiber: FiberLocal, view: View): boolean {
-  if (!isVNode(view) || typeof view.type !== "string") return false;
-  const el = fiber.root.firstElementChild;
-  return !!el && el.tagName === view.type.toUpperCase();
+  return [createSsrText(String(view))];
 }
 
 export function paint(fiber: FiberLocal, view: View): void {
   fiber.islandFrame ??= { i: 0, slots: [] };
-  if (fiber.hydrate) {
-    if (canHydrate(fiber, view)) {
-      const el = fiber.root.firstElementChild!;
-      fiber.hydrate = false;
-      fiber.liveEl = el;
-      applyProps(el, (view as import("./types.ts").VNode).props, fiber);
-      const childFiber: FiberLocal = {
-        ...fiber,
-        root: el,
-        holes: fiber.holes,
-      };
-      el.replaceChildren();
-      for (const c of (view as import("./types.ts").VNode).children) {
-        for (const n of materialize(c, childFiber)) el.appendChild(n);
-      }
-      return;
-    } else {
-      console.warn("[ilha] hydrate mismatch, full mount");
-      fiber.hydrate = false;
-      if (fiber.root instanceof Element) fiber.root.replaceChildren();
-    }
-  }
-  if (
-    fiber.liveEl &&
-    isVNode(view) &&
-    typeof view.type === "string" &&
-    fiber.liveEl.localName === view.type
-  ) {
-    disposeHoles(fiber, { morph: true });
-    applyProps(fiber.liveEl, view.props, fiber);
-    const tmp = document.createElement(fiber.liveEl.localName);
-    for (const c of view.children) for (const n of materialize(c, fiber)) tmp.appendChild(n);
-    morphInner(fiber.liveEl, tmp);
-    refreshAllAtomHosts(fiber);
-    pruneDisconnectedAtomHoles(fiber);
-    return;
-  }
+  // SSR rebuilds the whole tree each paint — no DOM morph identity to preserve.
   disposeHoles(fiber);
-  if (fiber.root instanceof Element && fiber.root.childNodes.length > 0) {
-    const tmp = document.createElement("div");
-    for (const n of materialize(view, fiber)) tmp.appendChild(n);
-    morphInner(fiber.root as Element, tmp);
-    const first = fiber.root.firstElementChild;
-    if (first) fiber.liveEl = first;
-    return;
-  }
+  (fiber.root as SsrHost).replaceChildren();
   insert(fiber, materialize(view, fiber));
-  const first = fiber.root instanceof Element ? fiber.root.firstElementChild : null;
-  if (first) fiber.liveEl = first;
 }
 
 export function paintError(fiber: FiberLocal, e: unknown): void {
   console.error(e);
   paint(fiber, errorView(e));
+}
+
+export function attachSsr(
+  fn: Component,
+  opts?: { onError?: (error: unknown) => void; ssrCapture?: boolean },
+): { root: SsrRoot; ready: Promise<void>; runtime: IlhaRuntime; unmount: () => void } {
+  const root = createSsrRoot();
+  const runtime = makeRuntime({
+    ssr: true,
+    ssrCapture: opts?.ssrCapture === true,
+  });
+  let resolve!: () => void;
+  const ready = new Promise<void>((r) => {
+    resolve = r;
+  });
+  const fiber = makeFiber(runtime, root as unknown as ParentNode, paint, {
+    onFail: (e) => {
+      opts?.onError?.(e);
+      paintError(fiber, e);
+      resolve();
+    },
+  });
+  runtime.begin();
+  runtime.setIdle(resolve);
+  runSetup(fiber, fn);
+  runtime.end();
+  return {
+    root,
+    ready,
+    runtime,
+    unmount() {
+      closeFiber(fiber);
+      runtime.close();
+      root.replaceChildren();
+    },
+  };
 }

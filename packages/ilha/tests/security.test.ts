@@ -103,6 +103,11 @@ test("rejects css url escapes and data urls in string styles", () => {
   expect(dataUrl.style.background).toBe("");
 });
 
+test("rejects javascript: href during renderToString", async () => {
+  const html = await renderToString(() => h("a", { href: "javascript:alert(1)" }, "x"));
+  expect(html).not.toContain("javascript:");
+});
+
 test("never serializes function handlers as attributes", async () => {
   const html = await renderToString(() =>
     h("button", { onMouseOver: () => undefined, onClick: () => undefined }, "x"),

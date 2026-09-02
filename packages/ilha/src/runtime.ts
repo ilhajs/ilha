@@ -17,6 +17,18 @@ export type Hole = {
   holeFiber?: FiberLocal;
 };
 
+export type IslandSlot = {
+  type: unknown;
+  host: Element;
+  updateProps?: (props?: Record<string, unknown>) => void;
+  unmount?: () => void;
+};
+
+export type IslandFrame = {
+  i: number;
+  slots: (IslandSlot | undefined)[];
+};
+
 export interface FiberLocal {
   root: ParentNode;
   registry: AtomRegistry;
@@ -32,6 +44,7 @@ export interface FiberLocal {
   primitives?: import("effect/unstable/reactivity/Atom").Atom<unknown>[];
   watchI?: number;
   watchSlots?: import("./watch.ts").WatchSlot[];
+  islandFrame?: IslandFrame;
   renderSub?: () => void;
   trackRestore?: () => void;
   propsBox?: { current: Record<string, unknown> };

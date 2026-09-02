@@ -52,7 +52,7 @@ test("renders the count", async () => {
 });
 ```
 
-`renderToString` needs a DOM. In Node, ilha registers happy-dom automatically when `document` is missing — the preload above covers browser-only APIs your component touches at import time.
+`renderToString` builds HTML without a DOM. Preload happy-dom only when a test mounts into real nodes or touches browser-only APIs at import time.
 
 ## Mount and simulate events
 

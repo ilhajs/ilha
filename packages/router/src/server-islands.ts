@@ -268,7 +268,7 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
   const lines: string[] = [
     `import { client as $$rpc } from "virtual:oxide/client";`,
     `import { __ilhaApplyHead, __ilhaServerIsland } from "@ilha/router/server-island";`,
-    `const $$call = (method, args) => { const opts = args.at(-1); return opts && typeof opts === "object" && opts.signal instanceof AbortSignal && Object.keys(opts).length === 1 ? $$rpc[${JSON.stringify(moduleKey)}][method](args.slice(0, -1), opts) : $$rpc[${JSON.stringify(moduleKey)}][method](args); };`,
+    `const $$call = (method, args) => { const opts = args.at(-1); return opts && typeof opts === "object" && opts.signal instanceof AbortSignal && Object.keys(opts).length === 1 ? $$rpc[${JSON.stringify(moduleKey)}][method](...args.slice(0, -1), opts) : $$rpc[${JSON.stringify(moduleKey)}][method](...args); };`,
     ...scan.clientRefs.map((ref, index) =>
       ref.imported === "default"
         ? `import $$child${index} from ${JSON.stringify(ref.spec)};`
@@ -309,7 +309,7 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
       `frame: (props) => fetch("/__ilha/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ${JSON.stringify(id)}, path: location.pathname + location.search, props }) }).then((r) => { if (!r.ok) throw new Error("frame failed"); return r.json(); }).then((j) => { if (j.redirect) { try { const u = new URL(j.redirect, location.href); if (u.origin === location.origin) location.assign(u.pathname + u.search + u.hash); } catch {} throw new Error("frame redirected"); } __ilhaApplyHead(j.head); return j.html; })`,
     );
 
-    const call = `__ilhaServerIsland(${JSON.stringify(id)}, ${JSON.stringify(island.as)}, { ${wiring.join(", ")} })`;
+    const call = `__ilhaServerIsland(${JSON.stringify(id)}, ${JSON.stringify(island.as)}, { ${wiring.join(", ")} }, ${JSON.stringify(moduleKey)})`;
     if (island.name === "default") {
       lines.push(`export default ${call};`);
     } else {

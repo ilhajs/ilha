@@ -18,6 +18,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { renderToString } from "ilha";
+import { action, brandServerAction } from "oxidejs";
 
 import { runWithIslandRequest } from "./request-scope";
 import { sanitizeSnapshotObject } from "./snapshot";
@@ -244,23 +245,16 @@ export function frameEnvelope(status: number, body: Record<string, unknown>): Fr
   };
 }
 
-const ACTION_CALL = Symbol.for("ilha.actionCall");
-
 /** @internal Brand an exported server action with its generated RPC transport key. */
 export function __ilhaServerAction<A extends unknown[], R>(
   key: string,
-  fn: (...args: A) => R,
-): ((...args: A) => R) & { with: (...args: A) => (...ev: unknown[]) => R } {
-  const wrapped = ((...args: A) => fn(...args)) as ((...args: A) => R) & {
-    with: (...args: A) => (...ev: unknown[]) => R;
-  };
-  wrapped.with = (...args: A) => {
-    const handler = ((..._ev: unknown[]) => wrapped(...args)) as ((...ev: unknown[]) => R) &
-      Record<symbol, { k: string; a: unknown[] }>;
-    handler[ACTION_CALL] = { k: key, a: args };
-    return handler;
-  };
-  return wrapped;
+  fn: (...args: A) => R | Promise<R>,
+) {
+  const handle =
+    typeof fn === "function" && (fn as { $$atom?: number }).$$atom === 1
+      ? (fn as ReturnType<typeof action<A, Awaited<R>>>)
+      : action(fn as (...args: A) => Awaited<R>);
+  return brandServerAction(key, handle);
 }
 
 export function registerServerIsland(id: string, render: () => unknown): void {
