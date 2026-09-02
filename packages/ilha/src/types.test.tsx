@@ -1,13 +1,13 @@
 /** @jsxImportSource . */
 import { describe, expect, it } from "bun:test";
 
-import { atom } from "./index.ts";
 import type { JSX } from "./jsx-types.ts";
+import type { AtomHandle } from "./types.ts";
 
 function typecheckJsxProps(): void {
-  const count = atom(0);
-  const on = atom(true);
-  const name = atom("ada");
+  const count = null as unknown as AtomHandle<number>;
+  const on = null as unknown as AtomHandle<boolean>;
+  const name = null as unknown as AtomHandle<string>;
 
   const click: NonNullable<JSX.IntrinsicElements["button"]["onclick"]> = (e) => {
     void e.currentTarget.disabled;
@@ -24,6 +24,8 @@ function typecheckJsxProps(): void {
   const buttonProps: JSX.IntrinsicElements["button"] = {
     type: "button",
     class: "btn",
+    disabled: true,
+    name: "go",
     onclick: click,
     children: count,
   };
@@ -59,6 +61,12 @@ function typecheckJsxProps(): void {
   const badChecked: JSX.IntrinsicElements["input"] = { checked: name };
   // @ts-expect-error onclick does not take a string
   const badClick: JSX.IntrinsicElements["button"] = { onclick: "alert(1)" };
+  // @ts-expect-error div does not accept name
+  const badDivName: JSX.IntrinsicElements["div"] = { name: "x" };
+  // @ts-expect-error div does not accept disabled
+  const badDivDisabled: JSX.IntrinsicElements["div"] = { disabled: true };
+  // @ts-expect-error p does not accept form
+  const badPForm: JSX.IntrinsicElements["p"] = { form: "f" };
 
   void buttonProps;
   void formProps;
@@ -69,6 +77,9 @@ function typecheckJsxProps(): void {
   void badValue;
   void badChecked;
   void badClick;
+  void badDivName;
+  void badDivDisabled;
+  void badPForm;
   void count;
 }
 

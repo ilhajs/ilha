@@ -127,10 +127,6 @@ export namespace JSX {
         translate?: Attr;
         inert?: Attr;
         popover?: Attr;
-        // Form association
-        name?: Attr;
-        disabled?: Attr;
-        form?: Attr;
         autofocus?: Attr;
       };
 
@@ -149,10 +145,12 @@ export namespace JSX {
     alt?: Attr;
     coords?: Attr;
     href?: Attr;
+    hreflang?: Attr;
     shape?: Attr;
     target?: Attr;
     download?: Attr;
     rel?: Attr;
+    referrerpolicy?: Attr;
   };
 
   type BaseHTMLAttributes = HTMLAttributes<HTMLBaseElement> & {
@@ -166,6 +164,7 @@ export namespace JSX {
     type?: "button" | "submit" | "reset" | (string & {});
     value?: Bindable<string | number>;
     name?: Attr;
+    disabled?: Attr;
     form?: Attr;
     formaction?: Attr;
     formenctype?: Attr;
@@ -251,6 +250,7 @@ export namespace JSX {
     defaultChecked?: boolean;
     placeholder?: Attr;
     required?: Attr;
+    disabled?: Attr;
     readOnly?: Attr;
     readonly?: Attr;
     multiple?: Attr;
@@ -378,6 +378,7 @@ export namespace JSX {
     name?: Attr;
     value?: Bindable<string | number>;
     required?: Attr;
+    disabled?: Attr;
     multiple?: Attr;
     size?: number | string;
     autocomplete?: Attr;
@@ -415,6 +416,7 @@ export namespace JSX {
     value?: Bindable<string>;
     placeholder?: Attr;
     required?: Attr;
+    disabled?: Attr;
     readOnly?: Attr;
     readonly?: Attr;
     rows?: number | string;

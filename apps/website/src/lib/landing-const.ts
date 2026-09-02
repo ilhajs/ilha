@@ -15,7 +15,7 @@ export const COUNTER_CODE = `import { atom, mount } from "ilha";
 const Signup = () => {
   const email = atom("");
 
-  const join = (event) => {
+  const join = (event: SubmitEvent) => {
     event.preventDefault();
     fetch("/api/waitlist", {
       method: "POST",
@@ -135,7 +135,7 @@ export default function Tasks() {
     Atom.map(tasks.atom, (list) => list.filter((task) => !task.done).length),
   );
 
-  const addItem = (event) => {
+  const addItem = (event: SubmitEvent) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const label = String(new FormData(form).get("text") ?? "").trim();

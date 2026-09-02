@@ -24,12 +24,13 @@ export function ProjectCreatorForm() {
     TEMPLATES.find((candidate) => candidate.value === template())?.sandbox ?? true;
 
   const copyCommand = async (event: MouseEvent) => {
+    const button = event.currentTarget as HTMLButtonElement;
     try {
       await navigator.clipboard.writeText(command());
     } catch {
       return;
     }
-    const el = (event.currentTarget as HTMLButtonElement).querySelector("span");
+    const el = button.querySelector("span");
     if (el) {
       const original = el.textContent;
       el.textContent = "Copied!";
