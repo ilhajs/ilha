@@ -15,7 +15,7 @@ export const COUNTER_CODE = `import { atom, mount } from "ilha";
 const Signup = () => {
   const email = atom("");
 
-  const join = (event: SubmitEvent) => {
+  const join = (event) => {
     event.preventDefault();
     fetch("/api/waitlist", {
       method: "POST",
@@ -29,8 +29,8 @@ const Signup = () => {
         name="email"
         placeholder="you@company.com"
         value={email}
-        oninput={(e: Event) =>
-          email.set((e.currentTarget as HTMLInputElement).value)
+        oninput={(e) =>
+          email.set(e.currentTarget.value)
         }
       />
       <button disabled={!email().includes("@")}>Join waitlist</button>
@@ -53,8 +53,8 @@ function* Search() {
         name="q"
         placeholder="Search…"
         value={query}
-        oninput={(e: Event) =>
-          query.set((e.currentTarget as HTMLInputElement).value)
+        oninput={(e) =>
+          query.set(e.currentTarget.value)
         }
       />
     </section>
@@ -135,7 +135,7 @@ export default function Tasks() {
     Atom.map(tasks.atom, (list) => list.filter((task) => !task.done).length),
   );
 
-  const addItem = (event: SubmitEvent) => {
+  const addItem = (event) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const label = String(new FormData(form).get("text") ?? "").trim();
@@ -158,8 +158,8 @@ export default function Tasks() {
                   type="checkbox"
                   class="checkbox"
                   checked={task.done}
-                  onchange={(event: Event) => {
-                    const done = (event.currentTarget as HTMLInputElement).checked;
+                  onchange={(event) => {
+                    const done = event.currentTarget.checked;
                     tasks.update((current) =>
                       current.map((item) =>
                         item.id === task.id ? { ...item, done } : item,

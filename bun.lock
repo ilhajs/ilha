@@ -42,19 +42,19 @@
     },
     "packages/astro": {
       "name": "@ilha/astro",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "devDependencies": {
         "astro": "^7.2.9",
-        "ilha": "0.14.2",
+        "ilha": "0.14.3",
       },
       "peerDependencies": {
         "astro": "^7.2.9",
-        "ilha": "^0.14.2",
+        "ilha": "^0.14.3",
       },
     },
     "packages/ilha": {
       "name": "ilha",
-      "version": "0.14.2",
+      "version": "0.14.3",
       "devDependencies": {
         "@happy-dom/global-registrator": "^20.11.2",
         "effect": "^4.0.0-rc.112",
@@ -65,18 +65,18 @@
     },
     "packages/router": {
       "name": "@ilha/router",
-      "version": "0.11.2",
+      "version": "0.11.3",
       "dependencies": {
         "effect": "4.0.0-rc.112",
         "unplugin": "3.3.0",
       },
       "devDependencies": {
-        "ilha": "^0.14.2",
+        "ilha": "^0.14.3",
         "oxidejs": "^0.3.0",
         "vite": "^8.2.2",
       },
       "peerDependencies": {
-        "ilha": ">=0.14.2",
+        "ilha": ">=0.14.3",
         "oxidejs": ">=0.3.0",
       },
       "optionalPeers": [

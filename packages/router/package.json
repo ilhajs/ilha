@@ -1,6 +1,6 @@
 {
   "name": "@ilha/router",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "description": "A tiny SPA router for Ilha",
   "keywords": [
     "frontend",
@@ -73,12 +73,12 @@
     "unplugin": "3.3.0"
   },
   "devDependencies": {
-    "ilha": "^0.14.2",
+    "ilha": "^0.14.3",
     "oxidejs": "^0.3.0",
     "vite": "^8.2.2"
   },
   "peerDependencies": {
-    "ilha": ">=0.14.2",
+    "ilha": ">=0.14.3",
     "oxidejs": ">=0.3.0"
   },
   "peerDependenciesMeta": {

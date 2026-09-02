@@ -29,7 +29,7 @@ export function ProjectCreatorForm() {
     } catch {
       return;
     }
-    const el = (event.currentTarget as HTMLElement | null)?.querySelector("span");
+    const el = (event.currentTarget as HTMLButtonElement).querySelector("span");
     if (el) {
       const original = el.textContent;
       el.textContent = "Copied!";
@@ -49,7 +49,7 @@ export function ProjectCreatorForm() {
           class="input input-bordered w-full"
           placeholder="my-app"
           value={name}
-          oninput={(event: Event) => name.set((event.currentTarget as HTMLInputElement).value)}
+          oninput={(event) => name.set(event.currentTarget.value)}
         />
       </label>
       <fieldset class="fieldset">
@@ -77,7 +77,7 @@ export function ProjectCreatorForm() {
           class="toggle"
           name="useBun"
           checked={useBun()}
-          onchange={(event: Event) => useBun.set((event.currentTarget as HTMLInputElement).checked)}
+          onchange={(event) => useBun.set(event.currentTarget.checked)}
         />
         <span>Use Bun</span>
       </label>

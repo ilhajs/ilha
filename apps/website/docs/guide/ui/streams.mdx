@@ -58,9 +58,7 @@ function* Search() {
   yield (
     <input
       value={query}
-      oninput={(e: Event) =>
-        query.set((e.currentTarget as HTMLInputElement).value)
-      }
+      oninput={(e) => query.set(e.currentTarget.value)}
     />
   );
   yield* when(

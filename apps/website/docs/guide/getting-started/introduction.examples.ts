@@ -6,7 +6,7 @@ export default function Counter() {
   return (
     <div class="flex flex-col gap-2">
       <p>Count: {count}</p>
-      <button type="button" class="btn btn-primary" onclick={() => count.update((n: number) => n + 1)}>
+      <button type="button" class="btn btn-primary" onclick={() => count.update((n) => n + 1)}>
         Increment
       </button>
     </div>
