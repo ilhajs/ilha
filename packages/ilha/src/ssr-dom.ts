@@ -120,8 +120,11 @@ export function createSsrRoot(): SsrRoot {
 }
 
 function serializeRawText(tag: string, text: string): string {
-  // Reject content that would close the element early (`</script`, `</style`).
-  if (new RegExp(`</${tag}\\b`, "i").test(text)) return "";
+  // Raw-text tags cannot HTML-escape children; a matching closer would end the
+  // element early. Fail loudly so callers do not ship truncated markup.
+  if (new RegExp(`</${tag}\\b`, "i").test(text)) {
+    throw new Error(`ilha: unsafe raw text in <${tag}> (contains "</${tag}")`);
+  }
   return text;
 }
 

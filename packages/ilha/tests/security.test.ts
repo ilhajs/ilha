@@ -121,11 +121,12 @@ test("script and style SSR keep raw text and reject closing-tag breakouts", asyn
   });
   expect(style).toContain("<style>a > b { color: red; }</style>");
 
-  const bad = await renderToString(
-    () => h("script", null, "alert(1)</script><img src=x onerror=alert(1)>"),
-    { markers: false, snapshot: false },
-  );
-  expect(bad).toBe("<script></script>");
+  expect(
+    renderToString(() => h("script", null, "alert(1)</script><img src=x onerror=alert(1)>"), {
+      markers: false,
+      snapshot: false,
+    }),
+  ).rejects.toThrow(/unsafe raw text in <script>/);
 });
 
 test("never serializes function handlers as attributes", async () => {
