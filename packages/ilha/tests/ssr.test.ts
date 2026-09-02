@@ -12,6 +12,18 @@ function branded(key: string, args: unknown[]) {
   return handler;
 }
 
+test("renderToString works without document", async () => {
+  const doc = globalThis.document;
+  // @ts-expect-error test isolation
+  delete globalThis.document;
+  try {
+    const html = await renderToString(() => h("p", null, "edge"));
+    expect(html).toContain(">edge<");
+  } finally {
+    globalThis.document = doc;
+  }
+});
+
 test("renderToString paints text without handlers", async () => {
   const App = async () => {
     const count = atom(0);

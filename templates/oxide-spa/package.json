@@ -10,16 +10,15 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@ilha/router": "^0.11.1",
+    "@ilha/router": "^0.11.2",
     "effect": "^4.0.0-rc.112",
-    "ilha": "^0.14.1",
-    "tacho": "^0.6.1"
+    "ilha": "^0.14.2"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24",
     "daisyui": "^5.7.22",
-    "oxidejs": "^0.2.4",
+    "oxidejs": "^0.3.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"

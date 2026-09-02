@@ -3,32 +3,11 @@ title: Test components
 description: Render components in tests with renderToString, mount them with happy-dom, and assert updates.
 ---
 
-Test components with Bun's runner plus happy-dom. No browser, no emulator.
-
-## Setup
-
-Install happy-dom's global registrator and preload it:
-
-```package-install
-bun add -d @happy-dom/global-registrator
-```
-
-```toml
-# bunfig.toml
-[test]
-preload = "./happydom.ts"
-```
-
-```ts twoslash
-// happydom.ts
-import { GlobalRegistrator } from "@happy-dom/global-registrator";
-
-GlobalRegistrator.register();
-```
+Test components with Bun's runner. Use `renderToString` for HTML assertions. Add happy-dom only when you mount into real nodes.
 
 ## Render to HTML
 
-`renderToString` is async — it waits until in-flight work is idle:
+`renderToString` builds HTML without a DOM. It is async — it waits until in-flight work is idle:
 
 ```tsx twoslash
 import { atom, renderToString } from "ilha";
@@ -52,9 +31,26 @@ test("renders the count", async () => {
 });
 ```
 
-`renderToString` needs a DOM. In Node, ilha registers happy-dom automatically when `document` is missing — the preload above covers browser-only APIs your component touches at import time.
-
 ## Mount and simulate events
+
+Mount and event tests need a DOM. Install happy-dom's global registrator and preload it when you mount into real nodes or touch browser-only APIs at import time:
+
+```package-install
+bun add -d @happy-dom/global-registrator
+```
+
+```toml
+# bunfig.toml
+[test]
+preload = "./happydom.ts"
+```
+
+```ts twoslash
+// happydom.ts
+import { GlobalRegistrator } from "@happy-dom/global-registrator";
+
+GlobalRegistrator.register();
+```
 
 For behavior, mount into a detached element and dispatch events:
 
@@ -94,7 +90,7 @@ The short sleeps let microtasks paint. `unmount()` stops streams and listeners �
 
 ## Hydration round-trip
 
-Render, inject, then hydrate to verify a snapshot restores:
+Render, inject, then hydrate to verify a snapshot restores. This path also needs the happy-dom preload above:
 
 ```tsx twoslash
 import { atom, mount, renderToString } from "ilha";

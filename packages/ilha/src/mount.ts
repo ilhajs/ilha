@@ -1,6 +1,8 @@
 import { paint, paintError } from "./paint.ts";
 import { closeFiber, makeFiber, makeRuntime } from "./runtime.ts";
 import { decodeSnapshot, encodeSnapshot } from "./snapshot.ts";
+import { escapeAttr } from "./ssr-dom.ts";
+import { attachSsr } from "./ssr-paint.ts";
 import { runSetup } from "./start.ts";
 import type { Component, IlhaRuntime } from "./types.ts";
 
@@ -15,17 +17,6 @@ export type MountOptions = {
   hydrate?: boolean;
   onError?: (error: unknown) => void;
 };
-
-// SAFETY: escapes values embedded in double-quoted HTML attributes only
-// (`data-ilha-state`, `data-ilha-actions`). Do not reuse for single-quoted or
-// unquoted attribute contexts without a different escaper.
-function escapeAttr(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
 
 function readHydrate(el: Element): unknown[] | undefined {
   const host = el.hasAttribute("data-ilha") ? el : el.querySelector("[data-ilha]");
@@ -43,12 +34,10 @@ function readHydrate(el: Element): unknown[] | undefined {
 function attach(
   el: Element,
   fn: Component,
-  opts?: MountOptions & { ssr?: boolean; ssrCapture?: boolean },
+  opts?: MountOptions,
 ): { unmount: () => void; ready: Promise<void>; runtime: IlhaRuntime } {
   if (!opts?.hydrate) el.innerHTML = "";
   const runtime = makeRuntime({
-    ssr: opts?.ssr,
-    ssrCapture: opts?.ssrCapture,
     hydrate: opts?.hydrate ? readHydrate(el) : undefined,
   });
   let resolve!: () => void;
@@ -82,30 +71,17 @@ export function mount(el: Element, fn: Component, opts?: MountOptions): () => vo
   return attach(el, fn, opts).unmount;
 }
 
-let domReady: Promise<void> | undefined;
-
-function ensureDocument(): Promise<void> {
-  if (typeof globalThis.document !== "undefined") return Promise.resolve();
-  domReady ??= import("@happy-dom/global-registrator").then(({ GlobalRegistrator }) => {
-    if (typeof globalThis.document === "undefined") GlobalRegistrator.register();
-  });
-  return domReady;
-}
-
 export async function renderToString(fn: Component, opts?: RenderToStringOptions): Promise<string> {
-  await ensureDocument();
   const snapshot = opts?.snapshot !== false;
   const markers = opts?.markers !== false;
-  const el = document.createElement("div");
-  const { unmount, ready, runtime } = attach(el, fn, {
-    ssr: true,
+  const { unmount, ready, runtime, root } = attachSsr(fn, {
     ssrCapture: opts?.captureActions === true,
   });
   if (opts?.timeout == null) await ready;
   else {
     await Promise.race([ready, new Promise<void>((r) => setTimeout(r, opts.timeout))]);
   }
-  let inner = el.innerHTML;
+  let inner = root.innerHTML;
   const actions = runtime.ssrActions;
   if (Object.keys(actions).length > 0) {
     inner = `<template data-ilha-actions="${escapeAttr(JSON.stringify(actions))}"></template>${inner}`;

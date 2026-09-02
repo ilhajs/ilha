@@ -67,6 +67,19 @@ export function beginPrimitiveFrame(fiber: FiberLocal): void {
   }
   fiber.primitiveI = 0;
   fiber.watchI = 0;
+  const islandFrame = (fiber.islandFrame ??= { i: 0, slots: [] });
+  const usedIslands = islandFrame.i;
+  if (usedIslands < islandFrame.slots.length) {
+    for (let j = usedIslands; j < islandFrame.slots.length; j++) {
+      const slot = islandFrame.slots[j];
+      if (slot) {
+        slot.unmount?.();
+        islandFrame.slots[j] = undefined;
+      }
+    }
+    islandFrame.slots.length = usedIslands;
+  }
+  islandFrame.i = 0;
 }
 
 function readTracked(atom: Atom.Atom<unknown>, registry: AtomRegistry): unknown {

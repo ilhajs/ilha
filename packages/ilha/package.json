@@ -1,6 +1,6 @@
 {
   "name": "ilha",
-  "version": "0.14.1",
+  "version": "0.14.2",
   "description": "Generator-first island UI on Effect",
   "keywords": [
     "effect",
@@ -62,10 +62,8 @@
     "cleanup": "rimraf dist node_modules",
     "test": "bun test"
   },
-  "dependencies": {
-    "@happy-dom/global-registrator": "^20.11.2"
-  },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^20.11.2",
     "effect": "^4.0.0-rc.112"
   },
   "peerDependencies": {

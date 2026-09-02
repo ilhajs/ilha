@@ -117,7 +117,7 @@ if (host) mount(host, Counter, { hydrate: true });
 | `timeout`        | none    | Serialize after this many ms   |
 | `captureActions` | `false` | Probe handlers for server RPCs |
 
-In Node, `renderToString` registers happy-dom when `document` is missing.
+`renderToString` builds HTML without a DOM — no polyfill in Node, Bun, or edge runtimes.
 
 ---
 

@@ -31,6 +31,26 @@ const ACTIONS_ATTR = "data-ilha-actions";
 const PROPS_ATTR = "data-ilha-props";
 const CLIENT_REF_ATTR = "data-ilha-client-ref";
 
+const moduleRepaints = new Map<string, Set<() => void>>();
+
+/** @internal Repaint every mounted island from the same `*.server` module. */
+export function __ilhaRepaintServerModule(moduleKey: string): void {
+  for (const repaint of moduleRepaints.get(moduleKey) ?? []) repaint();
+}
+
+function linkServerModuleRepaints(moduleKey: string, repaint: () => void): () => void {
+  let set = moduleRepaints.get(moduleKey);
+  if (!set) {
+    set = new Set();
+    moduleRepaints.set(moduleKey, set);
+  }
+  set.add(repaint);
+  return () => {
+    set!.delete(repaint);
+    if (set!.size === 0) moduleRepaints.delete(moduleKey);
+  };
+}
+
 export type ServerStreamFn = (signal: AbortSignal) => AsyncGenerator<unknown> | Generator<unknown>;
 
 export interface ServerIslandWiring {
@@ -130,6 +150,7 @@ function hydrateServerIsland(
   id: string,
   wiring: ServerIslandWiring,
   props?: Record<string, unknown>,
+  moduleKey?: string,
 ): ServerIslandHandle {
   const controller = new AbortController();
   const cleanups: Array<() => void> = [];
@@ -172,8 +193,11 @@ function hydrateServerIsland(
         }
       });
   };
-
-  // Reconnect event sentinels to named actions via the hydration manifest.
+  const repaintModule = (): void => {
+    if (moduleKey) __ilhaRepaintServerModule(moduleKey);
+    else scheduleRepaint();
+  };
+  if (moduleKey) cleanups.push(linkServerModuleRepaints(moduleKey, scheduleRepaint));
   // Frames re-render the island, so sentinel indexes and per-item args change
   // between renders — listeners are detached and rebuilt from scratch after
   // every morph, reading the FRESH manifest (host attr, or the <template>
@@ -226,7 +250,7 @@ function hydrateServerIsland(
         if (!action) continue;
         const listener = (): void => {
           void Promise.resolve(action(...callArgs))
-            .then(() => scheduleRepaint())
+            .then(() => repaintModule())
             .catch((err) => {
               console.error(`[ilha-router] action "${String(actionKey)}" failed:`, err);
             });
@@ -252,7 +276,7 @@ function hydrateServerIsland(
       const args = Array.isArray(marker.a) ? marker.a : [];
       props[key] = (..._runtimeArgs: unknown[]) =>
         Promise.resolve(action(...args)).then((result) => {
-          scheduleRepaint();
+          repaintModule();
           return result;
         });
     }
@@ -297,7 +321,7 @@ function hydrateServerIsland(
             const { done, value } = step;
             if (controller.signal.aborted || done) break;
             state[key] = value;
-            scheduleRepaint();
+            repaintModule();
             step = await gen.next();
           }
         } catch (err) {
@@ -366,6 +390,7 @@ export function __ilhaServerIsland(
   id: string,
   as: string,
   wiring: ServerIslandWiring = {},
+  moduleKey?: string,
 ): ServerIslandCallable {
   const slotTag = assertValidTag(as);
 
@@ -409,13 +434,13 @@ export function __ilhaServerIsland(
   (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
     host: Element,
     mountProps?: Record<string, unknown>,
-  ): ServerIslandHandle => hydrateServerIsland(host, id, wiring, mountProps);
+  ): ServerIslandHandle => hydrateServerIsland(host, id, wiring, mountProps, moduleKey);
 
   // SAFETY: `.mount` mirrors the core island method surface on the proxy.
   (island as unknown as Record<string, unknown>).mount = (
     host: Element,
     mountProps?: Record<string, unknown>,
-  ): (() => void) => hydrateServerIsland(host, id, wiring, mountProps).unmount;
+  ): (() => void) => hydrateServerIsland(host, id, wiring, mountProps, moduleKey).unmount;
 
   return island;
 }

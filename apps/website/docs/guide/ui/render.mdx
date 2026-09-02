@@ -51,7 +51,7 @@ Default output looks like:
 
 Pass `{ markers: false }` when a host already exists (for example a frame target).
 
-`renderToString` needs a DOM. In Node, ilha registers happy-dom when `document` is missing.
+`renderToString` builds HTML without a DOM. It runs in Node, Bun, and edge runtimes with no polyfill.
 
 ## Mount
 

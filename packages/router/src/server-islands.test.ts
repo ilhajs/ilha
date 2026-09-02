@@ -133,11 +133,25 @@ describe("generateServerIslandModule", () => {
     expect(code).toContain(`export const ticks = (...args) => $$call("ticks", args)`);
     const id = serverIslandPublicId("/abs/tasks.server.ts", "T");
     expect(code).toContain(`export const T = __ilhaServerIsland("${id}", "div"`);
+    expect(code).toContain(`"${id}", "div", {`);
+    expect(code).toContain(`, "/abs/tasks")`);
+    expect(code).toContain(`$$rpc["tasks"][method](...args)`);
     expect(code).toContain(
       `JSON.stringify({ id: "${id}", path: location.pathname + location.search, props })`,
     );
     expect(code).not.toContain("#T");
     expect(code).not.toContain("state })");
+  });
+
+  it("same-basename modules get distinct repaint keys and shared rpc basenames", () => {
+    const scan = scanServerIslands(`export const T = async function T() { return "x"; };`);
+    const a = generateServerIslandModule("/proj/a/tasks.server.ts", scan);
+    const b = generateServerIslandModule("/proj/b/tasks.server.ts", scan);
+    expect(a).toContain(`$$rpc["tasks"][method](...args)`);
+    expect(b).toContain(`$$rpc["tasks"][method](...args)`);
+    expect(a).toContain(`, "/proj/a/tasks")`);
+    expect(b).toContain(`, "/proj/b/tasks")`);
+    expect(a).not.toContain(`, "/proj/b/tasks")`);
   });
 
   it("wires imported JSX islands into the client proxy", () => {
@@ -460,6 +474,99 @@ describe("__ilhaServerIsland frames", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(calls).toEqual(["ping"]);
     unmount();
+  });
+});
+
+describe("__ilhaServerIsland shared module repaints", () => {
+  it("repaints every mounted island from the same server module", async () => {
+    let countFrames = 0;
+    let listFrames = 0;
+    const Count = __ilhaServerIsland(
+      "tasks.server.tsx#TaskCount",
+      "span",
+      {
+        frame: () => `<span class="badge">${++countFrames}</span>`,
+      },
+      "/abs/tasks",
+    );
+    const List = __ilhaServerIsland(
+      "tasks.server.tsx#TaskList",
+      "div",
+      {
+        actions: {
+          "x:toggle": () => Promise.resolve(),
+        },
+        frame: () =>
+          `<template data-ilha-actions='{"click:0":"x:toggle"}'></template><button data-ilha-on="click:0">go</button><p>list-${++listFrames}</p>`,
+      },
+      "/abs/tasks",
+    );
+
+    const countHost = document.createElement("div");
+    const listHost = document.createElement("div");
+    document.body.append(countHost, listHost);
+
+    const unmountCount = Count.mount(countHost);
+    const unmountList = List.mount(listHost);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(countFrames).toBe(1);
+    expect(listFrames).toBe(1);
+
+    listHost.querySelector<HTMLButtonElement>("button")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(countFrames).toBe(2);
+    expect(listFrames).toBe(2);
+
+    unmountCount();
+    unmountList();
+  });
+
+  it("same-basename modules in different directories keep distinct repaint groups", async () => {
+    let aFrames = 0;
+    let bFrames = 0;
+    const A = __ilhaServerIsland(
+      "a/tasks.server.tsx#A",
+      "div",
+      {
+        actions: { "x:go": () => Promise.resolve() },
+        frame: () =>
+          `<template data-ilha-actions='{"click:0":"x:go"}'></template><button data-ilha-on="click:0">a</button><p>a-${++aFrames}</p>`,
+      },
+      "/proj/a/tasks",
+    );
+    const B = __ilhaServerIsland(
+      "b/tasks.server.tsx#B",
+      "div",
+      {
+        frame: () => `<p>b-${++bFrames}</p>`,
+      },
+      "/proj/b/tasks",
+    );
+
+    const aHost = document.createElement("div");
+    const bHost = document.createElement("div");
+    document.body.append(aHost, bHost);
+    const unmountA = A.mount(aHost);
+    const unmountB = B.mount(bHost);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(aFrames).toBe(1);
+    expect(bFrames).toBe(1);
+
+    aHost.querySelector<HTMLButtonElement>("button")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(aFrames).toBe(2);
+    expect(bFrames).toBe(1);
+
+    unmountA();
+    unmountB();
   });
 });
 

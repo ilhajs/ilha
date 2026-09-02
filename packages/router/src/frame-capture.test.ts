@@ -7,6 +7,28 @@ import { h } from "ilha";
 import { __ilhaServerIsland } from "./server-island";
 import { __ilhaServerAction, registerServerIsland, renderServerIsland } from "./ssr";
 
+const ACTION_CALL = Symbol.for("ilha.actionCall");
+const ACTION_KEY = Symbol.for("oxidejs.actionKey");
+
+function testAction<A extends unknown[], R>(fn: (...args: A) => R) {
+  const handle = Object.assign((...args: A) => fn(...args), {
+    set: (...args: A) => fn(...args),
+    bind(...args: A) {
+      const key = (handle as { [ACTION_KEY]?: string })[ACTION_KEY];
+      const handler = ((..._ev: unknown[]) => fn(...args)) as ((...ev: unknown[]) => R) &
+        Record<typeof ACTION_CALL, { k: string; a: unknown[] }>;
+      if (key) handler[ACTION_CALL] = { k: key, a: args };
+      return handler;
+    },
+    with(...args: A) {
+      return handle.bind(...args);
+    },
+    atom: undefined,
+    $$atom: 1 as const,
+  });
+  return handle;
+}
+
 /** Run a render Effect to completion, rethrowing FrameError on failure. */
 const runIsland = async (
   id: string,
@@ -30,14 +52,17 @@ const runIsland = async (
 
 const SEAM_ID = "frame-capture-seam";
 
-const del = __ilhaServerAction("x:del", async (id: string) => `deleted:${id}`);
+const del = __ilhaServerAction(
+  "x:del",
+  testAction(async (id: string) => `deleted:${id}`),
+);
 
 function Tasks() {
   return h(
     "div",
     null,
-    h("button", { type: "button", "data-task": "1", onclick: del.with("1") }, "Delete 1"),
-    h("button", { type: "button", "data-task": "2", onclick: del.with("2") }, "Delete 2"),
+    h("button", { type: "button", "data-task": "1", onclick: del.bind("1") }, "Delete 1"),
+    h("button", { type: "button", "data-task": "2", onclick: del.bind("2") }, "Delete 2"),
   );
 }
 
@@ -151,22 +176,27 @@ describe("frame capture seam (SSR → client proxy)", () => {
 describe("__ilhaServerAction runtime wrapper", () => {
   it("invokes the function when no capture is active", async () => {
     const seen: unknown[] = [];
-    const act = __ilhaServerAction("x:probe", async (id: string) => {
-      seen.push(id);
-      return id;
-    });
+    const act = __ilhaServerAction(
+      "x:probe",
+      testAction(async (id: string) => {
+        seen.push(id);
+        return id;
+      }),
+    );
     await act("direct");
     expect(seen).toEqual(["direct"]);
   });
 
-  it(".with() brands the handler for SSR serialization", async () => {
+  it(".bind() brands the handler for SSR serialization", async () => {
     const BRAND = Symbol.for("ilha.actionCall");
-    const act = __ilhaServerAction("x:brand", async (id: string, _note: string) => id);
-    const handler = act.with("7", "hi");
+    const act = __ilhaServerAction(
+      "x:brand",
+      testAction(async (id: string, _note: string) => id),
+    );
+    const handler = act.bind("7", "hi");
     expect(typeof handler).toBe("function");
     const branded = (handler as unknown as Record<symbol, { k: string; a: unknown[] }>)[BRAND];
     expect(branded).toEqual({ k: "x:brand", a: ["7", "hi"] });
-    // Calling the handler on the server still reaches the function.
     await handler();
   });
 

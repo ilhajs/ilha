@@ -103,6 +103,32 @@ test("rejects css url escapes and data urls in string styles", () => {
   expect(dataUrl.style.background).toBe("");
 });
 
+test("rejects javascript: href during renderToString", async () => {
+  const html = await renderToString(() => h("a", { href: "javascript:alert(1)" }, "x"));
+  expect(html).not.toContain("javascript:");
+});
+
+test("script and style SSR keep raw text and reject closing-tag breakouts", async () => {
+  const ok = await renderToString(() => h("script", null, "const x = 1 < 2 && true;"), {
+    markers: false,
+    snapshot: false,
+  });
+  expect(ok).toContain("<script>const x = 1 < 2 && true;</script>");
+
+  const style = await renderToString(() => h("style", null, "a > b { color: red; }"), {
+    markers: false,
+    snapshot: false,
+  });
+  expect(style).toContain("<style>a > b { color: red; }</style>");
+
+  expect(
+    renderToString(() => h("script", null, "alert(1)</script><img src=x onerror=alert(1)>"), {
+      markers: false,
+      snapshot: false,
+    }),
+  ).rejects.toThrow(/unsafe raw text in <script>/);
+});
+
 test("never serializes function handlers as attributes", async () => {
   const html = await renderToString(() =>
     h("button", { onMouseOver: () => undefined, onClick: () => undefined }, "x"),
