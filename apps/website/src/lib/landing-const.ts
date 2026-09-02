@@ -29,8 +29,8 @@ const Signup = () => {
         name="email"
         placeholder="you@company.com"
         value={email}
-        oninput={(e: Event) =>
-          email.set((e.currentTarget as HTMLInputElement).value)
+        oninput={(e) =>
+          email.set(e.currentTarget.value)
         }
       />
       <button disabled={!email().includes("@")}>Join waitlist</button>
@@ -53,8 +53,8 @@ function* Search() {
         name="q"
         placeholder="Search…"
         value={query}
-        oninput={(e: Event) =>
-          query.set((e.currentTarget as HTMLInputElement).value)
+        oninput={(e) =>
+          query.set(e.currentTarget.value)
         }
       />
     </section>
@@ -158,8 +158,8 @@ export default function Tasks() {
                   type="checkbox"
                   class="checkbox"
                   checked={task.done}
-                  onchange={(event: Event) => {
-                    const done = (event.currentTarget as HTMLInputElement).checked;
+                  onchange={(event) => {
+                    const done = event.currentTarget.checked;
                     tasks.update((current) =>
                       current.map((item) =>
                         item.id === task.id ? { ...item, done } : item,

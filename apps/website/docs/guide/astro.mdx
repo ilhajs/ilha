@@ -47,7 +47,7 @@ export const Counter = ({ start = 0 }: { start?: number }) => {
   return (
     <button
       type="button"
-      onclick={() => count.update((value: number) => value + 1)}
+      onclick={() => count.update((value) => value + 1)}
     >
       {count}
     </button>

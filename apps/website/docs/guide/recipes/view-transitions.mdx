@@ -12,7 +12,7 @@ export default function Card() {
 
   const toggle = () => {
     document.startViewTransition(() => {
-      checked.update((value: boolean) => !value);
+      checked.update((value) => !value);
     });
   };
 

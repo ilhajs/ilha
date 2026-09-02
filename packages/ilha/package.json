@@ -1,6 +1,6 @@
 {
   "name": "ilha",
-  "version": "0.14.2",
+  "version": "0.14.3",
   "description": "Generator-first island UI on Effect",
   "keywords": [
     "effect",
@@ -60,7 +60,8 @@
   "scripts": {
     "build": "tsdown",
     "cleanup": "rimraf dist node_modules",
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.types.json --noEmit"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.11.2",

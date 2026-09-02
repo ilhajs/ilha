@@ -15,7 +15,7 @@ const Counter = () => {
   return (
     <button
       type="button"
-      onclick={() => count.update((n: number) => n + 1)}
+      onclick={() => count.update((n) => n + 1)}
     >
       {count}
     </button>
@@ -94,9 +94,7 @@ const Profile = () => {
   return (
     <input
       value={name}
-      oninput={(e: Event) =>
-        name.set((e.currentTarget as HTMLInputElement).value)
-      }
+      oninput={(e) => name.set(e.currentTarget.value)}
     />
   );
 };
@@ -152,12 +150,10 @@ const Form = () => {
   );
   return (
     <form
-      onsubmit={(e: SubmitEvent) => {
+      onsubmit={(e) => {
         e.preventDefault();
         const email = String(
-          new FormData(e.currentTarget as HTMLFormElement).get(
-            "email",
-          ) ?? "",
+          new FormData(e.currentTarget).get("email") ?? "",
         );
         if (Atom.isWritable(save.atom))
           save.set(email as never);
