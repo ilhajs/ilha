@@ -20,7 +20,10 @@ export type StyleObject = Readonly<
 
 export type EventHandler = (event: Event) => void;
 
-export type PropBag = Readonly<Record<string, PropValue | undefined>>;
+/** Indexed bag — interface so PropValue can recurse without a circular type alias. */
+export interface PropBag {
+  readonly [key: string]: PropValue | undefined;
+}
 
 export type ActionArg = JsonText | PropBag | readonly ActionArg[];
 
@@ -39,10 +42,11 @@ export type View =
   | View[]
   | Iterable<View>;
 
-// SAFETY: Fragment is a unique brand symbol compared by identity in paint/h.
-const FragmentSymbol = Symbol("ilha.Fragment") as unique symbol;
-export { FragmentSymbol as Fragment };
-export type Fragment = typeof FragmentSymbol;
+// Fragment value and type share a name (JSX Fragment + VNode.type brand).
+// oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
+export const Fragment: unique symbol = Symbol("ilha.Fragment");
+// oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
+export type Fragment = typeof Fragment;
 
 export type ComponentFn = (
   props: PropBag

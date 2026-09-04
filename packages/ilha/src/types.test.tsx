@@ -17,7 +17,7 @@ const input: NonNullable<JSX.IntrinsicElements["input"]["oninput"]> = (e) => {
 };
 
 // SAFETY: type-anchor fixtures only — never read at runtime.
-const asHandle = <A,>(): AtomHandle<A> => undefined as AtomHandle<A>;
+const asHandle = <A,>(): AtomHandle<A> => undefined as never;
 
 const typecheckJsxProps = (): void => {
   const count = asHandle<number>();

@@ -19,8 +19,17 @@ export namespace JSX {
   /** Scalar attribute value (booleans become presence/absence). */
   type Attr = string | number | boolean | null | undefined;
 
-  /** Values that can bind through `value` / `checked` / `selected`. */
-  type Bindable<T> = T | AtomHandle<T>;
+  /**
+   * Values that can bind through `value` / `checked` / `selected`.
+   * AtomHandle is invariant in T (via `set`), so constituents of a union T
+   * are listed explicitly — e.g. AtomHandle of string for value={string|number}.
+   */
+  type Bindable<T> =
+    | T
+    | AtomHandle<T>
+    | (string extends T ? AtomHandle<string> : never)
+    | (number extends T ? AtomHandle<number> : never)
+    | (boolean extends T ? AtomHandle<boolean> : never);
 
   type StyleValue =
     | string
@@ -655,9 +664,5 @@ export namespace JSX {
       "stop-color"?: Attr;
       "stop-opacity"?: Attr;
     };
-
-    // Custom elements / unknown tags (`ilha-count`, etc.).
-    // Wide catch-all so per-tag attribute bags stay assignable.
-    [tag: string]: HTMLAttributes<HTMLElement>;
   }
 }

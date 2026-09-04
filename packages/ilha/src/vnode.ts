@@ -44,9 +44,13 @@ export const h = (
   };
 };
 
-export const isVNode = <T>(x: T): x is T & VNode =>
+export const isVNode = <T>(x: T): x is T & VNode => {
+  if (!isObject(x)) {
+    return false;
+  }
   // SAFETY: $$ilha brand is installed by h() on every vnode.
-  isObject(x) && (x as VNode).$$ilha === 1;
+  return (x as { readonly $$ilha?: unknown }).$$ilha === 1;
+};
 
 export const isSetupFn = <T>(x: T): boolean => {
   if (!isFunction(x)) {
