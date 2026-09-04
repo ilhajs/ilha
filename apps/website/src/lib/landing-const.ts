@@ -64,7 +64,7 @@ function* Search() {
   yield* when(
     Atom.toStream(query.atom).pipe(Stream.debounce("200 millis")),
     function* (q) {
-      if (!q) return;
+      if (!q) return undefined;
       const items = yield* Effect.tryPromise({
         try: (signal) =>
           fetch(\`/api/search?q=\${encodeURIComponent(q)}\`, { signal }).then(
@@ -73,6 +73,7 @@ function* Search() {
         catch: (e) => e,
       });
       yield <ul>{(items as string[]).map((item) => <li>{item}</li>)}</ul>;
+      return undefined;
     },
   );
 }

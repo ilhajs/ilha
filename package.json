@@ -32,6 +32,6 @@
     "ultracite": "7.10.7"
   },
   "patchedDependencies": {
-    "blume@1.5.3": "patches/blume@1.5.3.patch"
+    "blume@1.6.0": "patches/blume@1.6.0.patch"
   }
 }

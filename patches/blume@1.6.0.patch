@@ -1,6 +1,3 @@
-diff --git a/node_modules/blume/.bun-tag-162e10d46fe0c2d5 b/.bun-tag-162e10d46fe0c2d5
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/src/markdown/twoslash.ts b/src/markdown/twoslash.ts
 index 98142c16544a61e67ffae021eec32d475f1dab74..63503ca1438edd8f396655db3f71db730561433f 100644
 --- a/src/markdown/twoslash.ts

@@ -62,7 +62,7 @@ function* Search() {
     function* (q) {
       if (!q) {
         yield <p>Type to search</p>;
-        return;
+        return undefined;
       }
       const items = yield* Effect.tryPromise({
         try: (signal) =>
@@ -78,6 +78,7 @@ function* Search() {
           ))}
         </ul>
       );
+      return undefined;
     }
   );
 }
