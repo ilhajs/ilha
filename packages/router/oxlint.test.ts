@@ -1,29 +1,35 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 
-const plugin = join(import.meta.dir, "oxlint.cjs");
+const plugin = path.join(import.meta.dir, "oxlint.cjs");
 
 const RULES = {
-  "oxlint-plugin-ilha/no-conditional-primitive": "error",
-  "oxlint-plugin-ilha/no-primitive-outside-component": "error",
-  "oxlint-plugin-ilha/no-instruction-outside-generator": "error",
-  "oxlint-plugin-ilha/prefer-lowercase-events": "error",
   "oxlint-plugin-ilha/function-in-atom": "error",
+  "oxlint-plugin-ilha/no-conditional-primitive": "error",
+  "oxlint-plugin-ilha/no-instruction-outside-generator": "error",
+  "oxlint-plugin-ilha/no-primitive-outside-component": "error",
+  "oxlint-plugin-ilha/prefer-lowercase-events": "error",
 };
 
-async function lint(source: string) {
-  const dir = await mkdtemp(join(tmpdir(), "ilha-oxlint-"));
-  const file = join(dir, "case.tsx");
-  const config = join(dir, ".oxlintrc.json");
+const lint = async (source: string) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "ilha-oxlint-"));
+  const file = path.join(dir, "case.tsx");
+  const config = path.join(dir, ".oxlintrc.json");
   await writeFile(file, source);
-  await writeFile(config, JSON.stringify({ jsPlugins: [plugin], rules: RULES }));
-  const proc = Bun.spawnSync(["bunx", "oxlint", "-c", config, "--format", "json", file], {
-    cwd: dir,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  await writeFile(
+    config,
+    JSON.stringify({ jsPlugins: [plugin], rules: RULES })
+  );
+  const proc = Bun.spawnSync(
+    ["bunx", "oxlint", "-c", config, "--format", "json", file],
+    {
+      cwd: dir,
+      stderr: "pipe",
+      stdout: "pipe",
+    }
+  );
   const out = proc.stdout.toString() || proc.stderr.toString();
   let messages: { ruleId?: string; message?: string }[] = [];
   try {
@@ -32,8 +38,8 @@ async function lint(source: string) {
   } catch {
     messages = [{ message: out }];
   }
-  return { raw: out, messages };
-}
+  return { messages, raw: out };
+};
 
 test("flags atom() at module top level", async () => {
   const { messages, raw } = await lint(`

@@ -12,53 +12,56 @@ import {
   getHistoryMode,
 } from "./index";
 
-const HomePage = async () => "home";
-const AboutPage = async () => "about";
-const UserPage = async () => "user";
+const HomePage = () => "home";
+const AboutPage = () => "about";
+const UserPage = () => "user";
 
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
 
-function makeEl(inner = ""): Element {
+const makeEl = (inner = ""): Element => {
   const el = document.createElement("div");
   if (inner) {
-    const parsed = new DOMParser().parseFromString(`<div>${inner}</div>`, "text/html");
-    el.replaceChildren(...Array.from(parsed.body.firstElementChild?.childNodes ?? []));
+    const parsed = new DOMParser().parseFromString(
+      `<div>${inner}</div>`,
+      "text/html"
+    );
+    el.replaceChildren(...(parsed.body.firstElementChild?.childNodes ?? []));
   }
-  document.body.appendChild(el);
+  document.body.append(el);
   return el;
-}
+};
 
-function cleanup(el: Element) {
-  if (el.parentNode === document.body) document.body.removeChild(el);
-}
+const cleanup = (el: Element) => {
+  if (el.parentNode === document.body) {
+    el.remove();
+  }
+};
 
-function detached(): Element {
-  return document.createElement("div");
-}
+const detached = (): Element => document.createElement("div");
 
 /**
  * Set the URL bar to a hash-mode URL. We anchor at "/" because in a real
  * hash-mode app the document is served from a single path (often "/" or
  * "index.html") and the hash carries the route.
  */
-function setHashLocation(logicalPath: string) {
-  const hash = logicalPath.startsWith("#") ? logicalPath : "#" + logicalPath;
-  window.location.href = "http://localhost/" + hash;
-}
+const setHashLocation = (logicalPath: string) => {
+  const hash = logicalPath.startsWith("#") ? logicalPath : `#${logicalPath}`;
+  window.location.href = `http://localhost/${hash}`;
+};
 
-function popstate() {
+const popstate = () => {
   window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
-}
+};
 
-function hashchange() {
+const hashchange = () => {
   window.dispatchEvent(new HashChangeEvent("hashchange"));
-}
+};
 
-function resetMode() {
+const resetMode = () => {
   setHistoryMode("history");
-}
+};
 
 // ─────────────────────────────────────────────
 // Mode toggle — public API
@@ -107,7 +110,10 @@ describe("hash mode — initial mount", () => {
   it("reads route from location.hash on mount", async () => {
     setHashLocation("/about");
     el = makeEl();
-    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
     await Bun.sleep(20);
     expect(routePath()).toBe("/about");
     expect(el.textContent).toContain("about");
@@ -116,7 +122,10 @@ describe("hash mode — initial mount", () => {
   it("treats empty hash as root path", async () => {
     window.location.href = "http://localhost/";
     el = makeEl();
-    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
     await Bun.sleep(20);
     expect(routePath()).toBe("/");
     expect(el.textContent).toContain("home");
@@ -132,7 +141,10 @@ describe("hash mode — initial mount", () => {
   it("parses search params from inside the hash", () => {
     setHashLocation("/about?tab=docs");
     el = makeEl();
-    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
     expect(routePath()).toBe("/about");
     expect(routeSearch()).toBe("?tab=docs");
   });
@@ -140,7 +152,10 @@ describe("hash mode — initial mount", () => {
   it("parses an in-hash anchor into routeHash()", () => {
     setHashLocation("/about#section");
     el = makeEl();
-    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
     expect(routePath()).toBe("/about");
     expect(routeHash()).toBe("#section");
   });
@@ -158,7 +173,10 @@ describe("hash mode — navigate()", () => {
     setHistoryMode("hash");
     setHashLocation("/");
     el = makeEl();
-    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
   });
 
   afterEach(() => {
@@ -231,7 +249,10 @@ describe("hash mode — change events", () => {
     setHistoryMode("hash");
     setHashLocation("/");
     el = makeEl();
-    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
   });
 
   afterEach(() => {
@@ -284,7 +305,10 @@ describe("hash mode — link interception", () => {
     setHistoryMode("hash");
     setHashLocation("/");
     el = makeEl();
-    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
   });
 
   afterEach(() => {
@@ -297,7 +321,7 @@ describe("hash mode — link interception", () => {
   it("intercepts hash-form links (#/about)", async () => {
     const link = document.createElement("a");
     link.setAttribute("href", "#/about");
-    el.appendChild(link);
+    el.append(link);
     link.click();
     await Bun.sleep(20);
     expect(routePath()).toBe("/about");
@@ -307,7 +331,7 @@ describe("hash mode — link interception", () => {
   it("intercepts plain-path links (/about) — same logical path", async () => {
     const link = document.createElement("a");
     link.setAttribute("href", "/about");
-    el.appendChild(link);
+    el.append(link);
     link.click();
     await Bun.sleep(20);
     expect(routePath()).toBe("/about");
@@ -318,9 +342,11 @@ describe("hash mode — link interception", () => {
     const root = detached();
     const link = document.createElement("a");
     link.setAttribute("href", "#section");
-    root.appendChild(link);
+    root.append(link);
     const stop = enableLinkInterception(root);
-    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    link.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true })
+    );
     stop();
     expect(routePath()).toBe("/");
   });
@@ -329,9 +355,11 @@ describe("hash mode — link interception", () => {
     const root = detached();
     const link = document.createElement("a");
     link.setAttribute("href", "#");
-    root.appendChild(link);
+    root.append(link);
     const stop = enableLinkInterception(root);
-    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    link.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true })
+    );
     stop();
     expect(routePath()).toBe("/");
   });
@@ -340,9 +368,15 @@ describe("hash mode — link interception", () => {
     const root = detached();
     const link = document.createElement("a");
     link.setAttribute("href", "#/about");
-    root.appendChild(link);
+    root.append(link);
     const stop = enableLinkInterception(root);
-    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true }));
+    link.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+      })
+    );
     stop();
     expect(routePath()).toBe("/");
   });
@@ -352,9 +386,11 @@ describe("hash mode — link interception", () => {
     const link = document.createElement("a");
     link.setAttribute("href", "#/about");
     link.setAttribute("target", "_blank");
-    root.appendChild(link);
+    root.append(link);
     const stop = enableLinkInterception(root);
-    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    link.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true })
+    );
     stop();
     expect(routePath()).toBe("/");
   });
@@ -363,10 +399,12 @@ describe("hash mode — link interception", () => {
     const root = detached();
     const link = document.createElement("a");
     link.setAttribute("href", "#/about");
-    link.setAttribute("data-no-intercept", "");
-    root.appendChild(link);
+    link.dataset.noIntercept = "";
+    root.append(link);
     const stop = enableLinkInterception(root);
-    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    link.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true })
+    );
     stop();
     expect(routePath()).toBe("/");
   });
@@ -376,9 +414,11 @@ describe("hash mode — link interception", () => {
     const root = detached();
     const link = document.createElement("a");
     link.setAttribute("href", "http://localhost/#/about");
-    root.appendChild(link);
+    root.append(link);
     const stop = enableLinkInterception(root);
-    link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    link.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true })
+    );
     stop();
     expect(routePath()).toBe("/about");
   });
@@ -418,7 +458,9 @@ describe("hash mode — hydrate warning", () => {
     unmount = router().route("/", HomePage).mount(el);
     // Filter for the hash-mode hydrate warning specifically — other warnings
     // (e.g. from RouterView edge cases) should not fail this test.
-    const hashWarnings = warn.mock.calls.filter((call) => String(call[0]).includes("hash mode"));
+    const hashWarnings = warn.mock.calls.filter((call) =>
+      String(call[0]).includes("hash mode")
+    );
     expect(hashWarnings).toHaveLength(0);
     warn.mockRestore();
   });
@@ -428,7 +470,9 @@ describe("hash mode — hydrate warning", () => {
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     el = makeEl();
     unmount = router().route("/", HomePage).mount(el, { hydrate: true });
-    const hashWarnings = warn.mock.calls.filter((call) => String(call[0]).includes("hash mode"));
+    const hashWarnings = warn.mock.calls.filter((call) =>
+      String(call[0]).includes("hash mode")
+    );
     expect(hashWarnings).toHaveLength(0);
     warn.mockRestore();
   });
@@ -451,7 +495,10 @@ describe("hash mode — mode isolation", () => {
     setHistoryMode("history");
 
     el = makeEl();
-    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
     navigate("/about");
 
     expect(window.location.pathname).toBe("/about");
@@ -463,7 +510,10 @@ describe("hash mode — mode isolation", () => {
     setHistoryMode("hash");
     setHashLocation("/about");
     el = makeEl();
-    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
     expect(routePath()).toBe("/about");
     unmount();
     cleanup(el);
@@ -472,7 +522,10 @@ describe("hash mode — mode isolation", () => {
     setHistoryMode("history");
     window.location.href = "http://localhost/";
     el = makeEl();
-    unmount = router().route("/", HomePage).route("/about", AboutPage).mount(el);
+    unmount = router()
+      .route("/", HomePage)
+      .route("/about", AboutPage)
+      .mount(el);
     expect(routePath()).toBe("/");
   });
 });

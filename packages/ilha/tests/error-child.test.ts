@@ -2,16 +2,22 @@ import { expect, test } from "bun:test";
 
 import { mount } from "../src/index.ts";
 
+const Boom = async () => {
+  await Promise.resolve();
+  throw new Error("boom");
+};
+
+const Page = () => ({
+  $$ilha: 1 as const,
+  children: [
+    { $$ilha: 1 as const, children: ["ok"], props: {}, type: "p" },
+    Boom,
+  ],
+  props: {},
+  type: "div",
+});
+
 test("child throw paints hole error, parent stays", async () => {
-  const Boom = async () => {
-    throw new Error("boom");
-  };
-  const Page = async () => ({
-    $$ilha: 1 as const,
-    type: "div",
-    props: {},
-    children: [{ $$ilha: 1 as const, type: "p", props: {}, children: ["ok"] }, Boom],
-  });
   const el = document.createElement("div");
   document.body.append(el);
   mount(el, Page);

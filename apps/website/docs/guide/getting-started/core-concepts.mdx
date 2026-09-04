@@ -70,9 +70,7 @@ import { atom } from "ilha";
 const Cart = () => {
   const items = atom([{ n: 1 }, { n: 2 }]);
   const total = atom(
-    Atom.map(items.atom, (list) =>
-      list.reduce((sum, item) => sum + item.n, 0),
-    ),
+    Atom.map(items.atom, (list) => list.reduce((sum, item) => sum + item.n, 0))
   );
   return <p>{total}</p>;
 };

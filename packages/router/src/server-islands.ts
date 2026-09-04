@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import path from "node:path";
 
 /**
  * Build-time support for server-defined islands. The plugin scans
@@ -12,14 +12,12 @@ import { basename } from "node:path";
  */
 
 /** Oxide RPC client key — basename without `.server.*` (oxide indexes by module name). */
-export function serverModuleRpcKey(spec: string): string {
-  return basename(spec).replace(/\.server\.(?:[jt]sx?)$/i, "");
-}
+export const serverModuleRpcKey = (spec: string): string =>
+  path.basename(spec).replace(/\.server\.(?:[jt]sx?)$/iu, "");
 
 /** Client repaint group key — full normalized path so same-basename files stay distinct. */
-export function serverModuleRepaintKey(spec: string): string {
-  return spec.replace(/\\/g, "/").replace(/\.server\.(?:[jt]sx?)$/i, "");
-}
+export const serverModuleRepaintKey = (spec: string): string =>
+  spec.replaceAll("\\", "/").replace(/\.server\.(?:[jt]sx?)$/iu, "");
 
 export interface ScannedServerIsland {
   /** Export binding name, or `"default"` for `export default ilha…`. */
@@ -44,18 +42,33 @@ export interface ClientIslandRef {
  * capture-aware shim on ALREADY-COMPILED module code. Must run inside the
  * SSR transform so upstream JSX/TS output is preserved.
  */
-export function rewriteServerActions(code: string, rpcActions: Record<string, string>): string {
+export const rewriteServerActions = (
+  code: string,
+  rpcActions: Record<string, string>
+): string => {
   const names = Object.keys(rpcActions);
-  if (names.length === 0) return code;
+  if (names.length === 0) {
+    return code;
+  }
   const re = new RegExp(
-    `(export\\s+(?:const|let|var)\\s+(${names.join("|")})\\b\\s*=\\s*)action\\s*\\(`,
-    "g",
+    `(?<head>export\\s+(?:const|let|var)\\s+(?<name>${names.join("|")})\\b\\s*=\\s*)action\\s*\\(`,
+    "gu"
   );
-  return code.replace(re, (_match, head: string, name: string) => {
-    const key = rpcActions[name]!;
+  return code.replace(re, (_match, ...args) => {
+    // SAFETY: String.replace with a named-group regex puts groups on the last arg.
+    const groups = args.at(-1) as { head?: string; name?: string } | undefined;
+    const name = groups?.name;
+    const head = groups?.head;
+    if (name === undefined || head === undefined) {
+      return _match;
+    }
+    const key = rpcActions[name];
+    if (key === undefined) {
+      return _match;
+    }
     return `${head}__ilhaServerAction(${JSON.stringify(key)}, `;
   });
-}
+};
 
 export interface ServerModuleScan {
   islands: ScannedServerIsland[];
@@ -74,183 +87,303 @@ export interface ServerModuleScan {
 }
 
 const EXPORT_RE =
-  /(?:^|\n)\s*export\s+(?:declare\s+)?(?:async\s+)?(?:function\s*\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/g;
+  /(?:^|\n)\s*export\s+(?:declare\s+)?(?:async\s+)?(?:function\s*\*?|const|let|var|class)\s+(?<name>[A-Za-z_$][\w$]*)/gu;
 const ISLAND_EXPORT_RE =
-  /(?:^|\n)\s*export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+function|function\s*\*)/g;
-const DEFAULT_ISLAND_RE = /export\s+default\s+(?:async\s+function|function\s*\*|function\b)/;
+  /(?:^|\n)\s*export\s+(?:const|let|var)\s+(?<name>[A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function(?:\s*\*)?/gu;
+const DEFAULT_ISLAND_RE = /export\s+default\s+(?:async\s+)?function(?:\s*\*)?/u;
+const EXPORT_LIST_RE = /export\s*\{(?<body>[^}]*)\}/gu;
+const ACTION_EXPORT_RE =
+  /export\s+(?:const|let|var)\s+(?<name>[A-Za-z_$][\w$]*)\s*=\s*action\s*\(/gu;
+const JSX_TAG_RE = /<(?<tag>[A-Z][\w$]*)\b/gu;
+const IMPORT_STMT_RE =
+  /(?:^|\n)\s*import\s+(?!type\b)(?<clause>[^'"\n]+?)\s+from\s+["'](?<spec>[^"']+)["']/gu;
+const NAMED_BINDING_RE =
+  /^(?<imported>[A-Za-z_$][\w$]*)(?:\s+as\s+(?<local>[A-Za-z_$][\w$]*))?$/u;
+const FROM_ASYNC_RE =
+  /fromAsyncIterable\(\s*(?<target>[A-Za-z_$][\w$]*)\s*\(/gu;
+const CALL_IDENT_RE = /(?<ident>[A-Za-z_$][\w$]*)\s*\(/gu;
 
-export function clientRefPublicId(spec: string, imported: string): string {
-  return createHash("sha256").update(`${spec}#${imported}`).digest("base64url");
-}
+export const clientRefPublicId = (spec: string, imported: string): string =>
+  createHash("sha256").update(`${spec}#${imported}`).digest("base64url");
 
-function scanClientRefs(source: string): ClientIslandRef[] {
-  const used = new Set(Array.from(source.matchAll(/<([A-Z][\w$]*)\b/g), (match) => match[1]!));
-  const refs: ClientIslandRef[] = [];
-  const IMPORT_RE = /(?:^|\n)\s*import\s+(?!type\b)([^'"\n]+?)\s+from\s+["']([^"']+)["']/g;
-  for (const match of source.matchAll(IMPORT_RE)) {
-    const clause = match[1]!.trim();
-    const spec = match[2]!;
-    const brace = clause.match(/\{([^}]+)\}/)?.[1];
-    if (brace) {
-      for (const part of brace.split(",")) {
-        const binding = part.trim().match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/);
-        if (!binding) continue;
-        const imported = binding[1]!;
-        const local = binding[2] ?? imported;
-        if (used.has(local))
-          refs.push({ id: clientRefPublicId(spec, imported), local, imported, spec });
-      }
+const collectNamedImportRefs = (
+  clause: string,
+  spec: string,
+  used: Set<string>,
+  refs: ClientIslandRef[]
+): void => {
+  const brace = clause.match(/\{(?<inner>[^}]+)\}/u)?.groups?.inner;
+  if (!brace) {
+    return;
+  }
+  for (const part of brace.split(",")) {
+    const binding = part.trim().match(NAMED_BINDING_RE);
+    const imported = binding?.groups?.imported;
+    if (imported === undefined) {
+      continue;
     }
-    const defaultLocal = clause.split(",", 1)[0]!.trim();
-    if (/^[A-Za-z_$][\w$]*$/.test(defaultLocal) && used.has(defaultLocal)) {
+    const local = binding?.groups?.local ?? imported;
+    if (used.has(local)) {
       refs.push({
-        id: clientRefPublicId(spec, "default"),
-        local: defaultLocal,
-        imported: "default",
+        id: clientRefPublicId(spec, imported),
+        imported,
+        local,
         spec,
       });
     }
   }
+};
+
+const collectDefaultImportRef = (
+  clause: string,
+  spec: string,
+  used: Set<string>,
+  refs: ClientIslandRef[]
+): void => {
+  const [defaultPart] = clause.split(",", 1);
+  const defaultLocal = defaultPart?.trim() ?? "";
+  if (/^[A-Za-z_$][\w$]*$/u.test(defaultLocal) && used.has(defaultLocal)) {
+    refs.push({
+      id: clientRefPublicId(spec, "default"),
+      imported: "default",
+      local: defaultLocal,
+      spec,
+    });
+  }
+};
+
+const scanClientRefs = (source: string): ClientIslandRef[] => {
+  const used = new Set<string>();
+  for (const match of source.matchAll(JSX_TAG_RE)) {
+    const tag = match.groups?.tag;
+    if (tag !== undefined) {
+      used.add(tag);
+    }
+  }
+  const refs: ClientIslandRef[] = [];
+  for (const match of source.matchAll(IMPORT_STMT_RE)) {
+    const clause = match.groups?.clause?.trim();
+    const spec = match.groups?.spec;
+    if (clause === undefined || spec === undefined) {
+      continue;
+    }
+    collectNamedImportRefs(clause, spec, used, refs);
+    collectDefaultImportRef(clause, spec, used, refs);
+  }
   return refs;
-}
+};
 
 /** Extract the balanced-paren argument list starting at the "(" following
  * `from` index. String literals are skipped so parens inside them don't count.
  * Returns the inner text, or null when unbalanced within `limit` chars. */
-function extractCallArgs(source: string, openParen: number, limit = 4000): string | null {
+const extractCallArgs = (
+  source: string,
+  openParen: number,
+  limit = 4000
+): string | null => {
   let depth = 0;
   let quote: string | null = null;
-  for (let i = openParen; i < Math.min(source.length, openParen + limit); i++) {
-    const ch = source[i]!;
+  for (
+    let i = openParen;
+    i < Math.min(source.length, openParen + limit);
+    i += 1
+  ) {
+    const ch = source[i];
+    if (ch === undefined) {
+      break;
+    }
     if (quote !== null) {
-      if (ch === "\\") i++;
-      else if (ch === quote) quote = null;
+      if (ch === "\\") {
+        i += 1;
+      } else if (ch === quote) {
+        quote = null;
+      }
       continue;
     }
     if (ch === '"' || ch === "'" || ch === "`") {
       quote = ch;
       continue;
     }
-    if (ch === "(") depth++;
-    else if (ch === ")") {
-      depth--;
-      if (depth === 0) return source.slice(openParen + 1, i);
+    if (ch === "(") {
+      depth += 1;
+    } else if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(openParen + 1, i);
+      }
     }
   }
   console.warn(
-    "[ilha-router] scanServerIslands: argument list exceeded the scan limit — call skipped.",
+    "[ilha-router] scanServerIslands: argument list exceeded the scan limit — call skipped."
   );
   return null;
-}
+};
 
-function referencedExports(body: string, candidates: Set<string>): string | undefined {
+const referencedExports = (
+  body: string,
+  candidates: Set<string>
+): string | undefined => {
   // Only exported identifiers INVOKED as functions count as transports.
-  const CALL_RE = /([A-Za-z_$][\w$]*)\s*\(/g;
-  for (const match of body.matchAll(CALL_RE)) {
-    if (candidates.has(match[1]!)) return match[1];
+  for (const match of body.matchAll(CALL_IDENT_RE)) {
+    const ident = match.groups?.ident;
+    if (ident !== undefined && candidates.has(ident)) {
+      return ident;
+    }
   }
   return undefined;
-}
+};
 
-/** Scan a `*.server.ts(x)` module source for island exports and their
- * declarative wiring. Convention: islands start with `ilha` — both builder
- * function components (`ilha(() => …)`) and `ilha(schema, component)`. */
-export function scanServerIslands(source: string): ServerModuleScan {
+const collectIslandWiring = (
+  source: string,
+  name: string,
+  start: number,
+  sliceEnd: number,
+  candidates: Set<string>,
+  islands: ScannedServerIsland[]
+): void => {
+  const slice = source.slice(start, sliceEnd);
+  const as = "div";
+  const streams: Record<string, string> = {};
+  const actions: Record<string, string> = {};
+  let actionOrder = 0;
+  let streamOrder = 0;
+  // Actions may be imported under an alias to avoid collisions (e.g.
+  // `islandAction(...)`), so accept any identifier ending in "action".
+  for (const match of slice.matchAll(/[A-Za-z0-9_$]*[Aa]ction\s*\(/gu)) {
+    if (match.index === undefined) {
+      continue;
+    }
+    const openParen = match.index + match[0].indexOf("(");
+    const args = extractCallArgs(slice, openParen);
+    if (!args) {
+      continue;
+    }
+    // The full args ARE the callback body in the `action((payload) => ...)`
+    // syntax. Scan invoked exports for the transport.
+    const target = referencedExports(args, candidates);
+    actions[`a${actionOrder}`] = target ?? "";
+    actionOrder += 1;
+  }
+  for (const match of slice.matchAll(FROM_ASYNC_RE)) {
+    const target = match.groups?.target;
+    if (
+      target !== undefined &&
+      candidates.has(target) &&
+      !Object.values(streams).includes(target)
+    ) {
+      streams[`d${streamOrder}`] = target;
+      streamOrder += 1;
+    }
+  }
+  islands.push({ actions, as, name, streams });
+};
+
+const collectModuleExports = (source: string): string[] => {
   const exports: string[] = [];
-  for (const match of source.matchAll(EXPORT_RE)) exports.push(match[1]!);
-  // Named export lists (`export { a, b as c }` / `export { x } from "…"`) —
-  // these bindings are importable, so splitServerImports may route them.
-  for (const match of source.matchAll(/export\s*\{([^}]*)\}/g)) {
-    for (const part of match[1]!.split(",")) {
-      // The public (importable) name sits after "as" when aliased.
-      const parts2 = part.trim().split(/\s+as\s+/);
-      const name = (parts2.length === 2 ? parts2[1] : parts2[0])?.trim();
-      if (name && /^[A-Za-z_$][\w$]*$/.test(name) && !exports.includes(name)) exports.push(name);
+  for (const match of source.matchAll(EXPORT_RE)) {
+    const name = match.groups?.name;
+    if (name !== undefined) {
+      exports.push(name);
     }
   }
-  const candidates = new Set(exports);
-
-  // Detect exported oxidejs-style actions (`export const x = action(fn)`) and
-  // rewrite them into capture-aware shims so event closures can call them
-  // directly: during hydration-manifest rendering the shim records
-  // {k:"x:x", a:args} instead of executing the mutation. Identity action()
-  // wrappers are dropped — the shim preserves the (payload, ctx) signature.
-  // The rewrite is only applied to the TRANSFORMED module code at SSR
-  // transform time (see rewriteServerActions) — replacing here would clobber
-  // upstream JSX/TS compilation.
-  const rpcActions: Record<string, string> = {};
-  for (const match of source.matchAll(
-    /export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*action\s*\(/g,
-  )) {
-    rpcActions[match[1]!] = `x:${match[1]!}`;
-  }
-
-  const islands: ScannedServerIsland[] = [];
-
-  // Function-component primitives are order-based: the runtime assigns each
-  // action slot the deterministic id `a{order}` and each streaming derived
-  // generator `d{order}`. The scanner mirrors that order statically so the
-  // generated client proxy can wire transports by the same ids.
-  const collect = (name: string, start: number, sliceEnd: number): void => {
-    const slice = source.slice(start, sliceEnd);
-    const as = "div";
-    const streams: Record<string, string> = {};
-    const actions: Record<string, string> = {};
-    let actionOrder = 0;
-    let streamOrder = 0;
-    // Actions may be imported under an alias to avoid collisions (e.g.
-    // `islandAction(...)`), so accept any identifier ending in "action".
-    for (const match of slice.matchAll(/[A-Za-z0-9_$]*[Aa]ction\s*\(/g)) {
-      const openParen = match.index! + match[0].indexOf("(");
-      const args = extractCallArgs(slice, openParen);
-      if (!args) continue;
-      // The full args ARE the callback body in the `action((payload) => ...)`
-      // syntax. Scan invoked exports for the transport.
-      const target = referencedExports(args, candidates);
-      actions[`a${actionOrder++}`] = target ?? "";
+  for (const match of source.matchAll(EXPORT_LIST_RE)) {
+    const body = match.groups?.body;
+    if (body === undefined) {
+      continue;
     }
-    for (const match of slice.matchAll(/fromAsyncIterable\(\s*([A-Za-z_$][\w$]*)\s*\(/g)) {
-      const target = match[1]!;
-      if (candidates.has(target) && !Object.values(streams).includes(target)) {
-        streams[`d${streamOrder++}`] = target;
+    for (const part of body.split(",")) {
+      const parts2 = part.trim().split(/\s+as\s+/u);
+      const [first, second] = parts2;
+      const name = (parts2.length === 2 ? second : first)?.trim();
+      if (name && /^[A-Za-z_$][\w$]*$/u.test(name) && !exports.includes(name)) {
+        exports.push(name);
       }
     }
-    islands.push({ name, as, streams, actions });
-  };
+  }
+  return exports;
+};
 
+const collectRpcActions = (source: string) => {
+  // SAFETY: keys are export names scanned from source; values are `x:<name>` ids.
+  const rpcActions = {} as Record<string, string>;
+  for (const match of source.matchAll(ACTION_EXPORT_RE)) {
+    const name = match.groups?.name;
+    if (name !== undefined) {
+      rpcActions[name] = `x:${name}`;
+    }
+  }
+  return rpcActions;
+};
+
+const collectNamedIslands = (
+  source: string,
+  candidates: Set<string>,
+  islands: ScannedServerIsland[]
+): void => {
   for (const match of source.matchAll(ISLAND_EXPORT_RE)) {
-    const name = match[1]!;
-    const rest = source.slice((match.index ?? 0) + match[0].length);
-    const nextExport = rest.search(/\nexport\b/);
-    collect(
+    const name = match.groups?.name;
+    if (name === undefined || match.index === undefined) {
+      continue;
+    }
+    const rest = source.slice(match.index + match[0].length);
+    const nextExport = rest.search(/\nexport\b/u);
+    collectIslandWiring(
+      source,
       name,
-      match.index ?? 0,
-      (match.index ?? 0) + match[0].length + (nextExport === -1 ? rest.length : nextExport),
+      match.index,
+      match.index +
+        match[0].length +
+        (nextExport === -1 ? rest.length : nextExport),
+      candidates,
+      islands
     );
   }
+};
 
+const collectDefaultIsland = (
+  source: string,
+  candidates: Set<string>,
+  islands: ScannedServerIsland[]
+): void => {
   const defaultMatch = source.match(DEFAULT_ISLAND_RE);
-  if (defaultMatch && defaultMatch.index !== undefined) {
-    const rest = source.slice(defaultMatch.index + defaultMatch[0].length);
-    const nextExport = rest.search(/\nexport\b/);
-    collect(
-      "default",
-      defaultMatch.index,
-      defaultMatch.index + defaultMatch[0].length + (nextExport === -1 ? rest.length : nextExport),
-    );
+  if (!defaultMatch || defaultMatch.index === undefined) {
+    return;
   }
+  const rest = source.slice(defaultMatch.index + defaultMatch[0].length);
+  const nextExport = rest.search(/\nexport\b/u);
+  collectIslandWiring(
+    source,
+    "default",
+    defaultMatch.index,
+    defaultMatch.index +
+      defaultMatch[0].length +
+      (nextExport === -1 ? rest.length : nextExport),
+    candidates,
+    islands
+  );
+};
 
+/** Scan a `*.server.ts(x)` module source for island exports and their
+ * declarative wiring. Islands are `export const Name = [async] function[*]`
+ * (and the `export default` form); stream/action transports are discovered
+ * from calls inside each island body. */
+export const scanServerIslands = (source: string): ServerModuleScan => {
+  const exports = collectModuleExports(source);
+  const candidates = new Set(exports);
+  const rpcActions = collectRpcActions(source);
+  const islands: ScannedServerIsland[] = [];
+  collectNamedIslands(source, candidates, islands);
+  collectDefaultIsland(source, candidates, islands);
   return {
-    islands,
-    exports,
-    rpcActions,
     clientRefs: scanClientRefs(source),
+    exports,
+    islands,
+    rpcActions,
   };
-}
+};
 
-export function loadServerModuleScan(path: string): ServerModuleScan {
-  return scanServerIslands(readFileSync(path, "utf8"));
-}
+export const loadServerModuleScan = (filePath: string): ServerModuleScan =>
+  scanServerIslands(readFileSync(filePath, "utf-8"));
 
 /** Virtual-module id prefix for generated client proxies of server islands.
  * The file path rides base64url-encoded: a raw suffix like
@@ -259,9 +392,8 @@ export function loadServerModuleScan(path: string): ServerModuleScan {
 export const SERVER_ISLAND_PREFIX = "\0ilha:server-island:";
 
 /** Virtual-module specifier serving the client proxy for one server island file. */
-export function serverIslandVirtualSpec(file: string): string {
-  return SERVER_ISLAND_PREFIX + Buffer.from(file).toString("base64url");
-}
+export const serverIslandVirtualSpec = (file: string): string =>
+  SERVER_ISLAND_PREFIX + Buffer.from(file).toString("base64url");
 
 /** Emit the client virtual module for one scanned server file. Plain JS —
  * `\0` virtual modules bypass Vite's built-in TS transform, so type-only
@@ -269,11 +401,13 @@ export function serverIslandVirtualSpec(file: string): string {
  * unaffected: TS resolves the ORIGINAL specifier (the real server module);
  * this module exists only inside the client bundle. Frames are fetched from
  * the plugin's `/__ilha/frame` dev middleware. */
-export function serverIslandPublicId(spec: string, name: string): string {
-  return createHash("sha256").update(`${spec}#${name}`).digest("base64url");
-}
+export const serverIslandPublicId = (spec: string, name: string): string =>
+  createHash("sha256").update(`${spec}#${name}`).digest("base64url");
 
-export function generateServerIslandModule(spec: string, scan: ServerModuleScan): string {
+export const generateServerIslandModule = (
+  spec: string,
+  scan: ServerModuleScan
+): string => {
   const rpcKey = serverModuleRpcKey(spec);
   const repaintKey = serverModuleRepaintKey(spec);
   const lines: string[] = [
@@ -283,13 +417,15 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
     ...scan.clientRefs.map((ref, index) =>
       ref.imported === "default"
         ? `import $$child${index} from ${JSON.stringify(ref.spec)};`
-        : `import { ${ref.imported} as $$child${index} } from ${JSON.stringify(ref.spec)};`,
+        : `import { ${ref.imported} as $$child${index} } from ${JSON.stringify(ref.spec)};`
     ),
   ];
 
   for (const name of scan.exports) {
     if (!scan.islands.some((island) => island.name === name)) {
-      lines.push(`export const ${name} = (...args) => $$call(${JSON.stringify(name)}, args);`);
+      lines.push(
+        `export const ${name} = (...args) => $$call(${JSON.stringify(name)}, args);`
+      );
     }
   }
 
@@ -297,27 +433,36 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
     const wiring: string[] = [];
     const streams = Object.entries(island.streams).map(
       ([key, target]) =>
-        `${JSON.stringify(key)}: (signal) => $$call(${JSON.stringify(target)}, [{ signal }])`,
+        `${JSON.stringify(key)}: (signal) => $$call(${JSON.stringify(target)}, [{ signal }])`
     );
     // Directly-referenced exported actions (x:<name>) share the island's
     // transports so event closures can call them without ilha action().
     const rpcEntries = Object.entries(scan.rpcActions).map(
-      ([name, key]) => [key, name] as [string, string],
+      ([name, key]) =>
+        // SAFETY: Object.entries of Record<string, string> yields string pairs.
+        [key, name] as [string, string]
     );
-    const actions = Object.entries({ ...island.actions, ...Object.fromEntries(rpcEntries) }).map(
+    const actions = Object.entries({
+      ...island.actions,
+      ...Object.fromEntries(rpcEntries),
+    }).map(
       ([key, target]) =>
-        `${JSON.stringify(key)}: (...args) => $$call(${JSON.stringify(target)}, args)`,
+        `${JSON.stringify(key)}: (...args) => $$call(${JSON.stringify(target)}, args)`
     );
-    if (streams.length) wiring.push(`streams: { ${streams.join(", ")} }`);
-    if (actions.length) wiring.push(`actions: { ${actions.join(", ")} }`);
+    if (streams.length) {
+      wiring.push(`streams: { ${streams.join(", ")} }`);
+    }
+    if (actions.length) {
+      wiring.push(`actions: { ${actions.join(", ")} }`);
+    }
     if (scan.clientRefs.length) {
       wiring.push(
-        `children: { ${scan.clientRefs.map((ref, index) => `${JSON.stringify(ref.id)}: $$child${index}`).join(", ")} }`,
+        `children: { ${scan.clientRefs.map((ref, index) => `${JSON.stringify(ref.id)}: $$child${index}`).join(", ")} }`
       );
     }
     const id = serverIslandPublicId(spec, island.name);
     wiring.push(
-      `frame: (props) => fetch("/__ilha/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ${JSON.stringify(id)}, path: location.pathname + location.search, props }) }).then((r) => { if (!r.ok) throw new Error("frame failed"); return r.json(); }).then((j) => { if (j.redirect) { try { const u = new URL(j.redirect, location.href); if (u.origin === location.origin) location.assign(u.pathname + u.search + u.hash); } catch {} throw new Error("frame redirected"); } __ilhaApplyHead(j.head); return j.html; })`,
+      `frame: (props) => fetch("/__ilha/frame", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: ${JSON.stringify(id)}, path: location.pathname + location.search, props }) }).then((r) => { if (!r.ok) throw new Error("frame failed"); return r.json(); }).then((j) => { if (j.redirect) { try { const u = new URL(j.redirect, location.href); if (u.origin === location.origin) location.assign(u.pathname + u.search + u.hash); } catch {} throw new Error("frame redirected"); } __ilhaApplyHead(j.head); return j.html; })`
     );
 
     const call = `__ilhaServerIsland(${JSON.stringify(id)}, ${JSON.stringify(island.as)}, { ${wiring.join(", ")} }, ${JSON.stringify(repaintKey)})`;
@@ -329,7 +474,7 @@ export function generateServerIslandModule(spec: string, scan: ServerModuleScan)
   }
 
   return lines.join("\n");
-}
+};
 
 /** Parse one import statement's clause into its bindings. */
 interface ImportBinding {
@@ -337,46 +482,61 @@ interface ImportBinding {
   local: string;
 }
 
-function parseImportClause(clause: string): {
+interface ParsedImportClause {
   defaultLocal?: string;
   namespace?: string;
   named: ImportBinding[];
-} {
-  const result: { defaultLocal?: string; namespace?: string; named: ImportBinding[] } = {
+}
+
+const parseImportClause = (clause: string): ParsedImportClause => {
+  const result: ParsedImportClause = {
     named: [],
   };
   let rest = clause.trim();
 
-  const nsMatch = rest.match(/\*\s+as\s+([A-Za-z_$][\w$]*)/);
+  const nsMatch = rest.match(/\*\s+as\s+(?<ns>[A-Za-z_$][\w$]*)/u);
   if (nsMatch) {
-    result.namespace = nsMatch[1];
-    rest = rest.replace(nsMatch[0], "").replace(/,/g, "").trim();
+    const [full] = nsMatch;
+    result.namespace = nsMatch.groups?.ns;
+    rest = rest.replace(full, "").replaceAll(",", "").trim();
   }
 
   const braceStart = rest.indexOf("{");
   if (braceStart !== -1) {
-    const before = rest.slice(0, braceStart).replace(/,/g, "").trim();
-    if (before) result.defaultLocal = before;
+    const before = rest.slice(0, braceStart).replaceAll(",", "").trim();
+    if (before) {
+      result.defaultLocal = before;
+    }
     const inner = rest.slice(braceStart + 1, rest.lastIndexOf("}"));
     for (const item of inner.split(",")) {
       const trimmed = item.trim();
-      if (!trimmed || trimmed.startsWith("type ")) continue;
-      const asMatch = trimmed.match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/);
-      if (asMatch) result.named.push({ imported: asMatch[1]!, local: asMatch[2] ?? asMatch[1]! });
+      if (!trimmed || trimmed.startsWith("type ")) {
+        continue;
+      }
+      const asMatch = trimmed.match(NAMED_BINDING_RE);
+      const imported = asMatch?.groups?.imported;
+      if (imported !== undefined) {
+        result.named.push({
+          imported,
+          local: asMatch?.groups?.local ?? imported,
+        });
+      }
     }
   } else if (rest && !result.namespace) {
-    result.defaultLocal = rest.replace(/,/g, "").trim();
+    result.defaultLocal = rest.replaceAll(",", "").trim();
   }
 
   return result;
-}
+};
 
 export interface SplitContext {
   /** Resolved absolute path of the imported specifier, when it's a scanned
    * server module carrying islands; null otherwise. */
-  islandNamesFor(spec: string): { islands: Set<string>; hasDefault: boolean } | null;
+  islandNamesFor: (
+    spec: string
+  ) => { islands: Set<string>; hasDefault: boolean } | null;
   /** Virtual module specifier that provides the island bindings. */
-  virtualSpecFor(spec: string): string;
+  virtualSpecFor: (spec: string) => string;
 }
 
 /**
@@ -385,50 +545,80 @@ export interface SplitContext {
  * bindings stay on the original specifier (oxidejs replaces them with tacho
  * stubs). Returns null when no statement needed rewriting.
  */
-export function splitServerImports(code: string, ctx: SplitContext): string | null {
-  const IMPORT_RE = /(^|\n)import\s+(?!type\b)([^'"\n]+?)\s*from\s*(["'])([^"'\n]+)\3;?/g;
+export const splitServerImports = (
+  code: string,
+  ctx: SplitContext
+): string | null => {
+  const IMPORT_RE =
+    /(?<lead>^|\n)import\s+(?!type\b)(?<clause>[^'"\n]+?)\s*from\s*(?<quote>["'])(?<spec>[^"'\n]+)\k<quote>;?/gu;
   let changed = false;
-  const out = code.replace(
-    IMPORT_RE,
-    (statement, lead: string, clause: string, _q: string, spec: string) => {
-      const info = ctx.islandNamesFor(spec);
-      if (!info) return statement;
+  const out = code.replace(IMPORT_RE, (statement, ...args) => {
+    // SAFETY: String.replace with a named-group regex puts groups on the last arg.
+    const groups = args.at(-1) as
+      | {
+          lead?: string;
+          clause?: string;
+          quote?: string;
+          spec?: string;
+        }
+      | undefined;
+    const lead = groups?.lead ?? "";
+    const clause = groups?.clause;
+    const spec = groups?.spec;
+    if (clause === undefined || spec === undefined) {
+      return statement;
+    }
+    const info = ctx.islandNamesFor(spec);
+    if (!info) {
+      return statement;
+    }
 
-      const parsed = parseImportClause(clause);
-      const routed: ImportBinding[] = [];
-      const kept: ImportBinding[] = [];
-      for (const binding of parsed.named) routed.push(binding);
-      const routeDefault = parsed.defaultLocal !== undefined && info.hasDefault;
-      if (routed.length === 0 && !routeDefault) return statement;
-      changed = true;
+    const parsed = parseImportClause(clause);
+    const routed: ImportBinding[] = [];
+    const kept: ImportBinding[] = [];
+    for (const binding of parsed.named) {
+      routed.push(binding);
+    }
+    const routeDefault = parsed.defaultLocal !== undefined && info.hasDefault;
+    if (routed.length === 0 && !routeDefault) {
+      return statement;
+    }
+    changed = true;
 
-      const parts: string[] = [];
-      const keptBits: string[] = [];
-      if (!routeDefault && parsed.defaultLocal) keptBits.push(parsed.defaultLocal);
-      if (kept.length) {
-        keptBits.push(
-          `{ ${kept.map((b) => (b.local === b.imported ? b.imported : `${b.imported} as ${b.local}`)).join(", ")} }`,
-        );
-      }
-      if (keptBits.length)
-        parts.push(`import ${keptBits.join(", ")} from ${JSON.stringify(spec)};`);
-      if (parsed.namespace)
-        parts.push(`import * as ${parsed.namespace} from ${JSON.stringify(spec)};`);
-
-      const routedBits: string[] = [];
-      if (routeDefault) routedBits.push(parsed.defaultLocal!);
-      if (routed.length) {
-        routedBits.push(
-          `{ ${routed.map((b) => (b.local === b.imported ? b.imported : `${b.imported} as ${b.local}`)).join(", ")} }`,
-        );
-      }
-      parts.push(
-        `import ${routedBits.join(", ")} from ${JSON.stringify(ctx.virtualSpecFor(spec))};`,
+    const parts: string[] = [];
+    const keptBits: string[] = [];
+    if (!routeDefault && parsed.defaultLocal) {
+      keptBits.push(parsed.defaultLocal);
+    }
+    if (kept.length) {
+      keptBits.push(
+        `{ ${kept.map((b) => (b.local === b.imported ? b.imported : `${b.imported} as ${b.local}`)).join(", ")} }`
       );
+    }
+    if (keptBits.length) {
+      parts.push(`import ${keptBits.join(", ")} from ${JSON.stringify(spec)};`);
+    }
+    if (parsed.namespace) {
+      parts.push(
+        `import * as ${parsed.namespace} from ${JSON.stringify(spec)};`
+      );
+    }
 
-      return lead + parts.join("\n");
-    },
-  );
+    const routedBits: string[] = [];
+    if (routeDefault && parsed.defaultLocal !== undefined) {
+      routedBits.push(parsed.defaultLocal);
+    }
+    if (routed.length) {
+      routedBits.push(
+        `{ ${routed.map((b) => (b.local === b.imported ? b.imported : `${b.imported} as ${b.local}`)).join(", ")} }`
+      );
+    }
+    parts.push(
+      `import ${routedBits.join(", ")} from ${JSON.stringify(ctx.virtualSpecFor(spec))};`
+    );
+
+    return lead + parts.join("\n");
+  });
 
   return changed ? out : null;
-}
+};

@@ -2,19 +2,19 @@ import { head } from "@ilha/router";
 
 const LEARN_ITEMS = [
   {
-    title: "Documentation",
     description: "Learn how to use Ilha.",
     href: "https://ilha.build/docs",
+    title: "Documentation",
   },
   {
-    title: "Discord",
     description: "Join our Discord server.",
     href: "https://discord.gg/WnVTMCTz74",
+    title: "Discord",
   },
   {
-    title: "x.com",
     description: "Follow us on X.",
     href: "https://x.com/ilha_js",
+    title: "x.com",
   },
 ];
 

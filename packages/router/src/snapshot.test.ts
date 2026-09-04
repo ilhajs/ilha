@@ -7,6 +7,14 @@ import { describe, it, expect } from "bun:test";
 
 import { parseSnapshotAttr } from "./snapshot";
 
+interface Nested {
+  nested: Nested | null;
+}
+
+interface PollutionProbe {
+  polluted?: number;
+}
+
 describe("parseSnapshotAttr", () => {
   it("parses a plain-object snapshot", () => {
     expect(parseSnapshotAttr('{"a":1,"s":[1,2]}')).toEqual({ a: 1, s: [1, 2] });
@@ -26,16 +34,19 @@ describe("parseSnapshotAttr", () => {
 
   it("strips prototype-polluting keys", () => {
     const out = parseSnapshotAttr(
-      '{"__proto__":{"polluted":1},"constructor":{"prototype":{"x":1}},"safe":"ok"}',
+      '{"__proto__":{"polluted":1},"constructor":{"prototype":{"x":1}},"safe":"ok"}'
     );
     expect(out).toEqual({ safe: "ok" });
     expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
-    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    const probe: PollutionProbe = {};
+    expect(probe.polluted).toBeUndefined();
   });
 
   it("rejects deeply nested snapshots", () => {
-    let deep: unknown = null;
-    for (let i = 0; i < 64; i++) deep = { nested: deep };
+    let deep: Nested | null = null;
+    for (let i = 0; i < 64; i += 1) {
+      deep = { nested: deep };
+    }
     expect(parseSnapshotAttr(JSON.stringify({ a: deep }))).toBeUndefined();
   });
 });

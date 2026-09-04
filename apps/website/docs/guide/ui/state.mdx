@@ -13,10 +13,7 @@ import { atom } from "ilha";
 const Counter = () => {
   const count = atom(0);
   return (
-    <button
-      type="button"
-      onclick={() => count.update((n) => n + 1)}
-    >
+    <button type="button" onclick={() => count.update((n) => n + 1)}>
       {count}
     </button>
   );
@@ -50,17 +47,15 @@ const Cart = () => {
     { id: "b", n: 2 },
   ]);
   const total = atom(
-    Atom.map(items.atom, (list) =>
-      list.reduce((sum, item) => sum + item.n, 0),
-    ),
+    Atom.map(items.atom, (list) => list.reduce((sum, item) => sum + item.n, 0))
   );
   return <p>{total}</p>;
 };
 ```
 
-| API                                          | Use when                           |
-| -------------------------------------------- | ---------------------------------- |
-| `Atom.map(source, f)`                        | Pure function of one atom          |
+| API | Use when |
+| --- | --- |
+| `Atom.map(source, f)` | Pure function of one atom |
 | `Atom.transform(source, (get, source) => …)` | Reads more than one atom via `get` |
 
 ```tsx twoslash
@@ -72,8 +67,8 @@ const Form = () => {
   const last = atom("");
   const fullName = atom(
     Atom.transform(first.atom, (get) =>
-      `${get(first.atom)} ${get(last.atom)}`.trim(),
-    ),
+      `${get(first.atom)} ${get(last.atom)}`.trim()
+    )
   );
   return <p>{fullName}</p>;
 };
@@ -92,10 +87,7 @@ const Profile = () => {
     document.title = value;
   });
   return (
-    <input
-      value={name}
-      oninput={(e) => name.set(e.currentTarget.value)}
-    />
+    <input value={name} oninput={(e) => name.set(e.currentTarget.value)} />
   );
 };
 ```
@@ -145,25 +137,18 @@ const Form = () => {
             body: JSON.stringify({ email }),
           }).then((r) => r.json()),
         catch: (e) => e,
-      }),
-    ),
+      })
+    )
   );
   return (
     <form
       onsubmit={(e) => {
         e.preventDefault();
-        const email = String(
-          new FormData(e.currentTarget).get("email") ?? "",
-        );
-        if (Atom.isWritable(save.atom))
-          save.set(email as never);
+        const email = String(new FormData(e.currentTarget).get("email") ?? "");
+        if (Atom.isWritable(save.atom)) save.set(email as never);
       }}
     >
-      <input
-        name="email"
-        type="email"
-        placeholder="you@company.com"
-      />
+      <input name="email" type="email" placeholder="you@company.com" />
       <button type="submit">Join waitlist</button>
     </form>
   );

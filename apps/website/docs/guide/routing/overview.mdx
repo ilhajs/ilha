@@ -15,13 +15,13 @@ Every route is a component. The router matches the URL and mounts the page. Read
 
 ## Import paths
 
-| Import path                  | Use it for                                        |
-| ---------------------------- | ------------------------------------------------- |
-| `@ilha/router`               | Runtime router, navigation, `head`, route hooks   |
-| `@ilha/router/vite`          | Vite file-system routing plugin                   |
-| `@ilha/router/rsbuild`       | Rsbuild file-system routing plugin                |
+| Import path | Use it for |
+| --- | --- |
+| `@ilha/router` | Runtime router, navigation, `head`, route hooks |
+| `@ilha/router/vite` | Vite file-system routing plugin |
+| `@ilha/router/rsbuild` | Rsbuild file-system routing plugin |
 | `@ilha/router/server-island` | Client proxies for `*.server` modules (generated) |
-| `@ilha/router/ssr`           | `POST /__ilha/frame` middleware and frame guards  |
+| `@ilha/router/ssr` | `POST /__ilha/frame` middleware and frame guards |
 
 There is no loader API. Fetch in an async page, or stream from a server module.
 
@@ -66,10 +66,7 @@ import oxide from "oxidejs/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [
-    oxide({ middleware: ["@ilha/router/ssr"] }),
-    pages(),
-  ],
+  plugins: [oxide({ middleware: ["@ilha/router/ssr"] }), pages()],
 });
 ```
 

@@ -1,22 +1,35 @@
-import type { AtomHandle, View } from "./types.ts";
+/* oxlint-disable typescript/no-namespace -- TS JSX factories require an exported JSX namespace */
+import type { AtomHandle, PropBag, View } from "./types.ts";
 
 export namespace JSX {
   export type Element = View;
   export type ElementType =
     | string
     | ((
-        props: Record<string, unknown>,
-      ) => View | Promise<View | void> | Generator<unknown, View | void, unknown>);
+        props: PropBag
+      ) =>
+        | View
+        | Promise<View | undefined>
+        | Generator<View, View | undefined, View>);
 
   export interface ElementChildrenAttribute {
-    children: {};
+    children: View;
   }
 
   /** Scalar attribute value (booleans become presence/absence). */
   type Attr = string | number | boolean | null | undefined;
 
-  /** Values that can bind through `value` / `checked` / `selected`. */
-  type Bindable<T> = T | AtomHandle<T>;
+  /**
+   * Values that can bind through `value` / `checked` / `selected`.
+   * AtomHandle is invariant in T (via `set`), so constituents of a union T
+   * are listed explicitly — e.g. AtomHandle of string for value={string|number}.
+   */
+  type Bindable<T> =
+    | T
+    | AtomHandle<T>
+    | (string extends T ? AtomHandle<string> : never)
+    | (number extends T ? AtomHandle<number> : never)
+    | (boolean extends T ? AtomHandle<boolean> : never);
 
   type StyleValue =
     | string
@@ -24,20 +37,25 @@ export namespace JSX {
     | null
     | undefined;
 
-  type Targeted<Target extends globalThis.EventTarget, E extends globalThis.Event> = Omit<
-    E,
-    "currentTarget"
-  > & {
+  type Targeted<
+    Target extends globalThis.EventTarget,
+    E extends globalThis.Event,
+  > = Omit<E, "currentTarget"> & {
     readonly currentTarget: Target;
   };
 
-  type Handler<Target extends globalThis.EventTarget, E extends globalThis.Event> = {
-    // Bivariant so per-tag handlers stay assignable to the catch-all index signature.
-    bivarianceHack(event: Targeted<Target, E>): unknown;
+  type Handler<
+    Target extends globalThis.EventTarget,
+    E extends globalThis.Event,
+  > = {
+    // Bivariant so per-tag handlers stay assignable to the catch-all index
+    // signature. The `void` return accepts any handler result (numbers,
+    // Effects, promises) while keeping the type honest.
+    bivarianceHack: (event: Targeted<Target, E>) => void;
   }["bivarianceHack"];
 
   /** Lowercase DOM event props Ilha binds at runtime. */
-  type EventProps<Target extends globalThis.EventTarget> = {
+  interface EventProps<Target extends globalThis.EventTarget> {
     onclick?: Handler<Target, globalThis.MouseEvent>;
     ondblclick?: Handler<Target, globalThis.MouseEvent>;
     onmousedown?: Handler<Target, globalThis.MouseEvent>;
@@ -88,47 +106,44 @@ export namespace JSX {
     ontransitionend?: Handler<Target, globalThis.TransitionEvent>;
     onload?: Handler<Target, globalThis.Event>;
     onerror?: Handler<Target, globalThis.Event>;
-  };
+  }
 
-  type AriaProps = {
-    [K in `aria-${string}`]?: Attr;
-  };
+  type AriaProps = Partial<Record<`aria-${string}`, Attr>>;
 
-  type DataProps = {
-    [K in `data-${string}`]?: Attr;
-  };
+  type DataProps = Partial<Record<`data-${string}`, Attr>>;
 
   /** Shared HTML attributes. Prefer `class` / `for`; `className` / `htmlFor` also work. */
-  type HTMLAttributes<Target extends globalThis.EventTarget = globalThis.HTMLElement> =
-    EventProps<Target> &
-      AriaProps &
-      DataProps & {
-        children?: View;
-        key?: string | number;
-        ref?: (el: (Target & globalThis.Element) | null) => void;
-        // Class / identity
-        class?: Attr;
-        className?: Attr;
-        id?: Attr;
-        style?: StyleValue;
-        title?: Attr;
-        lang?: Attr;
-        dir?: Attr;
-        hidden?: Attr;
-        tabindex?: number | string | null | undefined;
-        role?: Attr;
-        slot?: Attr;
-        part?: Attr;
-        // Common misc
-        accesskey?: Attr;
-        contenteditable?: Attr;
-        draggable?: Attr;
-        spellcheck?: Attr;
-        translate?: Attr;
-        inert?: Attr;
-        popover?: Attr;
-        autofocus?: Attr;
-      };
+  type HTMLAttributes<
+    Target extends globalThis.EventTarget = globalThis.HTMLElement,
+  > = EventProps<Target> &
+    AriaProps &
+    DataProps & {
+      children?: View;
+      key?: string | number;
+      ref?: (el: (Target & globalThis.Element) | null) => void;
+      // Class / identity
+      class?: Attr;
+      className?: Attr;
+      id?: Attr;
+      style?: StyleValue;
+      title?: Attr;
+      lang?: Attr;
+      dir?: Attr;
+      hidden?: Attr;
+      tabindex?: number | string | null | undefined;
+      role?: Attr;
+      slot?: Attr;
+      part?: Attr;
+      // Common misc
+      accesskey?: Attr;
+      contenteditable?: Attr;
+      draggable?: Attr;
+      spellcheck?: Attr;
+      translate?: Attr;
+      inert?: Attr;
+      popover?: Attr;
+      autofocus?: Attr;
+    };
 
   type AnchorHTMLAttributes = HTMLAttributes<HTMLAnchorElement> & {
     href?: Attr;
@@ -146,6 +161,7 @@ export namespace JSX {
     coords?: Attr;
     href?: Attr;
     hreflang?: Attr;
+    // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- HTML area `shape` attribute
     shape?: Attr;
     target?: Attr;
     download?: Attr;
@@ -161,7 +177,7 @@ export namespace JSX {
   type BodyHTMLAttributes = HTMLAttributes<HTMLBodyElement>;
 
   type ButtonHTMLAttributes = HTMLAttributes<HTMLButtonElement> & {
-    type?: "button" | "submit" | "reset" | (string & {});
+    type?: "button" | "submit" | "reset" | string;
     value?: Bindable<string | number>;
     name?: Attr;
     disabled?: Attr;
@@ -222,7 +238,7 @@ export namespace JSX {
     height?: number | string;
     allow?: Attr;
     allowfullscreen?: Attr;
-    loading?: "eager" | "lazy" | (string & {});
+    loading?: "eager" | "lazy" | string;
     referrerpolicy?: Attr;
     sandbox?: Attr;
   };
@@ -234,8 +250,8 @@ export namespace JSX {
     sizes?: Attr;
     width?: number | string;
     height?: number | string;
-    loading?: "eager" | "lazy" | (string & {});
-    decoding?: "async" | "auto" | "sync" | (string & {});
+    loading?: "eager" | "lazy" | string;
+    decoding?: "async" | "auto" | "sync" | string;
     crossorigin?: Attr;
     referrerpolicy?: Attr;
     usemap?: Attr;
@@ -643,10 +659,10 @@ export namespace JSX {
     mask: SVGAttributes;
     linearGradient: SVGAttributes;
     radialGradient: SVGAttributes;
-    stop: SVGAttributes & { offset?: Attr; "stop-color"?: Attr; "stop-opacity"?: Attr };
-
-    // Custom elements / unknown tags (`ilha-count`, etc.).
-    // Wide catch-all so per-tag attribute bags stay assignable.
-    [tag: string]: any;
+    stop: SVGAttributes & {
+      offset?: Attr;
+      "stop-color"?: Attr;
+      "stop-opacity"?: Attr;
+    };
   }
 }

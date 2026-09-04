@@ -13,37 +13,37 @@ See [Router overview](/guide/routing/overview) for a guided tour.
 router(options?: RouterOptions): RouterBuilder
 ```
 
-| Router option            | Meaning                                             |
-| ------------------------ | --------------------------------------------------- |
-| `mode`                   | `"spa"` (default) or `"static"` (registry only)     |
-| `notFound`               | Component for unmatched paths                       |
-| `interceptLinks`         | Intercept same-origin `<a>` clicks (default `true`) |
-| `viewTransitions`        | Wrap navigations in the View Transition API         |
-| `allowExternalRedirects` | Allow cross-origin redirects (default `false`)      |
+| Router option | Meaning |
+| --- | --- |
+| `mode` | `"spa"` (default) or `"static"` (registry only) |
+| `notFound` | Component for unmatched paths |
+| `interceptLinks` | Intercept same-origin `<a>` clicks (default `true`) |
+| `viewTransitions` | Wrap navigations in the View Transition API |
+| `allowExternalRedirects` | Allow cross-origin redirects (default `false`) |
 
 ### Builder
 
-| Method                                         | Purpose                             |
-| ---------------------------------------------- | ----------------------------------- |
-| `route(pattern, page)`                         | Register a URL pattern              |
-| `errorBoundary(pattern, handler)`              | Catch failures for a pattern        |
-| `mount(target, { hydrate?, interceptLinks? })` | Activate in the browser             |
-| `render(url)`                                  | HTML string                         |
-| `renderResponse(url)`                          | `{ kind, html / to, status, head }` |
-| `respond(url)`                                 | `Response` with security headers    |
+| Method | Purpose |
+| --- | --- |
+| `route(pattern, page)` | Register a URL pattern |
+| `errorBoundary(pattern, handler)` | Catch failures for a pattern |
+| `mount(target, { hydrate?, interceptLinks? })` | Activate in the browser |
+| `render(url)` | HTML string |
+| `renderResponse(url)` | `{ kind, html / to, status, head }` |
+| `respond(url)` | `Response` with security headers |
 
 Render results are discriminated: `{ kind: "html" }`, `{ kind: "redirect", to, status }`, or `{ kind: "error", status, html, message }`.
 
 ### Route context
 
-| Export                                            | Meaning                              |
-| ------------------------------------------------- | ------------------------------------ |
-| `useRoute()`                                      | `{ path, params, search }` accessors |
-| `routePath()` / `routeParams()` / `routeSearch()` | Standalone accessors                 |
-| `navigate(to, { replace?, scroll? })`             | Programmatic navigation              |
-| `isActive(href)`                                  | True when the current path matches   |
-| `afterNavigate(fn)`                               | Hook after every navigation          |
-| `setHistoryMode(mode)`                            | `"history"` (default) or `"hash"`    |
+| Export | Meaning |
+| --- | --- |
+| `useRoute()` | `{ path, params, search }` accessors |
+| `routePath()` / `routeParams()` / `routeSearch()` | Standalone accessors |
+| `navigate(to, { replace?, scroll? })` | Programmatic navigation |
+| `isActive(href)` | True when the current path matches |
+| `afterNavigate(fn)` | Hook after every navigation |
+| `setHistoryMode(mode)` | `"history"` (default) or `"hash"` |
 
 ### Head
 
@@ -57,17 +57,17 @@ head(
 });
 ```
 
-Call inside a page or layout. Layouts typically set `titleTemplate`; pages set `title`.
+Call inside a page or layout. Layouts typically set `titleTemplate`; pages set `title`. Works during SSR and on the client (mutates `document.head` / `document.title`).
 
 ### Pages and errors
 
-| Export                                                                         | Purpose                                         |
-| ------------------------------------------------------------------------------ | ----------------------------------------------- |
-| `wrapLayout(layout, page)`                                                     | Wrap a page in a layout (`children` carries it) |
-| `wrapError(handler, page)`                                                     | Catch page throws, render a fallback view       |
-| `defineLayout(layout)`                                                         | Type helper for layout components               |
-| `redirect(to, status?)` / `error(status, message)`                             | Throw `Redirect` / `RouteError`                 |
-| `httpResponse(html, { status?, headers?, cspNonce?, contentSecurityPolicy? })` | Headered `Response`                             |
+| Export | Purpose |
+| --- | --- |
+| `wrapLayout(layout, page)` | Wrap a page in a layout (`children` carries it) |
+| `wrapError(handler, page)` | Catch page throws, render a fallback view |
+| `defineLayout(layout)` | Type helper for layout components |
+| `redirect(to, status?)` / `error(status, message)` | Throw `Redirect` / `RouteError` |
+| `httpResponse(html, { status?, headers?, cspNonce?, contentSecurityPolicy? })` | Headered `Response` |
 
 `AppError` is `{ message, status?, stack? }`. See [Error boundaries](/guide/routing/error-boundaries).
 
@@ -90,11 +90,11 @@ Virtual modules: `ilha:pages/client`, `ilha:pages/server` — see [File-system r
 
 Production middleware for `POST /__ilha/frame`.
 
-| Export                                                  | Purpose                                                                                                               |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `ssr` (default)                                         | The fetch handler itself                                                                                              |
-| `setFrameAuth`                                          | `defaultAction`, `trustedOrigins`, `csrf`                                                                             |
-| `setFrameGuard`                                         | Per-request allow/deny                                                                                                |
+| Export | Purpose |
+| --- | --- |
+| `ssr` (default) | The fetch handler itself |
+| `setFrameAuth` | `defaultAction`, `trustedOrigins`, `csrf` |
+| `setFrameGuard` | Per-request allow/deny |
 | `renderServerIsland(id, request, runWithScope, props?)` | Render one server island — returns `Effect<string, FrameError>`. Use `renderServerIslandResult` for a plain `Promise` |
 
 ## `@ilha/router/server-island`

@@ -5,7 +5,8 @@
     "jsxImportSource": "ilha",
     "paths": {
       "$lib/*": ["./src/lib/*"]
-    }
+    },
+    "strictNullChecks": true
   },
   "include": ["src", "vite.config.ts", ".ilha/pages.d.ts"]
 }

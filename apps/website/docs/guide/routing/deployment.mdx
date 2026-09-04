@@ -16,10 +16,7 @@ import oxide from "oxidejs/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [
-    oxide({ middleware: ["@ilha/router/ssr"] }),
-    pages(),
-  ],
+  plugins: [oxide({ middleware: ["@ilha/router/ssr"] }), pages()],
 });
 ```
 
@@ -43,7 +40,7 @@ function isSignedIn(_request: Request) {
 setFrameGuard((request) =>
   isSignedIn(request)
     ? undefined
-    : new Response("Unauthorized", { status: 401 }),
+    : new Response("Unauthorized", { status: 401 })
 );
 ```
 
@@ -65,8 +62,8 @@ Hash mode (`setHistoryMode("hash")`) is another static-host option when you cann
 
 ## Related
 
-| Topic                             | Guide                                                             |
-| --------------------------------- | ----------------------------------------------------------------- |
-| Guards in production              | [Middleware and security](/guide/routing/middleware-and-security) |
-| Error handling                    | [Error boundaries](/guide/routing/error-boundaries)               |
-| Plugin `mode` and virtual modules | [File-system routing](/guide/routing/file-system-routing)         |
+| Topic | Guide |
+| --- | --- |
+| Guards in production | [Middleware and security](/guide/routing/middleware-and-security) |
+| Error handling | [Error boundaries](/guide/routing/error-boundaries) |
+| Plugin `mode` and virtual modules | [File-system routing](/guide/routing/file-system-routing) |

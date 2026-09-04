@@ -11,19 +11,28 @@
  */
 import { afterAll, describe, expect, it, beforeAll } from "bun:test";
 import { execFileSync, execSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SRC_DIR = import.meta.dir; // packages/astro/src
-const PKG_DIR = join(SRC_DIR, ".."); // packages/astro
-const ROOT = join(PKG_DIR, "..", ".."); // repo root
+// packages/astro/src
+const SRC_DIR = import.meta.dir;
+// packages/astro
+const PKG_DIR = path.join(SRC_DIR, "..");
+// repo root
+const ROOT = path.join(PKG_DIR, "..", "..");
 
-const ASTRO_BIN = join(
-  dirname(fileURLToPath(import.meta.resolve("astro/package.json"))),
+const ASTRO_BIN = path.join(
+  path.dirname(fileURLToPath(import.meta.resolve("astro/package.json"))),
   "bin",
-  "astro.mjs",
+  "astro.mjs"
 );
 
 const JSX_COUNTER = `/** @jsxImportSource ilha */
@@ -80,9 +89,21 @@ const TSCONFIG = `{
 }
 `;
 
-function astroConfig(ilhaFirst: boolean, include: boolean): string {
+type ExecFailure = Error & {
+  stdout?: Buffer | string;
+  stderr?: Buffer | string;
+};
+
+const rethrowWithOutput = (failure: ExecFailure): never => {
+  failure.message += `\n--- stdout ---\n${(failure.stdout ?? "").toString()}--- stderr ---\n${(failure.stderr ?? "").toString()}`;
+  throw failure;
+};
+
+const astroConfig = (ilhaFirst: boolean, include: boolean): string => {
   const opts = (mod: string) =>
-    include ? `${mod}({ include: "**/${mod === "ilha" ? "ilha" : "solid"}/**" })` : `${mod}()`;
+    include
+      ? `${mod}({ include: "**/${mod === "ilha" ? "ilha" : "solid"}/**" })`
+      : `${mod}()`;
   const ilha = opts("ilha");
   const solid = include ? 'solidJs({ include: "**/solid/**" })' : "solidJs()";
   const install = ilhaFirst ? `${ilha}, ${solid}` : `${solid}, ${ilha}`;
@@ -93,12 +114,12 @@ export default defineConfig({
   integrations: [ ${install} ],
   output: "static",
 });\n`;
-}
+};
 
 let fixtureDir = "";
 let buildsDone = false;
 
-function build(cmd: string): void {
+const build = (cmd: string): void => {
   try {
     execSync(cmd, {
       cwd: ROOT,
@@ -107,95 +128,117 @@ function build(cmd: string): void {
       // build from blocking the suite forever and is well above any real run.
       timeout: 180_000,
     });
-  } catch (error: any) {
-    // execSync hides stdout/stderr unless we graft them onto the error, which
-    // is exactly what makes a failed build debuggable in CI.
-    error.message += `\n--- stdout ---\n${(error.stdout ?? "").toString()}--- stderr ---\n${(error.stderr ?? "").toString()}`;
-    throw error;
+  } catch (error) {
+    // SAFETY: execSync rejects with Error + stdout/stderr when stdio is "pipe".
+    rethrowWithOutput(error as ExecFailure);
   }
-}
+};
 
-function freshDist(): void {
-  if (buildsDone) return;
+const freshDist = (): void => {
+  if (buildsDone) {
+    return;
+  }
   build("bun run --filter ilha build");
   build("bun run --filter @ilha/astro build");
   // Flag completion only after both builds succeeded so a failed first build
   // re-runs both on a retry rather than skipping the never-completed work.
   buildsDone = true;
-}
+};
 
-function setupFixture() {
-  fixtureDir = join(tmpdir(), `ilha-astro-fixture-${Math.random().toString(36).slice(2)}`);
-  const src = join(fixtureDir, "src");
-  mkdirSync(join(src, "components", "ilha"), { recursive: true });
-  mkdirSync(join(src, "components", "solid"), { recursive: true });
-  mkdirSync(join(src, "pages"), { recursive: true });
-  writeFileSync(join(fixtureDir, "package.json"), JSON.stringify({ type: "module" }, null, 2));
-  writeFileSync(join(fixtureDir, "tsconfig.json"), TSCONFIG);
-  writeFileSync(join(src, "components", "ilha", "Counter.tsx"), JSX_COUNTER);
-  writeFileSync(join(src, "components", "solid", "Counter.tsx"), SOLID_COUNTER);
-  writeFileSync(join(src, "pages", "index.astro"), PAGE);
+const setupFixture = () => {
+  fixtureDir = path.join(
+    tmpdir(),
+    `ilha-astro-fixture-${Math.random().toString(36).slice(2)}`
+  );
+  const src = path.join(fixtureDir, "src");
+  mkdirSync(path.join(src, "components", "ilha"), { recursive: true });
+  mkdirSync(path.join(src, "components", "solid"), { recursive: true });
+  mkdirSync(path.join(src, "pages"), { recursive: true });
+  writeFileSync(
+    path.join(fixtureDir, "package.json"),
+    JSON.stringify({ type: "module" }, null, 2)
+  );
+  writeFileSync(path.join(fixtureDir, "tsconfig.json"), TSCONFIG);
+  writeFileSync(
+    path.join(src, "components", "ilha", "Counter.tsx"),
+    JSX_COUNTER
+  );
+  writeFileSync(
+    path.join(src, "components", "solid", "Counter.tsx"),
+    SOLID_COUNTER
+  );
+  writeFileSync(path.join(src, "pages", "index.astro"), PAGE);
 
   // Link the real workspace deps so Astro resolves a single copy of each.
   // Leaf symlinks (not a whole-scope dir) — Node's ESM loader reliably follows
   // a symlinked package, but not a symlinked `@astrojs` scope directory.
-  const nm = join(fixtureDir, "node_modules");
-  mkdirSync(join(nm, "@ilha"), { recursive: true });
-  mkdirSync(join(nm, "@astrojs"), { recursive: true });
-  symlinkSync(PKG_DIR, join(nm, "@ilha", "astro"));
-  symlinkSync(join(PKG_DIR, "..", "ilha"), join(nm, "ilha"));
-  symlinkSync(join(PKG_DIR, "node_modules", "astro"), join(nm, "astro"));
-  symlinkSync(join(PKG_DIR, "test-stubs", "fake-js"), join(nm, "fake-js"));
+  const nm = path.join(fixtureDir, "node_modules");
+  mkdirSync(path.join(nm, "@ilha"), { recursive: true });
+  mkdirSync(path.join(nm, "@astrojs"), { recursive: true });
+  symlinkSync(PKG_DIR, path.join(nm, "@ilha", "astro"));
+  symlinkSync(path.join(PKG_DIR, "..", "ilha"), path.join(nm, "ilha"));
   symlinkSync(
-    join(PKG_DIR, "test-stubs", "@astrojs", "fake-integration"),
-    join(nm, "@astrojs", "fake-integration"),
+    path.join(PKG_DIR, "node_modules", "astro"),
+    path.join(nm, "astro")
   );
-}
+  symlinkSync(
+    path.join(PKG_DIR, "test-stubs", "fake-js"),
+    path.join(nm, "fake-js")
+  );
+  symlinkSync(
+    path.join(PKG_DIR, "test-stubs", "@astrojs", "fake-integration"),
+    path.join(nm, "@astrojs", "fake-integration")
+  );
+};
 
-function runBuild(ilhaFirst: boolean, include: boolean): string {
-  writeFileSync(join(fixtureDir, "astro.config.mjs"), astroConfig(ilhaFirst, include));
-  rmSync(join(fixtureDir, "dist"), { recursive: true, force: true });
+const runBuild = (ilhaFirst: boolean, include: boolean): string => {
+  writeFileSync(
+    path.join(fixtureDir, "astro.config.mjs"),
+    astroConfig(ilhaFirst, include)
+  );
+  rmSync(path.join(fixtureDir, "dist"), { force: true, recursive: true });
   try {
     execFileSync("node", [ASTRO_BIN, "build"], {
       cwd: fixtureDir,
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 180_000,
     });
-  } catch (error: any) {
-    error.message += `\n--- stdout ---\n${(error.stdout ?? "").toString()}--- stderr ---\n${(error.stderr ?? "").toString()}`;
-    throw error;
+  } catch (error) {
+    // SAFETY: execFileSync rejects with Error + stdout/stderr when stdio is pipe.
+    rethrowWithOutput(error as ExecFailure);
   }
-  return readFileSync(join(fixtureDir, "dist", "index.html"), "utf8");
-}
+  return readFileSync(path.join(fixtureDir, "dist", "index.html"), "utf-8");
+};
 
-function unescape(html: string): string {
-  return html
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&");
-}
+const unescape = (html: string): string =>
+  html
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#39;", "'")
+    .replaceAll("&amp;", "&");
 
 interface IslandInfo {
   solidRenderId: string | undefined;
   content: string;
 }
 
-function islands(rawHtml: string): IslandInfo[] {
+const islands = (rawHtml: string): IslandInfo[] => {
   const out: IslandInfo[] = [];
   const text = unescape(rawHtml);
-  const re = /<astro-island\b([^>]*)>([\s\S]*?)<\/astro-island>/g;
+  const re =
+    /<astro-island\b(?<attrs>[^>]*)>(?<content>[\s\S]*?)<\/astro-island>/gu;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
-    const attrs = m[1];
-    const solidRenderId = /data-solid-render-id="([^"]+)"/.exec(attrs)?.[1];
-    out.push({ solidRenderId, content: m[2] });
+    const { attrs = "", content = "" } = m.groups ?? {};
+    const solidRenderId = /data-solid-render-id="(?<id>[^"]+)"/u.exec(attrs)
+      ?.groups?.id;
+    out.push({ content, solidRenderId });
   }
   return out;
-}
+};
 
-beforeAll(async () => {
+beforeAll(() => {
   // Building `ilha` + `@ilha/astro` under a fully-parallel CI test load can
   // take much longer than Bun's default 5s hook budget; without a larger
   // timeout Bun kills the dangling build process and freshDist fails with a
@@ -205,7 +248,9 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(() => {
-  if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true });
+  if (fixtureDir) {
+    rmSync(fixtureDir, { force: true, recursive: true });
+  }
 });
 
 describe("@ilha/astro + fake permissive renderer real build", () => {
@@ -215,7 +260,7 @@ describe("@ilha/astro + fake permissive renderer real build", () => {
   // must make ilha islands route to ilha's renderer regardless of order. Test
   // both orderings with `include` set (the config the reporter used; without
   // `include`, Astro documents mixing JSX renderers as "unexpected behavior").
-  const scenarios: Array<[string, boolean]> = [
+  const scenarios: [string, boolean][] = [
     ["solid first", false],
     ["ilha first", true],
   ];
@@ -239,7 +284,9 @@ describe("@ilha/astro + fake permissive renderer real build", () => {
         expect(island.solidRenderId).toBeUndefined();
         expect(island.content).not.toContain("data-hk");
       }
-      expect(ilhaIslands.some((i) => i.content.includes("Increment with Ilha-JSX"))).toBe(true);
+      expect(
+        ilhaIslands.some((i) => i.content.includes("Increment with Ilha-JSX"))
+      ).toBe(true);
 
       // The Solid island is untouched: Solid SSR markers + a Solid render id.
       expect(solidIslands[0].solidRenderId).toBeDefined();

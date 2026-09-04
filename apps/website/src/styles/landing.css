@@ -1,10 +1,22 @@
 /* Landing-only atmosphere — theme-aware, no purple/glow stacks. */
 
 .landing-page {
-  --landing-grid-color: color-mix(in oklch, var(--nb-foreground) 5.5%, transparent);
+  --landing-grid-color: color-mix(
+    in oklch,
+    var(--nb-foreground) 5.5%,
+    transparent
+  );
   --landing-wash: color-mix(in oklch, var(--nb-foreground) 5%, transparent);
-  --landing-wash-strong: color-mix(in oklch, var(--nb-foreground) 8%, transparent);
-  --landing-ink-fade: color-mix(in oklch, var(--nb-foreground) 55%, transparent);
+  --landing-wash-strong: color-mix(
+    in oklch,
+    var(--nb-foreground) 8%,
+    transparent
+  );
+  --landing-ink-fade: color-mix(
+    in oklch,
+    var(--nb-foreground) 55%,
+    transparent
+  );
   max-width: 100%;
   overflow-x: clip;
 }
@@ -14,9 +26,17 @@
 }
 
 [data-theme="dark"] .landing-page {
-  --landing-grid-color: color-mix(in oklch, var(--nb-foreground) 7.5%, transparent);
+  --landing-grid-color: color-mix(
+    in oklch,
+    var(--nb-foreground) 7.5%,
+    transparent
+  );
   --landing-wash: color-mix(in oklch, var(--nb-foreground) 7%, transparent);
-  --landing-wash-strong: color-mix(in oklch, var(--nb-foreground) 11%, transparent);
+  --landing-wash-strong: color-mix(
+    in oklch,
+    var(--nb-foreground) 11%,
+    transparent
+  );
 }
 
 .landing-hero {
@@ -45,9 +65,21 @@
   z-index: -1;
   height: min(34rem, 60vh);
   background:
-    radial-gradient(ellipse 55% 70% at 50% 0%, var(--landing-wash-strong), transparent 72%),
-    radial-gradient(ellipse 40% 50% at 18% 20%, var(--landing-wash), transparent 70%),
-    radial-gradient(ellipse 40% 50% at 82% 20%, var(--landing-wash), transparent 70%);
+    radial-gradient(
+      ellipse 55% 70% at 50% 0%,
+      var(--landing-wash-strong),
+      transparent 72%
+    ),
+    radial-gradient(
+      ellipse 40% 50% at 18% 20%,
+      var(--landing-wash),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 40% 50% at 82% 20%,
+      var(--landing-wash),
+      transparent 70%
+    );
   pointer-events: none;
 }
 
@@ -279,8 +311,16 @@
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(ellipse 70% 80% at 50% 100%, var(--landing-wash-strong), transparent 70%),
-    linear-gradient(to bottom, transparent, color-mix(in oklch, var(--nb-muted) 35%, transparent));
+    radial-gradient(
+      ellipse 70% 80% at 50% 100%,
+      var(--landing-wash-strong),
+      transparent 70%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent,
+      color-mix(in oklch, var(--nb-muted) 35%, transparent)
+    );
   pointer-events: none;
 }
 

@@ -11,10 +11,9 @@ Generator components can **yield** a `Stream` of views. Compose with Effect (`St
 import * as Stream from "effect/Stream";
 
 function* Status() {
-  yield Stream.map(
-    Stream.fromIterable(["idle", "ready"]),
-    (value) => <p>{value}</p>,
-  );
+  yield Stream.map(Stream.fromIterable(["idle", "ready"]), (value) => (
+    <p>{value}</p>
+  ));
 }
 ```
 
@@ -56,15 +55,10 @@ import { atom, when } from "ilha";
 function* Search() {
   const query = atom("");
   yield (
-    <input
-      value={query}
-      oninput={(e) => query.set(e.currentTarget.value)}
-    />
+    <input value={query} oninput={(e) => query.set(e.currentTarget.value)} />
   );
   yield* when(
-    Atom.toStream(query.atom).pipe(
-      Stream.debounce("200 millis"),
-    ),
+    Atom.toStream(query.atom).pipe(Stream.debounce("200 millis")),
     function* (q) {
       if (!q) {
         yield <p>Type to search</p>;
@@ -84,7 +78,7 @@ function* Search() {
           ))}
         </ul>
       );
-    },
+    }
   );
 }
 ```
@@ -111,9 +105,8 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
 function* Boot() {
-  yield* Stream.runForEach(
-    Stream.fromIterable([1, 2, 3]),
-    (n) => Effect.sync(() => console.log(n)),
+  yield* Stream.runForEach(Stream.fromIterable([1, 2, 3]), (n) =>
+    Effect.sync(() => console.log(n))
   );
   yield <p>Ready</p>;
 }
@@ -134,9 +127,7 @@ function* Gate() {
   yield (
     <button
       type="button"
-      onclick={() =>
-        Effect.runSync(Deferred.succeed(deferred, "Ada"))
-      }
+      onclick={() => Effect.runSync(Deferred.succeed(deferred, "Ada"))}
     >
       Continue
     </button>

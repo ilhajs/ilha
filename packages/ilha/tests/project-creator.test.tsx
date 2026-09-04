@@ -1,10 +1,10 @@
-/** @jsxImportSource ../src */
+// @jsxImportSource ../src
 import { expect, test } from "bun:test";
 
 import * as Atom from "effect/unstable/reactivity/Atom";
 import { atom, mount } from "ilha";
 
-function ProjectCreatorLike() {
+const ProjectCreatorLike = () => {
   const name = atom("");
   const template = atom<"vite-spa" | "oxide-spa">("vite-spa");
   const useBun = atom(false);
@@ -13,7 +13,7 @@ function ProjectCreatorLike() {
       const packageManager = get(useBun.atom) ? "bunx" : "npx";
       const projectName = get(name.atom) ? ` ${get(name.atom)}` : "";
       return `${packageManager} giget@latest gh:ilhajs/ilha/templates/${get(templateAtom)}${projectName}`;
-    }),
+    })
   );
 
   return (
@@ -21,7 +21,11 @@ function ProjectCreatorLike() {
       <input
         data-name
         value={name}
-        oninput={(e: Event) => name.set((e.currentTarget as HTMLInputElement).value)}
+        oninput={(e: Event) => {
+          const target = e.currentTarget;
+          // SAFETY: oninput is bound to the painted input element.
+          name.set((target as HTMLInputElement).value);
+        }}
       />
       <label data-vite-label>
         <input
@@ -49,7 +53,34 @@ function ProjectCreatorLike() {
       <span data-cmd>{createCommand}</span>
     </div>
   );
-}
+};
+
+const clickLabel = async (
+  el: HTMLElement,
+  selector: string,
+  expectText: string
+) => {
+  const label = el.querySelector(selector);
+  if (!(label instanceof HTMLElement)) {
+    throw new Error(`${selector} missing`);
+  }
+  label.click();
+  await Bun.sleep(5);
+  const cmd = el.querySelector("[data-cmd]")?.textContent ?? "";
+  expect(cmd).toContain(expectText);
+};
+
+const toggleRound = async (
+  el: HTMLElement,
+  remaining: number
+): Promise<void> => {
+  if (remaining <= 0) {
+    return;
+  }
+  await clickLabel(el, "[data-oxide-label]", "oxide-spa");
+  await clickLabel(el, "[data-vite-label]", "vite-spa");
+  await toggleRound(el, remaining - 1);
+};
 
 test("derived command survives repeated template toggles", async () => {
   const el = document.createElement("div");
@@ -61,23 +92,22 @@ test("derived command survives repeated template toggles", async () => {
 
   expect(cmd()).toContain("vite-spa");
 
-  for (let i = 0; i < 5; i++) {
-    el.querySelector<HTMLLabelElement>("[data-oxide-label]")!.click();
-    await Bun.sleep(5);
-    expect(cmd()).toContain("oxide-spa");
-    el.querySelector<HTMLLabelElement>("[data-vite-label]")!.click();
-    await Bun.sleep(5);
-    expect(cmd()).toContain("vite-spa");
+  await toggleRound(el, 5);
+
+  const bunBtn = el.querySelector("[data-bun]");
+  if (!(bunBtn instanceof HTMLButtonElement)) {
+    throw new Error("[data-bun] missing");
   }
-
-  el.querySelector<HTMLButtonElement>("[data-bun]")!.click();
+  bunBtn.click();
   await Bun.sleep(5);
-  expect(cmd()).toMatch(/^bunx /);
+  expect(cmd()).toMatch(/^bunx /u);
 
-  el.querySelector<HTMLInputElement>("[data-name]")!.value = "my-app";
-  el.querySelector<HTMLInputElement>("[data-name]")!.dispatchEvent(
-    new Event("input", { bubbles: true }),
-  );
+  const nameInput = el.querySelector("[data-name]");
+  if (!(nameInput instanceof HTMLInputElement)) {
+    throw new Error("[data-name] missing");
+  }
+  nameInput.value = "my-app";
+  nameInput.dispatchEvent(new Event("input", { bubbles: true }));
   await Bun.sleep(5);
   expect(cmd()).toContain(" my-app");
 

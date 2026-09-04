@@ -18,11 +18,23 @@
 import { applyHeadEntriesToDocument } from "./head";
 import type { HeadInput } from "./head";
 import { parseSnapshotAttr } from "./snapshot";
+import type { SnapshotObject, SnapshotValue } from "./snapshot";
+
+const objectTag = <T>(value: T): string =>
+  Object.prototype.toString.call(value);
+
+const isString = <T>(value: T): value is Extract<T, string> =>
+  objectTag(value) === "[object String]";
+
+const isObject = <T>(value: T): value is Extract<T, object> =>
+  value !== null && objectTag(value) === "[object Object]";
 
 /** Symbol.for keeps brands stable across duplicate ilha copies in one realm. */
 const ISLAND = Symbol.for("ilha.island");
 const ISLAND_SLOT_TAG = Symbol.for("ilha.islandSlotTag");
-const ISLAND_MOUNT_INTERNAL = Symbol.for("ilha.islandMountInternal");
+export const ISLAND_MOUNT_INTERNAL: unique symbol = Symbol.for(
+  "ilha.islandMountInternal"
+);
 const ISLAND_CALL = Symbol.for("ilha.islandCall");
 
 const STATE_ATTR = "data-ilha-state";
@@ -33,12 +45,17 @@ const CLIENT_REF_ATTR = "data-ilha-client-ref";
 
 const moduleRepaints = new Map<string, Set<() => void>>();
 
-/** @internal Repaint every mounted island from the same `*.server` module. */
-export function __ilhaRepaintServerModule(moduleKey: string): void {
-  for (const repaint of moduleRepaints.get(moduleKey) ?? []) repaint();
-}
+/** @internal */
+export const __ilhaRepaintServerModule = (moduleKey: string): void => {
+  for (const repaint of moduleRepaints.get(moduleKey) ?? []) {
+    repaint();
+  }
+};
 
-function linkServerModuleRepaints(moduleKey: string, repaint: () => void): () => void {
+const linkServerModuleRepaints = (
+  moduleKey: string,
+  repaint: () => void
+): (() => void) => {
   let set = moduleRepaints.get(moduleKey);
   if (!set) {
     set = new Set();
@@ -46,176 +63,280 @@ function linkServerModuleRepaints(moduleKey: string, repaint: () => void): () =>
   }
   set.add(repaint);
   return () => {
-    set!.delete(repaint);
-    if (set!.size === 0) moduleRepaints.delete(moduleKey);
+    const live = moduleRepaints.get(moduleKey);
+    if (!live) {
+      return;
+    }
+    live.delete(repaint);
+    if (live.size === 0) {
+      moduleRepaints.delete(moduleKey);
+    }
   };
-}
+};
 
-export type ServerStreamFn = (signal: AbortSignal) => AsyncGenerator<unknown> | Generator<unknown>;
+export type ServerStreamFn = (
+  signal: AbortSignal
+) => AsyncGenerator<SnapshotValue> | Generator<SnapshotValue>;
+
+/** JSON-serializable value — the wire format for server-action payloads. */
+export type ServerActionPayload = SnapshotValue;
+
+export type ServerIslandProps = SnapshotObject;
 
 export interface ServerIslandWiring {
   /** Stream key → client transport. The plugin wires these to tacho stubs. */
   streams?: Record<string, ServerStreamFn>;
   /** Action key → client transport. Event payloads are not serializable;
    * handlers receive `undefined` and should read island state instead. */
-  actions?: Record<string, (payload?: unknown) => unknown>;
+  actions?: Record<
+    string,
+    (payload?: ServerActionPayload) => SnapshotValue | Promise<SnapshotValue>
+  >;
   /** Frame transport: re-renders the island with the latest parent props. */
-  frame?: (props?: Record<string, unknown>) => unknown;
+  frame?: (
+    props?: ServerIslandProps
+  ) => string | Promise<string> | SnapshotValue;
   /** Client-capable islands nested in the server render, keyed by opaque ref. */
-  children?: Record<string, unknown>;
+  children?: Record<string, ServerIslandCallable>;
 }
 
 export interface ServerIslandHandle {
   unmount: () => void;
-  updateProps: (props?: Record<string, unknown>) => void;
+  updateProps: (props?: ServerIslandProps) => void;
 }
 
-/** @internal Apply head entries returned with a server-page frame. */
-export function __ilhaApplyHead(entries: unknown): void {
-  if (Array.isArray(entries)) applyHeadEntriesToDocument(entries as HeadInput[]);
-}
+/** @internal */
+export const __ilhaApplyHead = <T>(entries: T): void => {
+  if (Array.isArray(entries)) {
+    // SAFETY: frame head payloads are HeadInput arrays produced by serializeHead.
+    applyHeadEntriesToDocument(entries as HeadInput[]);
+  }
+};
 
 /** Defensive snapshot parse — reuses the shared guarded parser (size cap,
  * plain-object check, depth cap, prototype-key stripping). */
-function assertValidTag(tag: string): string {
+const assertValidTag = (tag: string): string => {
   const trimmed = tag.trim();
-  if (/^[a-z][a-z0-9-]*$/i.test(trimmed)) return trimmed.toLowerCase();
+  if (/^[a-z][a-z0-9-]*$/iu.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
   return "div";
-}
+};
 
 /** True when `candidate` is owned by `host`: walking up must not cross another
  * island or slot boundary before reaching it. */
-function belongsToHost(host: Element, candidate: Element): boolean {
+const belongsToHost = (host: Element, candidate: Element): boolean => {
   let el: Element | null = candidate.parentElement;
   while (el && el !== host) {
-    if (el.hasAttribute("data-ilha")) return false;
+    if (el.matches("[data-ilha]")) {
+      return false;
+    }
     // Stream holes use display:contents + data-ilha-slot; nested island slots do not.
-    if (el.hasAttribute("data-ilha-slot") && (el as HTMLElement).style.display !== "contents") {
+    if (
+      el.matches("[data-ilha-slot]") &&
+      el instanceof HTMLElement &&
+      el.style.display !== "contents"
+    ) {
       return false;
     }
     el = el.parentElement;
   }
   return el === host;
-}
+};
 
-/** Dev cold-start can race a warming `virtual:oxide/actions` graph — retry briefly. */
-async function startServerStream(
-  fn: ServerStreamFn,
+const sleepMs = (ms: number): Promise<null> => {
+  const { promise, resolve } = Promise.withResolvers<null>();
+  setTimeout(() => {
+    resolve(null);
+  }, ms);
+  return promise;
+};
+
+const abortAwareDelay = async <E>(
+  ms: number,
   signal: AbortSignal,
-): Promise<{
-  gen: AsyncGenerator<unknown> | Generator<unknown>;
-  first: IteratorResult<unknown, unknown>;
-}> {
-  let last: unknown;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (signal.aborted) {
-      throw last ?? new DOMException("The operation was aborted.", "AbortError");
-    }
-    let gen: AsyncGenerator<unknown> | Generator<unknown> | undefined;
-    try {
-      gen = await fn(signal);
-      // Async `function*` bodies run on the first `next()`, so cold RPC
-      // failures surface here — keep that read inside the retry boundary.
-      const first = await gen.next();
-      return { gen, first };
-    } catch (err) {
-      last = err;
-      if (gen) void Promise.resolve(gen.return?.(undefined)).catch(() => {});
-      if (signal.aborted) throw err;
-      const msg = String(err);
-      if (!msg.includes("404") && !msg.includes("503")) throw err;
-      if (attempt === 3) throw err;
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(
-          () => {
-            signal.removeEventListener("abort", onAbort);
-            resolve();
-          },
-          50 * (attempt + 1),
-        );
-        const onAbort = () => {
-          clearTimeout(timer);
-          reject(err);
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-        if (signal.aborted) onAbort();
-      });
-    }
+  abortError: E
+): Promise<void> => {
+  if (signal.aborted) {
+    throw abortError;
   }
-  throw last;
+  await sleepMs(ms);
+  if (signal.aborted) {
+    throw abortError;
+  }
+};
+
+const isRetryableRpcFailure = <E>(error: E): boolean => {
+  const msg = String(error);
+  return (
+    msg.includes("404") ||
+    msg.includes("503") ||
+    msg.includes("empty HTTP response") ||
+    msg.includes("HttpError") ||
+    msg.includes("RpcClientDefect") ||
+    msg.includes("RpcClientError") ||
+    msg.includes("TransportError") ||
+    msg.includes("InvalidUrlError")
+  );
+};
+
+const isAbortLike = <E>(error: E, signal: AbortSignal): boolean => {
+  if (signal.aborted) {
+    return true;
+  }
+  // SAFETY: DOMException / Error expose optional `.name`.
+  const named = error as { name?: string };
+  return named.name === "AbortError";
+};
+
+const closeStream = async (
+  gen: AsyncGenerator<SnapshotValue> | Generator<SnapshotValue> | undefined
+): Promise<void> => {
+  if (!gen) {
+    return;
+  }
+  try {
+    // SAFETY: return() accepts any completion value; streams ignore it.
+    await gen.return?.(undefined as never);
+  } catch {
+    void 0;
+  }
+};
+
+const pullStream = async (
+  gen: AsyncGenerator<SnapshotValue> | Generator<SnapshotValue>,
+  step: IteratorResult<SnapshotValue, SnapshotValue>,
+  key: string,
+  state: SnapshotObject,
+  signal: AbortSignal,
+  onValue: () => void
+): Promise<void> => {
+  if (signal.aborted || step.done) {
+    return;
+  }
+  // SAFETY: stream state keys are island-owned; mutate the snapshot bag.
+  (state as Record<string, SnapshotValue | undefined>)[key] = step.value;
+  onValue();
+  const next = await gen.next();
+  await pullStream(gen, next, key, state, signal, onValue);
+};
+
+/**
+ * Pull a wired server stream until it ends or the island unmounts.
+ * Dev cold-start and flaky Oxide RPC transports (empty bodies, aborted
+ * fetches during Vite dep reloads) are retried with the same generator
+ * factory — including failures after the first chunk.
+ */
+const resumeServerStream = async (
+  fn: ServerStreamFn,
+  key: string,
+  state: SnapshotObject,
+  controller: AbortController,
+  onValue: () => void,
+  attempt = 0
+): Promise<void> => {
+  if (controller.signal.aborted) {
+    return;
+  }
+  let gen: AsyncGenerator<SnapshotValue> | Generator<SnapshotValue> | undefined;
+  try {
+    gen = await fn(controller.signal);
+    // Async `function*` bodies run on the first `next()`, so cold RPC
+    // failures surface here — keep that read inside the retry boundary.
+    const first = await gen.next();
+    await pullStream(gen, first, key, state, controller.signal, onValue);
+    await closeStream(gen);
+  } catch (error) {
+    await closeStream(gen);
+    if (isAbortLike(error, controller.signal)) {
+      return;
+    }
+    if (!isRetryableRpcFailure(error) || attempt >= 3) {
+      console.error(`[ilha-router] stream "${key}" failed:`, error);
+      return;
+    }
+    await abortAwareDelay(50 * (attempt + 1), controller.signal, error);
+    return resumeServerStream(fn, key, state, controller, onValue, attempt + 1);
+  }
+};
+
+interface ManifestActionEntry {
+  k?: SnapshotValue;
+  a?: SnapshotValue;
 }
 
-function hydrateServerIsland(
+type ManifestEntry = string | ManifestActionEntry;
+
+interface AttachedListener {
+  el: Element;
+  type: string;
+  listener: () => void;
+}
+
+interface ActionMarker {
+  __ilha?: SnapshotValue;
+  k?: SnapshotValue;
+  a?: SnapshotValue;
+}
+
+const hydrateServerIsland = (
   host: Element,
   id: string,
   wiring: ServerIslandWiring,
-  props?: Record<string, unknown>,
-  moduleKey?: string,
-): ServerIslandHandle {
+  props?: ServerIslandProps,
+  moduleKey?: string
+): ServerIslandHandle => {
   const controller = new AbortController();
-  const cleanups: Array<() => void> = [];
-  cleanups.push(() => controller.abort());
+  const cleanups: (() => void)[] = [
+    () => {
+      controller.abort();
+    },
+  ];
 
   // Seed state from the SSR snapshot. Stream pushes overwrite these keys;
   // frames re-render from the latest values.
-  const state: Record<string, unknown> = {};
+  const state: Record<string, SnapshotValue | undefined> = {};
   const rawState = host.getAttribute(STATE_ATTR);
   if (rawState) {
     const parsed = parseSnapshotAttr(rawState);
     if (parsed) {
       for (const [key, value] of Object.entries(parsed)) {
-        if (!key.startsWith("_")) state[key] = value;
+        if (!key.startsWith("_")) {
+          state[key] = value;
+        }
       }
     }
   }
 
   // Serialized repaint queue — frames must apply in push order even when
   // several arrive back-to-back.
-  const frame = wiring.frame;
+  const { frame } = wiring;
   let currentProps = props;
   let repaintChain: Promise<void> = Promise.resolve();
-  const scheduleRepaint = (): void => {
-    if (!frame || controller.signal.aborted) return;
-    const sent = currentProps;
-    repaintChain = repaintChain
-      .then(async () => {
-        if (controller.signal.aborted || !host.isConnected) return;
-        const html = await frame(sent);
-        if (controller.signal.aborted || typeof html !== "string") return;
-        const parsed = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
-        host.replaceChildren(...Array.from(parsed.body.firstElementChild?.childNodes ?? []));
-        syncChildren();
-        wireEvents();
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted) {
-          console.error(`[ilha-router] frame render failed for "${id}":`, err);
-        }
-      });
+
+  const attached: AttachedListener[] = [];
+  const mountedChildren = new Map<Element, ServerIslandHandle>();
+  const hooks = {
+    repaintModule: (): void => {
+      // assigned below once scheduleRepaint exists
+    },
   };
-  const repaintModule = (): void => {
-    if (moduleKey) __ilhaRepaintServerModule(moduleKey);
-    else scheduleRepaint();
-  };
-  if (moduleKey) cleanups.push(linkServerModuleRepaints(moduleKey, scheduleRepaint));
-  // Frames re-render the island, so sentinel indexes and per-item args change
-  // between renders — listeners are detached and rebuilt from scratch after
-  // every morph, reading the FRESH manifest (host attr, or the <template>
-  // hoisted inside frame HTML). Elements patched in place therefore never
-  // fire stale actions.
-  const attached: Array<{ el: Element; type: string; listener: () => void }> = [];
-  const readManifest = (): Record<string, unknown> | undefined => {
+
+  const readManifest = (): SnapshotObject | undefined => {
     // Fresh frame manifests (hoisted <template>) win over the host attribute —
     // the attr carries the INITIAL SSR manifest, which goes stale as sentinel
     // indexes shift between renders.
     const raw =
       host
-        .querySelector(`:scope > template[${ACTIONS_ATTR}], template[${ACTIONS_ATTR}]`)
+        .querySelector(
+          `:scope > template[${ACTIONS_ATTR}], template[${ACTIONS_ATTR}]`
+        )
         ?.getAttribute(ACTIONS_ATTR) ??
       host.getAttribute(ACTIONS_ATTR) ??
       null;
     return raw ? parseSnapshotAttr(raw) : undefined;
   };
+
   const wireEvents = (): void => {
     for (const { el, type, listener } of attached) {
       el.removeEventListener(type, listener);
@@ -223,121 +344,206 @@ function hydrateServerIsland(
     attached.length = 0;
 
     const manifest = readManifest();
-    if (!manifest) return;
-    const sentinels = [host, ...Array.from(host.querySelectorAll(`[${EVENT_SENTINEL_ATTR}]`))];
+    if (!manifest) {
+      return;
+    }
+    const sentinels = [
+      host,
+      ...host.querySelectorAll(`[${EVENT_SENTINEL_ATTR}]`),
+    ];
     for (const el of sentinels) {
-      if (!el.hasAttribute(EVENT_SENTINEL_ATTR)) continue;
+      if (!el.hasAttribute(EVENT_SENTINEL_ATTR)) {
+        continue;
+      }
       // The island root itself may carry a sentinel; ownership check only
       // applies to descendants.
-      if (el !== host && !belongsToHost(host, el)) continue;
+      if (el !== host && !belongsToHost(host, el)) {
+        continue;
+      }
       const spec = el.getAttribute(EVENT_SENTINEL_ATTR) ?? "";
       for (const part of spec.split(",")) {
         const sep = part.lastIndexOf(":");
-        if (sep < 1) continue;
-        const type = part.slice(0, sep);
+        if (sep < 1) {
+          continue;
+        }
+        const eventType = part.slice(0, sep);
         // Manifest entries are either the action key or `{ k, a }` with a
         // static payload captured at render time ([handler, ...args]).
-        const entry = manifest[part] as string | { k?: unknown; a?: unknown } | undefined;
+        // SAFETY: manifest values are string keys or {k,a} objects from SSR.
+        const entry = manifest[part] as ManifestEntry | undefined;
         let actionKey: string | undefined;
-        let callArgs: unknown[] = [];
-        if (typeof entry === "string") {
+        let callArgs: ServerActionPayload[] = [];
+        if (isString(entry)) {
           actionKey = entry;
-        } else if (entry && typeof entry === "object") {
+        } else if (entry && isObject(entry)) {
           actionKey = String(entry.k);
-          if (Array.isArray(entry.a)) callArgs = entry.a;
+          if (Array.isArray(entry.a)) {
+            // SAFETY: the manifest payload was serialized by the server-side
+            // action shim as JSON — exactly the ServerActionPayload contract.
+            callArgs = entry.a as ServerActionPayload[];
+          }
         }
-        const action = actionKey == null ? undefined : wiring.actions?.[actionKey];
-        if (!action) continue;
+        const actionFn =
+          actionKey === null || actionKey === undefined
+            ? undefined
+            : wiring.actions?.[actionKey];
+        if (!actionFn) {
+          continue;
+        }
+        const boundKey = actionKey;
         const listener = (): void => {
-          void Promise.resolve(action(...callArgs))
-            .then(() => repaintModule())
-            .catch((err) => {
-              console.error(`[ilha-router] action "${String(actionKey)}" failed:`, err);
-            });
+          const run = async () => {
+            try {
+              await Promise.resolve(actionFn(...callArgs));
+              hooks.repaintModule();
+            } catch (error) {
+              console.error(
+                `[ilha-router] action "${String(boundKey)}" failed:`,
+                error
+              );
+            }
+          };
+          void run();
         };
-        el.addEventListener(type, listener);
-        attached.push({ el, type, listener });
+        el.addEventListener(eventType, listener);
+        attached.push({ el, listener, type: eventType });
       }
     }
   };
-  wireEvents();
 
-  const mountedChildren = new Map<Element, ServerIslandHandle>();
   const reviveChildProps = (
-    props: Record<string, unknown> | undefined,
-  ): Record<string, unknown> | undefined => {
-    if (!props) return undefined;
-    for (const [key, value] of Object.entries(props)) {
-      if (!value || typeof value !== "object") continue;
-      const marker = value as { __ilha?: unknown; k?: unknown; a?: unknown };
-      if (marker.__ilha !== "action" || typeof marker.k !== "string") continue;
-      const action = wiring.actions?.[marker.k];
-      if (!action) continue;
-      const args = Array.isArray(marker.a) ? marker.a : [];
-      props[key] = (..._runtimeArgs: unknown[]) =>
-        Promise.resolve(action(...args)).then((result) => {
-          repaintModule();
-          return result;
-        });
+    childProps: ServerIslandProps | undefined
+  ): ServerIslandProps | undefined => {
+    if (!childProps) {
+      return undefined;
     }
-    return props;
+    const next = { ...childProps };
+    for (const [key, value] of Object.entries(childProps)) {
+      if (!value || !isObject(value)) {
+        continue;
+      }
+      // SAFETY: action markers are SSR-serialized {__ilha,k,a} bags.
+      const marker = value as ActionMarker;
+      if (marker.__ilha !== "action" || !isString(marker.k)) {
+        continue;
+      }
+      const actionFn = wiring.actions?.[marker.k];
+      if (!actionFn) {
+        continue;
+      }
+      let args: ServerActionPayload[] = [];
+      if (Array.isArray(marker.a)) {
+        // SAFETY: marker.a is a JSON array of ServerActionPayload values.
+        args = marker.a as ServerActionPayload[];
+      }
+      const revived = (..._runtimeArgs: SnapshotValue[]) => {
+        const run = async () => {
+          const result = await Promise.resolve(actionFn(...args));
+          hooks.repaintModule();
+          return result;
+        };
+        return run();
+      };
+      // SAFETY: child props accept revived action callables at mount time.
+      Object.assign(next, { [key]: revived });
+    }
+    return next;
   };
+
   const syncChildren = (): void => {
     for (const [el, handle] of mountedChildren) {
-      if (el.isConnected && belongsToHost(host, el) && el.hasAttribute(CLIENT_REF_ATTR)) continue;
+      if (
+        el.isConnected &&
+        belongsToHost(host, el) &&
+        el.hasAttribute(CLIENT_REF_ATTR)
+      ) {
+        continue;
+      }
       handle.unmount();
       mountedChildren.delete(el);
     }
     for (const el of host.querySelectorAll(`[${CLIENT_REF_ATTR}]`)) {
-      if (!belongsToHost(host, el)) continue;
-      const props = reviveChildProps(
-        parseSnapshotAttr(el.getAttribute(PROPS_ATTR) ?? "") ?? undefined,
+      if (!belongsToHost(host, el)) {
+        continue;
+      }
+      const childProps = reviveChildProps(
+        parseSnapshotAttr(el.getAttribute(PROPS_ATTR) ?? "") ?? undefined
       );
       const mounted = mountedChildren.get(el);
       if (mounted) {
-        mounted.updateProps(props);
+        mounted.updateProps(childProps);
         continue;
       }
-      const child = wiring.children?.[el.getAttribute(CLIENT_REF_ATTR) ?? ""] as
-        | Record<symbol, unknown>
-        | undefined;
-      const mount = child?.[ISLAND_MOUNT_INTERNAL] as
-        | ((host: Element, props?: Record<string, unknown>) => ServerIslandHandle)
-        | undefined;
-      if (mount) mountedChildren.set(el, mount(el, props));
+      const child = wiring.children?.[el.getAttribute(CLIENT_REF_ATTR) ?? ""];
+      const mount = child?.[ISLAND_MOUNT_INTERNAL];
+      if (mount) {
+        mountedChildren.set(el, mount(el, childProps));
+      }
     }
   };
+
+  const applyFrameHtml = async (sent: ServerIslandProps | undefined) => {
+    if (!frame || controller.signal.aborted || !host.isConnected) {
+      return;
+    }
+    const html = await frame(sent);
+    if (controller.signal.aborted || !isString(html)) {
+      return;
+    }
+    const parsed = new DOMParser().parseFromString(
+      `<div>${html}</div>`,
+      "text/html"
+    );
+    host.replaceChildren(...(parsed.body.firstElementChild?.childNodes ?? []));
+    syncChildren();
+    wireEvents();
+  };
+
+  const scheduleRepaint = (): void => {
+    if (!frame || controller.signal.aborted) {
+      return;
+    }
+    const sent = currentProps;
+    const previous = repaintChain;
+    repaintChain = (async () => {
+      await previous;
+      try {
+        await applyFrameHtml(sent);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.error(
+            `[ilha-router] frame render failed for "${id}":`,
+            error
+          );
+        }
+      }
+    })();
+  };
+
+  hooks.repaintModule = (): void => {
+    if (moduleKey) {
+      __ilhaRepaintServerModule(moduleKey);
+    } else {
+      scheduleRepaint();
+    }
+  };
+
+  if (moduleKey) {
+    cleanups.push(linkServerModuleRepaints(moduleKey, scheduleRepaint));
+  }
+
+  // Frames re-render the island, so sentinel indexes and per-item args change
+  // between renders — listeners are detached and rebuilt from scratch after
+  // every morph, reading the FRESH manifest (host attr, or the <template>
+  // hoisted inside frame HTML). Elements patched in place therefore never
+  // fire stale actions.
+  wireEvents();
   syncChildren();
 
   // Resume streams. The generator call site is identical to the server's —
   // only the import resolution differs (tacho SSE stub vs local generator).
   for (const [key, fn] of Object.entries(wiring.streams ?? {})) {
-    void (async () => {
-      try {
-        const { gen, first } = await startServerStream(fn, controller.signal);
-        try {
-          let step: IteratorResult<unknown, unknown> = first;
-          for (;;) {
-            const { done, value } = step;
-            if (controller.signal.aborted || done) break;
-            state[key] = value;
-            repaintModule();
-            step = await gen.next();
-          }
-        } catch (err) {
-          if (!controller.signal.aborted && (err as { name?: string })?.name !== "AbortError") {
-            console.error(`[ilha-router] stream "${key}" failed:`, err);
-          }
-        } finally {
-          // Unwind the generator so `finally` blocks in .server modules run.
-          void Promise.resolve(gen.return?.(undefined)).catch(() => {});
-        }
-      } catch (err) {
-        if (!controller.signal.aborted && (err as { name?: string })?.name !== "AbortError") {
-          console.error(`[ilha-router] stream "${key}" failed:`, err);
-        }
-      }
-    })();
+    void resumeServerStream(fn, key, state, controller, hooks.repaintModule);
   }
 
   // Bootstrap: when there is no SSR DOM to hydrate (pure client render, e.g.
@@ -352,9 +558,13 @@ function hydrateServerIsland(
         el.removeEventListener(type, listener);
       }
       attached.length = 0;
-      for (const handle of mountedChildren.values()) handle.unmount();
+      for (const handle of mountedChildren.values()) {
+        handle.unmount();
+      }
       mountedChildren.clear();
-      for (const cleanup of cleanups) cleanup();
+      for (const cleanup of cleanups) {
+        cleanup();
+      }
       cleanups.length = 0;
     },
     updateProps: (next) => {
@@ -362,7 +572,7 @@ function hydrateServerIsland(
       scheduleRepaint();
     },
   };
-}
+};
 
 /**
  * Create a client proxy island for a server-defined island. Called by
@@ -372,75 +582,82 @@ function hydrateServerIsland(
  * @param as - Slot tag declared by the server island's `{ as }` option (default div).
  * @param wiring - Stream/action transports wired to tacho stubs by codegen.
  */
-interface IslandCallShape {
+interface IslandCallPayload {
   [ISLAND_CALL]: true;
   island: ServerIslandCallable;
-  props?: Record<string, unknown>;
+  props?: ServerIslandProps;
   key: string;
 }
 
-export type ServerIslandCallable = Record<symbol, unknown> &
-  ((props?: Record<string, unknown>) => string) & {
-    mount: (host: Element, props?: Record<string, unknown>) => () => void;
-    toString: () => string;
-    key: (slotKey: string) => (props?: Record<string, unknown>) => IslandCallShape;
-  };
+export type ServerIslandCallable = ((props?: ServerIslandProps) => string) & {
+  [ISLAND]: true;
+  [ISLAND_SLOT_TAG]: string;
+  mount: (host: Element, props?: ServerIslandProps) => () => void;
+  toString: () => string;
+  key: (slotKey: string) => (props?: ServerIslandProps) => IslandCallPayload;
+  [ISLAND_MOUNT_INTERNAL]: (
+    host: Element,
+    props?: ServerIslandProps
+  ) => ServerIslandHandle;
+};
 
-export function __ilhaServerIsland(
+export const __ilhaServerIsland = (
   id: string,
   as: string,
   wiring: ServerIslandWiring = {},
-  moduleKey?: string,
-): ServerIslandCallable {
+  moduleKey?: string
+): ServerIslandCallable => {
   const slotTag = assertValidTag(as);
 
   // SAFETY: the callable only gains `.toString`/`.key`/`.mount` members at
   // runtime below; the assert declares the runtime-finished surface so
   // consumers can call them without a cast. Not assignable structurally until
   // the members are set, so the single typed bridge here is required.
-  const island = ((props?: Record<string, unknown>): string => {
+  const island = ((props?: ServerIslandProps): string => {
     // Client composition interpolates proxies through emitIslandSlot's sync
     // path, which calls toString() for inline HTML. A proxy cannot render —
     // it returns an empty shell; mountSlots then mounts it onto the slot and
     // hydration (or the frame bootstrap) fills the DOM.
     void props;
     return "";
-  }) as unknown as ServerIslandCallable;
+    // SAFETY: members below complete the ServerIslandCallable surface.
+  }) as ServerIslandCallable;
 
   island[ISLAND] = true;
   island[ISLAND_SLOT_TAG] = slotTag;
-  // SAFETY: the island object is a brand-shaped callable; assigning the
-  // render-shim members via a record view is the intended bridge contract.
-  (island as unknown as Record<string, unknown>).toString = (): string => "";
+  island.toString = (): string => "";
 
   // wrapLayout composition calls page.key("page").
-  // Returns the IslandCall shape ilha's interpolateValue recognises.
-  const ISLAND_CALL = Symbol.for("ilha.islandCall");
-  // SAFETY: see above — `.key` is a brand member on the callable island.
-  (island as unknown as Record<string, unknown>).key = (slotKey: string) => {
-    if (typeof slotKey !== "string" || slotKey.trim().length === 0 || slotKey.includes(":")) {
-      throw new Error('server island key() requires a non-empty key without ":".');
+  // Returns the IslandCall payload ilha's interpolateValue recognises.
+  island.key = (slotKey: string) => {
+    if (
+      !isString(slotKey) ||
+      slotKey.trim().length === 0 ||
+      slotKey.includes(":")
+    ) {
+      throw new Error(
+        'server island key() requires a non-empty key without ":".'
+      );
     }
-    return (props?: Record<string, unknown>) => ({
+    return (callProps?: ServerIslandProps): IslandCallPayload => ({
       [ISLAND_CALL]: true,
       island,
-      props,
       key: slotKey,
+      props: callProps,
     });
   };
 
-  // SAFETY: symbol-keyed internal mount hooks are exposed on the island object
-  // for ilha's mount machinery to discover.
-  (island as unknown as Record<symbol, unknown>)[ISLAND_MOUNT_INTERNAL] = (
+  island[ISLAND_MOUNT_INTERNAL] = (
     host: Element,
-    mountProps?: Record<string, unknown>,
-  ): ServerIslandHandle => hydrateServerIsland(host, id, wiring, mountProps, moduleKey);
+    mountProps?: ServerIslandProps
+  ): ServerIslandHandle =>
+    hydrateServerIsland(host, id, wiring, mountProps, moduleKey);
 
-  // SAFETY: `.mount` mirrors the core island method surface on the proxy.
-  (island as unknown as Record<string, unknown>).mount = (
+  island.mount = (
     host: Element,
-    mountProps?: Record<string, unknown>,
-  ): (() => void) => hydrateServerIsland(host, id, wiring, mountProps, moduleKey).unmount;
+    mountProps?: ServerIslandProps
+  ): (() => void) =>
+    hydrateServerIsland(host, id, wiring, mountProps, moduleKey).unmount;
 
   return island;
-}
+};

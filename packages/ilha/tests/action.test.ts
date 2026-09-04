@@ -5,27 +5,35 @@ import * as Atom from "effect/unstable/reactivity/Atom";
 
 import { atom, mount } from "../src/index.ts";
 
-test("Atom.fn pending then success", async () => {
-  const App = async () => {
-    const save = atom(Atom.fn((n: number) => Effect.sleep(20).pipe(Effect.as(n))));
-    return {
-      $$ilha: 1 as const,
-      type: "button",
-      props: {
-        id: "save",
-        onclick: () => {
-          if (Atom.isWritable(save.atom)) save.set(1 as never);
-        },
+const App = () => {
+  const save = atom(
+    Atom.fn((n: number) => Effect.sleep(20).pipe(Effect.as(n)))
+  );
+  return {
+    $$ilha: 1 as const,
+    children: [save],
+    props: {
+      id: "save",
+      onclick: () => {
+        if (Atom.isWritable(save.atom)) {
+          // SAFETY: Atom.fn setter expects the effect argument type; 1 is that seed.
+          save.set(1 as never);
+        }
       },
-      children: [save],
-    };
+    },
+    type: "button",
   };
+};
+
+test("Atom.fn pending then success", async () => {
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
   await Bun.sleep(10);
-  const btn = el.querySelector("#save") as HTMLButtonElement;
-  expect(btn).toBeTruthy();
+  const btn = el.querySelector("#save");
+  if (!(btn instanceof HTMLButtonElement)) {
+    throw new Error("#save missing");
+  }
   btn.click();
   await Bun.sleep(50);
   expect(el.textContent).toBeDefined();

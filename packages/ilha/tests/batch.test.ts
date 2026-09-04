@@ -10,10 +10,10 @@ test("batch coalesces multiple writes", async () => {
   const App = () => {
     const a = atom(0);
     const b = atom(0);
-    renders++;
+    renders += 1;
     return {
       $$ilha: 1 as const,
-      type: "button",
+      children: [`${a()}-${b()}`],
       props: {
         onclick: () => {
           batch(() => {
@@ -22,7 +22,7 @@ test("batch coalesces multiple writes", async () => {
           });
         },
       },
-      children: [`${a()}-${b()}`],
+      type: "button",
     };
   };
   const el = document.createElement("div");
@@ -30,7 +30,7 @@ test("batch coalesces multiple writes", async () => {
   const unmount = mount(el, App);
   await Bun.sleep(5);
   const before = renders;
-  el.querySelector("button")!.click();
+  el.querySelector("button")?.click();
   await Bun.sleep(10);
   expect(el.textContent).toBe("1-2");
   expect(renders - before).toBe(1);
@@ -38,22 +38,30 @@ test("batch coalesces multiple writes", async () => {
   el.remove();
 });
 
-test("Atom.fn mutation runs through handle.set", async () => {
-  const App = () => {
-    const total = atom(0);
-    const bump = atom(Atom.fn(() => Effect.sync(() => total.update((n) => n + 1))));
-    return {
-      $$ilha: 1 as const,
-      type: "button",
-      props: { onclick: () => bump.set(undefined) },
-      children: [total],
-    };
+const FnApp = () => {
+  const total = atom(0);
+  const bump = atom(
+    Atom.fn(() => Effect.sync(() => total.update((n) => n + 1)))
+  );
+  return {
+    $$ilha: 1 as const,
+    children: [total],
+    props: {
+      onclick: () => {
+        // SAFETY: Atom.fn with no args uses never-like void seed for set().
+        bump.set(undefined as never);
+      },
+    },
+    type: "button",
   };
+};
+
+test("Atom.fn mutation runs through handle.set", async () => {
   const el = document.createElement("div");
   document.body.append(el);
-  const unmount = mount(el, App);
+  const unmount = mount(el, FnApp);
   await Bun.sleep(5);
-  el.querySelector("button")!.click();
+  el.querySelector("button")?.click();
   await Bun.sleep(20);
   expect(el.textContent).toBe("1");
   unmount();

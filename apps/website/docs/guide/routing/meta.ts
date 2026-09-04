@@ -1,7 +1,6 @@
 import { defineMeta } from "blume";
 
 export default defineMeta({
-  title: "Routing",
   pages: [
     "overview",
     "routes-and-navigation",
@@ -11,4 +10,5 @@ export default defineMeta({
     "middleware-and-security",
     "deployment",
   ],
+  title: "Routing",
 });

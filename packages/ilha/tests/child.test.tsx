@@ -1,9 +1,10 @@
-/** @jsxImportSource ../src */
+// @jsxImportSource ../src
 import { expect, test } from "bun:test";
 
 import { atom, mount } from "../src/index.ts";
+import type { PropBag } from "../src/types.ts";
 
-const Badge = async (props: Record<string, unknown>) => {
+const Badge = (props: PropBag) => {
   const n = atom(0);
   return (
     <button id="badge" onclick={() => n.update((x: number) => x + 1)}>
@@ -13,52 +14,63 @@ const Badge = async (props: Record<string, unknown>) => {
   );
 };
 
+const GeneratorPage = function* GeneratorPage() {
+  yield (
+    <div>
+      <p>parent</p>
+      <Badge label="n=" />
+    </div>
+  );
+};
+
 test("async child inside generator parent", async () => {
-  const Page = function* () {
-    yield (
-      <div>
-        <p>parent</p>
-        <Badge label="n=" />
-      </div>
-    );
-  };
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, Page);
+  mount(el, GeneratorPage);
   await Bun.sleep(10);
   expect(el.textContent).toContain("parent");
   expect(el.textContent).toContain("n=0");
-  (el.querySelector("#badge") as HTMLButtonElement).click();
+  const badge = el.querySelector("#badge");
+  if (!(badge instanceof HTMLButtonElement)) {
+    throw new Error("#badge missing");
+  }
+  badge.click();
   await Bun.sleep(10);
   expect(el.textContent).toContain("n=1");
   el.remove();
 });
 
+const Ticker = function* Ticker() {
+  const n = atom(0);
+  yield (
+    <button id="tick" onclick={() => n.update((x: number) => x + 1)}>
+      gen {n}
+    </button>
+  );
+};
+
+const AsyncPage = () => {
+  const label = atom("async parent");
+  return (
+    <div>
+      <p>{label}</p>
+      <Ticker />
+    </div>
+  );
+};
+
 test("generator child inside async parent", async () => {
-  const Ticker = function* () {
-    const n = atom(0);
-    yield (
-      <button id="tick" onclick={() => n.update((x: number) => x + 1)}>
-        gen {n}
-      </button>
-    );
-  };
-  const Page = async () => {
-    const label = atom("async parent");
-    return (
-      <div>
-        <p>{label}</p>
-        <Ticker />
-      </div>
-    );
-  };
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, Page);
+  mount(el, AsyncPage);
   await Bun.sleep(15);
   expect(el.textContent).toContain("async parent");
   expect(el.textContent).toContain("gen 0");
-  (el.querySelector("#tick") as HTMLButtonElement).click();
+  const tick = el.querySelector("#tick");
+  if (!(tick instanceof HTMLButtonElement)) {
+    throw new Error("#tick missing");
+  }
+  tick.click();
   await Bun.sleep(10);
   expect(el.textContent).toContain("gen 1");
   el.remove();

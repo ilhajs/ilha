@@ -3,11 +3,11 @@ import { atom } from "ilha";
 import { URLS } from "@/lib/landing-const";
 
 const TEMPLATES = [
-  { value: "vite-spa", label: "Vite SPA", icon: "/vite.svg", sandbox: true },
-  { value: "oxide-spa", label: "Oxide SPA", icon: "/oxide.svg", sandbox: true },
+  { icon: "/vite.svg", label: "Vite SPA", sandbox: true, value: "vite-spa" },
+  { icon: "/oxide.svg", label: "Oxide SPA", sandbox: true, value: "oxide-spa" },
 ] as const;
 
-export function ProjectCreatorForm() {
+export const ProjectCreatorForm = () => {
   const name = atom("");
   const template = atom<(typeof TEMPLATES)[number]["value"]>("vite-spa");
   const useBun = atom(false);
@@ -21,9 +21,12 @@ export function ProjectCreatorForm() {
   const sandboxUrl = () => URLS.SANDBOX.replace("{template}", template());
 
   const hasSandbox = () =>
-    TEMPLATES.find((candidate) => candidate.value === template())?.sandbox ?? true;
+    TEMPLATES.find((candidate) => candidate.value === template())?.sandbox ??
+    true;
 
   const copyCommand = async (event: MouseEvent) => {
+    // SAFETY: the listener is bound to a <button data-copy-command>; the
+    // current target is that button, not an arbitrary node.
     const button = event.currentTarget as HTMLButtonElement;
     try {
       await navigator.clipboard.writeText(command());
@@ -105,4 +108,4 @@ export function ProjectCreatorForm() {
       </div>
     </div>
   );
-}
+};

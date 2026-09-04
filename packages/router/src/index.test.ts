@@ -5,6 +5,7 @@ import { h } from "ilha";
 import {
   afterNavigate,
   error,
+  head,
   isActive,
   navigate,
   redirect,
@@ -14,20 +15,45 @@ import {
   wrapLayout,
 } from "./index";
 
-function makeEl(): HTMLElement {
+const makeEl = (): HTMLElement => {
   const el = document.createElement("div");
   document.body.append(el);
   return el;
-}
+};
 
 afterEach(() => {
   history.replaceState(null, "", "/");
   document.body.replaceChildren();
 });
 
-const Home = async () => h("p", null, "home");
-const About = async () => h("p", null, "about");
-const User = async () => h("p", null, `user:${routeParams().id ?? ""}`);
+const Home = () => h("p", null, "home");
+const About = () => h("p", null, "about");
+const User = () => h("p", null, `user:${routeParams().id ?? ""}`);
+
+const Go = () => {
+  redirect("/about");
+};
+
+const Boom = () => {
+  error(401, "nope");
+};
+
+const Layout = (props: { children?: unknown }) =>
+  // SAFETY: wrapLayout passes View children; h accepts never for mixed child slots.
+  h("main", { id: "shell" }, props.children as never);
+
+const HeadPage = () => {
+  head({ title: "Home" });
+  return h("p", null, "home");
+};
+
+const HeadLayout = (props: { children?: unknown }) => {
+  head({
+    titleTemplate: (title) => `${title ?? ""} · App`,
+  });
+  // SAFETY: wrapLayout passes View children; h accepts never for mixed child slots.
+  return h("main", null, props.children as never);
+};
 
 describe("router", () => {
   it("matches and SSRs a page", async () => {
@@ -44,27 +70,21 @@ describe("router", () => {
   });
 
   it("redirects from a page", async () => {
-    const Go = async () => {
-      redirect("/about");
-    };
     const r = router().route("/", Go);
     const res = await r.renderResponse("http://localhost/");
-    expect(res).toEqual({ kind: "redirect", to: "/about", status: 302 });
+    expect(res).toEqual({ kind: "redirect", status: 302, to: "/about" });
   });
 
   it("surfaces route errors", async () => {
-    const Boom = async () => {
-      error(401, "nope");
-    };
     const r = router().route("/", Boom);
     const res = await r.renderResponse("http://localhost/");
     expect(res.kind).toBe("error");
-    if (res.kind === "error") expect(res.status).toBe(401);
+    if (res.kind === "error") {
+      expect(res.status).toBe(401);
+    }
   });
 
   it("wraps a layout around a page", async () => {
-    const Layout = (props: { children?: unknown }) =>
-      h("main", { id: "shell" }, props.children as never);
     const page = wrapLayout(Layout, Home);
     const r = router().route("/", page);
     const html = await r.render("http://localhost/");
@@ -73,7 +93,7 @@ describe("router", () => {
   });
 
   it("navigates in the browser", async () => {
-    history.replaceState(null, "", "/");
+    window.location.href = "http://localhost/";
     const host = makeEl();
     const r = router().route("/", Home).route("/about", About);
     const unmount = r.mount(host);
@@ -94,7 +114,7 @@ describe("router", () => {
   });
 
   it("afterNavigate fires on navigate", async () => {
-    history.replaceState(null, "", "/");
+    window.location.href = "http://localhost/";
     const host = makeEl();
     const r = router().route("/", Home).route("/about", About);
     const seen: string[] = [];
@@ -105,5 +125,22 @@ describe("router", () => {
     await Bun.sleep(10);
     expect(seen).toContain("/about");
     off();
+  });
+
+  it("applies head() from pages and layouts on client mount", async () => {
+    window.location.href = "http://localhost/";
+    document.title = "";
+    const host = makeEl();
+    const r = router().route("/", wrapLayout(HeadLayout, HeadPage));
+    const unmount = r.mount(host);
+    await Bun.sleep(10);
+    expect(document.title).toBe("Home · App");
+    unmount();
+  });
+
+  it("updates document.title when head() runs outside a mount store", () => {
+    document.title = "old";
+    head({ title: "Direct" });
+    expect(document.title).toBe("Direct");
   });
 });

@@ -18,9 +18,20 @@
 // and never touch window.location.
 // ─────────────────────────────────────────────
 
-const isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
+const isBrowser =
+  globalThis.window !== undefined && globalThis.document !== undefined;
 
 export type HistoryMode = "history" | "hash";
+
+/** Structured-cloneable history entry state passed to pushState/replaceState. */
+export type HistoryEntryState =
+  | null
+  | undefined
+  | string
+  | number
+  | boolean
+  | HistoryEntryState[]
+  | { readonly [key: string]: HistoryEntryState | undefined };
 
 export interface LogicalLocation {
   pathname: string;
@@ -30,68 +41,89 @@ export interface LogicalLocation {
 
 export interface HistoryAdapter {
   /** Read the current logical URL (the one routes are matched against). */
-  readLocation(): LogicalLocation;
+  readLocation: () => LogicalLocation;
   /** Push a new logical URL onto the history stack. `state` is stored on the history entry. */
-  push(to: string, state?: unknown): void;
+  push: (to: string, state?: HistoryEntryState) => void;
   /** Replace the current history entry with a new logical URL. `state` is stored on the history entry. */
-  replace(to: string, state?: unknown): void;
+  replace: (to: string, state?: HistoryEntryState) => void;
   /** Subscribe to logical-URL changes. Returns a cleanup function. */
-  onChange(handler: () => void): () => void;
+  onChange: (handler: () => void) => () => void;
   /**
    * Convert a logical href (what the user writes, e.g. "/users/42") into
    * the actual DOM href attribute (e.g. "#/users/42" in hash mode).
    */
-  toLinkHref(logicalPath: string): string;
+  toLinkHref: (logicalPath: string) => string;
   /**
    * Extract a logical path from an `<a>` element. Returns null when the
    * link is not an in-app navigation target (external, anchor-only, etc).
    * The caller still applies modifier-key / target=_blank checks.
    */
-  extractLogicalPath(anchor: HTMLAnchorElement): string | null;
+  extractLogicalPath: (anchor: HTMLAnchorElement) => string | null;
 }
+
+const noop = (): undefined => undefined;
+
+const HTTP_SCHEME = /^(?:http:|https:)$/u;
 
 // ─────────────────────────────────────────────
 // "history" mode — the classic SPA adapter (default)
 // ─────────────────────────────────────────────
 
 const historyAdapter: HistoryAdapter = {
-  readLocation() {
-    if (!isBrowser) return { pathname: "/", search: "", hash: "" };
-    return {
-      pathname: location.pathname,
-      search: location.search,
-      hash: location.hash,
-    };
-  },
-  push(to, state) {
-    if (!isBrowser) return;
-    history.pushState(state ?? null, "", to);
-  },
-  replace(to, state) {
-    if (!isBrowser) return;
-    history.replaceState(state ?? null, "", to);
-  },
-  onChange(handler) {
-    if (!isBrowser) return () => {};
-    window.addEventListener("popstate", handler);
-    return () => window.removeEventListener("popstate", handler);
-  },
-  toLinkHref(p) {
-    return p;
-  },
   extractLogicalPath(anchor) {
     const href = anchor.getAttribute("href");
-    if (!href) return null;
+    if (!href) {
+      return null;
+    }
     // Ignore non-HTTP(S) schemes (mailto:, tel:, javascript:, etc.)
-    if (anchor.protocol && !/^(http:|https:)$/.test(anchor.protocol)) return null;
+    if (anchor.protocol && !HTTP_SCHEME.test(anchor.protocol)) {
+      return null;
+    }
     // Anchor-only links ("#section") are in-page, not navigations.
-    if (href.startsWith("#")) return null;
+    if (href.startsWith("#")) {
+      return null;
+    }
     // Same-origin check — `hostname` is empty for relative hrefs, which is fine.
     const isExternal =
       !!anchor.hostname &&
-      (anchor.hostname !== location.hostname || anchor.protocol !== location.protocol);
-    if (isExternal) return null;
+      (anchor.hostname !== location.hostname ||
+        anchor.protocol !== location.protocol);
+    if (isExternal) {
+      return null;
+    }
     return anchor.pathname + anchor.search + anchor.hash;
+  },
+  onChange(handler) {
+    if (!isBrowser) {
+      return noop;
+    }
+    window.addEventListener("popstate", handler);
+    return () => window.removeEventListener("popstate", handler);
+  },
+  push(to, state) {
+    if (!isBrowser) {
+      return;
+    }
+    history.pushState(state ?? null, "", to);
+  },
+  readLocation() {
+    if (!isBrowser) {
+      return { hash: "", pathname: "/", search: "" };
+    }
+    return {
+      hash: location.hash,
+      pathname: location.pathname,
+      search: location.search,
+    };
+  },
+  replace(to, state) {
+    if (!isBrowser) {
+      return;
+    }
+    history.replaceState(state ?? null, "", to);
+  },
+  toLinkHref(p) {
+    return p;
   },
 };
 
@@ -113,73 +145,67 @@ const historyAdapter: HistoryAdapter = {
 // address bar or scripts setting `location.hash` directly.
 // ─────────────────────────────────────────────
 
-function parseHash(rawHash: string): LogicalLocation {
+const parseHash = (rawHash: string): LogicalLocation => {
   // Strip the leading "#". Empty hash → root path.
   const stripped = rawHash.startsWith("#") ? rawHash.slice(1) : rawHash;
-  const path = stripped === "" ? "/" : stripped.startsWith("/") ? stripped : "/" + stripped;
+  let path: string;
+  if (stripped === "") {
+    path = "/";
+  } else if (stripped.startsWith("/")) {
+    path = stripped;
+  } else {
+    path = `/${stripped}`;
+  }
   // Use a dummy origin so the URL constructor parses pathname/search/hash
   // exactly as it would for a real URL. The origin is never read.
   const u = new URL(path, "http://_");
-  return { pathname: u.pathname, search: u.search, hash: u.hash };
-}
+  return { hash: u.hash, pathname: u.pathname, search: u.search };
+};
 
 const hashAdapter: HistoryAdapter = {
-  readLocation() {
-    if (!isBrowser) return { pathname: "/", search: "", hash: "" };
-    return parseHash(location.hash);
-  },
-  push(to, state) {
-    if (!isBrowser) return;
-    history.pushState(state ?? null, "", to.startsWith("#") ? to : "#" + to);
-  },
-  replace(to, state) {
-    if (!isBrowser) return;
-    history.replaceState(state ?? null, "", to.startsWith("#") ? to : "#" + to);
-  },
-  onChange(handler) {
-    if (!isBrowser) return () => {};
-    window.addEventListener("popstate", handler);
-    window.addEventListener("hashchange", handler);
-    return () => {
-      window.removeEventListener("popstate", handler);
-      window.removeEventListener("hashchange", handler);
-    };
-  },
-  toLinkHref(p) {
-    // p is a logical path like "/users/42"; convert to "#/users/42".
-    // If the caller already passed something starting with "#", trust them.
-    if (p.startsWith("#")) return p;
-    return "#" + p;
-  },
   extractLogicalPath(anchor) {
     const href = anchor.getAttribute("href");
-    if (!href) return null;
+    if (!href) {
+      return null;
+    }
     // Protocol-relative links (//host) must not be intercepted — the browser
     // performs a normal external navigation. Treating them as logical paths
     // would call navigate("//host") and hit a contained pushState SecurityError.
-    if (href.startsWith("//")) return null;
+    if (href.startsWith("//")) {
+      return null;
+    }
     // Ignore non-HTTP(S) schemes (mailto:, tel:, javascript:, etc.)
-    if (anchor.protocol && !/^(http:|https:)$/.test(anchor.protocol)) return null;
+    if (anchor.protocol && !HTTP_SCHEME.test(anchor.protocol)) {
+      return null;
+    }
 
     // Hash-form link: "#/about" or "#/users/42?x=1"
     if (href.startsWith("#")) {
       const inner = href.slice(1);
       // A bare "#" or "#section" without a leading slash is an in-page anchor,
       // not an in-app navigation. We only intercept "#/..." style links.
-      if (inner === "" || !inner.startsWith("/")) return null;
+      if (inner === "" || !inner.startsWith("/")) {
+        return null;
+      }
       return inner;
     }
 
     // Absolute URL with a hash component to a same-origin page —
     // e.g. <a href="https://app.example.com/#/about">. Pull out the hash.
     // For other absolute URLs (no hash, different origin), don't intercept.
-    if (/^https?:\/\//i.test(href)) {
+    if (/^https?:\/\//iu.test(href)) {
       try {
         const u = new URL(href);
-        if (u.origin !== location.origin) return null;
-        if (!u.hash || u.hash === "#") return null;
+        if (u.origin !== location.origin) {
+          return null;
+        }
+        if (!u.hash || u.hash === "#") {
+          return null;
+        }
         const inner = u.hash.slice(1);
-        if (!inner.startsWith("/")) return null;
+        if (!inner.startsWith("/")) {
+          return null;
+        }
         return inner;
       } catch {
         return null;
@@ -192,6 +218,43 @@ const hashAdapter: HistoryAdapter = {
     // alternative (refusing to intercept) would force every link in a hash-mode
     // app to be hash-prefixed, which is hostile to code shared between modes.
     return href;
+  },
+  onChange(handler) {
+    if (!isBrowser) {
+      return noop;
+    }
+    window.addEventListener("popstate", handler);
+    window.addEventListener("hashchange", handler);
+    return () => {
+      window.removeEventListener("popstate", handler);
+      window.removeEventListener("hashchange", handler);
+    };
+  },
+  push(to, state) {
+    if (!isBrowser) {
+      return;
+    }
+    history.pushState(state ?? null, "", to.startsWith("#") ? to : `#${to}`);
+  },
+  readLocation() {
+    if (!isBrowser) {
+      return { hash: "", pathname: "/", search: "" };
+    }
+    return parseHash(location.hash);
+  },
+  replace(to, state) {
+    if (!isBrowser) {
+      return;
+    }
+    history.replaceState(state ?? null, "", to.startsWith("#") ? to : `#${to}`);
+  },
+  toLinkHref(p) {
+    // p is a logical path like "/users/42"; convert to "#/users/42".
+    // If the caller already passed something starting with "#", trust them.
+    if (p.startsWith("#")) {
+      return p;
+    }
+    return `#${p}`;
   },
 };
 
@@ -215,16 +278,12 @@ let _adapter: HistoryAdapter = historyAdapter;
  * until they're re-attached (typically by unmounting and remounting
  * the router).
  */
-export function setHistoryMode(mode: HistoryMode): void {
+export const setHistoryMode = (mode: HistoryMode): void => {
   _mode = mode;
   _adapter = mode === "hash" ? hashAdapter : historyAdapter;
-}
+};
 
-export function getHistoryMode(): HistoryMode {
-  return _mode;
-}
+export const getHistoryMode = (): HistoryMode => _mode;
 
 /** Internal — used by index.ts. Not part of the public API. */
-export function getAdapter(): HistoryAdapter {
-  return _adapter;
-}
+export const getAdapter = (): HistoryAdapter => _adapter;

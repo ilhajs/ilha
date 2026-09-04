@@ -4,13 +4,13 @@ import { define } from "../src/define.ts";
 import { atom } from "../src/index.ts";
 
 test("define mounts into the custom element", async () => {
-  define("ilha-count", async () => {
+  define("ilha-count", () => {
     const n = atom(0);
     return {
       $$ilha: 1 as const,
-      type: "button",
-      props: { onclick: () => n.update((x: number) => x + 1) },
       children: ["n=", n],
+      props: { onclick: () => n.update((x: number) => x + 1) },
+      type: "button",
     };
   });
   const el = document.createElement("ilha-count");

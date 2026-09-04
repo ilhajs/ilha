@@ -3,11 +3,14 @@ import { expect, test } from "bun:test";
 import * as Atom from "effect/unstable/reactivity/Atom";
 
 import { atom, mount } from "../src/index.ts";
+import type { PropBag } from "../src/types.ts";
+
+const mapAtom = Atom.map;
 
 test("atom outside island throws", () => {
   expect(() => {
     void atom(0);
-  }).toThrow(/no fiber/);
+  }).toThrow(/no fiber/u);
 });
 
 test("atom handle from another island throws when a different island is active", async () => {
@@ -16,12 +19,15 @@ test("atom handle from another island throws when a different island is active",
   const A = () => {
     const n = atom(0);
     foreign = n;
-    return { $$ilha: 1 as const, type: "span", props: {}, children: [n] };
+    return { $$ilha: 1 as const, children: [n], props: {}, type: "span" };
   };
   const B = () => {
     atom(1);
-    expect(() => foreign!()).toThrow(/different island/);
-    return { $$ilha: 1 as const, type: "span", props: {}, children: ["b"] };
+    if (!foreign) {
+      throw new Error("foreign missing");
+    }
+    expect(() => foreign()).toThrow(/different island/u);
+    return { $$ilha: 1 as const, children: ["b"], props: {}, type: "span" };
   };
 
   const root = document.createElement("div");
@@ -36,24 +42,25 @@ test("atom handle from another island throws when a different island is active",
   root.remove();
 });
 
-test("atom hole updates text without second root yield", async () => {
-  const Counter = function* () {
-    const count = atom(0);
-    yield {
-      $$ilha: 1 as const,
-      type: "button",
-      props: {
-        onclick: () => count.update((n: number) => n + 1),
-      },
-      children: ["Count: ", count],
-    };
+const Counter = function* Counter() {
+  const count = atom(0);
+  yield {
+    $$ilha: 1 as const,
+    children: ["Count: ", count],
+    props: {
+      onclick: () => count.update((n: number) => n + 1),
+    },
+    type: "button",
   };
+};
+
+test("atom hole updates text without second root yield", async () => {
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, Counter);
   await Bun.sleep(5);
   expect(el.textContent).toContain("Count: 0");
-  el.querySelector("button")!.click();
+  el.querySelector("button")?.click();
   await Bun.sleep(5);
   expect(el.textContent).toContain("Count: 1");
   unmount();
@@ -63,109 +70,125 @@ test("atom hole updates text without second root yield", async () => {
   el.remove();
 });
 
-test("Atom.map tracks source atoms", async () => {
-  const App = function* () {
-    const items = atom([{ done: true }, { done: false }]);
-    const pending = atom(Atom.map(items.atom, (list) => list.filter((item) => !item.done).length));
-    yield {
-      $$ilha: 1 as const,
-      type: "button",
-      props: {
-        onclick: () => items.update((list) => list.map((item) => ({ ...item, done: true }))),
-      },
-      children: ["Pending: ", pending],
-    };
+const MapApp = function* MapApp() {
+  const items = atom([{ done: true }, { done: false }]);
+  const pending = atom(
+    mapAtom(items.atom, (list) => list.filter((item) => !item.done).length)
+  );
+  yield {
+    $$ilha: 1 as const,
+    children: ["Pending: ", pending],
+    props: {
+      onclick: () =>
+        items.update((list) => list.map((item) => ({ ...item, done: true }))),
+    },
+    type: "button",
   };
+};
+
+test("Atom.map tracks source atoms", async () => {
   const el = document.createElement("div");
   document.body.append(el);
-  const unmount = mount(el, App);
+  const unmount = mount(el, MapApp);
   await Bun.sleep(5);
   expect(el.textContent).toContain("Pending: 1");
-  el.querySelector("button")!.click();
+  el.querySelector("button")?.click();
   await Bun.sleep(5);
   expect(el.textContent).toContain("Pending: 0");
   unmount();
   el.remove();
 });
 
-test("Atom.map inside sync setup updates", async () => {
-  const App = () => {
-    const items = atom(["a"]);
-    const n = atom(Atom.map(items.atom, (list) => list.length));
-    return {
-      $$ilha: 1 as const,
-      type: "button",
-      props: {
-        onclick: () => items.update((list) => [...list, "b"]),
-      },
-      children: ["n=", n],
-    };
+const SyncMapApp = () => {
+  const items = atom(["a"]);
+  const n = atom(mapAtom(items.atom, (list) => list.length));
+  return {
+    $$ilha: 1 as const,
+    children: ["n=", n],
+    props: {
+      onclick: () => items.update((list) => [...list, "b"]),
+    },
+    type: "button",
   };
+};
+
+test("Atom.map inside sync setup updates", async () => {
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, App);
+  mount(el, SyncMapApp);
   await Bun.sleep(5);
   expect(el.textContent).toContain("n=1");
-  el.querySelector("button")!.click();
+  el.querySelector("button")?.click();
   await Bun.sleep(5);
   expect(el.textContent).toContain("n=2");
   el.remove();
 });
 
-test("Atom.map inside function child updates", async () => {
-  const Badge = (props: Record<string, unknown>) => ({
+const Badge = (props: PropBag) => ({
+  $$ilha: 1 as const,
+  // SAFETY: children is passed through as the badge's painted content.
+  children: [props.children as never],
+  props: {},
+  type: "span",
+});
+
+const ChildMapApp = () => {
+  const items = atom(["a"]);
+  const n = atom(mapAtom(items.atom, (list) => list.length));
+  return {
     $$ilha: 1 as const,
-    type: "span",
+    children: [
+      { $$ilha: 1 as const, children: [n], props: {}, type: Badge },
+      {
+        $$ilha: 1 as const,
+        children: ["+"],
+        props: { onclick: () => items.update((list) => [...list, "b"]) },
+        type: "button",
+      },
+    ],
     props: {},
-    children: [props.children as never],
-  });
-  const App = () => {
-    const items = atom(["a"]);
-    const n = atom(Atom.map(items.atom, (list) => list.length));
-    return {
-      $$ilha: 1 as const,
-      type: "div",
-      props: {},
-      children: [
-        { $$ilha: 1 as const, type: Badge, props: {}, children: [n] },
-        {
-          $$ilha: 1 as const,
-          type: "button",
-          props: { onclick: () => items.update((list) => [...list, "b"]) },
-          children: ["+"],
-        },
-      ],
-    };
+    type: "div",
   };
+};
+
+test("Atom.map inside function child updates", async () => {
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, App);
+  mount(el, ChildMapApp);
   await Bun.sleep(10);
   expect(el.textContent).toContain("1");
-  el.querySelector("button")!.click();
+  el.querySelector("button")?.click();
   await Bun.sleep(10);
   expect(el.textContent).toContain("2");
   el.remove();
 });
 
-test("value={atom} tracks the atom", async () => {
-  const App = function* () {
-    const q = atom("x");
-    yield {
-      $$ilha: 1 as const,
-      type: "input",
-      props: {
-        value: q,
-        oninput: (e: Event) => q.set((e.currentTarget as HTMLInputElement).value),
+const ValueApp = function* ValueApp() {
+  const q = atom("x");
+  yield {
+    $$ilha: 1 as const,
+    children: [],
+    props: {
+      oninput: (e: Event) => {
+        const target = e.currentTarget;
+        // SAFETY: oninput is bound to the painted input element.
+        q.set((target as HTMLInputElement).value);
       },
-      children: [],
-    };
+      value: q,
+    },
+    type: "input",
   };
+};
+
+test("value={atom} tracks the atom", async () => {
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, App);
+  mount(el, ValueApp);
   await Bun.sleep(5);
-  const input = el.querySelector("input")!;
+  const input = el.querySelector("input");
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error("input missing");
+  }
   expect(input.value).toBe("x");
   input.value = "yz";
   input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -174,37 +197,38 @@ test("value={atom} tracks the atom", async () => {
   el.remove();
 });
 
-test("atom reads during sync setup rerun the component", async () => {
-  const App = () => {
-    const items = atom(["a", "b", "c"]);
-    return {
-      $$ilha: 1 as const,
-      type: "div",
-      props: {},
-      children: [
-        ...items().map((x) => ({
-          $$ilha: 1 as const,
-          type: "span",
-          props: { "data-item": x },
-          children: [x],
-        })),
-        {
-          $$ilha: 1 as const,
-          type: "button",
-          props: {
-            onclick: () => items.update((list) => list.slice(1)),
-          },
-          children: ["pop"],
+const ReadApp = () => {
+  const items = atom(["a", "b", "c"]);
+  return {
+    $$ilha: 1 as const,
+    children: [
+      ...items().map((x) => ({
+        $$ilha: 1 as const,
+        children: [x],
+        props: { "data-item": x },
+        type: "span",
+      })),
+      {
+        $$ilha: 1 as const,
+        children: ["pop"],
+        props: {
+          onclick: () => items.update((list) => list.slice(1)),
         },
-      ],
-    };
+        type: "button",
+      },
+    ],
+    props: {},
+    type: "div",
   };
+};
+
+test("atom reads during sync setup rerun the component", async () => {
   const el = document.createElement("div");
   document.body.append(el);
-  const unmount = mount(el, App);
+  const unmount = mount(el, ReadApp);
   await Bun.sleep(5);
   expect(el.querySelectorAll("[data-item]").length).toBe(3);
-  el.querySelector("button")!.click();
+  el.querySelector("button")?.click();
   await Bun.sleep(5);
   expect(el.querySelectorAll("[data-item]").length).toBe(2);
   expect(el.textContent).not.toContain("a");
@@ -212,73 +236,75 @@ test("atom reads during sync setup rerun the component", async () => {
   el.remove();
 });
 
-test("primitive slots persist across render reruns", async () => {
-  const App = () => {
-    const list = atom([1, 2]);
-    const total = atom(0);
-    return {
-      $$ilha: 1 as const,
-      type: "div",
-      props: {},
-      children: [
-        {
-          $$ilha: 1 as const,
-          type: "span",
-          props: { "data-total": total() },
-          children: [],
-        },
-        {
-          $$ilha: 1 as const,
-          type: "span",
-          props: { "data-count": list().length },
-          children: [],
-        },
-        {
-          $$ilha: 1 as const,
-          type: "button",
-          props: {
-            onclick: () => {
-              total.update((n) => n + 1);
-              list.update((xs) => xs.slice(0, -1));
-            },
+const SlotApp = () => {
+  const list = atom([1, 2]);
+  const total = atom(0);
+  return {
+    $$ilha: 1 as const,
+    children: [
+      {
+        $$ilha: 1 as const,
+        children: [],
+        props: { "data-total": total() },
+        type: "span",
+      },
+      {
+        $$ilha: 1 as const,
+        children: [],
+        props: { "data-count": list().length },
+        type: "span",
+      },
+      {
+        $$ilha: 1 as const,
+        children: ["go"],
+        props: {
+          onclick: () => {
+            total.update((n) => n + 1);
+            list.update((xs) => xs.slice(0, -1));
           },
-          children: ["go"],
         },
-      ],
-    };
+        type: "button",
+      },
+    ],
+    props: {},
+    type: "div",
   };
+};
+
+test("primitive slots persist across render reruns", async () => {
   const el = document.createElement("div");
   document.body.append(el);
-  const unmount = mount(el, App);
+  const unmount = mount(el, SlotApp);
   await Bun.sleep(5);
-  el.querySelector("button")!.click();
+  el.querySelector("button")?.click();
   await Bun.sleep(5);
-  expect(el.querySelector("[data-total]")?.getAttribute("data-total")).toBe("1");
-  expect(el.querySelector("[data-count]")?.getAttribute("data-count")).toBe("1");
+  expect(el.querySelector("[data-total]")?.dataset.total).toBe("1");
+  expect(el.querySelector("[data-count]")?.dataset.count).toBe("1");
   unmount();
   el.remove();
 });
 
-test("async setup updates jsx atom children after await", async () => {
-  const App = async () => {
-    const items = atom(["a", "b", "c"]);
-    const count = atom(Atom.map(items.atom, (list) => String(list.length)));
-    await Bun.sleep(5);
-    return {
-      $$ilha: 1 as const,
-      type: "button",
-      props: {
-        onclick: () => items.update((list) => list.slice(1)),
-      },
-      children: [count],
-    };
+const AsyncMapApp = async () => {
+  const items = atom(["a", "b", "c"]);
+  const count = atom(mapAtom(items.atom, (list) => String(list.length)));
+  await Bun.sleep(5);
+  return {
+    $$ilha: 1 as const,
+    children: [count],
+    props: {
+      onclick: () => items.update((list) => list.slice(1)),
+    },
+    type: "button",
   };
+};
+
+test("async setup updates jsx atom children after await", async () => {
   const el = document.createElement("div");
   document.body.append(el);
-  const unmount = mount(el, App);
+  const unmount = mount(el, AsyncMapApp);
   await Bun.sleep(15);
   expect(el.textContent).toContain("3");
-  el.querySelector("button")!.click();
+  el.querySelector("button")?.click();
   await Bun.sleep(15);
   expect(el.textContent).toContain("2");
   unmount();
@@ -288,14 +314,17 @@ test("async setup updates jsx atom children after await", async () => {
 test("atom.lazy runs initializer once", async () => {
   let runs = 0;
   const App = () => {
-    const n = atom.lazy(() => ++runs);
+    const n = atom.lazy(() => {
+      runs += 1;
+      return runs;
+    });
     return {
       $$ilha: 1 as const,
-      type: "button",
+      children: [String(n())],
       props: {
         onclick: () => n.set(n() + 1),
       },
-      children: [String(n())],
+      type: "button",
     };
   };
   const el = document.createElement("div");
@@ -304,7 +333,7 @@ test("atom.lazy runs initializer once", async () => {
   await Bun.sleep(5);
   expect(runs).toBe(1);
   expect(el.textContent).toContain("1");
-  el.querySelector("button")!.click();
+  el.querySelector("button")?.click();
   await Bun.sleep(5);
   unmount();
   el.remove();
@@ -315,49 +344,43 @@ test("overlapping async setups track reads after await per fiber", async () => {
   const bEl = document.createElement("div");
   document.body.append(aEl, bEl);
 
-  let releaseA!: () => void;
-  let releaseB!: () => void;
-  const gateA = new Promise<void>((resolve) => {
-    releaseA = resolve;
-  });
-  const gateB = new Promise<void>((resolve) => {
-    releaseB = resolve;
-  });
+  const gateA = Promise.withResolvers<true>();
+  const gateB = Promise.withResolvers<true>();
 
   const A = async () => {
     const n = atom(0);
-    await gateA;
+    await gateA.promise;
     return {
       $$ilha: 1 as const,
-      type: "button",
-      props: { onclick: () => n.update((x: number) => x + 1) },
       children: [n],
+      props: { onclick: () => n.update((x: number) => x + 1) },
+      type: "button",
     };
   };
   const B = async () => {
     const n = atom(0);
-    await gateB;
+    await gateB.promise;
     return {
       $$ilha: 1 as const,
-      type: "button",
-      props: { onclick: () => n.update((x: number) => x + 10) },
       children: [n],
+      props: { onclick: () => n.update((x: number) => x + 10) },
+      type: "button",
     };
   };
 
   const unmountA = mount(aEl, A);
   const unmountB = mount(bEl, B);
-  releaseB();
+  gateB.resolve(true);
   await Bun.sleep(15);
   expect(bEl.textContent).toBe("0");
-  bEl.querySelector("button")!.click();
+  bEl.querySelector("button")?.click();
   await Bun.sleep(10);
   expect(bEl.textContent).toBe("10");
 
-  releaseA();
+  gateA.resolve(true);
   await Bun.sleep(15);
   expect(aEl.textContent).toBe("0");
-  aEl.querySelector("button")!.click();
+  aEl.querySelector("button")?.click();
   await Bun.sleep(10);
   expect(aEl.textContent).toBe("1");
 
@@ -367,15 +390,22 @@ test("overlapping async setups track reads after await per fiber", async () => {
   bEl.remove();
 });
 
+const SyncC = () => {
+  const count = atom(0);
+  return {
+    $$ilha: 1 as const,
+    children: [String(count())],
+    props: {
+      id: "c",
+      onclick: () => count.update((n: number) => n + 1),
+    },
+    type: "button",
+  };
+};
+
 test("sync reads while async setups are suspended do not leak trackGet", async () => {
-  let releaseA!: () => void;
-  let releaseB!: () => void;
-  const gateA = new Promise<void>((resolve) => {
-    releaseA = resolve;
-  });
-  const gateB = new Promise<void>((resolve) => {
-    releaseB = resolve;
-  });
+  const gateA = Promise.withResolvers<true>();
+  const gateB = Promise.withResolvers<true>();
 
   const aEl = document.createElement("div");
   const bEl = document.createElement("div");
@@ -384,55 +414,47 @@ test("sync reads while async setups are suspended do not leak trackGet", async (
 
   const A = async () => {
     const n = atom(0);
-    await gateA;
+    await gateA.promise;
     return {
       $$ilha: 1 as const,
-      type: "p",
-      props: { id: "a" },
       children: [n],
+      props: { id: "a" },
+      type: "p",
     };
   };
   const B = async () => {
     const n = atom(0);
-    await gateB;
+    await gateB.promise;
     return {
       $$ilha: 1 as const,
-      type: "p",
-      props: { id: "b" },
       children: [n],
-    };
-  };
-  const C = () => {
-    const count = atom(0);
-    return {
-      $$ilha: 1 as const,
-      type: "button",
-      props: {
-        id: "c",
-        onclick: () => count.update((n: number) => n + 1),
-      },
-      children: [String(count())],
+      props: { id: "b" },
+      type: "p",
     };
   };
 
   mount(aEl, A);
   mount(bEl, B);
-  const unmountC = mount(cEl, C);
+  const unmountC = mount(cEl, SyncC);
   await Bun.sleep(5);
 
-  (cEl.querySelector("#c") as HTMLButtonElement).click();
+  const cBtn = cEl.querySelector("#c");
+  if (!(cBtn instanceof HTMLButtonElement)) {
+    throw new Error("#c missing");
+  }
+  cBtn.click();
   await Bun.sleep(10);
   expect(cEl.textContent).toBe("1");
 
-  releaseA();
+  gateA.resolve(true);
   await Bun.sleep(15);
   expect(aEl.textContent).toBe("0");
 
-  releaseB();
+  gateB.resolve(true);
   await Bun.sleep(15);
   expect(bEl.textContent).toBe("0");
 
-  (cEl.querySelector("#c") as HTMLButtonElement).click();
+  cBtn.click();
   await Bun.sleep(10);
   expect(cEl.textContent).toBe("2");
 

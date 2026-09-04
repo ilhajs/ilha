@@ -24,14 +24,23 @@ export interface HttpResponseOptions {
  * a low-level helper — prefer {@link RouterBuilder.respond} for the full
  * render+head+headers pipeline.
  */
-export function httpResponse(body: string | null, options: HttpResponseOptions = {}): Response {
+export const httpResponse = (
+  body: string | null,
+  options: HttpResponseOptions = {}
+): Response => {
   const headers = new Headers(options.headers);
-  if (body != null && !headers.has("content-type")) {
+  if (body !== null && !headers.has("content-type")) {
     headers.set("content-type", "text/html; charset=utf-8");
   }
-  if (!headers.has("x-content-type-options")) headers.set("x-content-type-options", "nosniff");
-  if (!headers.has("referrer-policy")) headers.set("referrer-policy", "no-referrer");
-  if (!headers.has("cache-control")) headers.set("cache-control", "no-store");
+  if (!headers.has("x-content-type-options")) {
+    headers.set("x-content-type-options", "nosniff");
+  }
+  if (!headers.has("referrer-policy")) {
+    headers.set("referrer-policy", "no-referrer");
+  }
+  if (!headers.has("cache-control")) {
+    headers.set("cache-control", "no-store");
+  }
   const csp =
     options.contentSecurityPolicy ??
     (options.cspNonce
@@ -39,11 +48,17 @@ export function httpResponse(body: string | null, options: HttpResponseOptions =
         `style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; ` +
         `base-uri 'self'; frame-ancestors 'self'`
       : undefined);
-  if (csp) headers.set("content-security-policy", csp);
-  return new Response(body, { status: options.status ?? 200, headers });
-}
+  if (csp) {
+    headers.set("content-security-policy", csp);
+  }
+  return new Response(body, { headers, status: options.status ?? 200 });
+};
 
-export const EMPTY_HEAD: SerializedHead = { headTags: "", htmlAttrs: "", bodyAttrs: "" };
+export const EMPTY_HEAD: SerializedHead = {
+  bodyAttrs: "",
+  headTags: "",
+  htmlAttrs: "",
+};
 
 /**
  * Options for {@link RouterBuilder.respond}.

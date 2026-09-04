@@ -2,11 +2,12 @@ import { expect, test } from "bun:test";
 
 import { mount } from "../src/index.ts";
 
+const App = () => {
+  throw new Error("nope");
+};
+
 test("mount onError receives failure", async () => {
   const seen: unknown[] = [];
-  const App = async () => {
-    throw new Error("nope");
-  };
   const el = document.createElement("div");
   document.body.append(el);
   mount(el, App, { onError: (e) => seen.push(e) });

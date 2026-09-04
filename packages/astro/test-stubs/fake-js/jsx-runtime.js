@@ -3,10 +3,6 @@
 // Matches the runtime shape Solid's compiled JSX (automatic mode) expects.
 export const Fragment = (props) => props.children;
 
-export function jsx(type, props) {
-  return { type, props };
-}
-export function jsxs(type, props) {
-  return { type, props };
-}
+export const jsx = (type, props) => ({ props, type });
+export const jsxs = jsx;
 export const jsxDEV = jsx;

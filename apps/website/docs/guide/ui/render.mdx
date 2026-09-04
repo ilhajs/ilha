@@ -5,12 +5,12 @@ description: Render HTML with renderToString and activate it with mount.
 
 A component returns JSX. You turn that into HTML on the server and into a live tree in the browser.
 
-| API                                                   | Env    | Output                  |
-| ----------------------------------------------------- | ------ | ----------------------- |
-| `await renderToString(component)`                     | Server | HTML plus snapshot wrap |
-| `await renderToString(component, { markers: false })` | Server | Inner HTML only         |
-| `mount(el, component)`                                | Client | Live tree               |
-| `mount(el, component, { hydrate: true })`             | Client | Hydrate existing HTML   |
+| API | Env | Output |
+| --- | --- | --- |
+| `await renderToString(component)` | Server | HTML plus snapshot wrap |
+| `await renderToString(component, { markers: false })` | Server | Inner HTML only |
+| `mount(el, component)` | Client | Live tree |
+| `mount(el, component, { hydrate: true })` | Client | Hydrate existing HTML |
 
 ## Return a view
 

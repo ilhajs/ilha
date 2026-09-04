@@ -12,10 +12,7 @@ import { define } from "ilha/define";
 define("ilha-counter", () => {
   const count = atom(0);
   return (
-    <button
-      type="button"
-      onclick={() => count.update((n) => n + 1)}
-    >
+    <button type="button" onclick={() => count.update((n) => n + 1)}>
       {count}
     </button>
   );

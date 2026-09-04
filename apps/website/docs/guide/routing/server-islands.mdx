@@ -11,10 +11,7 @@ import oxide from "oxidejs/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [
-    oxide({ middleware: ["@ilha/router/ssr"] }),
-    pages(),
-  ],
+  plugins: [oxide({ middleware: ["@ilha/router/ssr"] }), pages()],
 });
 ```
 
@@ -45,23 +42,20 @@ export const getTasks = action(async function* () {
 export const TaskList = async function TaskList() {
   return Stream.map(
     Stream.fromAsyncIterable(getTasks(), (error: unknown) =>
-      error instanceof Error ? error : new Error(String(error)),
+      error instanceof Error ? error : new Error(String(error))
     ),
     (list: { id: string; text: string }[]) => (
       <ul>
         {list.map((task) => (
           <li key={task.id}>
             {task.text}
-            <button
-              type="button"
-              onclick={deleteTask.with(task.id)}
-            >
+            <button type="button" onclick={deleteTask.with(task.id)}>
               Remove
             </button>
           </li>
         ))}
       </ul>
-    ),
+    )
   );
 };
 ```

@@ -14,17 +14,12 @@ import { atom } from "ilha";
 
 const Status = () => <p>Ready</p>;
 
-const Greeting = ({ name }: { name: string }) => (
-  <p>Hello, {name}</p>
-);
+const Greeting = ({ name }: { name: string }) => <p>Hello, {name}</p>;
 
 const Counter = () => {
   const count = atom(0);
   return (
-    <button
-      type="button"
-      onclick={() => count.update((n) => n + 1)}
-    >
+    <button type="button" onclick={() => count.update((n) => n + 1)}>
       {count}
     </button>
   );
@@ -35,16 +30,16 @@ Nested functions share the parent fiber. `mount` / `renderToString` on a functio
 
 ## Named exports
 
-| Export               | Purpose                                   | Learn more                         |
-| -------------------- | ----------------------------------------- | ---------------------------------- |
-| `atom(init)`         | Writable reactive value                   | [State](/guide/ui/state)           |
-| `atom.lazy(init)`    | One-time initializer                      | [State](/guide/ui/state)           |
-| `batch(fn)`          | Coalesce multiple atom writes             | [State](/guide/ui/state)           |
-| `watch(source, fn)`  | Callback on atom or stream changes        | [State](/guide/ui/state)           |
-| `when(stream, body)` | Per-emission generator (interrupts stale) | [Streams](/guide/ui/streams)       |
-| `h` / `Fragment`     | JSX factory                               | [Templating](/guide/ui/templating) |
-| `mount`              | Activate a component in the DOM           | [Render](/guide/ui/render)         |
-| `renderToString`     | Serialize a component to HTML             | [Render](/guide/ui/render)         |
+| Export | Purpose | Learn more |
+| --- | --- | --- |
+| `atom(init)` | Writable reactive value | [State](/guide/ui/state) |
+| `atom.lazy(init)` | One-time initializer | [State](/guide/ui/state) |
+| `batch(fn)` | Coalesce multiple atom writes | [State](/guide/ui/state) |
+| `watch(source, fn)` | Callback on atom or stream changes | [State](/guide/ui/state) |
+| `when(stream, body)` | Per-emission generator (interrupts stale) | [Streams](/guide/ui/streams) |
+| `h` / `Fragment` | JSX factory | [Templating](/guide/ui/templating) |
+| `mount` | Activate a component in the DOM | [Render](/guide/ui/render) |
+| `renderToString` | Serialize a component to HTML | [Render](/guide/ui/render) |
 
 Paint Effect [`Stream`](https://www.effect.website/docs/v4/api/effect/Stream) values with `yield Stream.map(...)` — see [Streams](/guide/ui/streams).
 
@@ -70,9 +65,7 @@ import { atom } from "ilha";
 
 const items = atom([1, 2]);
 const sum = atom(
-  Atom.map(items.atom, (list) =>
-    list.reduce((total, n) => total + n, 0),
-  ),
+  Atom.map(items.atom, (list) => list.reduce((total, n) => total + n, 0))
 );
 ```
 

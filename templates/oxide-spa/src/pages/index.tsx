@@ -1,17 +1,22 @@
 import { createTask, TaskCount, TaskList } from "$lib/tasks.server";
 import { head } from "@ilha/router";
 
+const addItem = (event: SubmitEvent) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const text = String(new FormData(form).get("text") ?? "").trim();
+  if (!text) {
+    return;
+  }
+  void createTask(text);
+  form.reset();
+};
+
 export default function Home() {
   head({ title: "Home" });
-
-  const addItem = (event: SubmitEvent) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    const text = String(new FormData(form).get("text") ?? "").trim();
-    if (!text) return;
-    void createTask(text);
-    form.reset();
-  };
 
   return (
     <div class="card bg-base-100 shadow">
@@ -21,7 +26,11 @@ export default function Home() {
           <TaskCount />
         </h2>
         <form onsubmit={addItem} class="flex items-center gap-2">
-          <input name="text" class="input input-bordered w-full" placeholder="Add a new todo" />
+          <input
+            name="text"
+            class="input input-bordered w-full"
+            placeholder="Add a new todo"
+          />
           <button type="submit" class="btn btn-primary">
             Add
           </button>

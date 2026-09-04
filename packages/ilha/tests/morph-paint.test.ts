@@ -4,22 +4,23 @@ import * as Effect from "effect/Effect";
 
 import { mount } from "../src/index.ts";
 
-test("re-yield same tag morphs in place", async () => {
-  const App = function* () {
-    yield {
-      $$ilha: 1 as const,
-      type: "p",
-      props: { id: "x", className: "a" },
-      children: ["hi"],
-    };
-    yield Effect.sleep(40);
-    yield {
-      $$ilha: 1 as const,
-      type: "p",
-      props: { id: "x", className: "b" },
-      children: ["hi"],
-    };
+const App = function* App() {
+  yield {
+    $$ilha: 1 as const,
+    children: ["hi"],
+    props: { className: "a", id: "x" },
+    type: "p",
   };
+  yield Effect.sleep(40);
+  yield {
+    $$ilha: 1 as const,
+    children: ["hi"],
+    props: { className: "b", id: "x" },
+    type: "p",
+  };
+};
+
+test("re-yield same tag morphs in place", async () => {
   const el = document.createElement("div");
   document.body.append(el);
   mount(el, App);

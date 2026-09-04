@@ -1,5 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "include": ["src/**/*"],
-  "exclude": ["happydom.ts", "dist", "node_modules"]
+  "exclude": ["happydom.ts", "dist", "node_modules"],
+  "compilerOptions": {
+    "strictNullChecks": true
+  }
 }

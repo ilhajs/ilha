@@ -9,17 +9,18 @@ import { define } from "../src/define.ts";
 import { failureMessage } from "../src/errors.ts";
 import { atom, h, mount, renderToString } from "../src/index.ts";
 import { encodeSnapshot } from "../src/snapshot.ts";
+import type { PropBag } from "../src/types.ts";
 import "../src/jsx-dev-runtime.ts";
 
 test("generator throw paints error", async () => {
   const el = document.createElement("div");
   mount(
     el,
-    // SAFETY: throw before the first yield is the behavior under test.
-    // oxlint-disable-next-line require-yield
-    function* () {
+    // An async setup fn that rejects before painting — the failure path under test.
+    async () => {
+      await Promise.resolve();
       throw new Error("boom");
-    },
+    }
   );
   await Bun.sleep(5);
   expect(el.querySelector("[data-ilha-error]")?.textContent).toContain("boom");
@@ -27,7 +28,8 @@ test("generator throw paints error", async () => {
 
 test("yield Effect.fail paints error", async () => {
   const el = document.createElement("div");
-  mount(el, function* () {
+  mount(el, function* appGen() {
+    // SAFETY: Effect.fail is yielded as the error-paint path under test.
     yield Effect.fail("nope") as never;
   });
   await Bun.sleep(5);
@@ -37,8 +39,10 @@ test("yield Effect.fail paints error", async () => {
 test("yield* Stream.runForEach for finite stream side effects", async () => {
   const seen: number[] = [];
   const el = document.createElement("div");
-  mount(el, function* () {
-    yield* Stream.runForEach(Stream.fromIterable([1, 2]), (n) => Effect.sync(() => seen.push(n)));
+  mount(el, function* appGen() {
+    yield* Stream.runForEach(Stream.fromIterable([1, 2]), (n) =>
+      Effect.sync(() => seen.push(n))
+    );
     yield "ok";
   });
   await Bun.sleep(10);
@@ -48,7 +52,7 @@ test("yield* Stream.runForEach for finite stream side effects", async () => {
 
 test("stream view paints", async () => {
   const el = document.createElement("div");
-  mount(el, function* () {
+  mount(el, function* appGen() {
     yield Stream.fromIterable(["s1"]);
   });
   await Bun.sleep(10);
@@ -73,6 +77,7 @@ test("ilha.island brand mounts via internal hook", async () => {
     },
   });
   const el = document.createElement("div");
+  // SAFETY: Proxy carries the island brand symbols for the mount hook.
   mount(el, () => h(Proxy as never, null));
   await Bun.sleep(5);
   expect(el.querySelector("section")?.textContent).toBe("framed");
@@ -80,7 +85,8 @@ test("ilha.island brand mounts via internal hook", async () => {
 
 test("stream view error paints", async () => {
   const el = document.createElement("div");
-  mount(el, function* () {
+  mount(el, function* appGen() {
+    // SAFETY: Stream.fail is the stream error-paint path under test.
     yield Stream.fail("bad") as never;
   });
   await Bun.sleep(10);
@@ -89,8 +95,11 @@ test("stream view error paints", async () => {
 
 test("keyed atom list reuses and drops", async () => {
   const el = document.createElement("div");
-  mount(el, function* () {
-    const items = atom([h("li", { key: "a" }, "a"), h("li", { key: "b" }, "b")]);
+  mount(el, function* appGen() {
+    const items = atom([
+      h("li", { key: "a" }, "a"),
+      h("li", { key: "b" }, "b"),
+    ]);
     yield h("ul", null, items);
     yield Effect.sleep(15);
     items.set([h("li", { key: "b" }, "b"), h("li", { key: "c" }, "c")]);
@@ -102,14 +111,21 @@ test("keyed atom list reuses and drops", async () => {
   expect(el.textContent).not.toContain("a");
 });
 
+const Item = (p: PropBag) => h("li", null, String(p.label ?? ""));
+
 test("keyed function children reuse holes", async () => {
-  const Item = (p: Record<string, unknown>) => h("li", null, String(p.label ?? ""));
   const el = document.createElement("div");
-  mount(el, function* () {
-    const items = atom([h(Item, { key: "a", label: "a" }), h(Item, { key: "b", label: "b" })]);
+  mount(el, function* appGen() {
+    const items = atom([
+      h(Item, { key: "a", label: "a" }),
+      h(Item, { key: "b", label: "b" }),
+    ]);
     yield h("ul", null, items);
     yield Effect.sleep(15);
-    items.set([h(Item, { key: "b", label: "B" }), h(Item, { key: "a", label: "A" })]);
+    items.set([
+      h(Item, { key: "b", label: "B" }),
+      h(Item, { key: "a", label: "A" }),
+    ]);
   });
   await Bun.sleep(5);
   expect(el.querySelectorAll("li").length).toBe(2);
@@ -117,18 +133,24 @@ test("keyed function children reuse holes", async () => {
   expect(el.querySelectorAll("li").length).toBe(2);
 });
 
+interface SaveBox {
+  set?: (n: never) => void;
+}
+
 test("Atom.fn waiting keeps previous view", async () => {
-  const box: { set?: (n: never) => void } = {};
+  const box: SaveBox = {};
   const el = document.createElement("div");
-  mount(el, async () => {
+  mount(el, () => {
     const save = atom(Atom.fn(() => Effect.sleep(20).pipe(Effect.as("done"))));
     box.set = (n) => save.set(n);
     return h("p", null, save);
   });
   await Bun.sleep(5);
+  // SAFETY: Atom.fn with no args uses a void-like seed for set().
   box.set?.(undefined as never);
   await Bun.sleep(40);
   expect(el.textContent).toContain("done");
+  // SAFETY: Atom.fn with no args uses a void-like seed for set().
   box.set?.(undefined as never);
   await Bun.sleep(5);
   expect(el.textContent).toContain("done");
@@ -136,64 +158,70 @@ test("Atom.fn waiting keeps previous view", async () => {
 
 test("selected true on option", () => {
   const el = document.createElement("div");
-  mount(el, function* () {
+  mount(el, function* appGen() {
     yield h("select", null, h("option", { selected: true }, "x"));
   });
-  expect((el.querySelector("option") as HTMLOptionElement).selected).toBe(true);
+  const option = el.querySelector("option");
+  // SAFETY: querySelector('option') returns an HTMLOptionElement when present.
+  expect((option as HTMLOptionElement).selected).toBe(true);
 });
 
 test("selected={atom} on option", async () => {
   const el = document.createElement("div");
-  mount(el, async () => {
+  mount(el, () => {
     const on = atom(true);
     return h("select", null, h("option", { selected: on }, "x"));
   });
   await Bun.sleep(10);
-  expect((el.querySelector("option") as HTMLOptionElement).selected).toBe(true);
+  const option = el.querySelector("option");
+  // SAFETY: querySelector('option') returns an HTMLOptionElement when present.
+  expect((option as HTMLOptionElement).selected).toBe(true);
 });
 
 test("hydrate empty host full mounts", async () => {
   const el = document.createElement("div");
   mount(
     el,
-    function* () {
+    function* appGen() {
       yield h("p", null, "x");
     },
-    { hydrate: true },
+    { hydrate: true }
   );
   await Bun.sleep(5);
   expect(el.textContent).toContain("x");
 });
 
+const HydrateApp = () => {
+  const n = atom(0);
+  return h("p", null, n);
+};
+
 test("hydrate from state template", async () => {
-  const App = async () => {
-    const n = atom(0);
-    return h("p", null, n);
-  };
   const el = document.createElement("div");
   const tpl = document.createElement("template");
-  tpl.setAttribute("data-ilha-state", encodeSnapshot([4]));
+  tpl.dataset.ilhaState = encodeSnapshot([4]);
   el.append(tpl, document.createElement("p"));
   document.body.append(el);
-  mount(el, App, { hydrate: true });
+  mount(el, HydrateApp, { hydrate: true });
   await Bun.sleep(15);
   expect(el.textContent).toContain("4");
   el.remove();
 });
 
+const NestedHydrateApp = () => {
+  const n = atom(0);
+  return h("p", null, n);
+};
+
 test("hydrate ignores nested template state snapshots", async () => {
-  const App = async () => {
-    const n = atom(0);
-    return h("p", null, n);
-  };
   const el = document.createElement("div");
   const inner = document.createElement("div");
   const nested = document.createElement("template");
-  nested.setAttribute("data-ilha-state", encodeSnapshot([99]));
+  nested.dataset.ilhaState = encodeSnapshot([99]);
   inner.append(nested);
   el.append(inner, document.createElement("p"));
   document.body.append(el);
-  mount(el, App, { hydrate: true });
+  mount(el, NestedHydrateApp, { hydrate: true });
   await Bun.sleep(15);
   expect(el.textContent).toContain("0");
   expect(el.textContent).not.toContain("99");
@@ -202,11 +230,11 @@ test("hydrate ignores nested template state snapshots", async () => {
 
 test("markers off snapshot uses escaped template state", async () => {
   const html = await renderToString(
-    async () => {
+    () => {
       const n = atom(2);
       return h("p", null, n);
     },
-    { markers: false },
+    { markers: false }
   );
   expect(html.startsWith('<template data-ilha-state="')).toBe(true);
   expect(html).toContain("&quot;v&quot;:[2]");
@@ -215,7 +243,7 @@ test("markers off snapshot uses escaped template state", async () => {
 
 test("bigint and iterable children", () => {
   const el = document.createElement("div");
-  mount(el, function* () {
+  mount(el, function* appGen() {
     yield h("p", null, 1n, {
       *[Symbol.iterator]() {
         yield "z";
@@ -228,7 +256,7 @@ test("bigint and iterable children", () => {
 
 test("style string and empty async setup", async () => {
   const el = document.createElement("div");
-  mount(el, function* () {
+  mount(el, function* appGen() {
     yield h("p", { style: "color:red" }, "x");
   });
   expect(el.querySelector("p")?.getAttribute("style")).toContain("color");
@@ -244,9 +272,9 @@ test("asFailure Result and non-Error", () => {
 });
 
 test("define hydrate then disconnect", async () => {
-  define("ilha-h", async () => h("span", null, "h"));
+  define("ilha-h", () => h("span", null, "h"));
   const el = document.createElement("ilha-h");
-  el.setAttribute("data-ilha", "");
+  el.dataset.ilha = "";
   document.body.append(el);
   await Bun.sleep(20);
   expect(el.textContent).toContain("h");
