@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ilha/router": "^0.11.4",
+    "@ilha/router": "^0.11.5",
     "effect": "^4.0.0-rc.112",
     "ilha": "^0.14.4"
   },
