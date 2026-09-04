@@ -1,19 +1,31 @@
 import { describe, expect, test } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { runWithIslandRequest, REQUEST_ALS_KEY } from "./request-scope";
+import {
+  __setAlsBypassForTests,
+  __setInWebcontainerForTests,
+  runWithIslandRequest,
+  REQUEST_ALS_KEY,
+} from "./request-scope";
 
 const OXIDE_RUN_WITH_REQUEST = Symbol.for("oxidejs.runWithRequest");
 
 interface TestGlobalScope {
   [OXIDE_RUN_WITH_REQUEST]?: <T>(req: Request, fn: () => T) => T;
-  [REQUEST_ALS_KEY]?: AsyncLocalStorage<Request>;
+  [REQUEST_ALS_KEY]?: { getStore: () => Request | undefined };
 }
 
 const testGlobal = (): TestGlobalScope => {
   // SAFETY: tests only touch the oxidejs hook and ilha ALS slots on globalThis.
   const g = globalThis as TestGlobalScope;
   return g;
+};
+
+const requestPath = (request: Request | undefined): string | undefined => {
+  if (!request) {
+    return undefined;
+  }
+  return new URL(request.url).pathname;
 };
 
 describe("runWithIslandRequest", () => {
@@ -74,5 +86,144 @@ describe("runWithIslandRequest", () => {
     await Promise.all([run("a", 30), run("b", 5)]);
     expect(captured).toContain("https://example.com/a");
     expect(captured).toContain("https://example.com/b");
+  });
+
+  test("WebContainer sync store keeps useContext request after await", async () => {
+    __setInWebcontainerForTests(true);
+    __setAlsBypassForTests(true);
+    const g = testGlobal();
+    try {
+      const request = new Request("https://example.com/wc");
+      const url = await runWithIslandRequest(request, async () => {
+        await Promise.resolve();
+        // ALS bypassed: only syncStore can answer.
+        return g[REQUEST_ALS_KEY]?.getStore()?.url;
+      });
+      expect(url).toBe("https://example.com/wc");
+      expect(g[REQUEST_ALS_KEY]?.getStore()).toBeUndefined();
+    } finally {
+      __setAlsBypassForTests(false);
+      __setInWebcontainerForTests(null);
+    }
+  });
+
+  test("WebContainer fallback serializes out-of-order concurrent entries", async () => {
+    __setInWebcontainerForTests(true);
+    __setAlsBypassForTests(true);
+    const g = testGlobal();
+    try {
+      const gateA = Promise.withResolvers<null>();
+      const seen: string[] = [];
+
+      const first = runWithIslandRequest(
+        new Request("https://example.com/first"),
+        async () => {
+          seen.push(`enter:${requestPath(g[REQUEST_ALS_KEY]?.getStore())}`);
+          await gateA.promise;
+          seen.push(`leave:${requestPath(g[REQUEST_ALS_KEY]?.getStore())}`);
+          return requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        }
+      );
+
+      // Start second while first is still pending — must not run until first cleans up.
+      const second = runWithIslandRequest(
+        new Request("https://example.com/second"),
+        async () => {
+          seen.push(`enter:${requestPath(g[REQUEST_ALS_KEY]?.getStore())}`);
+          await Promise.resolve();
+          seen.push(`leave:${requestPath(g[REQUEST_ALS_KEY]?.getStore())}`);
+          return requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        }
+      );
+
+      gateA.resolve(null);
+      expect(await first).toBe("/first");
+      expect(await second).toBe("/second");
+      expect(seen).toEqual([
+        "enter:/first",
+        "leave:/first",
+        "enter:/second",
+        "leave:/second",
+      ]);
+      expect(g[REQUEST_ALS_KEY]?.getStore()).toBeUndefined();
+    } finally {
+      __setAlsBypassForTests(false);
+      __setInWebcontainerForTests(null);
+    }
+  });
+
+  test("WebContainer concurrent entry after await does not steal outer scope", async () => {
+    __setInWebcontainerForTests(true);
+    __setAlsBypassForTests(true);
+    const g = testGlobal();
+    try {
+      const gate = Promise.withResolvers<null>();
+      let secondEntered = false;
+
+      const first = runWithIslandRequest(
+        new Request("https://example.com/first"),
+        async () => {
+          await gate.promise;
+          return requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        }
+      );
+
+      // Let the outer entry acquire the lock and suspend on the gate.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(requestPath(g[REQUEST_ALS_KEY]?.getStore())).toBe("/first");
+
+      const second = runWithIslandRequest(
+        new Request("https://example.com/second"),
+        () => {
+          secondEntered = true;
+          return requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        }
+      );
+
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(secondEntered).toBe(false);
+      expect(requestPath(g[REQUEST_ALS_KEY]?.getStore())).toBe("/first");
+
+      gate.resolve(null);
+      expect(await first).toBe("/first");
+      expect(await second).toBe("/second");
+      expect(secondEntered).toBe(true);
+      expect(g[REQUEST_ALS_KEY]?.getStore()).toBeUndefined();
+    } finally {
+      __setAlsBypassForTests(false);
+      __setInWebcontainerForTests(null);
+    }
+  });
+
+  test("WebContainer nested runWithIslandRequest does not deadlock", async () => {
+    __setInWebcontainerForTests(true);
+    __setAlsBypassForTests(true);
+    const g = testGlobal();
+    try {
+      const outer = new Request("https://example.com/outer");
+      const inner = new Request("https://example.com/inner");
+      // Nest before the outer callback awaits so sync nest depth still owns the entry.
+      const paths = await runWithIslandRequest(outer, async () => {
+        const outerPath = requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        const nestedPath = await runWithIslandRequest(inner, async () => {
+          await Promise.resolve();
+          return requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        });
+        const restoredPath = requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        return { nestedPath, outerPath, restoredPath };
+      });
+      expect(paths).toEqual({
+        nestedPath: "/inner",
+        outerPath: "/outer",
+        restoredPath: "/outer",
+      });
+      expect(g[REQUEST_ALS_KEY]?.getStore()).toBeUndefined();
+    } finally {
+      __setAlsBypassForTests(false);
+      __setInWebcontainerForTests(null);
+    }
   });
 });
