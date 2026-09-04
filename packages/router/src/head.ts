@@ -94,8 +94,10 @@ const ILHA_ROUTER_BODY_ATTR = "data-ilha-router-body";
 
 /** Browser-only fallback; SSR uses AsyncLocalStorage (see `withHeadStore`). */
 let _browserHeadStore: HeadStore | null = null;
-/** WebContainer / await fallback while `withHeadStore` is in flight. */
+/** WebContainer fallback while a serialized `withHeadStore` entry is in flight. */
 let _headSyncStore: HeadStore | null = null;
+/** Serialize WebContainer head entries so overlapping renders cannot share sync state. */
+let _headFallbackTail: Promise<null> = Promise.resolve(null);
 
 interface HeadAls {
   getStore: () => HeadStore | undefined;
@@ -104,6 +106,55 @@ interface HeadAls {
 
 let _headAls: HeadAls | null = null;
 let _headAlsInit: Promise<HeadAls> | null = null;
+let _headWcOverride: boolean | null = null;
+/** When true, activeHeadStore skips ALS so tests exercise the sync fallback. */
+let _headAlsBypassForTests = false;
+
+/** Test-only: force WebContainer head fallback (mirrors request-scope). */
+export const __setHeadInWebcontainerForTests = (
+  value: boolean | null
+): void => {
+  _headWcOverride = value;
+};
+
+/** Test-only: force activeHeadStore to skip ALS (simulates WebContainer ALS loss). */
+export const __setHeadAlsBypassForTests = (value: boolean): void => {
+  _headAlsBypassForTests = value;
+};
+
+const headInWebcontainer = (): boolean => {
+  if (_headWcOverride !== null) {
+    return _headWcOverride;
+  }
+  if (isBrowser) {
+    return false;
+  }
+  try {
+    // SAFETY: SSR-only path; browser returns false above.
+    const versions = (
+      globalThis as {
+        process?: {
+          versions?: NodeJS.ProcessVersions & { webcontainer?: string };
+        };
+      }
+    ).process?.versions;
+    return Boolean(versions?.webcontainer);
+  } catch {
+    return false;
+  }
+};
+
+const withHeadFallbackEntry = async <T>(fn: () => Promise<T>): Promise<T> => {
+  const previous = _headFallbackTail;
+  const next = Promise.withResolvers<null>();
+  _headFallbackTail = next.promise;
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    next.resolve(null);
+  }
+};
 
 /** ESM dynamic import — Nitro/Vite SSR workers have no `require`. */
 const getHeadAlsAsync = async (): Promise<HeadAls> => {
@@ -127,6 +178,9 @@ const getHeadAlsAsync = async (): Promise<HeadAls> => {
 const activeHeadStore = (): HeadStore | null => {
   if (isBrowser) {
     return _browserHeadStore;
+  }
+  if (_headAlsBypassForTests) {
+    return _headSyncStore;
   }
   return _headAls?.getStore() ?? _headSyncStore ?? null;
 };
@@ -485,14 +539,19 @@ export const withHeadStore = async <T>(
     }
   }
   const als = await getHeadAlsAsync();
-  const previous = _headSyncStore;
-  _headSyncStore = store;
-  try {
-    // Keep sync fallback set across awaits inside `fn` (WebContainer ALS gap).
+  if (!headInWebcontainer()) {
     return await als.run(store, () => Promise.resolve(fn()));
-  } finally {
-    _headSyncStore = previous;
   }
+  // WebContainer: serialize sync-fallback ownership for the full entry.
+  return withHeadFallbackEntry(async () => {
+    const previous = _headSyncStore;
+    _headSyncStore = store;
+    try {
+      return await als.run(store, () => Promise.resolve(fn()));
+    } finally {
+      _headSyncStore = previous;
+    }
+  });
 };
 
 let _flushScheduled = false;

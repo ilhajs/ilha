@@ -14,16 +14,17 @@
  * sole place that constructs it.
  *
  * StackBlitz WebContainers lose AsyncLocalStorage across `async/await`. A
- * module sync fallback keeps `useContext().request` readable for the lifetime
- * of `runWithIslandRequest` (same approach as oxidejs).
+ * module sync fallback keeps `useContext().request` readable, and fallback
+ * entries are serialized so concurrent renders cannot stomp each other.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import process from "node:process";
 
 import { REQUEST_ALS_KEY } from "./als-key";
+import { __setInWebcontainerForTests, inWebcontainer } from "./webcontainer";
 
 export { REQUEST_ALS_KEY } from "./als-key";
+export { __setInWebcontainerForTests } from "./webcontainer";
 export type { IslandContext } from "./index";
 
 /** Installed by oxidejs when its module loads. Lets `useRequest()` resolve
@@ -43,36 +44,25 @@ type GlobalSymbolSlots = Record<
 
 const innerAls = new AsyncLocalStorage<Request>();
 let syncStore: Request | null = null;
-let webcontainerOverride: boolean | null = null;
+/** When true, getStore ignores ALS so tests exercise the sync fallback path. */
+let alsBypassForTests = false;
+/** Serialize WebContainer fallback entries (set syncStore → run → clear). */
+let fallbackTail: Promise<null> = Promise.resolve(null);
 
-const inWebcontainer = (): boolean => {
-  if (webcontainerOverride !== null) {
-    return webcontainerOverride;
-  }
-  // This module is Node-only (`node:async_hooks` / `node:process`).
-  // SAFETY: StackBlitz sets `process.versions.webcontainer` as an index string.
-  const versions = process.versions as NodeJS.ProcessVersions & {
-    webcontainer?: string;
-  };
-  return Boolean(versions.webcontainer);
+/** Test-only: force getStore() to skip ALS (simulates WebContainer ALS loss). */
+export const __setAlsBypassForTests = (value: boolean): void => {
+  alsBypassForTests = value;
 };
 
-/** Test-only: force or clear the WebContainer detection path. */
-export const __setInWebcontainerForTests = (value: boolean | null): void => {
-  webcontainerOverride = value;
-};
-
-const restoreAfterAsync = async <T>(
-  request: Request,
-  previous: Request | null,
-  result: PromiseLike<T>
-): Promise<T> => {
+const withFallbackEntry = async <T>(fn: () => Promise<T>): Promise<T> => {
+  const previous = fallbackTail;
+  const next = Promise.withResolvers<null>();
+  fallbackTail = next.promise;
+  await previous;
   try {
-    return await result;
+    return await fn();
   } finally {
-    if (syncStore === request) {
-      syncStore = previous;
-    }
+    next.resolve(null);
   }
 };
 
@@ -85,11 +75,20 @@ const ensureScope = (): RequestScope => {
     return existing as RequestScope;
   }
   const scope: RequestScope = {
-    getStore: () => innerAls.getStore() ?? syncStore ?? undefined,
+    getStore: () =>
+      (alsBypassForTests ? undefined : innerAls.getStore()) ??
+      syncStore ??
+      undefined,
   };
   g[REQUEST_ALS_KEY] = scope;
   return scope;
 };
+
+const runScoped = <T>(
+  request: Request,
+  oxide: OxideRunWithRequest | undefined,
+  fn: () => T
+): T => innerAls.run(request, () => (oxide ? oxide(request, fn) : fn()));
 
 /** Run `fn` with `request` available to `useContext().request`. When oxidejs
  * is loaded, its action scope is entered too, so `useRequest()` works in
@@ -104,20 +103,19 @@ export const runWithIslandRequest = <T>(request: Request, fn: () => T): T => {
   const oxide =
     oxideSlot === undefined ? undefined : (oxideSlot as OxideRunWithRequest);
 
-  const previous = syncStore;
-  syncStore = request;
-  try {
-    const result = innerAls.run(request, () =>
-      oxide ? oxide(request, fn) : fn()
-    );
-    if (inWebcontainer() && result instanceof Promise) {
-      // SAFETY: T is a Promise when fn is async; callers await the return value.
-      return restoreAfterAsync(request, previous, result) as T;
-    }
-    return result;
-  } finally {
-    if (!inWebcontainer()) {
+  if (!inWebcontainer()) {
+    return runScoped(request, oxide, fn);
+  }
+
+  // WebContainer: one syncStore owner at a time for the full entry lifetime.
+  // SAFETY: T is awaited by SSR/frame callers when fn is async.
+  return withFallbackEntry(async () => {
+    const previous = syncStore;
+    syncStore = request;
+    try {
+      return await Promise.resolve(runScoped(request, oxide, fn));
+    } finally {
       syncStore = previous;
     }
-  }
+  }) as T;
 };

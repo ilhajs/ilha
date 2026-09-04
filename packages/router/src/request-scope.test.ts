@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import {
+  __setAlsBypassForTests,
   __setInWebcontainerForTests,
   runWithIslandRequest,
   REQUEST_ALS_KEY,
@@ -18,6 +19,13 @@ const testGlobal = (): TestGlobalScope => {
   // SAFETY: tests only touch the oxidejs hook and ilha ALS slots on globalThis.
   const g = globalThis as TestGlobalScope;
   return g;
+};
+
+const requestPath = (request: Request | undefined): string | undefined => {
+  if (!request) {
+    return undefined;
+  }
+  return new URL(request.url).pathname;
 };
 
 describe("runWithIslandRequest", () => {
@@ -82,16 +90,64 @@ describe("runWithIslandRequest", () => {
 
   test("WebContainer sync store keeps useContext request after await", async () => {
     __setInWebcontainerForTests(true);
+    __setAlsBypassForTests(true);
     const g = testGlobal();
     try {
       const request = new Request("https://example.com/wc");
       const url = await runWithIslandRequest(request, async () => {
         await Promise.resolve();
+        // ALS bypassed: only syncStore can answer.
         return g[REQUEST_ALS_KEY]?.getStore()?.url;
       });
       expect(url).toBe("https://example.com/wc");
       expect(g[REQUEST_ALS_KEY]?.getStore()).toBeUndefined();
     } finally {
+      __setAlsBypassForTests(false);
+      __setInWebcontainerForTests(null);
+    }
+  });
+
+  test("WebContainer fallback serializes out-of-order concurrent entries", async () => {
+    __setInWebcontainerForTests(true);
+    __setAlsBypassForTests(true);
+    const g = testGlobal();
+    try {
+      const gateA = Promise.withResolvers<null>();
+      const seen: string[] = [];
+
+      const first = runWithIslandRequest(
+        new Request("https://example.com/first"),
+        async () => {
+          seen.push(`enter:${requestPath(g[REQUEST_ALS_KEY]?.getStore())}`);
+          await gateA.promise;
+          seen.push(`leave:${requestPath(g[REQUEST_ALS_KEY]?.getStore())}`);
+          return requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        }
+      );
+
+      // Start second while first is still pending — must not run until first cleans up.
+      const second = runWithIslandRequest(
+        new Request("https://example.com/second"),
+        async () => {
+          seen.push(`enter:${requestPath(g[REQUEST_ALS_KEY]?.getStore())}`);
+          await Promise.resolve();
+          seen.push(`leave:${requestPath(g[REQUEST_ALS_KEY]?.getStore())}`);
+          return requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        }
+      );
+
+      gateA.resolve(null);
+      expect(await first).toBe("/first");
+      expect(await second).toBe("/second");
+      expect(seen).toEqual([
+        "enter:/first",
+        "leave:/first",
+        "enter:/second",
+        "leave:/second",
+      ]);
+      expect(g[REQUEST_ALS_KEY]?.getStore()).toBeUndefined();
+    } finally {
+      __setAlsBypassForTests(false);
       __setInWebcontainerForTests(null);
     }
   });
