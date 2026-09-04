@@ -94,6 +94,8 @@ const ILHA_ROUTER_BODY_ATTR = "data-ilha-router-body";
 
 /** Browser-only fallback; SSR uses AsyncLocalStorage (see `withHeadStore`). */
 let _browserHeadStore: HeadStore | null = null;
+/** WebContainer / await fallback while `withHeadStore` is in flight. */
+let _headSyncStore: HeadStore | null = null;
 
 interface HeadAls {
   getStore: () => HeadStore | undefined;
@@ -126,7 +128,7 @@ const activeHeadStore = (): HeadStore | null => {
   if (isBrowser) {
     return _browserHeadStore;
   }
-  return _headAls?.getStore() ?? null;
+  return _headAls?.getStore() ?? _headSyncStore ?? null;
 };
 
 export const cssEscapeAttr = (value: string): string => {
@@ -483,7 +485,14 @@ export const withHeadStore = async <T>(
     }
   }
   const als = await getHeadAlsAsync();
-  return await als.run(store, () => Promise.resolve(fn()));
+  const previous = _headSyncStore;
+  _headSyncStore = store;
+  try {
+    // Keep sync fallback set across awaits inside `fn` (WebContainer ALS gap).
+    return await als.run(store, () => Promise.resolve(fn()));
+  } finally {
+    _headSyncStore = previous;
+  }
 };
 
 let _flushScheduled = false;

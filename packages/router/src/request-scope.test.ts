@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { runWithIslandRequest, REQUEST_ALS_KEY } from "./request-scope";
+import {
+  __setInWebcontainerForTests,
+  runWithIslandRequest,
+  REQUEST_ALS_KEY,
+} from "./request-scope";
 
 const OXIDE_RUN_WITH_REQUEST = Symbol.for("oxidejs.runWithRequest");
 
 interface TestGlobalScope {
   [OXIDE_RUN_WITH_REQUEST]?: <T>(req: Request, fn: () => T) => T;
-  [REQUEST_ALS_KEY]?: AsyncLocalStorage<Request>;
+  [REQUEST_ALS_KEY]?: { getStore: () => Request | undefined };
 }
 
 const testGlobal = (): TestGlobalScope => {
@@ -74,5 +78,21 @@ describe("runWithIslandRequest", () => {
     await Promise.all([run("a", 30), run("b", 5)]);
     expect(captured).toContain("https://example.com/a");
     expect(captured).toContain("https://example.com/b");
+  });
+
+  test("WebContainer sync store keeps useContext request after await", async () => {
+    __setInWebcontainerForTests(true);
+    const g = testGlobal();
+    try {
+      const request = new Request("https://example.com/wc");
+      const url = await runWithIslandRequest(request, async () => {
+        await Promise.resolve();
+        return g[REQUEST_ALS_KEY]?.getStore()?.url;
+      });
+      expect(url).toBe("https://example.com/wc");
+      expect(g[REQUEST_ALS_KEY]?.getStore()).toBeUndefined();
+    } finally {
+      __setInWebcontainerForTests(null);
+    }
   });
 });
