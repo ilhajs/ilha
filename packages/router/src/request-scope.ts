@@ -16,7 +16,8 @@
  * StackBlitz WebContainers lose AsyncLocalStorage across `async/await`. A
  * module sync fallback keeps `useContext().request` readable, and unrelated
  * fallback entries are serialized so concurrent renders cannot stomp each
- * other. Nested calls inside an active entry are reentrant (no self-deadlock).
+ * other. Nested calls reenter only while owned by the active entry (sync nest
+ * or ALS owner) so a suspended outer cannot admit unrelated concurrent work.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -44,13 +45,21 @@ type GlobalSymbolSlots = Record<
 >;
 
 const innerAls = new AsyncLocalStorage<Request>();
+/** Tracks the active fallback lock owner across awaits where ALS survives. */
+const entryOwnerAls = new AsyncLocalStorage<object>();
 let syncStore: Request | null = null;
 /** When true, getStore ignores ALS so tests exercise the sync fallback path. */
 let alsBypassForTests = false;
 /** Serialize unrelated WebContainer fallback entries (set syncStore → run → clear). */
 let fallbackTail: Promise<null> = Promise.resolve(null);
-/** Depth of the active fallback entry — nested calls reenter without awaiting the lock. */
-let fallbackDepth = 0;
+/** Lock holder identity — nested reentry requires matching ALS owner (or sync nest). */
+let activeOwner: object | null = null;
+/**
+ * Sync-only nest depth while `runScoped` is invoking `fn`. Lets nested
+ * `runWithIslandRequest` reenter before `fn` awaits; cleared before awaiting
+ * so a suspended entry does not admit unrelated concurrent requests.
+ */
+let syncNestDepth = 0;
 
 /** Test-only: force getStore() to skip ALS (simulates WebContainer ALS loss). */
 export const __setAlsBypassForTests = (value: boolean): void => {
@@ -58,23 +67,22 @@ export const __setAlsBypassForTests = (value: boolean): void => {
 };
 
 const withFallbackEntry = async <T>(fn: () => Promise<T>): Promise<T> => {
-  if (fallbackDepth > 0) {
-    fallbackDepth += 1;
-    try {
-      return await fn();
-    } finally {
-      fallbackDepth -= 1;
-    }
+  // Reenter only for the active entry: sync nesting, or ALS owner (Node).
+  // Unrelated callers see neither and serialize on fallbackTail.
+  const owner = alsBypassForTests ? undefined : entryOwnerAls.getStore();
+  if (syncNestDepth > 0 || (owner !== undefined && owner === activeOwner)) {
+    return await fn();
   }
   const previous = fallbackTail;
   const next = Promise.withResolvers<null>();
   fallbackTail = next.promise;
   await previous;
-  fallbackDepth = 1;
+  const myOwner = {};
+  activeOwner = myOwner;
   try {
-    return await fn();
+    return await entryOwnerAls.run(myOwner, fn);
   } finally {
-    fallbackDepth = 0;
+    activeOwner = null;
     next.resolve(null);
   }
 };
@@ -128,12 +136,19 @@ export const runWithIslandRequest = <T>(
     return runScoped(request, oxide, fn);
   }
 
-  // WebContainer: serialize unrelated entries; nested calls reenter.
-  return withFallbackEntry(async () => {
+  // WebContainer: serialize unrelated entries; nest only under the active owner.
+  return withFallbackEntry(async (): Promise<Awaited<T>> => {
     const previous = syncStore;
     syncStore = request;
     try {
-      return await Promise.resolve(runScoped(request, oxide, fn));
+      syncNestDepth += 1;
+      let result: T;
+      try {
+        result = runScoped(request, oxide, fn);
+      } finally {
+        syncNestDepth -= 1;
+      }
+      return await Promise.resolve(result);
     } finally {
       syncStore = previous;
     }

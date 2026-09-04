@@ -152,6 +152,52 @@ describe("runWithIslandRequest", () => {
     }
   });
 
+  test("WebContainer concurrent entry after await does not steal outer scope", async () => {
+    __setInWebcontainerForTests(true);
+    __setAlsBypassForTests(true);
+    const g = testGlobal();
+    try {
+      const gate = Promise.withResolvers<null>();
+      let secondEntered = false;
+
+      const first = runWithIslandRequest(
+        new Request("https://example.com/first"),
+        async () => {
+          await gate.promise;
+          return requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        }
+      );
+
+      // Let the outer entry acquire the lock and suspend on the gate.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(requestPath(g[REQUEST_ALS_KEY]?.getStore())).toBe("/first");
+
+      const second = runWithIslandRequest(
+        new Request("https://example.com/second"),
+        () => {
+          secondEntered = true;
+          return requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        }
+      );
+
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(secondEntered).toBe(false);
+      expect(requestPath(g[REQUEST_ALS_KEY]?.getStore())).toBe("/first");
+
+      gate.resolve(null);
+      expect(await first).toBe("/first");
+      expect(await second).toBe("/second");
+      expect(secondEntered).toBe(true);
+      expect(g[REQUEST_ALS_KEY]?.getStore()).toBeUndefined();
+    } finally {
+      __setAlsBypassForTests(false);
+      __setInWebcontainerForTests(null);
+    }
+  });
+
   test("WebContainer nested runWithIslandRequest does not deadlock", async () => {
     __setInWebcontainerForTests(true);
     __setAlsBypassForTests(true);
@@ -159,8 +205,8 @@ describe("runWithIslandRequest", () => {
     try {
       const outer = new Request("https://example.com/outer");
       const inner = new Request("https://example.com/inner");
+      // Nest before the outer callback awaits so sync nest depth still owns the entry.
       const paths = await runWithIslandRequest(outer, async () => {
-        await Promise.resolve();
         const outerPath = requestPath(g[REQUEST_ALS_KEY]?.getStore());
         const nestedPath = await runWithIslandRequest(inner, async () => {
           await Promise.resolve();
