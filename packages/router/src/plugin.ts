@@ -600,7 +600,7 @@ const renderAuthorizedFrame = async (
   const result = await renderServerIslandResult(
     body.id ?? "",
     request,
-    (r, fn) => runWithIslandRequest(r, fn),
+    (r, fn) => Promise.resolve(runWithIslandRequest(r, fn)),
     incomingProps
   );
   if (Result.isFailure(result)) {

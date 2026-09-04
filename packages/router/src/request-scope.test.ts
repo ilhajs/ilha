@@ -151,4 +151,33 @@ describe("runWithIslandRequest", () => {
       __setInWebcontainerForTests(null);
     }
   });
+
+  test("WebContainer nested runWithIslandRequest does not deadlock", async () => {
+    __setInWebcontainerForTests(true);
+    __setAlsBypassForTests(true);
+    const g = testGlobal();
+    try {
+      const outer = new Request("https://example.com/outer");
+      const inner = new Request("https://example.com/inner");
+      const paths = await runWithIslandRequest(outer, async () => {
+        await Promise.resolve();
+        const outerPath = requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        const nestedPath = await runWithIslandRequest(inner, async () => {
+          await Promise.resolve();
+          return requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        });
+        const restoredPath = requestPath(g[REQUEST_ALS_KEY]?.getStore());
+        return { nestedPath, outerPath, restoredPath };
+      });
+      expect(paths).toEqual({
+        nestedPath: "/inner",
+        outerPath: "/outer",
+        restoredPath: "/outer",
+      });
+      expect(g[REQUEST_ALS_KEY]?.getStore()).toBeUndefined();
+    } finally {
+      __setAlsBypassForTests(false);
+      __setInWebcontainerForTests(null);
+    }
+  });
 });

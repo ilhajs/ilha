@@ -14,8 +14,9 @@
  * sole place that constructs it.
  *
  * StackBlitz WebContainers lose AsyncLocalStorage across `async/await`. A
- * module sync fallback keeps `useContext().request` readable, and fallback
- * entries are serialized so concurrent renders cannot stomp each other.
+ * module sync fallback keeps `useContext().request` readable, and unrelated
+ * fallback entries are serialized so concurrent renders cannot stomp each
+ * other. Nested calls inside an active entry are reentrant (no self-deadlock).
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -46,8 +47,10 @@ const innerAls = new AsyncLocalStorage<Request>();
 let syncStore: Request | null = null;
 /** When true, getStore ignores ALS so tests exercise the sync fallback path. */
 let alsBypassForTests = false;
-/** Serialize WebContainer fallback entries (set syncStore → run → clear). */
+/** Serialize unrelated WebContainer fallback entries (set syncStore → run → clear). */
 let fallbackTail: Promise<null> = Promise.resolve(null);
+/** Depth of the active fallback entry — nested calls reenter without awaiting the lock. */
+let fallbackDepth = 0;
 
 /** Test-only: force getStore() to skip ALS (simulates WebContainer ALS loss). */
 export const __setAlsBypassForTests = (value: boolean): void => {
@@ -55,13 +58,23 @@ export const __setAlsBypassForTests = (value: boolean): void => {
 };
 
 const withFallbackEntry = async <T>(fn: () => Promise<T>): Promise<T> => {
+  if (fallbackDepth > 0) {
+    fallbackDepth += 1;
+    try {
+      return await fn();
+    } finally {
+      fallbackDepth -= 1;
+    }
+  }
   const previous = fallbackTail;
   const next = Promise.withResolvers<null>();
   fallbackTail = next.promise;
   await previous;
+  fallbackDepth = 1;
   try {
     return await fn();
   } finally {
+    fallbackDepth = 0;
     next.resolve(null);
   }
 };
@@ -90,10 +103,18 @@ const runScoped = <T>(
   fn: () => T
 ): T => innerAls.run(request, () => (oxide ? oxide(request, fn) : fn()));
 
-/** Run `fn` with `request` available to `useContext().request`. When oxidejs
+/**
+ * Run `fn` with `request` available to `useContext().request`. When oxidejs
  * is loaded, its action scope is entered too, so `useRequest()` works in
- * island renders and streamed frames. */
-export const runWithIslandRequest = <T>(request: Request, fn: () => T): T => {
+ * island renders and streamed frames.
+ *
+ * On WebContainer the return is always a `Promise` (fallback lock). Elsewhere
+ * the return matches `fn` (sync or async).
+ */
+export const runWithIslandRequest = <T>(
+  request: Request,
+  fn: () => T
+): T | Promise<Awaited<T>> => {
   ensureScope();
   // SAFETY: REQUEST_ALS_KEY / oxide runWithRequest live on globalThis so every
   // module copy shares one slot; only those well-known symbols are touched.
@@ -107,8 +128,7 @@ export const runWithIslandRequest = <T>(request: Request, fn: () => T): T => {
     return runScoped(request, oxide, fn);
   }
 
-  // WebContainer: one syncStore owner at a time for the full entry lifetime.
-  // SAFETY: T is awaited by SSR/frame callers when fn is async.
+  // WebContainer: serialize unrelated entries; nested calls reenter.
   return withFallbackEntry(async () => {
     const previous = syncStore;
     syncStore = request;
@@ -117,5 +137,5 @@ export const runWithIslandRequest = <T>(request: Request, fn: () => T): T => {
     } finally {
       syncStore = previous;
     }
-  }) as T;
+  });
 };
