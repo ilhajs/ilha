@@ -17,11 +17,8 @@ import { action } from "oxidejs";
 type Task = { id: string; text: string; completed: boolean };
 
 const tasks: Task[] = [];
-const hub = Effect.runSync(
-  PubSub.unbounded<Task[]>({ replay: 1 }),
-);
-const notify = () =>
-  Effect.runSync(PubSub.publish(hub, [...tasks]));
+const hub = Effect.runSync(PubSub.unbounded<Task[]>({ replay: 1 }));
+const notify = () => Effect.runSync(PubSub.publish(hub, [...tasks]));
 
 // The streaming transport: one async generator per module.
 export const getTasks = action(async function* () {
@@ -53,7 +50,7 @@ Three pieces:
 export const TaskList = async function TaskList() {
   return Stream.map(
     Stream.fromAsyncIterable(getTasks(), (error: unknown) =>
-      error instanceof Error ? error : new Error(String(error)),
+      error instanceof Error ? error : new Error(String(error))
     ),
     (list: Task[]) => (
       <ul>
@@ -61,7 +58,7 @@ export const TaskList = async function TaskList() {
           <li key={task.id}>{task.text}</li>
         ))}
       </ul>
-    ),
+    )
   );
 };
 ```
@@ -74,8 +71,8 @@ The scanner sees `Stream.fromAsyncIterable(getTasks(), …)` and wires `getTasks
 
 ## Related
 
-| Topic                  | Guide                                                                                           |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| Server islands         | [Server islands](/guide/routing/server-islands)                                                 |
+| Topic | Guide |
+| --- | --- |
+| Server islands | [Server islands](/guide/routing/server-islands) |
 | Streams and generators | [Streams](/guide/ui/streams) — paint Effect `Stream` values; `when` for per-emission generators |
-| Triggering frames      | [Server islands](/guide/routing/server-islands)                                                 |
+| Triggering frames | [Server islands](/guide/routing/server-islands) |

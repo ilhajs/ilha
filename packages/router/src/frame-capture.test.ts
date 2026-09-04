@@ -5,40 +5,70 @@ import * as Result from "effect/Result";
 import { h } from "ilha";
 
 import { __ilhaServerIsland } from "./server-island";
-import { __ilhaServerAction, registerServerIsland, renderServerIsland } from "./ssr";
+import {
+  __ilhaServerAction,
+  registerServerIsland,
+  renderServerIsland,
+} from "./ssr";
 
 const ACTION_CALL = Symbol.for("ilha.actionCall");
 const ACTION_KEY = Symbol.for("oxidejs.actionKey");
 
-function testAction<A extends unknown[], R>(fn: (...args: A) => R) {
-  const handle = Object.assign((...args: A) => fn(...args), {
-    set: (...args: A) => fn(...args),
-    bind(...args: A) {
-      const key = (handle as { [ACTION_KEY]?: string })[ACTION_KEY];
-      const handler = ((..._ev: unknown[]) => fn(...args)) as ((...ev: unknown[]) => R) &
-        Record<typeof ACTION_CALL, { k: string; a: unknown[] }>;
-      if (key) handler[ACTION_CALL] = { k: key, a: args };
-      return handler;
-    },
-    with(...args: A) {
-      return handle.bind(...args);
-    },
-    atom: undefined,
-    $$atom: 1 as const,
-  });
-  return handle;
+interface ActionCallBrand {
+  readonly a: readonly string[];
+  readonly k: string;
 }
 
-/** Run a render Effect to completion, rethrowing FrameError on failure. */
-const runIsland = async (
-  id: string,
-  request: Request,
-  incomingProps?: Record<string, unknown>,
-): Promise<string> => {
-  const result = await Effect.runPromise(
-    Effect.result(renderServerIsland(id, request, (_request, fn) => fn(), incomingProps)),
+type ActionHandle<A extends unknown[], R> = ((...args: A) => R) & {
+  $$atom: 1;
+  atom: undefined;
+  bind: (...args: A) => ((...ev: unknown[]) => R) & {
+    [ACTION_CALL]?: ActionCallBrand;
+  };
+  set: (...args: A) => R;
+  with: (...args: A) => ReturnType<ActionHandle<A, R>["bind"]>;
+  [ACTION_KEY]?: string;
+};
+
+const testAction = <A extends unknown[], R>(
+  fn: (...args: A) => R
+): ActionHandle<A, R> => {
+  const handle: ActionHandle<A, R> = Object.assign(
+    (...args: A) => fn(...args),
+    {
+      $$atom: 1 as const,
+      atom: undefined,
+      bind(...args: A) {
+        const key = handle[ACTION_KEY];
+        // SAFETY: event handler is a branded callable carrying ACTION_CALL metadata.
+        const handler = ((..._ev: unknown[]) => fn(...args)) as ((
+          ...ev: unknown[]
+        ) => R) & {
+          [ACTION_CALL]?: ActionCallBrand;
+        };
+        if (key) {
+          // SAFETY: test actions bind string args; brand payload mirrors oxide stamps.
+          handler[ACTION_CALL] = { a: args as readonly string[], k: key };
+        }
+        return handler;
+      },
+      set: (...args: A) => fn(...args),
+      with(...args: A) {
+        return handle.bind(...args);
+      },
+    }
   );
-  if (Result.isFailure(result)) throw result.failure;
+  return handle;
+};
+
+/** Run a render Effect to completion, rethrowing FrameError on failure. */
+const runIsland = async (id: string, request: Request): Promise<string> => {
+  const result = await Effect.runPromise(
+    Effect.result(renderServerIsland(id, request, (_request, fn) => fn()))
+  );
+  if (Result.isFailure(result)) {
+    throw result.failure;
+  }
   return result.success;
 };
 
@@ -54,28 +84,44 @@ const SEAM_ID = "frame-capture-seam";
 
 const del = __ilhaServerAction(
   "x:del",
-  testAction(async (id: string) => `deleted:${id}`),
+  testAction((id: string) => `deleted:${id}`)
 );
 
-function Tasks() {
-  return h(
+const Tasks = () =>
+  h(
     "div",
     null,
-    h("button", { type: "button", "data-task": "1", onclick: del.bind("1") }, "Delete 1"),
-    h("button", { type: "button", "data-task": "2", onclick: del.bind("2") }, "Delete 2"),
+    h(
+      "button",
+      { "data-task": "1", onclick: del.bind("1"), type: "button" },
+      "Delete 1"
+    ),
+    h(
+      "button",
+      { "data-task": "2", onclick: del.bind("2"), type: "button" },
+      "Delete 2"
+    )
   );
-}
 
 afterEach(() => {
   document.body.replaceChildren();
 });
+
+const clickTask = (host: HTMLElement, task: string) => {
+  const button = host.querySelector(`button[data-task="${task}"]`);
+  expect(button).toBeInstanceOf(HTMLElement);
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+  button.click();
+};
 
 describe("frame capture seam (SSR → client proxy)", () => {
   it("emits sentinels and an actions manifest from a real island render", async () => {
     registerServerIsland(SEAM_ID, () => Tasks);
     const html = await runIsland(
       SEAM_ID,
-      new Request("http://localhost/__ilha/frame", { method: "POST" }),
+      new Request("http://localhost/__ilha/frame", { method: "POST" })
     );
     expect(html).toContain('data-ilha-on="click:0"');
     expect(html).toContain('data-ilha-on="click:1"');
@@ -90,7 +136,7 @@ describe("frame capture seam (SSR → client proxy)", () => {
     registerServerIsland(SEAM_ID, () => Tasks);
     const html = await runIsland(
       SEAM_ID,
-      new Request("http://localhost/__ilha/frame", { method: "POST" }),
+      new Request("http://localhost/__ilha/frame", { method: "POST" })
     );
 
     const calls: unknown[][] = [];
@@ -111,18 +157,18 @@ describe("frame capture seam (SSR → client proxy)", () => {
     // test host only; html is renderer output, not user input.
     // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     host.innerHTML = html;
-    document.body.appendChild(host);
+    document.body.append(host);
 
     Island.mount(host);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Bun.sleep(0);
 
     // Wired but not fired.
     expect(calls).toEqual([]);
     expect(frames).toEqual([]);
 
-    host.querySelector<HTMLElement>('button[data-task="2"]')!.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickTask(host, "2");
+    await Bun.sleep(0);
+    await Bun.sleep(0);
 
     // The manifest args flowed through: client called the action with "2",
     // then scheduled a frame repaint.
@@ -135,7 +181,7 @@ describe("frame capture seam (SSR → client proxy)", () => {
     registerServerIsland(SEAM_ID, () => Tasks);
     const html = await runIsland(
       SEAM_ID,
-      new Request("http://localhost/__ilha/frame", { method: "POST" }),
+      new Request("http://localhost/__ilha/frame", { method: "POST" })
     );
     const calls: unknown[][] = [];
     const Island = __ilhaServerIsland("seam-client-2", "div", {
@@ -145,7 +191,7 @@ describe("frame capture seam (SSR → client proxy)", () => {
         },
       },
       frame: () => {
-        version++;
+        version += 1;
         return html;
       },
     });
@@ -154,18 +200,18 @@ describe("frame capture seam (SSR → client proxy)", () => {
     // test host only; html is renderer output, not user input.
     // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
     host.innerHTML = html;
-    document.body.appendChild(host);
+    document.body.append(host);
     Island.mount(host);
 
-    host.querySelector<HTMLElement>('button[data-task="1"]')!.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickTask(host, "1");
+    await Bun.sleep(0);
+    await Bun.sleep(0);
 
     // Frame replaced the DOM; the new buttons must be wired from the fresh
     // manifest, not the stale one.
-    host.querySelector<HTMLElement>('button[data-task="2"]')!.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickTask(host, "2");
+    await Bun.sleep(0);
+    await Bun.sleep(0);
 
     expect(calls).toEqual([["1"], ["2"]]);
     // One repaint per click.
@@ -178,10 +224,10 @@ describe("__ilhaServerAction runtime wrapper", () => {
     const seen: unknown[] = [];
     const act = __ilhaServerAction(
       "x:probe",
-      testAction(async (id: string) => {
+      testAction((id: string) => {
         seen.push(id);
         return id;
-      }),
+      })
     );
     await act("direct");
     expect(seen).toEqual(["direct"]);
@@ -191,12 +237,13 @@ describe("__ilhaServerAction runtime wrapper", () => {
     const BRAND = Symbol.for("ilha.actionCall");
     const act = __ilhaServerAction(
       "x:brand",
-      testAction(async (id: string, _note: string) => id),
+      testAction((id: string, _note: string) => id)
     );
     const handler = act.bind("7", "hi");
-    expect(typeof handler).toBe("function");
-    const branded = (handler as unknown as Record<symbol, { k: string; a: unknown[] }>)[BRAND];
-    expect(branded).toEqual({ k: "x:brand", a: ["7", "hi"] });
+    expect(Object.prototype.toString.call(handler)).toBe("[object Function]");
+    // SAFETY: bind() stamps the ilha.actionCall brand onto the returned handler.
+    const branded = (handler as { [BRAND]?: ActionCallBrand })[BRAND];
+    expect(branded).toEqual({ a: ["7", "hi"], k: "x:brand" });
     await handler();
   });
 
@@ -206,13 +253,15 @@ describe("__ilhaServerAction runtime wrapper", () => {
         renderServerIsland(
           "no-such-island",
           new Request("http://localhost/__ilha/frame", { method: "POST" }),
-          (_request, fn) => fn(),
-        ),
-      ),
+          (_request, fn) => fn()
+        )
+      )
     );
     expect(Result.isFailure(result)).toBe(true);
-    const error = (result as { failure: { status: number; message?: string } }).failure;
-    expect(error.status).toBe(400);
-    expect(error.message).toContain("unknown island");
+    if (!Result.isFailure(result)) {
+      return;
+    }
+    expect(result.failure.status).toBe(400);
+    expect(result.failure.message).toContain("unknown island");
   });
 });

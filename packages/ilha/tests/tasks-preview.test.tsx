@@ -1,4 +1,4 @@
-/** @jsxImportSource ../src */
+// @jsxImportSource ../src
 import { expect, test } from "bun:test";
 
 import * as Atom from "effect/unstable/reactivity/Atom";
@@ -7,20 +7,32 @@ import { atom, mount } from "../src/index.ts";
 
 let nextId = 4;
 
-function Tasks() {
+const mapAtom = Atom.map;
+
+const Tasks = () => {
   const tasks = atom([
-    { id: 1, label: "Ship the landing page", done: true },
-    { id: 2, label: "Write unit tests", done: false },
-    { id: 3, label: "Update README", done: false },
+    { done: true, id: 1, label: "Ship the landing page" },
+    { done: false, id: 2, label: "Write unit tests" },
+    { done: false, id: 3, label: "Update README" },
   ]);
-  const pending = atom(Atom.map(tasks.atom, (list) => list.filter((task) => !task.done).length));
+  const pending = atom(
+    mapAtom(tasks.atom, (list) => list.filter((task) => !task.done).length)
+  );
 
   const addItem = (event: SubmitEvent) => {
     event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
+    const form = event.currentTarget;
+    // SAFETY: onsubmit is bound to the form element painted below.
+    if (!(form instanceof HTMLFormElement)) {
+      return;
+    }
     const label = String(new FormData(form).get("text") ?? "").trim();
-    if (!label) return;
-    tasks.update((current) => [...current, { id: nextId++, label, done: false }]);
+    if (!label) {
+      return;
+    }
+    const id = nextId;
+    nextId += 1;
+    tasks.update((current) => [...current, { done: false, id, label }]);
     form.reset();
   };
 
@@ -37,9 +49,16 @@ function Tasks() {
                 type="checkbox"
                 checked={task.done}
                 onchange={(event: Event) => {
-                  const done = (event.currentTarget as HTMLInputElement).checked;
+                  const target = event.currentTarget;
+                  // SAFETY: onchange is bound to the checkbox input.
+                  if (!(target instanceof HTMLInputElement)) {
+                    return;
+                  }
+                  const done = target.checked;
                   tasks.update((current) =>
-                    current.map((item) => (item.id === task.id ? { ...item, done } : item)),
+                    current.map((item) =>
+                      item.id === task.id ? { ...item, done } : item
+                    )
                   );
                 }}
               />
@@ -49,7 +68,9 @@ function Tasks() {
               type="button"
               data-delete={task.id}
               onclick={() =>
-                tasks.update((current) => current.filter((item) => item.id !== task.id))
+                tasks.update((current) =>
+                  current.filter((item) => item.id !== task.id)
+                )
               }
             >
               {"\u2715"}
@@ -63,7 +84,7 @@ function Tasks() {
       </form>
     </div>
   );
-}
+};
 
 test("tasks preview: toggle, delete, and add", async () => {
   const el = document.createElement("div");
@@ -74,19 +95,33 @@ test("tasks preview: toggle, delete, and add", async () => {
   expect(el.querySelector("[data-pending]")?.textContent).toBe("2");
   expect(el.querySelectorAll("li").length).toBe(3);
 
-  const firstCheckbox = el.querySelector<HTMLInputElement>("input[type=checkbox]");
-  firstCheckbox!.checked = false;
-  firstCheckbox!.dispatchEvent(new Event("change", { bubbles: true }));
+  const firstCheckbox = el.querySelector("input[type=checkbox]");
+  if (!(firstCheckbox instanceof HTMLInputElement)) {
+    throw new Error("checkbox missing");
+  }
+  firstCheckbox.checked = false;
+  firstCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
   await Bun.sleep(10);
   expect(el.querySelector("[data-pending]")?.textContent).toBe("3");
 
-  el.querySelector<HTMLButtonElement>("[data-delete='3']")!.click();
+  const deleteBtn = el.querySelector("[data-delete='3']");
+  if (!(deleteBtn instanceof HTMLButtonElement)) {
+    throw new Error("delete button missing");
+  }
+  deleteBtn.click();
   await Bun.sleep(10);
   expect(el.querySelectorAll("li").length).toBe(2);
 
-  const input = el.querySelector<HTMLInputElement>("input[name=text]")!;
+  const input = el.querySelector("input[name=text]");
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error("text input missing");
+  }
   input.value = "New task";
-  el.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  const form = el.querySelector("form");
+  if (!form) {
+    throw new Error("form missing");
+  }
+  form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   await Bun.sleep(10);
   expect(el.querySelectorAll("li").length).toBe(3);
   expect(el.textContent).toContain("New task");

@@ -1,28 +1,51 @@
 import { describe, expect, it, mock } from "bun:test";
+import { Script } from "node:vm";
 
+import { atom, h } from "ilha";
+
+import type { IslandProps } from "./client";
+
+// The virtual module must be mocked before the integration imports it.
 mock.module("virtual:@ilha/astro/options", () => ({
   default: (id: string) => id.includes("/ilha/"),
 }));
 
-import { atom, h } from "ilha";
+const { default: hydrate } = await import("./client");
+const {
+  default: ilhaIntegration,
+  getRenderer,
+  getViteConfig,
+} = await import("./index");
+const { default: renderer } = await import("./server");
 
-import hydrate from "./client";
-import ilhaIntegration, { getRenderer, getViteConfig } from "./index";
-import renderer from "./server";
+// SAFETY: Astro's renderer API types its extra metadata loosely; the tests
+// pass only the fields the renderer reads.
+const withMeta = (meta: Record<string, string>) => meta as never;
 
-const Counter = ({ label }: { label: string }) => {
+const Counter = (props: IslandProps) => {
   const count = atom(0);
-  return h("button", { onclick: () => count.update((v: number) => v + 1) }, label, ":", count);
+  return h(
+    "button",
+    {
+      onclick: () => count.update((v: number) => v + 1),
+      type: "button",
+    },
+    String(props.label),
+    ":",
+    count
+  );
 };
 
 describe("@ilha/astro integration", () => {
   it("registers the ilha renderer via astro:config:setup", () => {
-    let registered: unknown;
+    let registered: ReturnType<typeof getRenderer> | undefined;
     let viteConfig: unknown;
     const integration = ilhaIntegration();
     expect(integration.name).toBe("@ilha/astro");
+    // SAFETY: Astro's hook context is loosely typed; only the two hooks under
+    // test are invoked, and the test owns every field they read.
     integration.hooks["astro:config:setup"]?.({
-      addRenderer: (r: unknown) => {
+      addRenderer: (r: ReturnType<typeof getRenderer>) => {
         registered = r;
       },
       updateConfig: (config: { vite?: unknown }) => {
@@ -31,20 +54,31 @@ describe("@ilha/astro integration", () => {
     } as never);
     expect(registered).toEqual(getRenderer());
     expect(viteConfig).toMatchObject({
-      resolve: { dedupe: ["ilha"] },
       optimizeDeps: { exclude: ["ilha"] },
+      resolve: { dedupe: ["ilha"] },
     });
   });
 
   it("passes include/exclude patterns to the renderer filter", () => {
-    const plugin = getViteConfig({ include: ["**/ilha/**"], exclude: ["**/*.test.tsx"] })
-      .plugins[0];
-    const id = plugin.resolveId("virtual:@ilha/astro/options");
-    expect(id).toBe("\0virtual:@ilha/astro/options");
-    const module = plugin.load(id!);
-    const filter = new Function(module!.replace("export default", "return"))() as (
-      id: string,
-    ) => boolean;
+    const [plugin] = getViteConfig({
+      exclude: ["**/*.test.tsx"],
+      include: ["**/ilha/**"],
+    }).plugins;
+    const id = plugin?.resolveId("virtual:@ilha/astro/options");
+    if (id === undefined) {
+      throw new Error("options module not resolvable");
+    }
+    const module = plugin.load(id);
+    if (module === undefined) {
+      throw new Error("options module not loadable");
+    }
+    const filterSource = module.replace("export default", "return");
+    // SAFETY: the generated module's only export is the component filter
+    // function; unwrapping `export default` and evaluating it as an IIFE
+    // yields exactly that function body.
+    const filter = new Script(
+      `(function(){${filterSource}})()`
+    ).runInNewContext() as (id: string) => boolean;
     expect(filter("/src/ilha/counter.tsx")).toBe(true);
     expect(filter("/src/ilha/counter.test.tsx")).toBe(false);
     expect(filter("/src/solid/counter.tsx")).toBe(false);
@@ -66,17 +100,30 @@ describe("@ilha/astro server renderer", () => {
 
   it("check() ignores components outside the configured paths", async () => {
     expect(
-      await renderer.check(Counter, {}, {}, { componentUrl: "/src/solid/counter.tsx" } as never),
+      await renderer.check(
+        Counter,
+        {},
+        {},
+        withMeta({ componentUrl: "/src/solid/counter.tsx" })
+      )
     ).toBe(false);
     expect(
-      await renderer.check(Counter, {}, {}, { componentUrl: "/src/ilha/counter.tsx" } as never),
+      await renderer.check(
+        Counter,
+        {},
+        {},
+        withMeta({ componentUrl: "/src/ilha/counter.tsx" })
+      )
     ).toBe(true);
   });
 
   it("renderToStaticMarkup() returns hydratable markup", async () => {
-    const { html: markup } = await renderer.renderToStaticMarkup(Counter, { label: "Clicks" }, {}, {
-      displayName: "Counter",
-    } as never);
+    const { html: markup } = await renderer.renderToStaticMarkup(
+      Counter,
+      { label: "Clicks" },
+      {},
+      withMeta({ displayName: "Counter" })
+    );
     expect(markup).toContain("data-ilha");
     expect(markup).toContain("data-ilha-state=");
     expect(markup).toContain("Clicks");
@@ -85,8 +132,13 @@ describe("@ilha/astro server renderer", () => {
 
   it("renderToStaticMarkup() throws for non-functions", async () => {
     await expect(
-      renderer.renderToStaticMarkup(null, {}, {}, { displayName: "Mystery" } as never),
-    ).rejects.toThrow(/Mystery/);
+      renderer.renderToStaticMarkup(
+        null,
+        {},
+        {},
+        withMeta({ displayName: "Mystery" })
+      )
+    ).rejects.toThrow(/Mystery/u);
   });
 });
 
@@ -94,18 +146,24 @@ describe("@ilha/astro client hydration", () => {
   it("hydrates SSR markup and keeps events", async () => {
     const el = document.createElement("div");
     el.setAttribute("ssr", "");
-    const { html: markup } = await renderer.renderToStaticMarkup(Counter, { label: "Clicks" }, {}, {
-      displayName: "Counter",
-    } as never);
-    // test host only; markup is renderer output, not user input.
-    // pi-lens-ignore: ast-grep:no-inner-html, ts-xss-dom-sink, slop
-    el.innerHTML = markup;
-    document.body.appendChild(el);
+    const { html: markup } = await renderer.renderToStaticMarkup(
+      Counter,
+      { label: "Clicks" },
+      {},
+      withMeta({ displayName: "Counter" })
+    );
+    // SAFETY: markup is renderer output under test, not untrusted input.
+    const parsed = new DOMParser().parseFromString(markup, "text/html");
+    el.append(...parsed.body.childNodes);
+    document.body.append(el);
 
     await hydrate(el)(Counter, { label: "Clicks" }, {}, { client: "load" });
     await Bun.sleep(10);
 
-    const button = el.querySelector("button")!;
+    const button = el.querySelector("button");
+    if (!button) {
+      throw new Error("hydrated button missing");
+    }
     button.click();
     await Bun.sleep(10);
     expect(button.textContent).toContain("Clicks:1");
@@ -116,12 +174,15 @@ describe("@ilha/astro client hydration", () => {
 
   it("mounts client:only islands fresh in the browser", async () => {
     const el = document.createElement("div");
-    document.body.appendChild(el);
+    document.body.append(el);
 
     await hydrate(el)(Counter, { label: "Clicks" }, {}, { client: "only" });
     await Bun.sleep(10);
 
-    const button = el.querySelector("button")!;
+    const button = el.querySelector("button");
+    if (!button) {
+      throw new Error("mounted button missing");
+    }
     expect(button.textContent).toContain("Clicks:0");
     button.click();
     await Bun.sleep(10);
@@ -136,13 +197,15 @@ describe("@ilha/astro client hydration", () => {
     // no [data-ilha] child. Hydrating that empty host would render nothing.
     const el = document.createElement("div");
     el.setAttribute("ssr", "");
-    document.body.appendChild(el);
+    document.body.append(el);
 
     await hydrate(el)(Counter, { label: "Clicks" }, {}, { client: "only" });
     await Bun.sleep(10);
 
-    const button = el.querySelector("button")!;
-    expect(button).not.toBeNull();
+    const button = el.querySelector("button");
+    if (!button) {
+      throw new Error("client:only button missing");
+    }
     expect(button.textContent).toContain("Clicks:0");
     button.click();
     await Bun.sleep(10);

@@ -1,11 +1,13 @@
 export const URLS = {
-  SANDBOX: "https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/{template}",
-  GITHUB: "https://github.com/ilhajs/ilha",
   DISCORD: "https://discord.gg/WnVTMCTz74",
+  GITHUB: "https://github.com/ilhajs/ilha",
+  SANDBOX:
+    "https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/{template}",
   X_COM: "https://x.com/ilha_js",
 } as const;
 
-export const DEFAULT_INSTALL_COMMAND = "npx giget@latest gh:ilhajs/ilha/templates/vite-spa my-app";
+export const DEFAULT_INSTALL_COMMAND =
+  "npx giget@latest gh:ilhajs/ilha/templates/vite-spa my-app";
 
 export const META_DESCRIPTION =
   "Build fast, interactive websites with JavaScript only where you need it. Ilha works with your existing stack and keeps every page lightweight.";
@@ -199,45 +201,57 @@ export default function Tasks() {
 
 export const PRIMARY_ILHA_CARDS = [
   {
-    id: "syntax",
-    label: "Easy to follow",
-    title: "Keep each interaction in one clear place.",
+    code: COUNTER_CODE,
     description:
       "The data, user actions, and HTML for a feature stay together. You can understand it at a glance, move it between pages, or remove it cleanly.",
-    points: ["Familiar event handling", "Local state with atom()", "No app shell required"],
     file: "signup.tsx",
-    code: COUNTER_CODE,
+    id: "syntax",
+    label: "Easy to follow",
+    points: [
+      "Familiar event handling",
+      "Local state with atom()",
+      "No app shell required",
+    ],
+    title: "Keep each interaction in one clear place.",
   },
   {
-    id: "signals",
-    label: "Efficient updates",
-    title: "Update only what changed.",
+    code: SIGNALS_CODE,
     description:
       "Signals connect your data directly to the page. When something changes, Ilha updates the affected element instead of redrawing the whole interface.",
-    points: ["Simple state updates", "Stale requests cancel automatically", "No page-wide redraws"],
     file: "signals.tsx",
-    code: SIGNALS_CODE,
+    id: "signals",
+    label: "Efficient updates",
+    points: [
+      "Simple state updates",
+      "Stale requests cancel automatically",
+      "No page-wide redraws",
+    ],
+    title: "Update only what changed.",
   },
   {
-    id: "rendering",
-    label: "Flexible delivery",
-    title: "Send useful content before JavaScript loads.",
+    code: RENDERING_CODE,
     description:
       "Render HTML on your server for a fast first view, then activate only the components people can interact with. Each island works independently.",
-    points: ["Fast server-rendered HTML", "Async data support", "Independent interactivity"],
     file: "product-card.tsx",
-    code: RENDERING_CODE,
+    id: "rendering",
+    label: "Flexible delivery",
+    points: [
+      "Fast server-rendered HTML",
+      "Async data support",
+      "Independent interactivity",
+    ],
+    title: "Send useful content before JavaScript loads.",
   },
 ] as const;
 
 export const USEFUL_EXTRAS_CARD = {
-  label: "Add what you need",
-  title: "Start small. Expand when your product grows.",
   description:
     "Begin with one lightweight package. Add routing, shared data, or Astro support only when your website needs it.",
+  label: "Add what you need",
   points: [
     "Pages and dynamic routes",
     "Shared data for carts and sessions",
     "First-class Astro integration",
   ],
+  title: "Start small. Expand when your product grows.",
 } as const;

@@ -11,35 +11,76 @@ const X_MARK =
 const route = Astro.props.page?.route ?? "";
 
 const norm = (id: string) =>
-  String(id).replace(/^filesystem:/, "").replace(/\.(mdx|md)$/, "");
+  String(id)
+    .replace(/^filesystem:/u, "")
+    .replace(/\.(?<ext>mdx|md)$/u, "");
 const routeById = new Map(data.routes.map((r) => [norm(r.id), r.path]));
 
-const posts = (await getCollection("docs")).filter(
+const collection = await getCollection("docs");
+const posts = collection.filter(
   (entry) => entry.data.type === "blog" && !entry.data.draft,
 );
 const post = posts.find((entry) => routeById.get(norm(entry.id)) === route);
 
-const raw = post?.data?.authors ?? null;
-const authorList = raw === null ? [] : Array.isArray(raw) ? raw : [raw];
+interface Author {
+  name: string;
+  url?: string;
+  x?: string;
+  github?: string;
+}
 
-type Author = { name: string; url?: string; x?: string; github?: string };
-const authors: Author[] = authorList.map((a) => {
-  if (typeof a === "string") return { name: a };
-  const o = a as Record<string, unknown>;
+type AuthorScalar = string | number | boolean | null | undefined;
+interface AuthorFields {
+  readonly name?: AuthorScalar;
+  readonly url?: AuthorScalar;
+  readonly x?: AuthorScalar;
+  readonly github?: AuthorScalar;
+}
+type RawAuthor = string | AuthorFields;
+
+const isStringValue = (value: AuthorScalar | RawAuthor): value is string =>
+  Object.prototype.toString.call(value) === "[object String]";
+
+const optionalString = (value: AuthorScalar): string | undefined => {
+  if (isStringValue(value)) {
+    return value;
+  }
+  return undefined;
+};
+
+const parseAuthor = (rawAuthor: RawAuthor): Author => {
+  if (isStringValue(rawAuthor)) {
+    return { name: rawAuthor };
+  }
   return {
-    name: String(o.name ?? ""),
-    url: typeof o.url === "string" ? o.url : undefined,
-    x: typeof o.x === "string" ? o.x : undefined,
-    github: typeof o.github === "string" ? o.github : undefined,
+    github: optionalString(rawAuthor.github),
+    name: String(rawAuthor.name ?? ""),
+    url: optionalString(rawAuthor.url),
+    x: optionalString(rawAuthor.x),
   };
-});
+};
+
+const raw = post?.data?.authors ?? null;
+let authorList: RawAuthor[] = [];
+if (raw !== null) {
+  // SAFETY: blog frontmatter authors are strings or author field objects
+  authorList = Array.isArray(raw)
+    ? (raw as RawAuthor[])
+    : [raw as RawAuthor];
+}
+const authors: Author[] = authorList.map(parseAuthor);
 
 const iconClass =
   "inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
-const dateStr = post?.data?.date
-  ? new Intl.DateTimeFormat("en", { dateStyle: "long" }).format(new Date(post.data.date as string))
-  : "";
+let dateStr = "";
+if (post?.data?.date) {
+  const dateValue = post.data.date;
+  // SAFETY: Blume blog frontmatter dates are ISO strings when not already Date
+  const date =
+    dateValue instanceof Date ? dateValue : new Date(dateValue as string);
+  dateStr = new Intl.DateTimeFormat("en", { dateStyle: "long" }).format(date);
+}
 ---
 
 <div class="mx-auto mt-10 w-full max-w-[54rem] px-6">

@@ -4,21 +4,24 @@ import * as Effect from "effect/Effect";
 
 import { interpret } from "../src/interpret.ts";
 import { makeFiber, makeRuntime } from "../src/runtime.ts";
-import type { View } from "../src/types.ts";
+import type { GeneratorFn, View, Yielded } from "../src/types.ts";
 
-function run(gen: () => Generator<any, View | void, unknown>) {
+type TestGen = () => Generator<Yielded, View | undefined, View>;
+
+const run = (gen: TestGen) => {
   const frames: View[] = [];
   const runtime = makeRuntime();
   const fiber = makeFiber(runtime, document.createElement("div"), (_f, v) => {
     frames.push(v);
   });
-  interpret(gen, fiber);
-  return { frames, fiber, runtime };
-}
+  // SAFETY: TestGen is a GeneratorFn subset used by interpret.
+  interpret(gen as GeneratorFn, fiber);
+  return { fiber, frames, runtime };
+};
 
 test("yield Effect binds", async () => {
-  let got: unknown;
-  const { frames } = run(function* () {
+  let got: View | undefined;
+  const { frames } = run(function* appGen() {
     got = yield Effect.succeed(1);
     yield String(got);
   });
@@ -28,7 +31,7 @@ test("yield Effect binds", async () => {
 });
 
 test("yield a then yield b records frames", () => {
-  const { frames } = run(function* () {
+  const { frames } = run(function* appGen() {
     yield "a";
     yield "b";
   });
@@ -36,7 +39,7 @@ test("yield a then yield b records frames", () => {
 });
 
 test("sleep between frames", async () => {
-  const { frames, runtime } = run(function* () {
+  const { frames, runtime } = run(function* appGen() {
     yield "a";
     yield Effect.sleep(10);
     yield "b";
@@ -48,7 +51,7 @@ test("sleep between frames", async () => {
 });
 
 test("interrupt during sleep skips b", async () => {
-  const { frames, fiber, runtime } = run(function* () {
+  const { frames, fiber, runtime } = run(function* appGen() {
     yield "a";
     yield Effect.sleep(50);
     yield "b";
@@ -57,4 +60,23 @@ test("interrupt during sleep skips b", async () => {
   runtime.close();
   await Bun.sleep(80);
   expect(frames).toEqual(["a"]);
+});
+
+const neverGen = function* neverGen(): Generator<
+  Yielded,
+  View | undefined,
+  View
+> {
+  yield Effect.never;
+};
+
+test("re-entry while an Instruction is in flight throws", () => {
+  const runtime = makeRuntime();
+  const fiber = makeFiber(runtime, document.createElement("div"), () => {});
+  // SAFETY: neverGen is a GeneratorFn that yields Effect.never.
+  interpret(neverGen as GeneratorFn, fiber);
+  // SAFETY: neverGen is a GeneratorFn that yields Effect.never.
+  expect(() => interpret(neverGen as GeneratorFn, fiber)).toThrow(
+    "ilha: re-enter while Instruction in flight"
+  );
 });

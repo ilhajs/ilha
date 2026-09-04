@@ -5,7 +5,8 @@
       "@/*": ["./src/*"]
     },
     "jsx": "react-jsx",
-    "jsxImportSource": "ilha"
+    "jsxImportSource": "ilha",
+    "strictNullChecks": true
   },
   "include": [
     ".blume/.astro/types.d.ts",

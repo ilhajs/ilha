@@ -7,79 +7,112 @@ import type * as Atom from "effect/unstable/reactivity/Atom";
 import * as Registry from "effect/unstable/reactivity/AtomRegistry";
 
 import { handleOwner, instr, isAtomHandle } from "./atom.ts";
-import { getFiber, type FiberLocal } from "./runtime.ts";
+import { getFiber } from "./runtime.ts";
+import type { FiberLocal } from "./runtime.ts";
 import type { AtomHandle, Instruction } from "./types.ts";
 
-export type WatchSlot = {
-  key: unknown;
-  fnRef: { current: (value: unknown) => void };
-  dispose: () => void;
-};
+/** Values delivered to watch callbacks. */
+export type WatchValue =
+  | string
+  | number
+  | boolean
+  | bigint
+  | null
+  | undefined
+  | readonly WatchValue[]
+  | WatchRecord;
 
-function runStreamWatch(
+export interface WatchRecord {
+  readonly [key: string]: WatchValue | undefined;
+}
+
+/** Discriminator for watch slot identity (atom/stream instance). */
+export type WatchKey =
+  | Atom.Atom<WatchValue>
+  | Stream.Stream<WatchValue, unknown, unknown>
+  | AtomHandle<WatchValue>;
+
+export interface WatchSlot {
+  key: WatchKey;
+  fnRef: { current: (value: WatchValue) => void };
+  dispose: () => void;
+}
+
+const runStreamWatch = (
   fiber: FiberLocal,
-  effect: Effect.Effect<unknown, unknown, Registry.AtomRegistry>,
-): () => void {
+  effect: Effect.Effect<void, unknown, Registry.AtomRegistry>
+): (() => void) => {
   const scope = Scope.forkUnsafe(fiber.scope);
-  const provided = effect.pipe(Effect.provideService(Registry.AtomRegistry, fiber.registry));
+  const provided = effect.pipe(
+    Effect.provideService(Registry.AtomRegistry, fiber.registry)
+  );
   const fork = Effect.runFork(provided);
   Effect.runSync(Scope.addFinalizer(scope, Fiber.interrupt(fork)));
   return () => {
     Effect.runFork(Scope.close(scope, Exit.void));
   };
-}
+};
 
-function useWatchSlot(
+const useWatchSlot = <A extends WatchValue>(
   fiber: FiberLocal,
-  key: unknown,
-  mount: (fn: (value: unknown) => void) => () => void,
-  fn: (value: unknown) => void,
-): void {
+  key: WatchKey,
+  mount: (fn: (value: A) => void) => () => void,
+  fn: (value: A) => void
+): void => {
   const i = fiber.watchI ?? 0;
   fiber.watchI = i + 1;
   fiber.watchSlots ??= [];
   const existing = fiber.watchSlots[i];
   if (existing) {
-    if (existing.key !== key) {
-      existing.dispose();
-      fiber.watchSlots[i] = undefined as never;
-    } else {
-      existing.fnRef.current = fn;
+    if (existing.key === key) {
+      // SAFETY: same key means the slot was created for the same A callback shape.
+      existing.fnRef.current = fn as (value: WatchValue) => void;
       return;
     }
+    existing.dispose();
+    // SAFETY: cleared slot index is filled on the next mount path below.
+    fiber.watchSlots[i] = undefined as never;
   }
-  const fnRef = { current: fn };
-  const unsub = mount((value) => fnRef.current(value));
+  // SAFETY: fnRef stores the latest A callback; mount invokes it with A values.
+  const fnRef: WatchSlot["fnRef"] = {
+    current: fn as (value: WatchValue) => void,
+  };
+  const unsub = mount((value) => {
+    // SAFETY: mount delivers values of A that this slot was opened with.
+    (fnRef.current as (value: A) => void)(value);
+  });
   const dispose = () => unsub();
-  fiber.watchSlots[i] = { key, fnRef, dispose };
-}
+  fiber.watchSlots[i] = { dispose, fnRef, key };
+};
 
-function registerWatch<A>(
+const registerWatch = <A extends WatchValue>(
   fiber: FiberLocal,
-  source: AtomHandle<A> | Atom.Atom<A> | Stream.Stream<A, any, any>,
-  fn: (value: A) => void,
-): void {
+  source: AtomHandle<A> | Atom.Atom<A> | Stream.Stream<A, unknown, unknown>,
+  fn: (value: A) => void
+): void => {
   if (Stream.isStream(source)) {
-    const key = source;
     useWatchSlot(
       fiber,
-      key,
+      source,
       (run) => {
         let active = true;
         const stop = runStreamWatch(
           fiber,
+          // SAFETY: runForEach yields Effect<void,...>; registry is provided by runStreamWatch.
           Stream.runForEach(source, (v) =>
             Effect.sync(() => {
-              if (active) run(v);
-            }),
-          ) as Effect.Effect<unknown, unknown, Registry.AtomRegistry>,
+              if (active) {
+                run(v);
+              }
+            })
+          ) as Effect.Effect<void, unknown, Registry.AtomRegistry>
         );
         return () => {
           active = false;
           stop();
         };
       },
-      fn as (value: unknown) => void,
+      fn
     );
     return;
   }
@@ -87,17 +120,18 @@ function registerWatch<A>(
   useWatchSlot(
     fiber,
     atom,
-    (run) => fiber.registry.subscribe(atom, run as (v: A) => void, { immediate: true }),
-    fn as (value: unknown) => void,
+    (run) => fiber.registry.subscribe(atom, run, { immediate: true }),
+    fn
   );
-}
+};
 
 /** Run `fn` when `source` changes — and once on mount. Sync, async, and generator components. */
-export function watch<A>(
-  source: AtomHandle<A> | Atom.Atom<A> | Stream.Stream<A, any, any>,
-  fn: (value: A) => void,
-): Instruction<void> {
-  const fiber = (isAtomHandle(source) ? handleOwner.get(source) : undefined) ?? getFiber();
+export const watch = <A extends WatchValue>(
+  source: AtomHandle<A> | Atom.Atom<A> | Stream.Stream<A, unknown, unknown>,
+  fn: (value: A) => void
+): Instruction<undefined> => {
+  const fiber =
+    (isAtomHandle(source) ? handleOwner.get(source) : undefined) ?? getFiber();
   registerWatch(fiber, source, fn);
   return instr(Effect.void);
-}
+};

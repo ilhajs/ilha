@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test";
 
 import { atom, mount, renderToString } from "../src/index.ts";
-import { closeFiber, getFiber, makeFiber, makeRuntime, withFiber } from "../src/runtime.ts";
+import {
+  closeFiber,
+  getFiber,
+  makeFiber,
+  makeRuntime,
+  withFiber,
+} from "../src/runtime.ts";
 
 test("getFiber skips closed fibers on the stack", () => {
   const runtime = makeRuntime();
@@ -19,18 +25,19 @@ test("getFiber skips closed fibers on the stack", () => {
   runtime.close();
 });
 
+const ClickApp = function* ClickApp() {
+  const count = atom(0);
+  yield (
+    <button type="button" onclick={() => count.update((n: number) => n + 1)}>
+      {count}
+    </button>
+  );
+};
+
 test("closed fiber is not resurged after later() work lands", async () => {
-  const App = function* () {
-    const count = atom(0);
-    yield (
-      <button type="button" onclick={() => count.update((n: number) => n + 1)}>
-        {count}
-      </button>
-    );
-  };
   const el = document.createElement("div");
   document.body.append(el);
-  const unmount = mount(el, App);
+  const unmount = mount(el, ClickApp);
   await Bun.sleep(5);
   expect(el.textContent).toContain("0");
   unmount();
@@ -40,15 +47,18 @@ test("closed fiber is not resurged after later() work lands", async () => {
   el.remove();
 });
 
+const slow = async (label: string) => {
+  await Bun.sleep(10);
+  return label;
+};
+
 test("renderToString waits for async work nested in keyed holes", async () => {
-  const slow = async (label: string) => {
-    await Bun.sleep(10);
-    return label;
-  };
   const html = await renderToString(() => (
     <div>
       {[1, 2].map((n) => (
-        <section key={n}>{async () => <p>{await slow(`done-${n}`)}</p>}</section>
+        <section key={n}>
+          {async () => <p>{await slow(`done-${n}`)}</p>}
+        </section>
       ))}
     </div>
   ));

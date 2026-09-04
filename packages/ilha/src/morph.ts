@@ -1,188 +1,319 @@
-const PRESERVE_ATTR = "data-morph-preserve";
-const KEY_ATTR = "data-ilha-key";
-const SLOT_ATTR = "data-ilha-slot";
+import { KEY_ATTR, SLOT_ATTR } from "./shared.ts";
 
-function morphKeyOf(el: Element): string | null {
+export { KEY_ATTR, SLOT_ATTR } from "./shared.ts";
+
+const PRESERVE_ATTR = "data-morph-preserve";
+
+const morphKeyOf = (el: Element): string | null => {
   const k = el.getAttribute(KEY_ATTR);
-  if (k !== null) return `k:${k}`;
+  if (k !== null) {
+    return `k:${k}`;
+  }
   const s = el.getAttribute(SLOT_ATTR);
   return s === null ? null : `s:${s}`;
-}
+};
 
-function shouldPreserveMorphAttr(el: Element, name: string): boolean {
-  if (name === "value" || name === "checked" || name === "selected") return true;
-  if (name === PRESERVE_ATTR) return el.hasAttribute(PRESERVE_ATTR);
+const shouldPreserveMorphAttr = (el: Element, name: string): boolean => {
+  if (name === "value" || name === "checked" || name === "selected") {
+    return true;
+  }
+  if (name === PRESERVE_ATTR) {
+    return el.hasAttribute(PRESERVE_ATTR);
+  }
   const custom = el.getAttribute(PRESERVE_ATTR);
   if (custom !== null) {
-    for (const token of custom.split(/\s+/)) if (token === name) return true;
+    for (const token of custom.split(/\s+/u)) {
+      if (token === name) {
+        return true;
+      }
+    }
   }
   return false;
-}
+};
 
-function syncAttributes(from: Element, to: Element): void {
+const syncAttributes = (from: Element, to: Element): void => {
   for (const { name, value } of to.attributes) {
-    if (shouldPreserveMorphAttr(from, name)) continue;
-    if (from.getAttribute(name) !== value) from.setAttribute(name, value);
+    if (shouldPreserveMorphAttr(from, name)) {
+      continue;
+    }
+    if (from.getAttribute(name) !== value) {
+      from.setAttribute(name, value);
+    }
   }
-  for (const { name } of Array.from(from.attributes)) {
-    if (shouldPreserveMorphAttr(from, name)) continue;
-    if (!to.hasAttribute(name)) from.removeAttribute(name);
+  // Snapshot names first — NamedNodeMap is live under removeAttribute.
+  const names: string[] = [];
+  for (const { name } of from.attributes) {
+    names.push(name);
   }
-}
+  for (const name of names) {
+    if (shouldPreserveMorphAttr(from, name)) {
+      continue;
+    }
+    if (!to.hasAttribute(name)) {
+      from.removeAttribute(name);
+    }
+  }
+};
 
-type MorphFocusSnapshot = {
+interface MorphFocusSnapshot {
   active: HTMLElement;
   selection: {
     start: number | null;
     end: number | null;
     dir: string | null;
   } | null;
-};
+}
 
-function snapshotFocus(): MorphFocusSnapshot | null {
-  if (typeof document === "undefined") return null;
+const snapshotFocus = (): MorphFocusSnapshot | null => {
+  if (globalThis.document === undefined) {
+    return null;
+  }
   const active = document.activeElement;
-  if (!(active instanceof HTMLElement) || active === document.body) return null;
+  if (!(active instanceof HTMLElement) || active === document.body) {
+    return null;
+  }
   let selection: MorphFocusSnapshot["selection"] = null;
   try {
-    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+    if (
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement
+    ) {
       selection = {
-        start: active.selectionStart,
-        end: active.selectionEnd,
         dir: active.selectionDirection,
+        end: active.selectionEnd,
+        start: active.selectionStart,
       };
     }
   } catch {
     /* type=email */
   }
   return { active, selection };
-}
+};
 
-function restoreFocus(snapshot: MorphFocusSnapshot | null): void {
-  if (!snapshot || !snapshot.active.isConnected) return;
+const restoreFocus = (snapshot: MorphFocusSnapshot | null): void => {
+  if (!snapshot || !snapshot.active.isConnected) {
+    return;
+  }
   try {
     if (document.activeElement !== snapshot.active) {
       snapshot.active.focus({ preventScroll: true });
     }
     const sel = snapshot.selection;
     if (sel && sel.start !== null) {
+      // SAFETY: selection is only recorded for input/textarea elements.
       const el = snapshot.active as HTMLInputElement;
       if (el.selectionStart !== sel.start || el.selectionEnd !== sel.end) {
-        el.setSelectionRange(sel.start, sel.end, (sel.dir as "forward") ?? "none");
+        // SAFETY: selectionDirection is forward|backward|none when present.
+        el.setSelectionRange(
+          sel.start,
+          sel.end,
+          (sel.dir as "forward" | "backward" | "none") ?? "none"
+        );
       }
     }
   } catch {
     /* best-effort */
   }
-}
+};
 
-function morphChildren(fromParent: Element, toParent: Element): void {
-  const toNodes = Array.from(toParent.childNodes);
+const buildKeyedIndex = (parent: Element): Map<string, Element> | null => {
   let fromKeyed: Map<string, Element> | null = null;
-  for (const child of fromParent.children) {
+  for (const child of parent.children) {
     const k = morphKeyOf(child);
-    if (k !== null && !(fromKeyed ??= new Map()).has(k)) fromKeyed.set(k, child);
-  }
-  let toKeys: Set<string> | null = null;
-  if (fromKeyed !== null) {
-    toKeys = new Set();
-    for (const child of toParent.children) {
-      const k = morphKeyOf(child);
-      if (k !== null) toKeys.add(k);
+    if (k !== null) {
+      fromKeyed ??= new Map();
+      if (!fromKeyed.has(k)) {
+        fromKeyed.set(k, child);
+      }
     }
   }
+  return fromKeyed;
+};
 
-  for (let i = 0; i < toNodes.length; i++) {
-    const toNode = toNodes[i]!;
-    let fromNode: ChildNode | undefined = fromParent.childNodes[i];
+const collectKeys = (parent: Element): Set<string> => {
+  const keys = new Set<string>();
+  for (const child of parent.children) {
+    const k = morphKeyOf(child);
+    if (k !== null) {
+      keys.add(k);
+    }
+  }
+  return keys;
+};
 
-    if (fromKeyed !== null) {
-      const toKey = toNode.nodeType === 1 ? morphKeyOf(toNode as Element) : null;
-      if (toKey !== null) {
-        const match = fromKeyed.get(toKey);
-        if (match) {
-          fromKeyed.delete(toKey);
-          if (match !== fromNode) {
-            fromParent.insertBefore(match, fromNode ?? null);
-            fromNode = match;
-          }
-        }
+const morphInput = (fromEl: Element, toEl: Element): void => {
+  const hadChecked = fromEl.hasAttribute("checked");
+  const hadValue = fromEl.getAttribute("value");
+  syncAttributes(fromEl, toEl);
+  const hasChecked = toEl.hasAttribute("checked");
+  if (hasChecked !== hadChecked) {
+    // SAFETY: localName === input; checked is the live property morph must sync.
+    (fromEl as HTMLInputElement).checked = hasChecked;
+  }
+  const newValue = toEl.getAttribute("value");
+  if (newValue !== hadValue) {
+    // SAFETY: localName === input; value is the live property morph must sync.
+    (fromEl as HTMLInputElement).value = newValue ?? "";
+  }
+};
+
+const morphTextarea = (fromEl: Element, toEl: Element): void => {
+  const newText = toEl.textContent ?? "";
+  if (fromEl.textContent !== newText) {
+    fromEl.textContent = newText;
+    // SAFETY: localName === textarea.
+    (fromEl as HTMLTextAreaElement).value = newText;
+  }
+};
+
+interface MorphApi {
+  morphChildren: (fromParent: Element, toParent: Element) => void;
+}
+
+const morphSelect = (fromEl: Element, toEl: Element, api: MorphApi): void => {
+  const before = new Map<HTMLOptionElement, { attr: boolean; live: boolean }>();
+  // SAFETY: localName === select.
+  const fromSelect = fromEl as HTMLSelectElement;
+  for (const o of fromSelect.options) {
+    before.set(o, { attr: o.hasAttribute("selected"), live: o.selected });
+  }
+  syncAttributes(fromEl, toEl);
+  api.morphChildren(fromEl, toEl);
+  const options = [...fromSelect.options];
+  if (
+    options.some(
+      (o) => o.hasAttribute("selected") !== (before.get(o)?.attr ?? false)
+    )
+  ) {
+    for (const o of options) {
+      o.selected = o.hasAttribute("selected");
+    }
+  } else {
+    for (const o of options) {
+      const prev = before.get(o);
+      if (prev && o.selected !== prev.live) {
+        o.selected = prev.live;
       }
-      if (fromNode instanceof Element) {
-        const fromKey = morphKeyOf(fromNode);
-        if (fromKey !== null && fromKey !== toKey && toKeys!.has(fromKey)) {
-          fromParent.insertBefore(toNode, fromNode);
+    }
+  }
+};
+
+const morphElementPair = (
+  fromEl: Element,
+  toEl: Element,
+  api: MorphApi
+): void => {
+  if (fromEl.localName !== toEl.localName) {
+    fromEl.replaceWith(toEl);
+    return;
+  }
+  const slotId = toEl.getAttribute(SLOT_ATTR);
+  if (slotId !== null && fromEl.getAttribute(SLOT_ATTR) === slotId) {
+    return;
+  }
+  if (fromEl.localName === "input") {
+    morphInput(fromEl, toEl);
+    return;
+  }
+  if (fromEl.localName === "select") {
+    morphSelect(fromEl, toEl, api);
+    return;
+  }
+  syncAttributes(fromEl, toEl);
+  if (fromEl.localName === "textarea") {
+    morphTextarea(fromEl, toEl);
+  } else {
+    api.morphChildren(fromEl, toEl);
+  }
+};
+
+const alignKeyedNode = (
+  fromParent: Element,
+  fromNode: ChildNode | undefined,
+  toNode: ChildNode,
+  fromKeyed: Map<string, Element>,
+  toKeys: Set<string>
+): ChildNode | undefined | "continue" => {
+  // SAFETY: nodeType 1 is Element; morphKeyOf only reads element attributes.
+  const toKey = toNode.nodeType === 1 ? morphKeyOf(toNode as Element) : null;
+  let current = fromNode;
+  if (toKey !== null) {
+    const match = fromKeyed.get(toKey);
+    if (match) {
+      fromKeyed.delete(toKey);
+      if (match !== current) {
+        current?.before(match);
+        if (!current) {
+          fromParent.append(match);
+        }
+        current = match;
+      }
+    }
+  }
+  if (current instanceof Element) {
+    const fromKey = morphKeyOf(current);
+    if (fromKey !== null && fromKey !== toKey && toKeys.has(fromKey)) {
+      current.before(toNode);
+      return "continue";
+    }
+  }
+  return current;
+};
+
+const api = {
+  morphChildren: (fromParent: Element, toParent: Element): void => {
+    const toNodes = [...toParent.childNodes];
+    const fromKeyed = buildKeyedIndex(fromParent);
+    const toKeys = fromKeyed === null ? null : collectKeys(toParent);
+
+    for (let i = 0; i < toNodes.length; i += 1) {
+      const toNode = toNodes[i];
+      if (!toNode) {
+        continue;
+      }
+      let fromNode: ChildNode | undefined = fromParent.childNodes[i];
+
+      if (fromKeyed !== null && toKeys !== null) {
+        const aligned = alignKeyedNode(
+          fromParent,
+          fromNode,
+          toNode,
+          fromKeyed,
+          toKeys
+        );
+        if (aligned === "continue") {
           continue;
         }
+        fromNode = aligned;
       }
-    }
 
-    if (!fromNode) {
-      fromParent.appendChild(toNode);
-      continue;
-    }
-    if (fromNode.nodeType !== toNode.nodeType) {
-      fromParent.replaceChild(toNode, fromNode);
-      continue;
-    }
-    if (fromNode.nodeType === 3 || fromNode.nodeType === 8) {
-      if (fromNode.nodeValue !== toNode.nodeValue) fromNode.nodeValue = toNode.nodeValue;
-      continue;
-    }
-    if (fromNode.nodeType === 1) {
-      const fromEl = fromNode as Element;
-      const toEl = toNode as Element;
-      if (fromEl.localName !== toEl.localName) {
-        fromParent.replaceChild(toEl, fromEl);
+      if (!fromNode) {
+        fromParent.append(toNode);
         continue;
       }
-      const slotId = toEl.getAttribute(SLOT_ATTR);
-      if (slotId !== null && fromEl.getAttribute(SLOT_ATTR) === slotId) continue;
-      if (fromEl.localName === "input") {
-        const hadChecked = fromEl.hasAttribute("checked");
-        const hadValue = fromEl.getAttribute("value");
-        syncAttributes(fromEl, toEl);
-        const hasChecked = toEl.hasAttribute("checked");
-        if (hasChecked !== hadChecked) (fromEl as HTMLInputElement).checked = hasChecked;
-        const newValue = toEl.getAttribute("value");
-        if (newValue !== hadValue) (fromEl as HTMLInputElement).value = newValue ?? "";
+      if (fromNode.nodeType !== toNode.nodeType) {
+        fromNode.replaceWith(toNode);
         continue;
       }
-      if (fromEl.localName === "select") {
-        const before = new Map<HTMLOptionElement, { attr: boolean; live: boolean }>();
-        for (const o of (fromEl as HTMLSelectElement).options) {
-          before.set(o, { attr: o.hasAttribute("selected"), live: o.selected });
-        }
-        syncAttributes(fromEl, toEl);
-        morphChildren(fromEl, toEl);
-        const options = Array.from((fromEl as HTMLSelectElement).options);
-        if (options.some((o) => o.hasAttribute("selected") !== (before.get(o)?.attr ?? false))) {
-          for (const o of options) o.selected = o.hasAttribute("selected");
-        } else {
-          for (const o of options) {
-            const prev = before.get(o);
-            if (prev && o.selected !== prev.live) o.selected = prev.live;
-          }
+      if (fromNode.nodeType === 3 || fromNode.nodeType === 8) {
+        if (fromNode.nodeValue !== toNode.nodeValue) {
+          fromNode.nodeValue = toNode.nodeValue;
         }
         continue;
       }
-      syncAttributes(fromEl, toEl);
-      if (fromEl.localName === "textarea") {
-        const newText = toEl.textContent ?? "";
-        if (fromEl.textContent !== newText) {
-          fromEl.textContent = newText;
-          (fromEl as HTMLTextAreaElement).value = newText;
-        }
-      } else morphChildren(fromEl, toEl);
+      if (fromNode.nodeType === 1) {
+        // SAFETY: nodeType 1 is Element on both sides after the type match above.
+        morphElementPair(fromNode as Element, toNode as Element, api);
+      }
     }
-  }
-  while (fromParent.childNodes.length > toNodes.length) fromParent.lastChild!.remove();
-}
+    while (fromParent.childNodes.length > toNodes.length) {
+      fromParent.lastChild?.remove();
+    }
+  },
+} satisfies MorphApi;
 
-export function morphInner(from: Element, to: Element): void {
+export const morphInner = (from: Element, to: Element): void => {
   const focus = snapshotFocus();
-  morphChildren(from, to);
+  api.morphChildren(from, to);
   restoreFocus(focus);
-}
-
-export { KEY_ATTR, SLOT_ATTR };
+};

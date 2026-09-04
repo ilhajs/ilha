@@ -1,4 +1,4 @@
-/** @jsxImportSource ../src */
+// @jsxImportSource ../src
 import { expect, test } from "bun:test";
 
 import * as Stream from "effect/Stream";
@@ -6,33 +6,42 @@ import * as Atom from "effect/unstable/reactivity/Atom";
 import type { AtomHandle } from "ilha";
 
 import { atom, h, mount, renderToString } from "../src/index.ts";
+import type { PropBag } from "../src/types.ts";
 
 test("renderToString takes only the first stream value", async () => {
   const html = await renderToString(() =>
-    Stream.map(Stream.fromIterable([1, 2, 3]), (n: number) => h("li", null, `item-${n}`)),
+    Stream.map(Stream.fromIterable([1, 2, 3]), (n: number) =>
+      h("li", null, `item-${n}`)
+    )
   );
   expect(html).toContain("item-1");
   expect(html).not.toContain("item-2");
 });
 
 test("renderToString paints stream failure as text", async () => {
+  // SAFETY: Stream.fail is accepted as a stream view input for this failure path.
   const html = await renderToString(() => Stream.fail("boom") as never);
   expect(html).toContain("boom");
 });
 
 test("stream view repaints on each emission on the client", async () => {
   let source: AtomHandle<string> | undefined;
-  const App = function* () {
+  const App = function* App() {
     const s = atom("first");
     source ??= s;
-    yield Stream.map(Atom.toStream(s.atom), (value: string) => h("p", null, value));
+    yield Stream.map(Atom.toStream(s.atom), (value: string) =>
+      h("p", null, value)
+    );
   };
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
   await Bun.sleep(10);
   expect(el.textContent).toContain("first");
-  source!.set("second");
+  if (!source) {
+    throw new Error("source missing");
+  }
+  source.set("second");
   await Bun.sleep(10);
   expect(el.textContent).toContain("second");
   expect(el.textContent).not.toContain("first");
@@ -42,7 +51,7 @@ test("stream view repaints on each emission on the client", async () => {
 
 test("live list via Atom.toStream repaints on update", async () => {
   let items: AtomHandle<string[]> | undefined;
-  const App = function* () {
+  const App = function* App() {
     const list = atom(["a", "b"]);
     items ??= list;
     yield Stream.map(Atom.toStream(list.atom), (values: string[]) => (
@@ -58,10 +67,13 @@ test("live list via Atom.toStream repaints on update", async () => {
   const unmount = mount(el, App);
   await Bun.sleep(10);
   expect(el.textContent).toContain("ab");
-  items!.update((list) => [...list, "c"]);
+  if (!items) {
+    throw new Error("items missing");
+  }
+  items.update((list) => [...list, "c"]);
   await Bun.sleep(10);
   expect(el.textContent).toContain("abc");
-  items!.update((list) => list.filter((item) => item !== "a"));
+  items.update((list) => list.filter((item) => item !== "a"));
   await Bun.sleep(10);
   expect(el.textContent).toContain("bc");
   expect(el.textContent).not.toContain("a");
@@ -69,22 +81,25 @@ test("live list via Atom.toStream repaints on update", async () => {
   el.remove();
 });
 
+type RowProps = PropBag & { readonly id: string };
+
 test("keyed function children in a stream hole reuse their fiber", async () => {
   let items: AtomHandle<string[]> | undefined;
   const built: string[] = [];
   let seq = 0;
-  const Row = (props: Record<string, unknown>) => {
-    const id = props.id as string;
-    const stamp = `row-${id}-${seq++}`;
+  const Row = (props: RowProps) => {
+    const { id } = props;
+    seq += 1;
+    const stamp = `row-${id}-${seq}`;
     built.push(stamp);
     return <li data-stamp={stamp}>{id}</li>;
   };
-  const App = function* () {
+  const App = function* App() {
     const list = atom(["a", "b"]);
     items ??= list;
     // Emit a keyed array so the hole reuses per-key fibers.
     yield Stream.map(Atom.toStream(list.atom), (values: string[]) =>
-      values.map((id) => <Row key={id} id={id} />),
+      values.map((id) => <Row key={id} id={id} />)
     );
   };
   const el = document.createElement("div");
@@ -92,7 +107,10 @@ test("keyed function children in a stream hole reuse their fiber", async () => {
   const unmount = mount(el, App);
   await Bun.sleep(10);
   expect(built).toHaveLength(2);
-  items!.update(() => ["b", "a", "c"]);
+  if (!items) {
+    throw new Error("items missing");
+  }
+  items.update(() => ["b", "a", "c"]);
   await Bun.sleep(10);
   // a and b fibers are reused; only c is new
   expect(built).toHaveLength(3);

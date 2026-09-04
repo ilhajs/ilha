@@ -6,10 +6,7 @@
 
 Build reactive components once. Render them on the server, mount them in the browser, and ship JavaScript only where it earns its place.
 
-[![Continuous Integration](https://github.com/ilhajs/ilha/actions/workflows/ci.yml/badge.svg)](https://github.com/ilhajs/ilha/actions/workflows/ci.yml)
-[![NPM Version](https://img.shields.io/npm/v/ilha)](https://www.npmjs.com/package/ilha)
-![Minified + gzip size](https://badgen.net/bundlephobia/minzip/ilha)
-[![Discord](https://img.shields.io/discord/1428724223756472373)](https://discord.gg/WnVTMCTz74)
+[![Continuous Integration](https://github.com/ilhajs/ilha/actions/workflows/ci.yml/badge.svg)](https://github.com/ilhajs/ilha/actions/workflows/ci.yml) [![NPM Version](https://img.shields.io/npm/v/ilha)](https://www.npmjs.com/package/ilha) ![Minified + gzip size](https://badgen.net/bundlephobia/minzip/ilha) [![Discord](https://img.shields.io/discord/1428724223756472373)](https://discord.gg/WnVTMCTz74)
 
 [Website](https://ilha.build) · [Documentation](https://ilha.build/guide/getting-started/introduction) · [Quick start](#quick-start) · [Templates](#start-from-a-template) · [LLM docs](https://ilha.build/llms.txt) · [Discord](https://discord.gg/WnVTMCTz74)
 
@@ -34,15 +31,15 @@ Because Ilha sends only the interactive parts of a page, real applications can s
 
 ## Ilha vs. full-app frameworks
 
-|                             | Ilha                            | Typical full-app hydration           |
-| --------------------------- | ------------------------------- | ------------------------------------ |
-| Client boundary             | Each interactive component      | The application root                 |
-| Update model                | Atoms + direct DOM morphing     | Virtual DOM reconciliation           |
-| Server and client component | The same function               | Often separate execution constraints |
-| SSR API                     | `renderToString()`              | Framework-specific renderer          |
-| Hydration                   | Explicit, local, snapshot-aware | Usually application-wide             |
-| Compiler                    | Optional                        | Often required for best results      |
-| Adoption                    | One component or a complete app | Usually controls the application     |
+|  | Ilha | Typical full-app hydration |
+| --- | --- | --- |
+| Client boundary | Each interactive component | The application root |
+| Update model | Atoms + direct DOM morphing | Virtual DOM reconciliation |
+| Server and client component | The same function | Often separate execution constraints |
+| SSR API | `renderToString()` | Framework-specific renderer |
+| Hydration | Explicit, local, snapshot-aware | Usually application-wide |
+| Compiler | Optional | Often required for best results |
+| Adoption | One component or a complete app | Usually controls the application |
 
 Ilha is not trying to be a batteries-included platform. It is the small rendering and reactivity layer you can bring to the stack you already have.
 
@@ -74,7 +71,10 @@ export const Counter = ({ start = 0 }: { start?: number }) => {
   const count = atom(start);
 
   return (
-    <button type="button" onclick={() => count.update((value: number) => value + 1)}>
+    <button
+      type="button"
+      onclick={() => count.update((value: number) => value + 1)}
+    >
       Count: {count}
     </button>
   );
@@ -147,18 +147,18 @@ Emit a `data-ilha` host, load your client module, and call `mount()`. Ilha does 
 
 ## Start from a template
 
-| Template                                                                  | Create                                                | Try it                                                                                |
-| ------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [Vite SPA](https://github.com/ilhajs/ilha/tree/main/templates/vite-spa)   | `npx giget@latest gh:ilhajs/ilha/templates/vite-spa`  | [StackBlitz](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite-spa)  |
+| Template | Create | Try it |
+| --- | --- | --- |
+| [Vite SPA](https://github.com/ilhajs/ilha/tree/main/templates/vite-spa) | `npx giget@latest gh:ilhajs/ilha/templates/vite-spa` | [StackBlitz](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite-spa) |
 | [Oxide SPA](https://github.com/ilhajs/ilha/tree/main/templates/oxide-spa) | `npx giget@latest gh:ilhajs/ilha/templates/oxide-spa` | [StackBlitz](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/oxide-spa) |
 
 ## Packages
 
-| Package                             | What it does                                                         |
-| ----------------------------------- | -------------------------------------------------------------------- |
-| [`ilha`](./packages/ilha)           | Components, atoms, JSX runtime, SSR, hydration, and DOM morphing     |
+| Package | What it does |
+| --- | --- |
+| [`ilha`](./packages/ilha) | Components, atoms, JSX runtime, SSR, hydration, and DOM morphing |
 | [`@ilha/router`](./packages/router) | Isomorphic SPA routing, file-system routes, and Oxide server islands |
-| [`@ilha/astro`](./packages/astro)   | Astro renderer (`renderToString` + `mount`)                          |
+| [`@ilha/astro`](./packages/astro) | Astro renderer (`renderToString` + `mount`) |
 
 ## Documentation for humans and agents
 

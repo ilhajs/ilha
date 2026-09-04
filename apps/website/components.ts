@@ -1,9 +1,9 @@
 import { defineComponents } from "blume";
 
 export default defineComponents({
-  mdx: { Preview: "./src/components/Preview.astro" },
   layout: {
-    Layout: "./src/components/layout/Layout.astro",
-    PageFooter: "./src/components/layout/PageFooter.astro",
+    Layout: "./src/components/layout/layout.astro",
+    PageFooter: "./src/components/layout/page-footer.astro",
   },
+  mdx: { Preview: "./src/components/preview.astro" },
 });

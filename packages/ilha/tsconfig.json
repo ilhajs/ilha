@@ -15,7 +15,8 @@
       "ilha/jsx-runtime.ts": ["./src/jsx-runtime.ts"],
       "ilha/jsx-dev-runtime": ["./src/jsx-dev-runtime.ts"],
       "ilha/jsx-dev-runtime.ts": ["./src/jsx-dev-runtime.ts"]
-    }
+    },
+    "strictNullChecks": true
   },
   "include": ["src", "tests", "happydom.ts"],
   "exclude": ["node_modules", "dist", "tsdown.config.ts"]

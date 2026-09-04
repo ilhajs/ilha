@@ -5,10 +5,14 @@ import data from "blume:data";
 
 const { config } = data;
 
-const norm = (id) => String(id).replace(/^filesystem:/, "").replace(/\.(mdx|md)$/, "");
+const norm = (id: string) =>
+  String(id)
+    .replace(/^filesystem:/u, "")
+    .replace(/\.(?<ext>mdx|md)$/u, "");
 const routeById = new Map(data.routes.map((route) => [norm(route.id), route.path]));
 
-const posts = (await getCollection("docs"))
+const collection = await getCollection("docs");
+const posts = collection
   .filter((entry) => entry.data.type === "blog" && !entry.data.draft)
   .map((entry) => ({
     date: entry.data.date,

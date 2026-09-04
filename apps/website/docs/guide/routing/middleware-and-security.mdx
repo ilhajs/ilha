@@ -35,12 +35,12 @@ const locked = httpResponse(html, {
 });
 ```
 
-| Option                  | Behavior                                                                  |
-| ----------------------- | ------------------------------------------------------------------------- |
-| `status`                | Response status (default `200`).                                          |
-| `headers`               | Extra headers, merged over defaults.                                      |
-| `cspNonce`              | Emit a conservative default CSP with `'nonce-${nonce}'` for `script-src`. |
-| `contentSecurityPolicy` | Full CSP string; overrides the nonce-derived default.                     |
+| Option | Behavior |
+| --- | --- |
+| `status` | Response status (default `200`). |
+| `headers` | Extra headers, merged over defaults. |
+| `cspNonce` | Emit a conservative default CSP with `'nonce-${nonce}'` for `script-src`. |
+| `contentSecurityPolicy` | Full CSP string; overrides the nonce-derived default. |
 
 Prefer `respond()` when you are rendering a route — it runs the full render + head + headers pipeline. Reach for `httpResponse()` when you already have the HTML and only need a correctly-headered `Response`.
 
@@ -48,9 +48,9 @@ Prefer `respond()` when you are rendering a route — it runs the full render + 
 
 In **production**, the internal frame endpoint is **denied unless you install a guard**:
 
-| Endpoint        | Serves                                      | Method | Default when unguarded |
-| --------------- | ------------------------------------------- | ------ | ---------------------- |
-| `/__ilha/frame` | Re-render of a server island or server page | POST   | Denied (`403`)         |
+| Endpoint | Serves | Method | Default when unguarded |
+| --- | --- | --- | --- |
+| `/__ilha/frame` | Re-render of a server island or server page | POST | Denied (`403`) |
 
 An unguarded frame endpoint would let anyone re-render any server island by id — if an island's state holds private data you must install a session check. The **dev** middleware stays permissive unless you register a guard, so local iteration works out of the box.
 
@@ -79,8 +79,7 @@ setFrameAuth({
   // synchronizer token), compared in constant time. Never use a build-time
   // environment variable or literal string — anything shipped to the browser
   // is public and cannot be a CSRF secret.
-  csrf: (request) =>
-    request.headers.get("x-csrf") === expectedToken,
+  csrf: (request) => request.headers.get("x-csrf") === expectedToken,
 });
 ```
 
@@ -90,11 +89,11 @@ In **dev**, configure the guard through the plugin options instead — pass `fra
 
 Tuning the frame-auth policy:
 
-| Option           | Type                   | Behavior                                                                                                                        |
-| ---------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `defaultAction`  | `"open" \| "deny"`     | `"deny"` is the default. `"open"` opts out of deny-by-default (not recommended).                                                |
-| `trustedOrigins` | `string[]`             | Explicit origins to accept for frame origin checks. Otherwise the `Origin` header is compared against the request's own `Host`. |
-| `csrf`           | `(request) => boolean` | Extra verifier for the frame POST — covers non-browser callers that send no `Origin` header.                                    |
+| Option | Type | Behavior |
+| --- | --- | --- |
+| `defaultAction` | `"open" \| "deny"` | `"deny"` is the default. `"open"` opts out of deny-by-default (not recommended). |
+| `trustedOrigins` | `string[]` | Explicit origins to accept for frame origin checks. Otherwise the `Origin` header is compared against the request's own `Host`. |
+| `csrf` | `(request) => boolean` | Extra verifier for the frame POST — covers non-browser callers that send no `Origin` header. |
 
 ## What is forwarded
 
@@ -109,9 +108,9 @@ The middleware forwards only `cookie`, `authorization`, and `user-agent` headers
 
 ## Related
 
-| Topic                       | Guide                                                     |
-| --------------------------- | --------------------------------------------------------- |
-| Server islands and frames   | [Server islands](/guide/routing/server-islands)           |
-| Error handling              | [Error boundaries](/guide/routing/error-boundaries)       |
+| Topic | Guide |
+| --- | --- |
+| Server islands and frames | [Server islands](/guide/routing/server-islands) |
+| Error handling | [Error boundaries](/guide/routing/error-boundaries) |
 | Guards via the pages plugin | [File-system routing](/guide/routing/file-system-routing) |
-| Production wiring           | [Deployment](/guide/routing/deployment)                   |
+| Production wiring | [Deployment](/guide/routing/deployment) |

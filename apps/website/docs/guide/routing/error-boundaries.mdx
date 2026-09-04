@@ -12,11 +12,7 @@ Throw `RouteError` with `error()` (or `redirect()` for navigation):
 ```tsx twoslash
 import { error } from "@ilha/router";
 
-export default async function User({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default async function User({ params }: { params: { id: string } }) {
   const user = await findUser(params.id);
   if (!user) error(404, "No such user");
   return <h1>{user.name}</h1>;
@@ -82,9 +78,7 @@ const UserPage = async () => {
 // ---cut---
 router()
   .route("/user/:id", UserPage)
-  .errorBoundary("/user/:id", (err) =>
-    h("p", null, `Oops: ${err.message}`),
-  );
+  .errorBoundary("/user/:id", (err) => h("p", null, `Oops: ${err.message}`));
 ```
 
 The handler receives an `AppError` (`message`, `status?`) and a route snapshot, and returns a view or a component.
@@ -102,18 +96,15 @@ const UserPage = async () => {
 };
 
 // ---cut---
-export default wrapError(
-  ({ message }) => h("p", null, message),
-  UserPage,
-);
+export default wrapError(({ message }) => h("p", null, message), UserPage);
 ```
 
 `wrapError` catches everything the page throws — `RouteError` or any exception — and calls your handler with `{ message, status? }`.
 
 ## Related
 
-| Topic                      | Guide                                                             |
-| -------------------------- | ----------------------------------------------------------------- |
-| Throwing redirects         | [Routes and navigation](/guide/routing/routes-and-navigation)     |
-| Server pages and frames    | [Server islands](/guide/routing/server-islands)                   |
+| Topic | Guide |
+| --- | --- |
+| Throwing redirects | [Routes and navigation](/guide/routing/routes-and-navigation) |
+| Server pages and frames | [Server islands](/guide/routing/server-islands) |
 | Hardening and status codes | [Middleware and security](/guide/routing/middleware-and-security) |

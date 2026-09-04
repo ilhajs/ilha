@@ -4,7 +4,11 @@ import oxide from "oxidejs/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [oxide({ middleware: ["@ilha/router/ssr"] }), pages(), tailwindcss()],
+  plugins: [
+    oxide({ middleware: ["@ilha/router/ssr"] }),
+    pages(),
+    tailwindcss(),
+  ],
   resolve: {
     tsconfigPaths: true,
   },

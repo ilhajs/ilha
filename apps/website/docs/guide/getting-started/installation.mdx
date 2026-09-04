@@ -15,9 +15,9 @@ npm i ilha effect
 
 ## Templates
 
-| Template                                                                  | Command                                               | Sandbox                                                                         |
-| ------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------- |
-| [Vite SPA](https://github.com/ilhajs/ilha/tree/main/templates/vite-spa)   | `npx giget@latest gh:ilhajs/ilha/templates/vite-spa`  | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite-spa)  |
+| Template | Command | Sandbox |
+| --- | --- | --- |
+| [Vite SPA](https://github.com/ilhajs/ilha/tree/main/templates/vite-spa) | `npx giget@latest gh:ilhajs/ilha/templates/vite-spa` | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite-spa) |
 | [Oxide SPA](https://github.com/ilhajs/ilha/tree/main/templates/oxide-spa) | `npx giget@latest gh:ilhajs/ilha/templates/oxide-spa` | [Open](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/oxide-spa) |
 
 Vite SPA is a client app with file routes. Oxide SPA adds server pages, frames, and `action` from `oxidejs`.
@@ -38,14 +38,7 @@ import { atom, mount, renderToString } from "ilha";
 Named exports you will use most:
 
 ```tsx twoslash
-import {
-  atom,
-  when,
-  mount,
-  renderToString,
-  h,
-  Fragment,
-} from "ilha";
+import { atom, when, mount, renderToString, h, Fragment } from "ilha";
 ```
 
 Custom elements come from `ilha/define`:
@@ -64,10 +57,7 @@ const Greeting = () => <p>Hello, ilha!</p>;
 const Counter = () => {
   const count = atom(0);
   return (
-    <button
-      type="button"
-      onclick={() => count.update((n) => n + 1)}
-    >
+    <button type="button" onclick={() => count.update((n) => n + 1)}>
       Count: {count}
     </button>
   );
@@ -82,10 +72,7 @@ import { atom, renderToString } from "ilha";
 const Counter = () => {
   const count = atom(0);
   return (
-    <button
-      type="button"
-      onclick={() => count.update((n) => n + 1)}
-    >
+    <button type="button" onclick={() => count.update((n) => n + 1)}>
       Count: {count}
     </button>
   );

@@ -4,8 +4,10 @@ GlobalRegistrator.register({
   settings: {
     fetch: {
       interceptor: {
-        async beforeAsyncRequest() {
-          return new Response("", { status: 200 }) as any;
+        beforeAsyncRequest() {
+          // SAFETY: happy-dom types this hook narrower than the Response it
+          // consumes; an empty 200 Response satisfies the runtime contract.
+          return new Response("", { status: 200 }) as never;
         },
       },
     },

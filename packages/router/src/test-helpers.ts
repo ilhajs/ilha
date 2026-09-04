@@ -1,22 +1,26 @@
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 
-export async function makeDir(suffix: string): Promise<string> {
-  const dir = join(tmpdir(), `ilha-pages-test-${suffix}-${Date.now()}`);
+export const makeDir = async (suffix: string): Promise<string> => {
+  const dir = path.join(tmpdir(), `ilha-pages-test-${suffix}-${Date.now()}`);
   await mkdir(dir, { recursive: true });
   return dir;
-}
+};
 
-export async function writePage(dir: string, rel: string, content: string): Promise<void> {
-  const full = join(dir, rel);
-  await mkdir(join(full, ".."), { recursive: true });
-  await writeFile(full, content, "utf8");
-}
+export const writePage = async (
+  dir: string,
+  rel: string,
+  content: string
+): Promise<void> => {
+  const full = path.join(dir, rel);
+  await mkdir(path.join(full, ".."), { recursive: true });
+  await writeFile(full, content, "utf-8");
+};
 
-export async function removeDir(dir: string): Promise<string> {
-  await rm(dir, { recursive: true, force: true });
+export const removeDir = async (dir: string): Promise<string> => {
+  await rm(dir, { force: true, recursive: true });
   return dir;
-}
+};
 
-export const make = (content: string) => async () => content;
+export const make = (content: string) => () => content;

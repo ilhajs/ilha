@@ -1,9 +1,9 @@
 ---
+import data from "blume:data";
 import PageLayout from "blume/components/layout/PageLayout.astro";
-import Preview from "../src/components/Preview.astro";
-import HeroTechCards from "../src/components/landing/HeroTechCards.astro";
-import { ProjectCreatorForm } from "../src/components/landing/Landing";
-
+import Preview from "../src/components/preview.astro";
+import HeroTechCards from "../src/components/landing/hero-tech-cards.astro";
+import { ProjectCreatorForm } from "../src/components/landing/landing";
 import {
   DEFAULT_INSTALL_COMMAND,
   ILHA_ASTRO_CODE,
@@ -15,12 +15,11 @@ import {
   URLS,
   USEFUL_EXTRAS_CARD,
 } from "../src/lib/landing-const";
-import { highlight } from "./_home/highlight";
 import { playgroundUrl } from "../src/lib/playground";
-import data from "blume:data";
+import "../src/styles/landing.css";
+import { highlight } from "./_home/highlight";
 
 const { config } = data;
-import "../src/styles/landing.css";
 
 const OXIDE_SANDBOX = `${URLS.SANDBOX.replace("{template}", "oxide-spa")}?file=src%2Fpages%2Findex.tsx`;
 const PLAYGROUND_URL = playgroundUrl(PREVIEW_CODE);

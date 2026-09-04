@@ -1,58 +1,61 @@
-/** @jsxImportSource . */
 import { describe, expect, it } from "bun:test";
 
 import type { JSX } from "./jsx-types.ts";
+import { isFunction } from "./shared.ts";
 import type { AtomHandle } from "./types.ts";
 
-function typecheckJsxProps(): void {
-  const count = null as unknown as AtomHandle<number>;
-  const on = null as unknown as AtomHandle<boolean>;
-  const name = null as unknown as AtomHandle<string>;
+const click: NonNullable<JSX.IntrinsicElements["button"]["onclick"]> = (e) => {
+  void e.currentTarget.disabled;
+  void e.button;
+};
+const submit: NonNullable<JSX.IntrinsicElements["form"]["onsubmit"]> = (e) => {
+  e.preventDefault();
+  void e.currentTarget.action;
+};
+const input: NonNullable<JSX.IntrinsicElements["input"]["oninput"]> = (e) => {
+  void e.currentTarget.value;
+};
 
-  const click: NonNullable<JSX.IntrinsicElements["button"]["onclick"]> = (e) => {
-    void e.currentTarget.disabled;
-    void e.button;
-  };
-  const submit: NonNullable<JSX.IntrinsicElements["form"]["onsubmit"]> = (e) => {
-    e.preventDefault();
-    void e.currentTarget.action;
-  };
-  const input: NonNullable<JSX.IntrinsicElements["input"]["oninput"]> = (e) => {
-    void e.currentTarget.value;
-  };
+// SAFETY: type-anchor fixtures only — never read at runtime.
+const asHandle = <A,>(): AtomHandle<A> => undefined as AtomHandle<A>;
+
+const typecheckJsxProps = (): void => {
+  const count = asHandle<number>();
+  const on = asHandle<boolean>();
+  const name = asHandle<string>();
 
   const buttonProps: JSX.IntrinsicElements["button"] = {
-    type: "button",
+    children: count,
     class: "btn",
     disabled: true,
     name: "go",
     onclick: click,
-    children: count,
+    type: "button",
   };
   const formProps: JSX.IntrinsicElements["form"] = {
-    onsubmit: submit,
     children: "go",
+    onsubmit: submit,
   };
   const inputProps: JSX.IntrinsicElements["input"] = {
-    type: "text",
     className: "input",
-    value: name,
     oninput: input,
+    type: "text",
+    value: name,
   };
   const checkProps: JSX.IntrinsicElements["input"] = {
-    type: "checkbox",
     checked: on,
+    type: "checkbox",
   };
   const labelProps: JSX.IntrinsicElements["label"] = {
+    children: "Email",
     for: "email",
     htmlFor: "email",
-    children: "Email",
   };
   const styleProps: JSX.IntrinsicElements["div"] = {
-    style: { color: "red", marginTop: 4 },
+    "aria-label": "x",
     class: "card",
     "data-ilha": "",
-    "aria-label": "x",
+    style: { color: "red", marginTop: 4 },
   };
 
   // @ts-expect-error value is not a boolean binding
@@ -81,10 +84,10 @@ function typecheckJsxProps(): void {
   void badDivDisabled;
   void badPForm;
   void count;
-}
+};
 
 describe("jsx types", () => {
   it("keeps type anchors importable", () => {
-    expect(typeof typecheckJsxProps).toBe("function");
+    expect(isFunction(typecheckJsxProps)).toBe(true);
   });
 });

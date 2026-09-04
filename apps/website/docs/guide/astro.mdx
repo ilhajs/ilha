@@ -45,10 +45,7 @@ import { atom } from "ilha";
 export const Counter = ({ start = 0 }: { start?: number }) => {
   const count = atom(start);
   return (
-    <button
-      type="button"
-      onclick={() => count.update((value) => value + 1)}
-    >
+    <button type="button" onclick={() => count.update((value) => value + 1)}>
       {count}
     </button>
   );
@@ -65,9 +62,9 @@ import { Counter } from "../islands/counter";
 
 ## How it works
 
-| Phase  | What happens                                                                                                |
-| ------ | ----------------------------------------------------------------------------------------------------------- |
-| Server | The renderer calls `renderToString()`, which wraps output in a `[data-ilha]` host with a state snapshot.    |
+| Phase | What happens |
+| --- | --- |
+| Server | The renderer calls `renderToString()`, which wraps output in a `[data-ilha]` host with a state snapshot. |
 | Client | The client entry finds that host inside Astro's `<astro-island>` and calls `mount(..., { hydrate: true })`. |
 
 ```

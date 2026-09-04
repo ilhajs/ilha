@@ -1,16 +1,17 @@
-/** @jsxImportSource ../src */
+// @jsxImportSource ../src
 import { expect, test } from "bun:test";
 
 import { mount } from "../src/index.ts";
+import type { Component } from "../src/types.ts";
 
-function paint(App: () => unknown): HTMLElement {
+const paint = (App: Component): HTMLElement => {
   const el = document.createElement("div");
-  mount(el, App as () => void);
+  mount(el, App);
   return el;
-}
+};
 
 test("skips null undefined boolean children", () => {
-  const el = paint(function* () {
+  const el = paint(function* el() {
     yield (
       <p>
         {null}
@@ -25,7 +26,7 @@ test("skips null undefined boolean children", () => {
 });
 
 test("Fragment has no wrapper", () => {
-  const el = paint(function* () {
+  const el = paint(function* el() {
     yield (
       <>
         <span>a</span>
@@ -38,28 +39,28 @@ test("Fragment has no wrapper", () => {
 });
 
 test("array children have no commas", () => {
-  const el = paint(function* () {
+  const el = paint(function* el() {
     yield <p>{["a", "b", "c"]}</p>;
   });
   expect(el.textContent).toBe("abc");
 });
 
 test("className maps to class", () => {
-  const el = paint(function* () {
+  const el = paint(function* el() {
     yield <p className="hi">x</p>;
   });
   expect(el.querySelector("p")?.getAttribute("class")).toBe("hi");
 });
 
 test("htmlFor maps to for", () => {
-  const el = paint(function* () {
+  const el = paint(function* el() {
     yield <label htmlFor="n">n</label>;
   });
   expect(el.querySelector("label")?.getAttribute("for")).toBe("n");
 });
 
 test("boolean true attribute is present", () => {
-  const el = paint(function* () {
+  const el = paint(function* el() {
     yield <input disabled />;
   });
   expect(el.querySelector("input")?.hasAttribute("disabled")).toBe(true);

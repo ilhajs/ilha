@@ -1,52 +1,100 @@
+import { isObject } from "./shared.ts";
+import type { JsonText } from "./types.ts";
+
 const MAX_SNAPSHOT_CHARS = 256 * 1024;
 const MAX_SNAPSHOT_DEPTH = 32;
-const UNSAFE_SNAPSHOT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 export const STATE_COMMENT = "ilha-state:";
 
-function exceedsMaxDepth(value: unknown, depth: number): boolean {
-  if (depth > MAX_SNAPSHOT_DEPTH) return true;
-  if (value === null || typeof value !== "object") return false;
-  if (Array.isArray(value)) {
-    for (const item of value) if (exceedsMaxDepth(item, depth + 1)) return true;
+/** JSON values accepted in SSR hydrate snapshots. */
+export type SnapshotValue =
+  | JsonText
+  | SnapshotObject
+  | readonly SnapshotValue[];
+
+export interface SnapshotObject {
+  readonly [key: string]: SnapshotValue | undefined;
+}
+
+const exceedsMaxDepth = <T>(value: T, depth: number): boolean => {
+  if (depth > MAX_SNAPSHOT_DEPTH) {
+    return true;
+  }
+  if (value === null || !isObject(value)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (exceedsMaxDepth(item, depth + 1)) {
+          return true;
+        }
+      }
+    }
     return false;
   }
-  for (const key of Object.keys(value as object)) {
-    if (exceedsMaxDepth((value as Record<string, unknown>)[key], depth + 1)) return true;
+  // SAFETY: isObject narrowed to a plain object; keys are snapshot field names.
+  const obj = value as SnapshotObject;
+  for (const key of Object.keys(obj)) {
+    if (exceedsMaxDepth(obj[key], depth + 1)) {
+      return true;
+    }
   }
   return false;
-}
+};
 
-function stripUnsafeKeys(value: unknown): void {
-  if (value === null || typeof value !== "object") return;
+const deleteUnsafeKey = (
+  obj: SnapshotObject,
+  key: "__proto__" | "constructor" | "prototype"
+): void => {
+  if (Object.hasOwn(obj, key)) {
+    Reflect.deleteProperty(obj, key);
+  }
+};
+
+const stripUnsafeKeys = <T>(value: T): void => {
   if (Array.isArray(value)) {
-    for (const item of value) stripUnsafeKeys(item);
+    for (const item of value) {
+      stripUnsafeKeys(item);
+    }
     return;
   }
-  for (const key of Object.getOwnPropertyNames(value)) {
-    if (UNSAFE_SNAPSHOT_KEYS.has(key)) delete (value as Record<string, unknown>)[key];
-    else stripUnsafeKeys((value as Record<string, unknown>)[key]);
+  if (value === null || !isObject(value)) {
+    return;
   }
-}
+  // SAFETY: isObject narrowed to a plain object we mutate in place.
+  const obj = value as SnapshotObject;
+  deleteUnsafeKey(obj, "__proto__");
+  deleteUnsafeKey(obj, "constructor");
+  deleteUnsafeKey(obj, "prototype");
+  for (const key of Object.getOwnPropertyNames(obj)) {
+    stripUnsafeKeys(obj[key]);
+  }
+};
 
-function safeParseSnapshot(raw: string): Record<string, unknown> | undefined {
-  if (raw.length > MAX_SNAPSHOT_CHARS) return undefined;
-  let parsed: unknown;
+const safeParseSnapshot = (raw: string): SnapshotObject | undefined => {
+  if (raw.length > MAX_SNAPSHOT_CHARS) {
+    return undefined;
+  }
+  let parsed: SnapshotValue | undefined;
   try {
-    parsed = JSON.parse(raw);
+    // SAFETY: JSON.parse yields JSON; we validate shape before returning.
+    parsed = JSON.parse(raw) as SnapshotValue;
   } catch {
     return undefined;
   }
-  if (exceedsMaxDepth(parsed, 1)) return undefined;
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+  if (exceedsMaxDepth(parsed, 1)) {
+    return undefined;
+  }
+  if (!isObject(parsed) || Array.isArray(parsed)) {
+    return undefined;
+  }
   stripUnsafeKeys(parsed);
-  return parsed as Record<string, unknown>;
-}
+  // SAFETY: isObject + stripUnsafeKeys left a plain SnapshotObject.
+  return parsed as SnapshotObject;
+};
 
-export function encodeSnapshot(values: unknown[]): string {
-  return JSON.stringify({ v: values });
-}
+export const encodeSnapshot = (values: readonly SnapshotValue[]): string =>
+  JSON.stringify({ v: values });
 
-export function decodeSnapshot(raw: string): unknown[] | undefined {
-  const parsed = safeParseSnapshot(raw) as { v?: unknown[] } | undefined;
-  return Array.isArray(parsed?.v) ? parsed.v : undefined;
-}
+export const decodeSnapshot = (raw: string): SnapshotValue[] | undefined => {
+  const parsed = safeParseSnapshot(raw);
+  const values = parsed?.v;
+  return Array.isArray(values) ? values : undefined;
+};

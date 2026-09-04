@@ -55,7 +55,9 @@ import * as Atom from "effect/unstable/reactivity/Atom";
 import { atom } from "ilha";
 
 const items = atom([{ n: 1 }, { n: 2 }]);
-const total = atom(Atom.map(items.atom, (list) => list.reduce((sum, item) => sum + item.n, 0)));
+const total = atom(
+  Atom.map(items.atom, (list) => list.reduce((sum, item) => sum + item.n, 0))
+);
 ```
 
 Wrap multiple writes in `batch()`. Derived and mutation atoms use Effect's `Atom.map`, `Atom.transform`, and `Atom.fn` — pass `handle.atom`, then wrap in `atom()`. Use `watch(source, fn)` for side effects on atom changes.

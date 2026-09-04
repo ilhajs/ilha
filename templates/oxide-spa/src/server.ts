@@ -9,7 +9,7 @@ import { setFrameAuth } from "@ilha/router/ssr";
 setFrameAuth({ defaultAction: "open" });
 
 export default {
-  async fetch() {
-    return null as unknown as undefined;
+  fetch(): undefined {
+    return undefined;
   },
 };

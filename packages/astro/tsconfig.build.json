@@ -6,7 +6,13 @@
     "emitDeclarationOnly": true,
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["@types/bun"]
+    "types": ["@types/bun"],
+    "strictNullChecks": true
   },
-  "include": ["src/index.ts", "src/server.ts", "src/client.ts", "src/virtual.d.ts"]
+  "include": [
+    "src/index.ts",
+    "src/server.ts",
+    "src/client.ts",
+    "src/virtual.d.ts"
+  ]
 }

@@ -1,15 +1,13 @@
-/** @jsxImportSource ../src */
+// @jsxImportSource ../src
 import { expect, test } from "bun:test";
 
 import { renderToString } from "../src/index.ts";
+import type { ActionArg } from "../src/types.ts";
 
 const ACTION_CALL = Symbol.for("ilha.actionCall");
 
-function branded(key: string, args: unknown[]) {
-  const handler = () => undefined;
-  (handler as unknown as Record<symbol, unknown>)[ACTION_CALL] = { k: key, a: args };
-  return handler;
-}
+const branded = (key: string, args: readonly ActionArg[]) =>
+  Object.assign(() => {}, { [ACTION_CALL]: { a: args, k: key } });
 
 test("branded handler emits a sentinel without captureActions", async () => {
   const html = await renderToString(() => (
@@ -27,11 +25,11 @@ test("branded handler emits a sentinel without captureActions", async () => {
 test("plain handlers are not probed during SSR capture", async () => {
   const html = await renderToString(
     () => (
-      <button type="button" onclick={() => undefined}>
+      <button type="button" onclick={() => {}}>
         Delete
       </button>
     ),
-    { captureActions: true },
+    { captureActions: true }
   );
   expect(html).not.toContain("data-ilha-on");
   expect(html).not.toContain("data-ilha-actions");
@@ -47,11 +45,13 @@ test("two branded events on one element accumulate in data-ilha-on", async () =>
         onclick={branded("x:toggle", [])}
       />
     ),
-    { captureActions: true },
+    { captureActions: true }
   );
-  const match = /data-ilha-on="([^"]+)"/.exec(html);
-  expect(match).not.toBeNull();
-  const spec = match![1]!;
+  const match = /data-ilha-on="(?<spec>[^"]+)"/u.exec(html);
+  const spec = match?.groups?.spec;
+  if (!spec) {
+    throw new Error("data-ilha-on missing");
+  }
   expect(spec).toContain("change:");
   expect(spec).toContain("click:");
   expect(spec.split(",")).toHaveLength(2);
@@ -59,7 +59,7 @@ test("two branded events on one element accumulate in data-ilha-on", async () =>
 
 test("plain handler without capture emits no sentinel", async () => {
   const html = await renderToString(() => (
-    <button type="button" onclick={() => undefined}>
+    <button type="button" onclick={() => {}}>
       Go
     </button>
   ));
@@ -79,7 +79,7 @@ test("handler that throws during capture emits no sentinel", async () => {
         Go
       </button>
     ),
-    { captureActions: true },
+    { captureActions: true }
   );
   expect(html).not.toContain("data-ilha-on");
 });

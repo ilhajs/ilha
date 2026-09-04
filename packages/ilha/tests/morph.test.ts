@@ -5,18 +5,18 @@ import { morphInner } from "../src/morph.ts";
 test("keyed morph moves node and keeps identity", () => {
   const from = document.createElement("ul");
   const a = document.createElement("li");
-  a.setAttribute("data-ilha-key", "a");
+  a.dataset.ilhaKey = "a";
   a.textContent = "A";
   const b = document.createElement("li");
-  b.setAttribute("data-ilha-key", "b");
+  b.dataset.ilhaKey = "b";
   b.textContent = "B";
   from.append(a, b);
   const to = document.createElement("ul");
   const b2 = document.createElement("li");
-  b2.setAttribute("data-ilha-key", "b");
+  b2.dataset.ilhaKey = "b";
   b2.textContent = "B";
   const a2 = document.createElement("li");
-  a2.setAttribute("data-ilha-key", "a");
+  a2.dataset.ilhaKey = "a";
   a2.textContent = "A";
   to.append(b2, a2);
   morphInner(from, to);
@@ -42,12 +42,15 @@ test("morph input select textarea and preserve attr", () => {
   const input = document.createElement("input");
   input.setAttribute("value", "a");
   input.value = "a";
-  input.setAttribute("data-morph-preserve", "title");
+  input.dataset.morphPreserve = "title";
   input.setAttribute("title", "keep");
   const ta = document.createElement("textarea");
   ta.textContent = "old";
   const sel = document.createElement("select");
-  sel.append(document.createElement("option"), document.createElement("option"));
+  sel.append(
+    document.createElement("option"),
+    document.createElement("option")
+  );
   from.append(input, ta, sel);
   const to = document.createElement("div");
   const input2 = document.createElement("input");
@@ -61,9 +64,12 @@ test("morph input select textarea and preserve attr", () => {
   sel2.append(o, document.createElement("option"));
   to.append(input2, ta2, sel2);
   morphInner(from, to);
-  expect((from.children[0] as HTMLInputElement).value).toBe("b");
-  expect(from.children[0]?.getAttribute("title")).toBe("keep");
-  expect((from.children[1] as HTMLTextAreaElement).value).toBe("new");
+  const [first, second] = from.children;
+  // SAFETY: morph keeps the same input/textarea element identities under from.
+  expect((first as HTMLInputElement).value).toBe("b");
+  expect(first?.getAttribute("title")).toBe("keep");
+  // SAFETY: second child remains the textarea morph reused.
+  expect((second as HTMLTextAreaElement).value).toBe("new");
 });
 
 test("morph restores input selection", () => {
@@ -87,16 +93,16 @@ test("morph restores input selection", () => {
 test("morph keyed skip, type mismatch, extra nodes", () => {
   const from = document.createElement("div");
   const a = document.createElement("span");
-  a.setAttribute("data-ilha-key", "a");
+  a.dataset.ilhaKey = "a";
   a.textContent = "A";
   const b = document.createElement("span");
-  b.setAttribute("data-ilha-key", "b");
+  b.dataset.ilhaKey = "b";
   from.append(a, b, document.createTextNode("x"), document.createElement("i"));
   const to = document.createElement("div");
   const c = document.createElement("span");
-  c.setAttribute("data-ilha-key", "c");
+  c.dataset.ilhaKey = "c";
   const a2 = document.createElement("span");
-  a2.setAttribute("data-ilha-key", "a");
+  a2.dataset.ilhaKey = "a";
   to.append(c, a2, document.createElement("b"));
   morphInner(from, to);
   expect(from.children.length).toBe(3);
@@ -113,8 +119,12 @@ test("morph select keeps live selected when attr unchanged", () => {
   from.append(sel);
   const to = document.createElement("div");
   const sel2 = document.createElement("select");
-  sel2.append(document.createElement("option"), document.createElement("option"));
+  sel2.append(
+    document.createElement("option"),
+    document.createElement("option")
+  );
   to.append(sel2);
   morphInner(from, to);
+  // SAFETY: morph keeps the select as firstChild of from.
   expect((from.firstChild as HTMLSelectElement).options.length).toBe(2);
 });
