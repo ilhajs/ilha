@@ -5,6 +5,7 @@ import { h } from "ilha";
 import {
   afterNavigate,
   error,
+  head,
   isActive,
   navigate,
   redirect,
@@ -40,6 +41,19 @@ const Boom = () => {
 const Layout = (props: { children?: unknown }) =>
   // SAFETY: wrapLayout passes View children; h accepts never for mixed child slots.
   h("main", { id: "shell" }, props.children as never);
+
+const HeadPage = () => {
+  head({ title: "Home" });
+  return h("p", null, "home");
+};
+
+const HeadLayout = (props: { children?: unknown }) => {
+  head({
+    titleTemplate: (title) => `${title ?? ""} · App`,
+  });
+  // SAFETY: wrapLayout passes View children; h accepts never for mixed child slots.
+  return h("main", null, props.children as never);
+};
 
 describe("router", () => {
   it("matches and SSRs a page", async () => {
@@ -79,7 +93,7 @@ describe("router", () => {
   });
 
   it("navigates in the browser", async () => {
-    history.replaceState(null, "", "/");
+    window.location.href = "http://localhost/";
     const host = makeEl();
     const r = router().route("/", Home).route("/about", About);
     const unmount = r.mount(host);
@@ -100,7 +114,7 @@ describe("router", () => {
   });
 
   it("afterNavigate fires on navigate", async () => {
-    history.replaceState(null, "", "/");
+    window.location.href = "http://localhost/";
     const host = makeEl();
     const r = router().route("/", Home).route("/about", About);
     const seen: string[] = [];
@@ -111,5 +125,22 @@ describe("router", () => {
     await Bun.sleep(10);
     expect(seen).toContain("/about");
     off();
+  });
+
+  it("applies head() from pages and layouts on client mount", async () => {
+    window.location.href = "http://localhost/";
+    document.title = "";
+    const host = makeEl();
+    const r = router().route("/", wrapLayout(HeadLayout, HeadPage));
+    const unmount = r.mount(host);
+    await Bun.sleep(10);
+    expect(document.title).toBe("Home · App");
+    unmount();
+  });
+
+  it("updates document.title when head() runs outside a mount store", () => {
+    document.title = "old";
+    head({ title: "Direct" });
+    expect(document.title).toBe("Direct");
   });
 });

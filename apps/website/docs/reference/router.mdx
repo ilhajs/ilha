@@ -57,7 +57,7 @@ head(
 });
 ```
 
-Call inside a page or layout. Layouts typically set `titleTemplate`; pages set `title`.
+Call inside a page or layout. Layouts typically set `titleTemplate`; pages set `title`. Works during SSR and on the client (mutates `document.head` / `document.title`).
 
 ### Pages and errors
 

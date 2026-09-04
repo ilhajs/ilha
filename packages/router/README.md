@@ -178,7 +178,7 @@ export default function About() {
 }
 ```
 
-`HeadInput` fields: `title`, `titleTemplate`, `meta`, `link`, `script`, `htmlAttrs`, `bodyAttrs`. Call `head()` inside a page or layout; during SSR entries collect into the render window and `serializeHead()` turns them into shell fragments. On the client, entries apply to `document` on navigation.
+`HeadInput` fields: `title`, `titleTemplate`, `meta`, `link`, `script`, `htmlAttrs`, `bodyAttrs`. Call `head()` inside a page or layout — during SSR entries collect into the render window; on the client the router applies them to `document` after each mount and navigation.
 
 ### Pages, layouts, and errors
 

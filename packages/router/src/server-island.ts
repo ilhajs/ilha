@@ -166,7 +166,7 @@ const abortAwareDelay = async <E>(
   }
 };
 
-const isColdStartRpcFailure = <E>(error: E): boolean => {
+const isRetryableRpcFailure = <E>(error: E): boolean => {
   const msg = String(error);
   return (
     msg.includes("404") ||
@@ -174,53 +174,89 @@ const isColdStartRpcFailure = <E>(error: E): boolean => {
     msg.includes("empty HTTP response") ||
     msg.includes("HttpError") ||
     msg.includes("RpcClientDefect") ||
-    msg.includes("RpcClientError")
+    msg.includes("RpcClientError") ||
+    msg.includes("TransportError") ||
+    msg.includes("InvalidUrlError")
   );
 };
 
-/** Dev cold-start can race a warming `virtual:oxide/actions` graph — retry briefly. */
-const startServerStream = async <E>(
-  fn: ServerStreamFn,
-  signal: AbortSignal,
-  attempt = 0,
-  last?: E
-): Promise<{
-  gen: AsyncGenerator<SnapshotValue> | Generator<SnapshotValue>;
-  first: IteratorResult<SnapshotValue, SnapshotValue>;
-}> => {
-  if (attempt >= 4) {
-    throw last;
-  }
+const isAbortLike = <E>(error: E, signal: AbortSignal): boolean => {
   if (signal.aborted) {
-    throw last ?? new DOMException("The operation was aborted.", "AbortError");
+    return true;
+  }
+  // SAFETY: DOMException / Error expose optional `.name`.
+  const named = error as { name?: string };
+  return named.name === "AbortError";
+};
+
+const closeStream = async (
+  gen: AsyncGenerator<SnapshotValue> | Generator<SnapshotValue> | undefined
+): Promise<void> => {
+  if (!gen) {
+    return;
+  }
+  try {
+    // SAFETY: return() accepts any completion value; streams ignore it.
+    await gen.return?.(undefined as never);
+  } catch {
+    void 0;
+  }
+};
+
+const pullStream = async (
+  gen: AsyncGenerator<SnapshotValue> | Generator<SnapshotValue>,
+  step: IteratorResult<SnapshotValue, SnapshotValue>,
+  key: string,
+  state: SnapshotObject,
+  signal: AbortSignal,
+  onValue: () => void
+): Promise<void> => {
+  if (signal.aborted || step.done) {
+    return;
+  }
+  // SAFETY: stream state keys are island-owned; mutate the snapshot bag.
+  (state as Record<string, SnapshotValue | undefined>)[key] = step.value;
+  onValue();
+  const next = await gen.next();
+  await pullStream(gen, next, key, state, signal, onValue);
+};
+
+/**
+ * Pull a wired server stream until it ends or the island unmounts.
+ * Dev cold-start and flaky Oxide RPC transports (empty bodies, aborted
+ * fetches during Vite dep reloads) are retried with the same generator
+ * factory — including failures after the first chunk.
+ */
+const resumeServerStream = async (
+  fn: ServerStreamFn,
+  key: string,
+  state: SnapshotObject,
+  controller: AbortController,
+  onValue: () => void,
+  attempt = 0
+): Promise<void> => {
+  if (controller.signal.aborted) {
+    return;
   }
   let gen: AsyncGenerator<SnapshotValue> | Generator<SnapshotValue> | undefined;
   try {
-    gen = await fn(signal);
+    gen = await fn(controller.signal);
     // Async `function*` bodies run on the first `next()`, so cold RPC
     // failures surface here — keep that read inside the retry boundary.
     const first = await gen.next();
-    return { first, gen };
+    await pullStream(gen, first, key, state, controller.signal, onValue);
+    await closeStream(gen);
   } catch (error) {
-    if (gen) {
-      try {
-        // SAFETY: return() accepts any completion value; streams ignore it.
-        await gen.return?.(undefined as never);
-      } catch {
-        void 0;
-      }
+    await closeStream(gen);
+    if (isAbortLike(error, controller.signal)) {
+      return;
     }
-    if (signal.aborted) {
-      throw error;
+    if (!isRetryableRpcFailure(error) || attempt >= 3) {
+      console.error(`[ilha-router] stream "${key}" failed:`, error);
+      return;
     }
-    if (!isColdStartRpcFailure(error)) {
-      throw error;
-    }
-    if (attempt === 3) {
-      throw error;
-    }
-    await abortAwareDelay(50 * (attempt + 1), signal, error);
-    return startServerStream(fn, signal, attempt + 1, error);
+    await abortAwareDelay(50 * (attempt + 1), controller.signal, error);
+    return resumeServerStream(fn, key, state, controller, onValue, attempt + 1);
   }
 };
 
@@ -242,46 +278,6 @@ interface ActionMarker {
   k?: SnapshotValue;
   a?: SnapshotValue;
 }
-
-const drainStream = async (
-  gen: AsyncGenerator<SnapshotValue> | Generator<SnapshotValue>,
-  first: IteratorResult<SnapshotValue, SnapshotValue>,
-  key: string,
-  state: SnapshotObject,
-  controller: AbortController,
-  onValue: () => void
-): Promise<void> => {
-  let step = first;
-  const advance = async (): Promise<void> => {
-    const { done, value } = step;
-    if (controller.signal.aborted || done) {
-      return;
-    }
-    // SAFETY: stream state keys are island-owned; mutate the snapshot bag.
-    (state as Record<string, SnapshotValue | undefined>)[key] = value;
-    onValue();
-    step = await gen.next();
-    await advance();
-  };
-  try {
-    await advance();
-  } catch (error) {
-    // SAFETY: DOMException / Error expose optional `.name`.
-    // SAFETY: DOMException / Error expose optional `.name`.
-    const named = error as { name?: string };
-    if (!controller.signal.aborted && named.name !== "AbortError") {
-      console.error(`[ilha-router] stream "${key}" failed:`, error);
-    }
-  } finally {
-    try {
-      // SAFETY: return() accepts any completion value; streams ignore it.
-      // SAFETY: return() accepts any completion value; streams ignore it.
-      await gen.return?.(undefined as never);
-    } catch {
-      void 0;
-    }
-  }
-};
 
 const hydrateServerIsland = (
   host: Element,
@@ -547,26 +543,7 @@ const hydrateServerIsland = (
   // Resume streams. The generator call site is identical to the server's —
   // only the import resolution differs (tacho SSE stub vs local generator).
   for (const [key, fn] of Object.entries(wiring.streams ?? {})) {
-    const run = async () => {
-      try {
-        const { gen, first } = await startServerStream(fn, controller.signal);
-        await drainStream(
-          gen,
-          first,
-          key,
-          state,
-          controller,
-          hooks.repaintModule
-        );
-      } catch (error) {
-        // SAFETY: DOMException / Error expose optional `.name`.
-        const named = error as { name?: string };
-        if (!controller.signal.aborted && named.name !== "AbortError") {
-          console.error(`[ilha-router] stream "${key}" failed:`, error);
-        }
-      }
-    };
-    void run();
+    void resumeServerStream(fn, key, state, controller, hooks.repaintModule);
   }
 
   // Bootstrap: when there is no SSR DOM to hydrate (pure client render, e.g.

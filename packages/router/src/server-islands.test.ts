@@ -406,6 +406,59 @@ describe("__ilhaServerIsland", () => {
     }
   });
 
+  it("reconnects when a later stream next() fails with HttpError", async () => {
+    let connections = 0;
+    let frames = 0;
+    const errors: unknown[] = [];
+    const prevError = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args);
+    };
+    const genFlaky = async function* genFlaky(): AsyncGenerator<number> {
+      connections += 1;
+      if (connections === 1) {
+        yield 1;
+        throw new Error("~effect/rpc/RpcClientError: HttpError: ");
+      }
+      yield 2;
+      // Stay open until unmount — a completed generator is fine too.
+    };
+    let unmount: (() => void) | undefined;
+    try {
+      const Island = __ilhaServerIsland("t.server.tsx#MidHttp", "div", {
+        frame: () => {
+          frames += 1;
+          return `<p>n=${frames}</p>`;
+        },
+        streams: { count: () => genFlaky() },
+      });
+      const host = makeHost(`<div data-ilha="MidHttp"></div>`);
+      const root = host.firstElementChild;
+      if (!root) {
+        throw new Error("island root missing");
+      }
+      unmount = Island.mount(root);
+      const settled = () => connections >= 2 && frames >= 2;
+      const waitTick = async (remaining: number): Promise<void> => {
+        if (settled() || remaining === 0) {
+          return;
+        }
+        await Bun.sleep(5);
+        await waitTick(remaining - 1);
+      };
+      await waitTick(400);
+      if (!settled()) {
+        throw new Error("Timed out waiting for mid-stream reconnect");
+      }
+      expect(connections).toBeGreaterThanOrEqual(2);
+      expect(frames).toBeGreaterThanOrEqual(2);
+      expect(errors).toEqual([]);
+    } finally {
+      unmount?.();
+      console.error = prevError;
+    }
+  });
+
   it("retries when the first stream next() fails with an empty HTTP response", async () => {
     let attempts = 0;
     let frames = 0;

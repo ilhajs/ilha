@@ -5,6 +5,7 @@ import { REQUEST_ALS_KEY } from "./als-key";
 import { getAdapter, getHistoryMode } from "./hash";
 import {
   applyHeadEntriesToDocument,
+  openBrowserHead,
   serializeHead,
   withHeadStore,
 } from "./head";
@@ -714,15 +715,25 @@ export const router = (options: RouterOptions = {}): RouterBuilder => {
       }
 
       let unmountView: (() => void) | null = null;
+      let headSession: ReturnType<typeof openBrowserHead> | null = null;
       const remount = () => {
         unmountView?.();
+        headSession?.close();
+        headSession = null;
         const page = pageForPath(_path, routes, notFound);
         if (!page) {
           unmountView = null;
+          applyHeadEntriesToDocument([]);
           return;
         }
+        const session = openBrowserHead();
+        headSession = session;
         unmountView = mount(host, page, {
           hydrate: unmountView === null && hydrate,
+        });
+        // Nested layout/page fibers may call head() after mount() returns.
+        queueMicrotask(() => {
+          session.flush();
         });
       };
 
@@ -763,6 +774,8 @@ export const router = (options: RouterOptions = {}): RouterBuilder => {
         mounted = false;
         offNav();
         unmountView?.();
+        headSession?.close();
+        headSession = null;
         navChangeCleanup?.();
         linkCleanup?.();
         if (prevScroll !== null) {

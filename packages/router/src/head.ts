@@ -1,9 +1,10 @@
 /**
- * Render-scoped head collection and serialization.
+ * Render-scoped head collection and document sync.
  *
  * Loaders and render-time `head()` calls push `HeadInput` entries into a
- * store scoped to the current render (`withHeadStore`); `serializeHead`
- * turns the collected entries into document-shell fragments.
+ * store scoped to the current render (`withHeadStore` / `withHeadStoreSync`).
+ * SSR serializes them with `serializeHead`; on the client the router applies
+ * the collected entries to `document` after each mount/navigation.
  */
 
 const objectTag = <T>(value: T): string =>
@@ -55,9 +56,8 @@ type HeadScriptTag = HeadAttrMap & { children?: string };
 
 /**
  * Serializable description of `<head>` (and html/body attributes) contributed
- * by a loader or a render-time `head()` call. Deliberately a plain POJO — Tier
- * 1 head management is SSR-only, so there is no reactive wrapper. Dedup keys
- * mirror unhead so a later move to a runtime head manager stays a drop-in.
+ * by a loader or a render-time `head()` call. Dedup keys mirror unhead so a
+ * later move to a runtime head manager stays a drop-in.
  */
 export interface HeadInput {
   title?: string;
@@ -127,26 +127,6 @@ const activeHeadStore = (): HeadStore | null => {
     return _browserHeadStore;
   }
   return _headAls?.getStore() ?? null;
-};
-
-/**
- * Contribute `<head>` data from inside an island's `.render()` body or a
- * layout. During SSR this collects into the active render window; on the
- * client, entries are collected when the router re-renders a route inside
- * `withHeadStore` and then applied to `document`. Prefer a loader's `ctx.head`
- * for data that depends on the request.
- */
-export const head = (input: HeadInput): void => {
-  const store = activeHeadStore();
-  if (!store) {
-    if (!isBrowser) {
-      console.warn(
-        "[ilha-router] head() called outside an SSR render window — ignored."
-      );
-    }
-    return;
-  }
-  store.entries.push(input);
 };
 
 export const cssEscapeAttr = (value: string): string => {
@@ -504,6 +484,75 @@ export const withHeadStore = async <T>(
   }
   const als = await getHeadAlsAsync();
   return await als.run(store, () => Promise.resolve(fn()));
+};
+
+let _flushScheduled = false;
+let _flushTarget: HeadStore | null = null;
+
+const scheduleBrowserHeadFlush = (store: HeadStore): void => {
+  _flushTarget = store;
+  if (_flushScheduled) {
+    return;
+  }
+  _flushScheduled = true;
+  queueMicrotask(() => {
+    _flushScheduled = false;
+    const target = _flushTarget;
+    _flushTarget = null;
+    if (target && _browserHeadStore === target) {
+      applyHeadEntriesToDocument(target.entries);
+    }
+  });
+};
+
+/**
+ * Contribute `<head>` data from inside a page, layout, or island render.
+ *
+ * During SSR (or a client mount with an open browser head window), entries
+ * collect into the active store. On the client with no store, the entry is
+ * applied to `document` immediately.
+ */
+export const head = (input: HeadInput): void => {
+  const store = activeHeadStore();
+  if (store) {
+    store.entries.push(input);
+    if (isBrowser) {
+      scheduleBrowserHeadFlush(store);
+    }
+    return;
+  }
+  if (isBrowser) {
+    applyHeadEntriesToDocument([input]);
+    return;
+  }
+  console.warn(
+    "[ilha-router] head() called outside a render window — ignored."
+  );
+};
+
+export interface BrowserHeadSession {
+  flush: () => void;
+  close: () => void;
+}
+
+/**
+ * Open a browser head collection window for a client route mount.
+ * Nested page/layout `head()` calls may land after `mount()` returns; keep
+ * the window open until `close()`, and flush on a microtask (or via `flush()`).
+ */
+export const openBrowserHead = (): BrowserHeadSession => {
+  const store: HeadStore = { entries: [] };
+  _browserHeadStore = store;
+  return {
+    close: () => {
+      if (_browserHeadStore === store) {
+        _browserHeadStore = null;
+      }
+    },
+    flush: () => {
+      applyHeadEntriesToDocument(store.entries);
+    },
+  };
 };
 
 const pushSerializedMeta = (parts: string[], meta: HeadAttrMap[]): void => {

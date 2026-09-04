@@ -20,6 +20,7 @@ import * as Result from "effect/Result";
 import { renderToString } from "ilha";
 import { action, brandServerAction } from "oxidejs";
 
+import { withHeadStore } from "./head";
 import { runWithIslandRequest } from "./request-scope";
 import { sanitizeSnapshotObject } from "./snapshot";
 import type { SnapshotObject, SnapshotValue } from "./snapshot";
@@ -410,7 +411,9 @@ export const renderServerIsland = (
           : frameFail(400, error instanceof Error ? error.message : undefined),
       try: async () =>
         await runWithScope(request, () =>
-          renderToStringOf(render, incomingProps)
+          withHeadStore({ entries: [] }, () =>
+            renderToStringOf(render, incomingProps)
+          )
         ),
     });
   });
