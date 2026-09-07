@@ -491,7 +491,10 @@ export const authorizeFrameRequest = async (
   }
 
   const guard = getFrameGuard();
-  if (!guard && (auth?.defaultAction ?? "deny") === "deny") {
+  if (
+    !guard &&
+    (auth?.defaultAction ?? options.defaultAction ?? "deny") === "deny"
+  ) {
     return { ok: false, status: 403 };
   }
   try {

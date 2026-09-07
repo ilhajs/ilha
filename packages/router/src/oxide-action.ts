@@ -14,7 +14,10 @@ interface AtomTagged {
 }
 
 /** Brand an exported server action with its generated RPC transport key. */
-export const __ilhaServerAction = <A extends SnapshotValue[], R>(
+export const __ilhaServerAction = <
+  A extends SnapshotValue[],
+  R extends SnapshotValue,
+>(
   key: string,
   fn: (...args: A) => R | Promise<R>
 ) => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { httpResponse, router, serializeHead } from "./index";
 import type { Page, RenderResponse } from "./index";
+import { __ilhaServerAction } from "./ssr";
 
 declare const aPage: Page;
 
@@ -26,7 +27,16 @@ const typecheckRouterApi = (): void => {
   void headTags;
 };
 
+const typecheckServerActionResult = (): void => {
+  const ok = __ilhaServerAction("x:ok", (id: string) => id);
+  void ok;
+  // @ts-expect-error bigint is not a SnapshotValue RPC result
+  const bad = __ilhaServerAction("x:bad", () => 1n);
+  void bad;
+};
+
 void typecheckRouterApi;
+void typecheckServerActionResult;
 
 describe("types.test anchors", () => {
   it("exposes callable public surface", () => {
