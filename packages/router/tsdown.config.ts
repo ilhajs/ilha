@@ -9,7 +9,13 @@ export default defineConfig({
     "src/ssr.ts",
     "src/server-island.ts",
   ],
-  external: ["ilha", "ilha:pages/server", "ilha:loaders", "node:async_hooks"],
+  external: [
+    "ilha",
+    "ilha:pages/server",
+    "ilha:loaders",
+    "node:async_hooks",
+    "oxidejs",
+  ],
   minify: false,
   platform: "neutral",
 });
