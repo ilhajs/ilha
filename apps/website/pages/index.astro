@@ -21,7 +21,7 @@ import { highlight } from "./_home/highlight";
 
 const { config } = data;
 
-const OXIDE_SANDBOX = `${URLS.SANDBOX.replace("{template}", "oxide-spa")}?file=src%2Fpages%2Findex.tsx`;
+const VITE_SPA_SANDBOX = `${URLS.SANDBOX.replace("{template}", "vite-spa")}?file=src%2Fpages%2Findex.tsx`;
 const PLAYGROUND_URL = playgroundUrl(PREVIEW_CODE);
 const SEO_TITLE = "Ilha - Build fast websites with islands";
 
@@ -73,7 +73,7 @@ const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
                   Get started
                 </a>
                 <a
-                  href={OXIDE_SANDBOX}
+                  href={VITE_SPA_SANDBOX}
                   target="_blank"
                   rel="noopener noreferrer"
                   class="btn w-full justify-center sm:w-auto sm:flex-none"
