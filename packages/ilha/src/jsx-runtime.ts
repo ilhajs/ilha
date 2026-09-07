@@ -1,4 +1,4 @@
-import type { ComponentFn, Fragment, PropBag } from "./types.ts";
+import type { ComponentFn, Fragment, JsxComponent, PropBag } from "./types.ts";
 import { h as createElement } from "./vnode.ts";
 
 export type { View } from "./types.ts";
@@ -6,7 +6,7 @@ export type { JSX } from "./jsx-types.ts";
 export { Fragment, h } from "./vnode.ts";
 
 export const jsx = (
-  type: string | Fragment | ComponentFn,
+  type: string | Fragment | ComponentFn | JsxComponent,
   props: PropBag | null,
   key?: string | number
 ): ReturnType<typeof createElement> =>

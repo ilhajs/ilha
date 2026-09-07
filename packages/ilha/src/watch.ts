@@ -26,17 +26,23 @@ export interface WatchRecord {
   readonly [key: string]: WatchValue | undefined;
 }
 
+const WATCH_ONCE = Symbol("ilha.watch.once");
+
 /** Discriminator for watch slot identity (atom/stream instance). */
 export type WatchKey =
   | Atom.Atom<WatchValue>
   | Stream.Stream<WatchValue, unknown, unknown>
-  | AtomHandle<WatchValue>;
+  | AtomHandle<WatchValue>
+  | typeof WATCH_ONCE;
 
 export interface WatchSlot {
   key: WatchKey;
-  fnRef: { current: (value: WatchValue) => void };
+  fnRef?: { current: (value: WatchValue) => void };
   dispose: () => void;
 }
+
+/** Optional disposer returned from `watch.once`. */
+export type WatchOnceCleanup = () => void;
 
 const runStreamWatch = (
   fiber: FiberLocal,
@@ -65,8 +71,10 @@ const useWatchSlot = <A extends WatchValue>(
   const existing = fiber.watchSlots[i];
   if (existing) {
     if (existing.key === key) {
-      // SAFETY: same key means the slot was created for the same A callback shape.
-      existing.fnRef.current = fn as (value: WatchValue) => void;
+      if (existing.fnRef) {
+        // SAFETY: same key means the slot was created for the same A callback shape.
+        existing.fnRef.current = fn as (value: WatchValue) => void;
+      }
       return;
     }
     existing.dispose();
@@ -74,7 +82,7 @@ const useWatchSlot = <A extends WatchValue>(
     fiber.watchSlots[i] = undefined as never;
   }
   // SAFETY: fnRef stores the latest A callback; mount invokes it with A values.
-  const fnRef: WatchSlot["fnRef"] = {
+  const fnRef: NonNullable<WatchSlot["fnRef"]> = {
     current: fn as (value: WatchValue) => void,
   };
   const unsub = mount((value) => {
@@ -125,8 +133,37 @@ const registerWatch = <A extends WatchValue>(
   );
 };
 
+/** Run `fn` once on mount. Return a function to clean up on unmount. */
+const watchOnce = (
+  fn: () => WatchOnceCleanup | undefined
+): Instruction<undefined> => {
+  const fiber = getFiber();
+  const i = fiber.watchI ?? 0;
+  fiber.watchI = i + 1;
+  fiber.watchSlots ??= [];
+  const existing = fiber.watchSlots[i];
+  if (existing) {
+    if (existing.key === WATCH_ONCE) {
+      return instr(Effect.void);
+    }
+    existing.dispose();
+    // SAFETY: cleared slot index is filled on the mount path below.
+    fiber.watchSlots[i] = undefined as never;
+  }
+  let cleanup = fn();
+  fiber.watchSlots[i] = {
+    dispose: () => {
+      const run = cleanup;
+      cleanup = undefined;
+      run?.();
+    },
+    key: WATCH_ONCE,
+  };
+  return instr(Effect.void);
+};
+
 /** Run `fn` when `source` changes — and once on mount. Sync, async, and generator components. */
-export const watch = <A extends WatchValue>(
+const watchSource = <A extends WatchValue>(
   source: AtomHandle<A> | Atom.Atom<A> | Stream.Stream<A, unknown, unknown>,
   fn: (value: A) => void
 ): Instruction<undefined> => {
@@ -135,3 +172,13 @@ export const watch = <A extends WatchValue>(
   registerWatch(fiber, source, fn);
   return instr(Effect.void);
 };
+
+export interface WatchFn {
+  <A extends WatchValue>(
+    source: AtomHandle<A> | Atom.Atom<A> | Stream.Stream<A, unknown, unknown>,
+    fn: (value: A) => void
+  ): Instruction<undefined>;
+  once: (fn: () => WatchOnceCleanup | undefined) => Instruction<undefined>;
+}
+
+export const watch: WatchFn = Object.assign(watchSource, { once: watchOnce });

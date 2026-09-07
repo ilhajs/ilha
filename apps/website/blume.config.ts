@@ -71,6 +71,7 @@ export default defineConfig({
             items: [
               "/guide/ui/create",
               "/guide/ui/state",
+              "/guide/ui/context-and-errors",
               "/guide/ui/templating",
               "/guide/ui/streams",
               "/guide/ui/render",

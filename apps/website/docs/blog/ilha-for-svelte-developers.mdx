@@ -77,7 +77,7 @@ const Title = () => {
 };
 ```
 
-For stream-driven ongoing logic, use `when` with `Atom.toStream` — see [Streams](/guide/ui/streams). For write-site DOM effects, handlers are fine.
+Mount-only work uses `watch.once()` — return a cleanup for unmount. For stream-driven ongoing logic, use `when` with `Atom.toStream` — see [Streams](/guide/ui/streams). For write-site DOM effects, handlers are fine.
 
 ## Props
 
@@ -95,6 +95,8 @@ A nested function shares the parent component. `mount` / `renderToString` on a f
 | ------------------- | ---------------------------------------------------- |
 | `$state`            | `atom(value)`                                        |
 | `$derived`          | `atom(Atom.map(...))` or `atom(Atom.transform(...))` |
-| `$effect`           | `watch()` or event handlers                          |
+| `$effect`           | `watch()` / `watch.once()` or event handlers         |
+| `setContext`        | `createContext` / `context()`                        |
+| `+error`            | `ErrorBoundary` (island) / router `+error` (route)   |
 | `bind:value`        | `oninput` + `atom`                                   |
 | `.svelte` component | function component                                   |

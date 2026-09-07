@@ -60,7 +60,7 @@ const total = atom(
 );
 ```
 
-Wrap multiple writes in `batch()`. Derived and mutation atoms use Effect's `Atom.map`, `Atom.transform`, and `Atom.fn` — pass `handle.atom`, then wrap in `atom()`. Use `watch(source, fn)` for side effects on atom changes.
+Wrap multiple writes in `batch()`. Derived and mutation atoms use Effect's `Atom.map`, `Atom.transform`, and `Atom.fn` — pass `handle.atom`, then wrap in `atom()`. Use `watch(source, fn)` for side effects on atom changes. Use `watch.once(fn)` for mount-only work; return a cleanup function to run on unmount. Use `untrack(() => …)` to read without subscribing. Share values with `createContext` / `context()`. Catch subtree failures with `ErrorBoundary`.
 
 Use `atom.lazy(() => …)` for one-time initialization or to store a function value.
 

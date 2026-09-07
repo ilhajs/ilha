@@ -36,6 +36,7 @@ export const when = <A, E = never, R = never>(
           // under both DOM mount and SSR (ssr-paint).
           child = makeFiber(parent.runtime, parent.root, parent.paintFn, {
             onFail: parent.fail,
+            parent,
           });
           // SAFETY: body(value) is a generator of Yielded; interpret expects GeneratorFn.
           interpret((() => body(value)) as GeneratorFn, child);

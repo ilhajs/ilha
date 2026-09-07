@@ -56,6 +56,9 @@ export interface FiberLocal {
   renderSub?: () => void;
   trackRestore?: () => void;
   propsBox?: { current: PropBag };
+  parent?: FiberLocal;
+  contexts?: Map<symbol, Atom.Atom<unknown>>;
+  handleError?: (error: Error) => void;
   paintFn: (fiber: FiberLocal, view: View) => void;
   paint: (view: View) => void;
   run: <A, E>(
@@ -126,6 +129,25 @@ const runInScope = <A, E>(
   Effect.runSync(Scope.addFinalizer(scope, Fiber.interrupt(f)));
 };
 
+/** Clear render subscriptions and child holes without closing the fiber scope. */
+export const clearFiberView = (fiber: FiberLocal): void => {
+  fiber.renderSub?.();
+  fiber.renderSub = undefined;
+  for (const slot of fiber.watchSlots ?? []) {
+    slot?.dispose();
+  }
+  fiber.watchSlots = [];
+  fiber.watchI = 0;
+  fiber.primitives = undefined;
+  fiber.primitiveI = 0;
+  fiber.islandFrame = undefined;
+  fiber.keyedHoles = undefined;
+  for (const h of fiber.holes) {
+    h.dispose();
+  }
+  fiber.holes = [];
+};
+
 export const closeFiber = (fiber: FiberLocal): void => {
   if (fiber.closed) {
     return;
@@ -133,16 +155,8 @@ export const closeFiber = (fiber: FiberLocal): void => {
   fiber.closed = true;
   fiber.trackRestore?.();
   fiber.trackRestore = undefined;
-  fiber.renderSub?.();
-  fiber.renderSub = undefined;
-  for (const slot of fiber.watchSlots ?? []) {
-    slot?.dispose();
-  }
-  fiber.watchSlots = [];
-  for (const h of fiber.holes) {
-    h.dispose();
-  }
-  fiber.holes = [];
+  fiber.handleError = undefined;
+  clearFiberView(fiber);
   Effect.runFork(Scope.close(fiber.scope, Exit.void));
 };
 
@@ -208,7 +222,7 @@ export const makeFiber = <E>(
   runtime: IlhaRuntime,
   root: ParentNode,
   paint: (fiber: FiberLocal, view: View) => void,
-  opts?: { onFail?: (e: E) => void }
+  opts?: { onFail?: (e: E) => void; parent?: FiberLocal }
 ): FiberLocal => {
   const scope = Scope.forkUnsafe(runtime.scope);
   const fiber: FiberLocal = {
@@ -221,6 +235,7 @@ export const makeFiber = <E>(
     inFlight: false,
     paint: (view) => paint(fiber, view),
     paintFn: paint,
+    parent: opts?.parent,
     registry: runtime.registry,
     root,
     run: (effect, onOk, onErr) => {
@@ -253,4 +268,18 @@ export const makeFiber = <E>(
     scope,
   };
   return fiber;
+};
+
+/** Walk this fiber and ancestors for an error boundary handler. */
+export const reportFiberError = (fiber: FiberLocal, error: Error): boolean => {
+  let current: FiberLocal | undefined = fiber;
+  while (current) {
+    const { handleError } = current;
+    if (handleError) {
+      handleError(error);
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
 };

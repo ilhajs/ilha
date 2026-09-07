@@ -12,10 +12,13 @@ export const asFailure = <T>(e: T): Result.Result<never, Error> => {
   return Result.fail(e instanceof Error ? e : new Error(String(e)));
 };
 
-export const failureMessage = <T>(e: T): string =>
+/** Normalize any thrown failure into an `Error` instance. */
+export const toError = <T>(e: T): Error =>
   asFailure(e).pipe(
     Result.match({
-      onFailure: (err) => err.message,
-      onSuccess: () => "error",
+      onFailure: (err) => err,
+      onSuccess: () => new Error("error"),
     })
   );
+
+export const failureMessage = <T>(e: T): string => toError(e).message;

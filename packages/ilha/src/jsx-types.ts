@@ -1,16 +1,19 @@
 /* oxlint-disable typescript/no-namespace -- TS JSX factories require an exported JSX namespace */
-import type { AtomHandle, PropBag, View } from "./types.ts";
+import type { AtomHandle, View } from "./types.ts";
 
 export namespace JSX {
   export type Element = View;
   export type ElementType =
     | string
     | ((
-        props: PropBag
+        // `never` makes this bivariant for JSX tags so components with typed
+        // props (Provider, ErrorBoundary, user components) are valid tags.
+        props: never
       ) =>
         | View
         | Promise<View | undefined>
-        | Generator<View, View | undefined, View>);
+        | Generator<View, View | undefined, View>
+        | undefined);
 
   export interface ElementChildrenAttribute {
     children: View;

@@ -19,6 +19,32 @@ const input: NonNullable<JSX.IntrinsicElements["input"]["oninput"]> = (e) => {
 // SAFETY: type-anchor fixtures only — never read at runtime.
 const asHandle = <A,>(): AtomHandle<A> => undefined as never;
 
+type WatchOnce = (fn: () => (() => void) | undefined) => void;
+// SAFETY: type-anchor fixture only — never invoked at runtime.
+const asWatchOnce = (): WatchOnce => undefined as never;
+
+const typecheckWatch = (): void => {
+  const once = asWatchOnce();
+  once(() => {});
+  once(() => () => {});
+  // @ts-expect-error once callback must not take arguments
+  once((_n: number) => {});
+  // @ts-expect-error cleanup must be a void function
+  once(() => 1);
+};
+
+type Untrack = <A>(fn: () => A) => A;
+// SAFETY: type-anchor fixture only — never invoked at runtime.
+const asUntrack = (): Untrack => undefined as never;
+
+const typecheckUntrack = (): void => {
+  const u = asUntrack();
+  const n: number = u(() => 1);
+  // @ts-expect-error untrack callback must not take arguments
+  u((_x: number) => 1);
+  void n;
+};
+
 const typecheckJsxProps = (): void => {
   const count = asHandle<number>();
   const on = asHandle<boolean>();
@@ -89,5 +115,7 @@ const typecheckJsxProps = (): void => {
 describe("jsx types", () => {
   it("keeps type anchors importable", () => {
     expect(isFunction(typecheckJsxProps)).toBe(true);
+    expect(isFunction(typecheckWatch)).toBe(true);
+    expect(isFunction(typecheckUntrack)).toBe(true);
   });
 });

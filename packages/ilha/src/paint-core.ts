@@ -3,8 +3,14 @@ import * as Stream from "effect/Stream";
 import type { Atom } from "effect/unstable/reactivity";
 
 import { isAtomHandle } from "./atom.ts";
+import { toError } from "./errors.ts";
 import { isEventProp } from "./events.ts";
-import { closeFiber, makeFiber, withFiber } from "./runtime.ts";
+import {
+  closeFiber,
+  makeFiber,
+  reportFiberError,
+  withFiber,
+} from "./runtime.ts";
 import type { FiberLocal, Hole } from "./runtime.ts";
 import {
   isSafeUrlAttrValue,
@@ -33,6 +39,7 @@ import type {
   AtomHandle,
   Component,
   ComponentFn,
+  JsxComponent,
   PropBag,
   PropValue,
   StyleObject,
@@ -311,9 +318,14 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         (f, v) => api.paintHole(f, v),
         {
           onFail: (e) => {
-            console.error(e);
-            api.paintHole(child, errorView(e));
+            const error = toError(e);
+            if (reportFiberError(child, error)) {
+              return;
+            }
+            console.error(error);
+            api.paintHole(child, errorView(error));
           },
+          parent,
         }
       );
       return { fiber: child, nodes: [host] };
@@ -468,26 +480,33 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
 
   const materializeComponent = (
     view: VNode,
-    type: ComponentFn,
+    type: ComponentFn | JsxComponent,
     fiber: FiberLocal
   ): Node[] => {
     const props = { ...view.props, children: view.children };
     // SAFETY: island components carry Symbol.for brands on the function object.
-    const branded = type as ComponentFn & IslandBrand;
+    const branded = type as (ComponentFn | JsxComponent) & IslandBrand;
     if (branded[ISLAND] === true) {
-      return materializeIsland(branded, props, fiber);
+      // SAFETY: island brand implies ComponentFn mount surface.
+      return materializeIsland(
+        branded as ComponentFn & IslandBrand,
+        props,
+        fiber
+      );
     }
     const k =
       view.key === null || view.key === undefined
         ? undefined
         : String(view.key);
     const reuse = k ? fiber.keyedHoles?.get(k) : undefined;
+    // SAFETY: paint always supplies a PropBag bag; JSX component props are for typing.
+    const run = type as ComponentFn;
     if (reuse && !reuse.closed) {
       if (reuse.propsBox) {
         reuse.propsBox.current = props;
       }
       const next = withFiber(fiber, () =>
-        type(reuse.propsBox?.current ?? props)
+        run(reuse.propsBox?.current ?? props)
       );
       if (next && !isThenable(next) && !isSetupFn(next)) {
         // SAFETY: sync non-setup return values are Views.
@@ -509,7 +528,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       if (!box) {
         return;
       }
-      runSetup(hole, () => type(box.current));
+      runSetup(hole, () => run(box.current));
     });
     trackHole(fiber, hole, undefined, k ? { keyed: true } : undefined);
     return nodes;
@@ -542,8 +561,12 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       return view.children.flatMap((c) => api.materialize(c, fiber));
     }
     if (isFunction(view.type)) {
-      // SAFETY: isFunction narrowed type to ComponentFn.
-      return materializeComponent(view, view.type as ComponentFn, fiber);
+      // SAFETY: isFunction narrowed type to a component function.
+      return materializeComponent(
+        view,
+        view.type as ComponentFn | JsxComponent,
+        fiber
+      );
     }
     return materializeElement(view, fiber);
   };

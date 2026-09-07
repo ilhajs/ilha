@@ -207,8 +207,15 @@ const morphElementPair = (
     fromEl.replaceWith(toEl);
     return;
   }
-  const slotId = toEl.getAttribute(SLOT_ATTR);
-  if (slotId !== null && fromEl.getAttribute(SLOT_ATTR) === slotId) {
+  const toSlot = toEl.getAttribute(SLOT_ATTR);
+  const fromSlot = fromEl.getAttribute(SLOT_ATTR);
+  if (toSlot !== null && fromSlot === toSlot) {
+    // Same hole host — keep the live node (atom reuse / keepOnMorph).
+    return;
+  }
+  if (toSlot !== null) {
+    // New hole fiber roots point at `toEl`; install it in the document.
+    fromEl.replaceWith(toEl);
     return;
   }
   if (fromEl.localName === "input") {
