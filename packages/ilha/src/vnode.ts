@@ -1,5 +1,12 @@
 import { isFunction, isObject } from "./shared.ts";
-import type { ComponentFn, Fragment, PropBag, VNode, View } from "./types.ts";
+import type {
+  ComponentFn,
+  Fragment,
+  JsxComponent,
+  PropBag,
+  VNode,
+  View,
+} from "./types.ts";
 
 export { Fragment } from "./types.ts";
 
@@ -16,7 +23,7 @@ const flatten = (xs: View[]): View[] => {
 };
 
 export const h = (
-  type: string | Fragment | ComponentFn,
+  type: string | Fragment | ComponentFn | JsxComponent,
   props: PropBag | null | undefined,
   ...rest: View[]
 ): VNode => {

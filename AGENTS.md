@@ -35,15 +35,16 @@
 
 - A component is a function (sync, async, or generator) that returns a view: `const Counter = () => JSX`.
 - Nested plain functions share the parent fiber and its primitive slots. `mount(host, Component)` or `renderToString(Component)` makes a function a root.
-- Primitives are order-based: `atom()`, `atom.lazy()`, and `watch()` slots persist across rerenders. Call them at the top level of the component, in the same order on every render. `yield* when(...)` follows the same ordering rules inside a generator body.
+- Primitives are order-based: `atom()`, `atom.lazy()`, `watch()`, and `watch.once()` slots persist across rerenders. Call them at the top level of the component, in the same order on every render. `yield* when(...)` follows the same ordering rules inside a generator body.
 - Put conditional and async logic inside primitives, not around registration. Use `atom.lazy(() => expensive())` for one-time init; use `atom(Atom.map(...))` or `atom(Atom.transform(...))` for derived values; store function values with `atom.lazy(() => fn)`.
-- Reading atoms during render subscribes the component; changes rerun it and morph the host DOM. State initialized from props does not reset on later prop changes.
+- Reading atoms during render subscribes the component; changes rerun it and morph the host DOM. Use `untrack(() => …)` to peek without subscribing. State initialized from props does not reset on later prop changes.
+- Share values with `createContext` / `context()` — provider values are atoms. Catch subtree failures with `ErrorBoundary` (`fallback`, optional `onError`, `reset`).
 - DOM event handlers are plain functions (`onclick={handler}`). Use `atom(Atom.fn(...))` when `.set()` should run an Effect (for example a form submit).
 - Prefer lowercase native event props (`onclick`, `onchange`) in JSX.
 - Mount with `mount(host, Component)` or `mount(host, Component, { hydrate: true })`. SSR uses `await renderToString(Component)`.
 - Read with `count()`, replace with `count.set(1)`, patch with `count.update((previous) => previous + 1)`.
-- Derived and mutation atoms come from Effect (`Atom.map`, `Atom.transform`, `Atom.fn`, `Atom.batch`). Ilha exports `batch` as a convenience re-export and `watch` for lifecycle-bound `registry.subscribe`. Pass `handle.atom` to Effect APIs, then wrap the result in `atom()`.
-- Keep the public API surface minimal: named exports (`atom`, `batch`, `watch`, `when`, `mount`, `renderToString`, `h`, `Fragment`) and the JSX runtime.
+- Derived and mutation atoms come from Effect (`Atom.map`, `Atom.transform`, `Atom.fn`, `Atom.batch`). Ilha exports `batch` as a convenience re-export and `watch` for lifecycle-bound `registry.subscribe`. Use `watch.once(fn)` for mount-only side effects (optional cleanup return). Pass `handle.atom` to Effect APIs, then wrap the result in `atom()`.
+- Keep the public API surface minimal: named exports (`atom`, `batch`, `untrack`, `createContext`, `context`, `ErrorBoundary`, `watch`, `when`, `mount`, `renderToString`, `h`, `Fragment`) and the JSX runtime.
 - When changing public types, update `packages/*/src/types.test.ts` (compile-time type anchors, checked by `tsc`) and add runtime tests in the package's `*.test.ts(x)` files.
 - Type anchors use `@ts-expect-error` for negative assertions; those are enforced by `tsc`, not by `bun test` — keep each anchor file's runtime smoke `it()` passing under `bun test`.
 

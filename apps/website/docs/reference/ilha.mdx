@@ -35,7 +35,11 @@ Nested functions share the parent fiber. `mount` / `renderToString` on a functio
 | `atom(init)` | Writable reactive value | [State](/guide/ui/state) |
 | `atom.lazy(init)` | One-time initializer | [State](/guide/ui/state) |
 | `batch(fn)` | Coalesce multiple atom writes | [State](/guide/ui/state) |
+| `untrack(fn)` | Read atoms without subscribing | [State](/guide/ui/state) |
+| `createContext` / `context` | Atom-backed tree context | [Context and errors](/guide/ui/context-and-errors) |
+| `ErrorBoundary` | Catch subtree failures | [Context and errors](/guide/ui/context-and-errors) |
 | `watch(source, fn)` | Callback on atom or stream changes | [State](/guide/ui/state) |
+| `watch.once(fn)` | Run once on mount; optional cleanup | [State](/guide/ui/state) |
 | `when(stream, body)` | Per-emission generator (interrupts stale) | [Streams](/guide/ui/streams) |
 | `h` / `Fragment` | JSX factory | [Templating](/guide/ui/templating) |
 | `mount` | Activate a component in the DOM | [Render](/guide/ui/render) |
@@ -86,7 +90,7 @@ The value of an Effect-backed atom is an Effect `AsyncResult`. During paint, wai
 
 ## watch
 
-Order-based primitive — call at the top level of a component. Runs `fn` when `source` changes and once on mount. Accepts an atom handle, `handle.atom`, or a `Stream`.
+Order-based primitive — call at the top level of a component. `watch(source, fn)` runs `fn` when `source` changes and once on mount. Accepts an atom handle, `handle.atom`, or a `Stream`. `watch.once(fn)` runs `fn` once on mount; return a function to clean up on unmount.
 
 ## when
 

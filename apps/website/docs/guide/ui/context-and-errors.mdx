@@ -1,0 +1,75 @@
+---
+title: Context and errors
+description: Share atom-backed values with createContext, and catch subtree failures with ErrorBoundary.
+---
+
+## Context
+
+Pass values through nested components without threading props. Context values are Effect atoms — reads subscribe, writes update consumers.
+
+```tsx twoslash
+import { atom, context, createContext } from "ilha";
+
+const Theme = createContext("light");
+
+const Label = () => {
+  const theme = context(Theme);
+  return <span>{theme}</span>;
+};
+
+const App = () => {
+  const mode = atom("dark");
+  return (
+    <Theme.Provider value={mode()}>
+      <button type="button" onclick={() => mode.set("light")}>
+        Light
+      </button>
+      <Label />
+    </Theme.Provider>
+  );
+};
+```
+
+1. `createContext(defaultValue)` returns a context object with a `Provider`.
+2. Wrap a subtree in `<Theme.Provider value={…}>`.
+3. Call `context(Theme)` in a descendant to get an `AtomHandle`.
+
+Without a provider, `context()` returns a handle over the default value. Nested providers override outer ones.
+
+Call `context()` during render under a fiber — same rule as reading an atom.
+
+## Error boundaries
+
+Wrap a subtree in `ErrorBoundary` to paint a fallback when a child fails. Return a `reset` callback so the user can retry.
+
+```tsx twoslash
+import { ErrorBoundary } from "ilha";
+
+const Boom = () => {
+  throw new Error("boom");
+};
+
+const App = () => (
+  <ErrorBoundary
+    fallback={({ error, reset }) => (
+      <div>
+        <p>{error.message}</p>
+        <button type="button" onclick={reset}>
+          Retry
+        </button>
+      </div>
+    )}
+    onError={(error) => console.error(error)}
+  >
+    <Boom />
+  </ErrorBoundary>
+);
+```
+
+| Prop                         | Role                            |
+| ---------------------------- | ------------------------------- |
+| `fallback({ error, reset })` | View to paint after a failure   |
+| `onError(error)`             | Optional side channel (logging) |
+| `children`                   | Protected subtree               |
+
+Without a boundary, a failed child hole paints the default `[data-ilha-error]` view and the parent stays up. Route-level failures still use `@ilha/router` `+error` — see [Error boundaries](/guide/routing/error-boundaries).

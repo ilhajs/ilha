@@ -84,6 +84,17 @@ export const resetRenderTracking = (): void => {
   trackGet = undefined;
 };
 
+/** Read atoms inside `fn` without subscribing the active render. Sync only. */
+export const untrack = <A>(fn: () => A): A => {
+  const prev = trackGet;
+  trackGet = undefined;
+  try {
+    return fn();
+  } finally {
+    trackGet = prev;
+  }
+};
+
 export const beginPrimitiveFrame = (fiber: FiberLocal): void => {
   const used = fiber.primitiveI ?? 0;
   const slots = fiber.primitives?.length ?? 0;

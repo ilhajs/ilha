@@ -52,9 +52,18 @@ export type ComponentFn = (
   props: PropBag
 ) => View | Promise<View | undefined> | undefined;
 
+/** JSX/tag component with its own props shape (Provider, ErrorBoundary, …). */
+export type JsxComponent = (
+  props: never
+) =>
+  | View
+  | Promise<View | undefined>
+  | Generator<View, View | undefined, View>
+  | undefined;
+
 export interface VNode {
   readonly $$ilha: 1;
-  readonly type: string | Fragment | ComponentFn;
+  readonly type: string | Fragment | ComponentFn | JsxComponent;
   readonly props: PropBag;
   readonly children: View[];
   readonly key?: string | number;
