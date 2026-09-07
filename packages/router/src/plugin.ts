@@ -8,17 +8,6 @@ import type { ViteDevServer } from "vite";
 
 import { generate, resolveGeneratedPaths } from "./codegen";
 import type { PagesMode } from "./codegen";
-import { runWithIslandRequest } from "./request-scope";
-import {
-  generateServerIslandModule,
-  rewriteServerActions,
-  loadServerModuleScan,
-  SERVER_ISLAND_PREFIX,
-  serverIslandPublicId,
-  serverIslandVirtualSpec,
-  splitServerImports,
-} from "./server-islands";
-import type { ServerModuleScan } from "./server-islands";
 import {
   authorizeFrameRequest,
   frameEnvelope,
@@ -30,7 +19,18 @@ import {
   frameScopedUrl,
   setFrameAuth,
   setFrameGuard,
-} from "./ssr";
+} from "./frame";
+import { runWithIslandRequest } from "./request-scope";
+import {
+  generateServerIslandModule,
+  rewriteServerActions,
+  loadServerModuleScan,
+  SERVER_ISLAND_PREFIX,
+  serverIslandPublicId,
+  serverIslandVirtualSpec,
+  splitServerImports,
+} from "./server-islands";
+import type { ServerModuleScan } from "./server-islands";
 
 const objectTag = <T>(value: T): string =>
   Object.prototype.toString.call(value);

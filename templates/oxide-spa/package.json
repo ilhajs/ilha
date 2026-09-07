@@ -10,7 +10,7 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@ilha/router": "^0.11.7",
+    "@ilha/router": "^0.11.8",
     "effect": "^4.0.0-rc.112",
     "ilha": "^0.14.5"
   },
