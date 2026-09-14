@@ -31,6 +31,13 @@ export interface SsrText {
   text: string;
 }
 
+export interface SsrRaw {
+  kind: "raw";
+  html: string;
+}
+
+export const createSsrRaw = (html: string): SsrRaw => ({ html, kind: "raw" });
+
 export interface SsrEl {
   kind: "element";
   tag: string;
@@ -50,7 +57,7 @@ export interface SsrEl {
   textContent: string;
 }
 
-export type SsrNode = SsrText | SsrEl;
+export type SsrNode = SsrText | SsrRaw | SsrEl;
 
 export interface SsrRoot {
   kind: "root";
@@ -78,6 +85,9 @@ const serializeRawText = (tag: string, text: string): string => {
 export const serializeNode = (node: SsrNode): string => {
   if (node.kind === "text") {
     return escapeText(node.text);
+  }
+  if (node.kind === "raw") {
+    return node.html;
   }
   const parts: string[] = [];
   for (const [name, value] of node.attrs) {
@@ -157,7 +167,15 @@ export const createSsrElement = (tag: string): SsrEl => {
     tagName: lower.toUpperCase(),
     get textContent() {
       return children
-        .map((n) => (n.kind === "text" ? n.text : n.textContent))
+        .map((n) => {
+          if (n.kind === "text") {
+            return n.text;
+          }
+          if (n.kind === "raw") {
+            return n.html;
+          }
+          return n.textContent;
+        })
         .join("");
     },
     set textContent(value) {

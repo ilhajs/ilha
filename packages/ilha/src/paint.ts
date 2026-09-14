@@ -25,6 +25,14 @@ const domOps: PaintOps<Node, Element> = {
     }
   },
   createElement: (tag) => document.createElement(tag),
+  createRaw: (html, parent) => {
+    // SAFETY: raw injection is the documented contract of unsafe() — the
+    // caller vouches for the markup. Parsed scripts do not execute on insert.
+    const range = document.createRange();
+    // SAFETY: fiber roots are live Elements, so they are valid Range contexts.
+    range.selectNodeContents(parent as Node);
+    return [...range.createContextualFragment(html).childNodes];
+  },
   createSlotHost: (slotId) => {
     const host = document.createElement("span");
     if (slotId !== null) {

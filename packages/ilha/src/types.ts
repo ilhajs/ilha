@@ -34,6 +34,7 @@ export interface SsrAction {
 
 export type View =
   | VNode
+  | UnsafeHtml
   | JsonText
   | AtomHandle<unknown>
   | Stream.Stream<View, unknown, unknown>
@@ -60,6 +61,12 @@ export type JsxComponent = (
   | Promise<View | undefined>
   | Generator<View, View | undefined, View>
   | undefined;
+
+/** Raw HTML view produced by `unsafe()` — painted without escaping. */
+export interface UnsafeHtml {
+  readonly $$ilhaUnsafe: 1;
+  readonly html: string;
+}
 
 export interface VNode {
   readonly $$ilha: 1;

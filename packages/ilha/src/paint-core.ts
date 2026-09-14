@@ -46,6 +46,7 @@ import type {
   VNode,
   View,
 } from "./types.ts";
+import { isUnsafeHtml } from "./unsafe.ts";
 import { isSetupFn, isVNode } from "./vnode.ts";
 
 type AtomRef = Atom.Atom<unknown>;
@@ -65,6 +66,11 @@ export type FormControlKey = "value" | "checked" | "selected";
 export interface PaintOps<Node, El extends PaintEl<Node>> {
   createElement: (tag: string) => El;
   createText: (text: string) => Node;
+  /**
+   * Parse pre-rendered HTML into nodes under `parent` (DOM:
+   * context-aware fragment parse; SSR: raw node, parent unused).
+   */
+  createRaw: (html: string, parent: ParentNode) => Node[];
   /** Display-contents span marking a dynamic hole; `null` omits the slot attr. */
   createSlotHost: (slotId: string | null) => El;
   /** Fiber root for a host element (SSR: cast SsrEl up to ParentNode). */
@@ -574,6 +580,9 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
   paintFns.materialize = (view: View, fiber: FiberLocal): Node[] => {
     if (skip(view)) {
       return [];
+    }
+    if (isUnsafeHtml(view)) {
+      return ops.createRaw(view.html, fiber.root);
     }
     if (isTextish(view)) {
       return [ops.createText(String(view))];

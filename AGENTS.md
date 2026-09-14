@@ -44,7 +44,7 @@
 - Mount with `mount(host, Component)` or `mount(host, Component, { hydrate: true })`. SSR uses `await renderToString(Component)`.
 - Read with `count()`, replace with `count.set(1)`, patch with `count.update((previous) => previous + 1)`.
 - Derived and mutation atoms come from Effect (`Atom.map`, `Atom.transform`, `Atom.fn`, `Atom.batch`). Ilha exports `batch` as a convenience re-export and `watch` for lifecycle-bound `registry.subscribe`. Use `watch.once(fn)` for mount-only side effects (optional cleanup return). Pass `handle.atom` to Effect APIs, then wrap the result in `atom()`.
-- Keep the public API surface minimal: named exports (`atom`, `batch`, `untrack`, `createContext`, `context`, `ErrorBoundary`, `watch`, `when`, `mount`, `renderToString`, `h`, `Fragment`) and the JSX runtime.
+- Keep the public API surface minimal: named exports (`atom`, `batch`, `untrack`, `createContext`, `context`, `ErrorBoundary`, `watch`, `when`, `mount`, `renderToString`, `unsafe`, `h`, `Fragment`) and the JSX runtime.
 - When changing public types, update `packages/*/src/types.test.ts` (compile-time type anchors, checked by `tsc`) and add runtime tests in the package's `*.test.ts(x)` files.
 - Type anchors use `@ts-expect-error` for negative assertions; those are enforced by `tsc`, not by `bun test` — keep each anchor file's runtime smoke `it()` passing under `bun test`.
 
