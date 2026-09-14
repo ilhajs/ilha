@@ -44,7 +44,7 @@
     },
     "packages/astro": {
       "name": "@ilha/astro",
-      "version": "0.3.5",
+      "version": "0.3.6",
       "devDependencies": {
         "astro": "^7.2.9",
         "ilha": "0.14.6",
@@ -67,7 +67,7 @@
     },
     "packages/router": {
       "name": "@ilha/router",
-      "version": "0.11.8",
+      "version": "0.11.9",
       "dependencies": {
         "effect": "4.0.0-rc.112",
         "unplugin": "3.3.0",
@@ -89,7 +89,7 @@
       "name": "@ilha/template-oxide-spa",
       "version": "0.0.0",
       "dependencies": {
-        "@ilha/router": "^0.11.6",
+        "@ilha/router": "^0.11.9",
         "effect": "^4.0.0-rc.112",
         "ilha": "^0.14.6",
       },
@@ -107,7 +107,7 @@
       "name": "@ilha/template-vite-spa",
       "version": "0.0.0",
       "dependencies": {
-        "@ilha/router": "^0.11.6",
+        "@ilha/router": "^0.11.9",
         "effect": "^4.0.0-rc.112",
         "ilha": "^0.14.6",
       },
