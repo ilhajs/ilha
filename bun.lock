@@ -73,12 +73,12 @@
         "unplugin": "3.3.0",
       },
       "devDependencies": {
-        "ilha": "^0.14.5",
+        "ilha": "^0.14.6",
         "oxidejs": "^0.3.2",
         "vite": "^8.2.2",
       },
       "peerDependencies": {
-        "ilha": ">=0.14.5",
+        "ilha": ">=0.14.6",
         "oxidejs": ">=0.3.2",
       },
       "optionalPeers": [
@@ -91,7 +91,7 @@
       "dependencies": {
         "@ilha/router": "^0.11.6",
         "effect": "^4.0.0-rc.112",
-        "ilha": "^0.14.4",
+        "ilha": "^0.14.6",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.3",
@@ -109,7 +109,7 @@
       "dependencies": {
         "@ilha/router": "^0.11.6",
         "effect": "^4.0.0-rc.112",
-        "ilha": "^0.14.4",
+        "ilha": "^0.14.6",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.3",

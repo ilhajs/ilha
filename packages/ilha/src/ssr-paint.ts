@@ -89,7 +89,7 @@ const ssrOps: PaintOps<SsrNode, SsrEl> = {
   // SAFETY: under SSR, fiber.root is always an SsrRoot/SsrEl host.
   clearRoot: (root) => ssrAs<SsrHost>(root as never).replaceChildren(),
   createElement: createSsrElement,
-  createRaw: (html) => [createSsrRaw(html)],
+  createRaw: (html, _parent) => [createSsrRaw(html)],
   createSlotHost: (slotId) => {
     const host = createSsrElement("span");
     if (slotId !== null) {

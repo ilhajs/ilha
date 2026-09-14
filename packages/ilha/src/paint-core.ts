@@ -66,8 +66,11 @@ export type FormControlKey = "value" | "checked" | "selected";
 export interface PaintOps<Node, El extends PaintEl<Node>> {
   createElement: (tag: string) => El;
   createText: (text: string) => Node;
-  /** Parse pre-rendered HTML into nodes (DOM: template parse; SSR: raw node). */
-  createRaw: (html: string) => Node[];
+  /**
+   * Parse pre-rendered HTML into nodes under `parent` (DOM:
+   * context-aware fragment parse; SSR: raw node, parent unused).
+   */
+  createRaw: (html: string, parent: ParentNode) => Node[];
   /** Display-contents span marking a dynamic hole; `null` omits the slot attr. */
   createSlotHost: (slotId: string | null) => El;
   /** Fiber root for a host element (SSR: cast SsrEl up to ParentNode). */
@@ -579,7 +582,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       return [];
     }
     if (isUnsafeHtml(view)) {
-      return ops.createRaw(view.html);
+      return ops.createRaw(view.html, fiber.root);
     }
     if (isTextish(view)) {
       return [ops.createText(String(view))];

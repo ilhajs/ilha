@@ -65,4 +65,4 @@ import { unsafe } from "ilha";
 const Badge = ({ svg }: { svg: string }) => <span>{unsafe(svg)}</span>;
 ```
 
-Use it for markup you built or sanitized yourself: SVG from an external library, Markdown rendered to HTML, embed codes. Never pass untrusted user input. Scripts in the markup do not run on insert, but event attributes still apply, and the URL and style sanitizers that guard JSX props are skipped, so sanitize anything you did not author.
+Use it for markup you built or sanitized yourself: SVG from an external library, Markdown rendered to HTML, embed codes. Never pass untrusted user input. Inserted scripts do not run. Event attributes still apply. The URL and style sanitizers that guard JSX props are skipped. Sanitize anything you did not author.

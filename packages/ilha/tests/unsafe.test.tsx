@@ -81,6 +81,27 @@ test("mount keeps unsafe() attributes verbatim, skipping all sanitizers", async 
   el.remove();
 });
 
+test("mount keeps unsafe() table content inside its parent", async () => {
+  // NOTE: happy-dom parses fragments without the Range context, so `tr` is
+  // dropped here and only its text survives; real browsers keep the row.
+  const el = document.createElement("div");
+  document.body.append(el);
+  const unmount = mount(el, () => (
+    <table>{unsafe("<tr><td>cell</td></tr>")}</table>
+  ));
+  await Bun.sleep(5);
+  expect(el.querySelector("table")?.textContent).toContain("cell");
+  unmount();
+  el.remove();
+});
+
+test("SSR keeps unsafe() table fragments verbatim", async () => {
+  const html = await renderToString(() => (
+    <table>{unsafe("<tr><td>cell</td></tr>")}</table>
+  ));
+  expect(html).toContain("<tr><td>cell</td></tr>");
+});
+
 test("hydrate keeps SSR unsafe() markup", async () => {
   const App = () => <div>{unsafe(RAW)}</div>;
   const html = await renderToString(App);
