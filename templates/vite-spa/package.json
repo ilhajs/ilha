@@ -11,7 +11,7 @@
   "dependencies": {
     "@ilha/router": "^0.11.8",
     "effect": "^4.0.0-rc.112",
-    "ilha": "^0.14.5"
+    "ilha": "^0.14.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

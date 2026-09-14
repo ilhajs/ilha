@@ -54,3 +54,15 @@ const List = () => {
 When `items` changes, the component reruns and morphs the list. Keys on `li` reuse DOM nodes when the array shifts.
 
 For live server lists, paint a Stream into a hole. See [Streams](/guide/ui/streams).
+
+## Raw HTML
+
+Interpolated strings escape. You wrap pre-rendered markup in `unsafe()` to paint it as HTML:
+
+```tsx twoslash
+import { unsafe } from "ilha";
+
+const Badge = ({ svg }: { svg: string }) => <span>{unsafe(svg)}</span>;
+```
+
+Use it for markup you built or sanitized yourself: SVG from an external library, Markdown rendered to HTML, embed codes. Never pass untrusted user input. Scripts in the markup do not run on insert, but event attributes still apply, and the URL and style sanitizers that guard JSX props are skipped, so sanitize anything you did not author.

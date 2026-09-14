@@ -4,7 +4,12 @@ import type { PaintOps } from "./paint-core.ts";
 import { closeFiber, makeFiber, makeRuntime } from "./runtime.ts";
 import type { FiberLocal } from "./runtime.ts";
 import { errorView, isFunction, SLOT_ATTR } from "./shared.ts";
-import { createSsrElement, createSsrRoot, createSsrText } from "./ssr-dom.ts";
+import {
+  createSsrElement,
+  createSsrRaw,
+  createSsrRoot,
+  createSsrText,
+} from "./ssr-dom.ts";
 import type { SsrEl, SsrNode, SsrRoot } from "./ssr-dom.ts";
 import { runSetup } from "./start.ts";
 import type {
@@ -84,6 +89,7 @@ const ssrOps: PaintOps<SsrNode, SsrEl> = {
   // SAFETY: under SSR, fiber.root is always an SsrRoot/SsrEl host.
   clearRoot: (root) => ssrAs<SsrHost>(root as never).replaceChildren(),
   createElement: createSsrElement,
+  createRaw: (html) => [createSsrRaw(html)],
   createSlotHost: (slotId) => {
     const host = createSsrElement("span");
     if (slotId !== null) {

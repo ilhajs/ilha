@@ -55,10 +55,10 @@
   },
   "devDependencies": {
     "astro": "^7.2.9",
-    "ilha": "0.14.5"
+    "ilha": "0.14.6"
   },
   "peerDependencies": {
     "astro": "^7.2.9",
-    "ilha": "^0.14.5"
+    "ilha": "^0.14.6"
   }
 }

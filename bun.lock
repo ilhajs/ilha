@@ -47,16 +47,16 @@
       "version": "0.3.5",
       "devDependencies": {
         "astro": "^7.2.9",
-        "ilha": "0.14.5",
+        "ilha": "0.14.6",
       },
       "peerDependencies": {
         "astro": "^7.2.9",
-        "ilha": "^0.14.5",
+        "ilha": "^0.14.6",
       },
     },
     "packages/ilha": {
       "name": "ilha",
-      "version": "0.14.5",
+      "version": "0.14.6",
       "devDependencies": {
         "@happy-dom/global-registrator": "^20.11.2",
         "effect": "^4.0.0-rc.112",

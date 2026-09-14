@@ -25,6 +25,13 @@ const domOps: PaintOps<Node, Element> = {
     }
   },
   createElement: (tag) => document.createElement(tag),
+  createRaw: (html) => {
+    // SAFETY: raw injection is the documented contract of unsafe() — the
+    // caller vouches for the markup. Parsed scripts and event attributes
+    // inserted this way do not execute on insert.
+    const frag = document.createRange().createContextualFragment(html);
+    return [...frag.childNodes];
+  },
   createSlotHost: (slotId) => {
     const host = document.createElement("span");
     if (slotId !== null) {

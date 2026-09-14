@@ -2,7 +2,8 @@ import { describe, expect, it } from "bun:test";
 
 import type { JSX } from "./jsx-types.ts";
 import { isFunction } from "./shared.ts";
-import type { AtomHandle } from "./types.ts";
+import type { AtomHandle, UnsafeHtml, View } from "./types.ts";
+import { unsafe } from "./unsafe.ts";
 
 const click: NonNullable<JSX.IntrinsicElements["button"]["onclick"]> = (e) => {
   void e.currentTarget.disabled;
@@ -112,10 +113,21 @@ const typecheckJsxProps = (): void => {
   void count;
 };
 
+const typecheckUnsafe = (): void => {
+  const raw = unsafe("<b>x</b>");
+  const view: View = raw;
+  const branded: UnsafeHtml = raw;
+  // @ts-expect-error unsafe takes pre-rendered HTML, not a number
+  unsafe(42);
+  void view;
+  void branded;
+};
+
 describe("jsx types", () => {
   it("keeps type anchors importable", () => {
     expect(isFunction(typecheckJsxProps)).toBe(true);
     expect(isFunction(typecheckWatch)).toBe(true);
     expect(isFunction(typecheckUntrack)).toBe(true);
+    expect(isFunction(typecheckUnsafe)).toBe(true);
   });
 });
