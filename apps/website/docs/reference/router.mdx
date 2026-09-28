@@ -38,12 +38,19 @@ Render results are discriminated: `{ kind: "html" }`, `{ kind: "redirect", to, s
 
 | Export | Meaning |
 | --- | --- |
-| `useRoute()` | `{ path, params, search }` accessors |
-| `routePath()` / `routeParams()` / `routeSearch()` | Standalone accessors |
+| `useRoute()` | `{ path, params, search, hash, navigating }` accessors |
+| `routePath()` / `routeParams()` / `routeSearch()` / `routeHash()` | Standalone accessors |
+| `searchParam(name, { default, parse?, serialize? })` | Read and `replace`-write one query param without remounting |
+| `navigating()` | True while a navigation is in flight |
 | `navigate(to, { replace?, scroll? })` | Programmatic navigation |
 | `isActive(href)` | True when the current path matches |
-| `afterNavigate(fn)` | Hook after every navigation |
+| `beforeNavigate(fn)` | Hook before every navigation; call `cancel()` to stop it. Returns an unsubscribe function |
+| `afterNavigate(fn)` | Hook after every navigation. Returns an unsubscribe function |
+| `prime()` | Sync route state from the address bar without mounting |
+| `useContext()` | `{ request }` for the current render, if the server scoped one |
 | `setHistoryMode(mode)` | `"history"` (default) or `"hash"` |
+
+The mounted router intercepts same-origin `<a>` clicks. You opt a link out with a bare `data-no-intercept` attribute.
 
 ### Head
 
@@ -58,6 +65,8 @@ head(
 ```
 
 Call inside a page or layout. Layouts typically set `titleTemplate`; pages set `title`. Works during SSR and on the client (mutates `document.head` / `document.title`).
+
+The head window stays live for the whole client mount: a page that fetches first and calls `head()` after `await` still updates `document`. There are no loaders and no route guards — fetch in an async page, and confirm or cancel through `beforeNavigate()`.
 
 ### Pages and errors
 

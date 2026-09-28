@@ -21,11 +21,11 @@ Async components can return a `Stream` directly — no generator required.
 
 ## Atom.toStream
 
-Turn an atom into a change feed with [`Atom.toStream`](https://www.effect.website/docs/v4/api/effect/unstable/reactivity/Atom#tostream):
+Turn an atom into a change feed with [`Atom.toStream`](https://www.effect.website/docs/v4/api/effect/reactivity/Atom#tostream):
 
 ```tsx twoslash
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { atom } from "ilha";
 
 function* List() {
@@ -49,7 +49,7 @@ Use `items().map(...)` in a sync component for a simple list. Reach for `Atom.to
 ```tsx twoslash
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { atom, when } from "ilha";
 
 function* Search() {
@@ -141,3 +141,19 @@ function* Gate() {
 ## Server feeds
 
 Map a server stream to JSX with `Stream.fromAsyncIterable`. SSR serializes the first value; the client resumes the feed. See [Server islands](/guide/routing/server-islands) and [PubSub state](/guide/recipes/pubsub-state).
+
+### Live events
+
+`fromEventSource()` opens one SSE connection per component, reconnects with backoff, and closes on unmount:
+
+```tsx twoslash
+import * as Stream from "effect/Stream";
+import { fromEventSource } from "ilha";
+
+function* Ticks() {
+  const feed = fromEventSource("https://example.com/ticks");
+  yield Stream.map(feed.stream, (msg) => <p>{msg}</p>);
+}
+```
+
+Read `feed.latest` in a sync component, or `feed.status` (`"connecting" | "open" | "retrying" | "closed"`) for connection UI. Pass `{ event }` for a named event and `{ schema }` to decode `data` — throwing skips the message. SSR renders an empty stream with status `"closed"`.

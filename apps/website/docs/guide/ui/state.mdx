@@ -57,7 +57,7 @@ In `async` components, declare atoms before the first `await`. After an `await`,
 Pass `handle.atom` to Effect, wrap the result in `atom()`:
 
 ```tsx twoslash
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { atom } from "ilha";
 
 const Cart = () => {
@@ -78,7 +78,7 @@ const Cart = () => {
 | `Atom.transform(source, (get, source) => …)` | Reads more than one atom via `get` |
 
 ```tsx twoslash
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { atom } from "ilha";
 
 const Form = () => {
@@ -103,7 +103,7 @@ import { atom, watch } from "ilha";
 const Profile = () => {
   const name = atom("john");
   watch(name, (value) => {
-    document.title = value;
+    localStorage.setItem("profile:name", value);
   });
   return (
     <input value={name} oninput={(e) => name.set(e.currentTarget.value)} />
@@ -127,6 +127,36 @@ const Boot = () => {
     return () => window.removeEventListener("keydown", onKey);
   });
   return <p>ready</p>;
+};
+```
+
+`watch.once()` accepts an async callback and hands you an abort signal. The signal aborts on unmount:
+
+```tsx twoslash
+import { watch } from "ilha";
+
+const Feed = () => {
+  watch.once(async ({ signal }) => {
+    const socket = new WebSocket("wss://example.com/live");
+    signal.addEventListener("abort", () => socket.close());
+  });
+  return <p>live</p>;
+};
+```
+
+`watch(source, fn)` passes the same context per run. A new value aborts the previous run before `fn` executes — stale work never overwrites fresh results:
+
+```tsx twoslash
+import { atom, watch } from "ilha";
+
+const Search = () => {
+  const query = atom("");
+  watch(query, (q, { signal }) => {
+    void fetch(`/api/search?q=${q}`, { signal });
+  });
+  return (
+    <input value={query} oninput={(e) => query.set(e.currentTarget.value)} />
+  );
 };
 ```
 
@@ -156,12 +186,40 @@ const Panel = () => {
 };
 ```
 
+## Skip equal writes
+
+Atoms notify on reference change. You pass `equals` to skip subscribers when the value is meaningfully the same:
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Profile = () => {
+  const user = atom({ name: "Ada" }, { equals: "structural" });
+  return <p>{JSON.stringify(user())}</p>;
+};
+```
+
+`user.set({ name: "Ada" })` does not rerun subscribers. Pass a comparator for custom rules:
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Name = () => {
+  const name = atom("Ada", {
+    equals: (a, b) => a.toLowerCase() === b.toLowerCase(),
+  });
+  return <p>{name}</p>;
+};
+```
+
+`equals` applies to plain values only. Like the initial value, it is fixed by the first call and never resets.
+
 ## Async mutations
 
 `atom(Atom.fn(...))` runs an Effect when you call `.set()`:
 
 ```tsx twoslash
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import { atom } from "ilha";
 
@@ -193,7 +251,40 @@ const Form = () => {
 };
 ```
 
-For optimistic updates, use [`Atom.optimisticFn`](https://www.effect.website/docs/v4/api/effect/unstable/reactivity/Atom#optimisticfn).
+For optimistic updates, use [`Atom.optimisticFn`](https://www.effect.website/docs/v4/api/effect/reactivity/Atom#optimisticfn).
+
+## Share fetches
+
+`resource()` fetches once per key and shares the result. Concurrent mounts dedupe on one request; remounts seed from the cache:
+
+```tsx twoslash
+import { resource } from "ilha";
+
+const User = () => {
+  const user = resource("user:42", (key) =>
+    fetch(`/api/${key}`).then((r) => r.json())
+  );
+  if (user.loading()) return <p>Loading</p>;
+  return <p>{JSON.stringify(user.data())}</p>;
+};
+```
+
+| Handle      | Meaning                                 |
+| ----------- | --------------------------------------- |
+| `data`      | Last value, or `undefined`              |
+| `error`     | Last failure, or `undefined`            |
+| `loading`   | True while a request is in flight       |
+| `refetch()` | Fetch again; joins an in-flight request |
+
+`invalidate(key)` drops the cached value and refetches it in every live component:
+
+```ts twoslash
+import { invalidate } from "ilha";
+
+invalidate("user:42");
+```
+
+Call `resource()` unconditionally at the top level, before any `await`. The fetcher receives an abort signal that fires when a newer fetch starts or the component unmounts. On the server each render fetches fresh — the shared cache never crosses requests. `await renderToString(Component)` waits for the fetch; pass `{user.data}` in JSX to put the value in the HTML, since the component body renders once on the server.
 
 ## Lazy initialization
 

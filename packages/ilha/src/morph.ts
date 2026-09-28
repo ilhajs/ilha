@@ -46,6 +46,12 @@ const syncAttributes = (from: Element, to: Element): void => {
     names.push(name);
   }
   for (const name of names) {
+    if (name === "open" && !to.hasAttribute("open")) {
+      // A user-opened <details> or <dialog> stays open across rerenders
+      // unless the new render explicitly sets `open`. Attribute sync above
+      // still applies an explicit `open` from the render.
+      continue;
+    }
     if (shouldPreserveMorphAttr(from, name)) {
       continue;
     }
@@ -142,27 +148,54 @@ const collectKeys = (parent: Element): Set<string> => {
 };
 
 const morphInput = (fromEl: Element, toEl: Element): void => {
-  const hadChecked = fromEl.hasAttribute("checked");
-  const hadValue = fromEl.getAttribute("value");
   syncAttributes(fromEl, toEl);
-  const hasChecked = toEl.hasAttribute("checked");
-  if (hasChecked !== hadChecked) {
-    // SAFETY: localName === input; checked is the live property morph must sync.
-    (fromEl as HTMLInputElement).checked = hasChecked;
+  // SAFETY: localName === input on both sides after the pair check above.
+  const from = fromEl as HTMLInputElement;
+  // SAFETY: same pair check covers the render-side node.
+  const to = toEl as HTMLInputElement;
+  // Live props beat attributes: a fresh materialization sets the value the
+  // render asked for, while the live node may hold user edits. Attribute
+  // presence marks controlled renders — uncontrolled inputs keep user edits.
+  // Equal values skip the write so a focused input keeps its caret.
+  const toChecked = toEl.hasAttribute("checked");
+  if (toChecked !== fromEl.hasAttribute("checked")) {
+    if (toChecked) {
+      fromEl.setAttribute("checked", "");
+    } else {
+      fromEl.removeAttribute("checked");
+    }
   }
-  const newValue = toEl.getAttribute("value");
-  if (newValue !== hadValue) {
-    // SAFETY: localName === input; value is the live property morph must sync.
-    (fromEl as HTMLInputElement).value = newValue ?? "";
+  if (toChecked && from.checked !== to.checked) {
+    from.checked = to.checked;
+  }
+  const toValue = toEl.getAttribute("value");
+  if (toValue !== fromEl.getAttribute("value")) {
+    if (toValue === null) {
+      fromEl.removeAttribute("value");
+    } else {
+      fromEl.setAttribute("value", toValue);
+    }
+  }
+  if (toValue !== null && from.value !== to.value) {
+    from.value = to.value;
   }
 };
 
 const morphTextarea = (fromEl: Element, toEl: Element): void => {
-  const newText = toEl.textContent ?? "";
-  if (fromEl.textContent !== newText) {
-    fromEl.textContent = newText;
-    // SAFETY: localName === textarea.
-    (fromEl as HTMLTextAreaElement).value = newText;
+  syncAttributes(fromEl, toEl);
+  // SAFETY: localName === textarea on both sides.
+  const from = fromEl as HTMLTextAreaElement;
+  // SAFETY: same pair check covers the render-side node.
+  const to = toEl as HTMLTextAreaElement;
+  // Children are the controlled signal: no children anywhere means an
+  // uncontrolled box whose live value (user edits) must survive.
+  if (to.textContent !== "" || from.textContent !== to.textContent) {
+    if (from.value !== to.value) {
+      from.value = to.value;
+    }
+    if (from.textContent !== to.textContent) {
+      from.textContent = to.textContent;
+    }
   }
 };
 

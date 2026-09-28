@@ -128,3 +128,25 @@ test("morph select keeps live selected when attr unchanged", () => {
   // SAFETY: morph keeps the select as firstChild of from.
   expect((from.firstChild as HTMLSelectElement).options.length).toBe(2);
 });
+
+test("morph keeps user-opened details open when the render omits open", () => {
+  const from = document.createElement("div");
+  const details = document.createElement("details");
+  details.setAttribute("open", "");
+  from.append(details);
+  const to = document.createElement("div");
+  to.append(document.createElement("details"));
+  morphInner(from, to);
+  expect(from.querySelector("details")?.hasAttribute("open")).toBe(true);
+});
+
+test("morph applies an explicit open from the render", () => {
+  const from = document.createElement("div");
+  from.append(document.createElement("details"));
+  const to = document.createElement("div");
+  const opened = document.createElement("details");
+  opened.setAttribute("open", "");
+  to.append(opened);
+  morphInner(from, to);
+  expect(from.querySelector("details")?.hasAttribute("open")).toBe(true);
+});

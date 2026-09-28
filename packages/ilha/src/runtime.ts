@@ -2,10 +2,10 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import type * as Atom from "effect/reactivity/Atom";
+import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
+import * as Registry from "effect/reactivity/AtomRegistry";
 import * as Scope from "effect/Scope";
-import type * as Atom from "effect/unstable/reactivity/Atom";
-import type { AtomRegistry } from "effect/unstable/reactivity/AtomRegistry";
-import * as Registry from "effect/unstable/reactivity/AtomRegistry";
 
 import type { SnapshotValue } from "./snapshot.ts";
 import type {
@@ -37,6 +37,16 @@ export interface IslandFrame {
   slots: (IslandSlot | undefined)[];
 }
 
+export interface ComponentSlot {
+  type: unknown;
+  hole: FiberLocal;
+}
+
+export interface ComponentFrame {
+  i: number;
+  slots: ComponentSlot[];
+}
+
 export interface FiberLocal {
   root: ParentNode;
   registry: AtomRegistry;
@@ -53,6 +63,8 @@ export interface FiberLocal {
   watchI?: number;
   watchSlots?: WatchSlot[];
   islandFrame?: IslandFrame;
+  componentFrame?: ComponentFrame;
+  componentType?: unknown;
   renderSub?: () => void;
   trackRestore?: () => void;
   propsBox?: { current: PropBag };

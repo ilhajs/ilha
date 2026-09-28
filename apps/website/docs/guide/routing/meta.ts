@@ -7,6 +7,7 @@ export default defineMeta({
     "error-boundaries",
     "file-system-routing",
     "server-islands",
+    "client-spa",
     "middleware-and-security",
     "deployment",
   ],

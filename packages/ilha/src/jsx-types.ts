@@ -107,8 +107,21 @@ export namespace JSX {
     onanimationend?: Handler<Target, globalThis.AnimationEvent>;
     onanimationiteration?: Handler<Target, globalThis.AnimationEvent>;
     ontransitionend?: Handler<Target, globalThis.TransitionEvent>;
+    ontoggle?: Handler<Target, globalThis.Event>;
+    onbeforetoggle?: Handler<Target, globalThis.Event>;
+    onclose?: Handler<Target, globalThis.Event>;
+    oncancel?: Handler<Target, globalThis.Event>;
     onload?: Handler<Target, globalThis.Event>;
     onerror?: Handler<Target, globalThis.Event>;
+  }
+
+  /**
+   * Props every JSX tag accepts without a hand-added declaration.
+   * Components receive `key` through this interface, so you never add
+   * `key` to your own prop types.
+   */
+  export interface IntrinsicAttributes {
+    key?: string | number;
   }
 
   type AriaProps = Partial<Record<`aria-${string}`, Attr>>;

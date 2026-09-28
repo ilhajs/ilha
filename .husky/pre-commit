@@ -1,5 +1,4 @@
-bun run fmt
-bun run lint
+bun run fix
 bun run test
 git update-index --again
 # ultracite

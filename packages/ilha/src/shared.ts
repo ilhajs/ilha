@@ -1,4 +1,4 @@
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
 
 import { failureMessage } from "./errors.ts";
 import type { View } from "./types.ts";

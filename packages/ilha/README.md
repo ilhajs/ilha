@@ -51,7 +51,7 @@ count.update((n) => n + 1); // patch
 In JSX, `{count}` subscribes the render. Derived values use Effect's `Atom.map` or `Atom.transform`:
 
 ```tsx
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { atom } from "ilha";
 
 const items = atom([{ n: 1 }, { n: 2 }]);
@@ -74,7 +74,7 @@ Paint [Effect `Stream`](https://www.effect.website/docs/v4/api/effect/Stream) va
 
 ```tsx
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { atom } from "ilha";
 
 function* List() {

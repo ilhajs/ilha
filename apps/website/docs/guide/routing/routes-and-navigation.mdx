@@ -53,6 +53,27 @@ navigate("/account", { replace: true });
 navigate("/results?page=2", { scroll: false });
 ```
 
+## Share layouts across routes
+
+Pass shared layouts in `route()` options. Matching layouts stay mounted while you move between their pages, so layout state survives navigation:
+
+```tsx twoslash
+import { router } from "@ilha/router";
+
+import type { View } from "ilha";
+
+const AppLayout = ({ children }: { children?: View }) => <div>{children}</div>;
+const PageA = () => <h1>A</h1>;
+const PageB = () => <h1>B</h1>;
+
+router()
+  .route("/a", PageA, { layouts: [AppLayout] })
+  .route("/b", PageB, { layouts: [AppLayout] })
+  .mount("#app");
+```
+
+Search- or hash-only changes re-render the same page without remounting it. Routes with different layouts remount as before.
+
 ## Read the current route
 
 ```tsx twoslash
@@ -70,6 +91,25 @@ const UserPage = () => {
 
 `isActive(href)` is true when the current path matches.
 
+## Keep UI state in the query string
+
+You bind one query param with `searchParam()`. Writes replace the history entry, and the page re-renders in place:
+
+```tsx twoslash
+import { searchParam } from "@ilha/router";
+
+const Tabs = () => {
+  const tab = searchParam("t", { default: "overview" });
+  return (
+    <button type="button" onclick={() => tab.set("logs")}>
+      {tab()}
+    </button>
+  );
+};
+```
+
+Writing the default removes the param. Pass `parse` and `serialize` for non-string values, such as `{ default: 1, parse: Number }`.
+
 ## Head
 
 ```tsx
@@ -82,3 +122,40 @@ export default function About() {
 ```
 
 Layouts can set `titleTemplate`. On the client, `head()` updates `document` after mount and on navigation. See the [router reference](/reference/router).
+
+Fetch first, then describe the page. The head window stays live for the whole mount, so a call after `await` still updates `document` — never assign `document.title` by hand:
+
+```tsx
+import { head } from "@ilha/router";
+
+export default async function Post() {
+  const post = await fetchPost();
+  head({ title: post.title });
+  return <h1>{post.title}</h1>;
+}
+```
+
+## Skip interception
+
+The mounted router intercepts same-origin `<a>` clicks. You opt a link out with `data-no-intercept`:
+
+```tsx
+const LegacyLink = () => (
+  <a href="/legacy/report" data-no-intercept>
+    Full-page report
+  </a>
+);
+```
+
+## Observe navigation
+
+| Export | Meaning |
+| --- | --- |
+| `beforeNavigate(fn)` | Hook before every navigation; call `cancel()` to stop it. Returns an unsubscribe function |
+| `afterNavigate(fn)` | Hook after every navigation. Returns an unsubscribe function |
+| `navigating()` | True while a navigation is in flight |
+| `routeHash()` | Current hash, including the leading `#` |
+| `prime()` | Sync route state from the address bar without mounting |
+| `useContext()` | `{ request }` for the current render, if the server scoped one |
+
+There are no loaders and no route guards. Fetch inside an async page; confirm or cancel through `beforeNavigate()`.

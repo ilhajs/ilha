@@ -65,3 +65,13 @@ test("boolean true attribute is present", () => {
   });
   expect(el.querySelector("input")?.hasAttribute("disabled")).toBe(true);
 });
+
+const KeyedItem = ({ id }: { id: string }) => <li>{id}</li>;
+
+test("component accepts key without a declared key prop", async () => {
+  const el = document.createElement("div");
+  mount(el, () => <KeyedItem id="a" key="a" />);
+  await Bun.sleep(10);
+  expect(el.textContent).toBe("a");
+  expect(el.querySelector("li")?.hasAttribute("key")).toBe(false);
+});

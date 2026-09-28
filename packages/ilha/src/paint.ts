@@ -1,4 +1,4 @@
-import type { Atom } from "effect/unstable/reactivity";
+import type { Atom } from "effect/reactivity";
 
 import { bindEvents } from "./events.ts";
 import { morphInner } from "./morph.ts";
@@ -24,7 +24,8 @@ const domOps: PaintOps<Node, Element> = {
       root.replaceChildren();
     }
   },
-  createElement: (tag) => document.createElement(tag),
+  createElement: (tag, ns) =>
+    ns ? document.createElementNS(ns, tag) : document.createElement(tag),
   createRaw: (html, parent) => {
     // SAFETY: raw injection is the documented contract of unsafe() — the
     // caller vouches for the markup. Parsed scripts do not execute on insert.
@@ -51,11 +52,29 @@ const domOps: PaintOps<Node, Element> = {
       selected?: boolean;
     };
     if (key === "value") {
-      node.value = String(v ?? "");
+      // Mirror to the attribute so the morph can tell controlled renders
+      // (attr present) from uncontrolled ones (attr absent, user edits win).
+      if (v === null || v === undefined) {
+        el.removeAttribute("value");
+        node.value = "";
+      } else {
+        el.setAttribute("value", String(v));
+        node.value = String(v);
+      }
     } else if (key === "checked") {
       node.checked = Boolean(v);
+      if (v) {
+        el.setAttribute("checked", "");
+      } else {
+        el.removeAttribute("checked");
+      }
     } else {
       node.selected = Boolean(v);
+      if (v) {
+        el.setAttribute("selected", "");
+      } else {
+        el.removeAttribute("selected");
+      }
     }
   },
   setStyle: (el, css) => {
@@ -139,9 +158,14 @@ const paintMorphLive = (fiber: FiberLocal, view: VNode): void => {
   }
   core.disposeHoles(fiber, { morph: true });
   core.applyProps(fiber.liveEl, view.props, fiber);
-  const tmp = document.createElement(fiber.liveEl.localName);
+  const liveNs = fiber.liveEl.namespaceURI;
+  const tmp =
+    liveNs && liveNs !== "http://www.w3.org/1999/xhtml"
+      ? document.createElementNS(liveNs, fiber.liveEl.localName)
+      : document.createElement(fiber.liveEl.localName);
+  const childFiber: FiberLocal = { ...fiber, holes: fiber.holes, root: tmp };
   for (const c of view.children) {
-    for (const n of core.materialize(c, fiber)) {
+    for (const n of core.materialize(c, childFiber)) {
       tmp.append(n);
     }
   }
@@ -172,7 +196,9 @@ export const paint = (fiber: FiberLocal, view: View): void => {
     paintMorphLive(fiber, view);
     return;
   }
-  core.disposeHoles(fiber);
+  // Morph disposal keeps atom, island, keyed, and positional component holes
+  // alive so matching nodes survive; leftovers are swept next render.
+  core.disposeHoles(fiber, { morph: true });
   if (fiber.root instanceof Element && fiber.root.childNodes.length > 0) {
     const tmp = document.createElement("div");
     for (const n of core.materialize(view, fiber)) {

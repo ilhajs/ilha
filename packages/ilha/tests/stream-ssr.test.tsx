@@ -1,8 +1,8 @@
 // @jsxImportSource ../src
 import { expect, test } from "bun:test";
 
+import * as Atom from "effect/reactivity/Atom";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
 import type { AtomHandle } from "ilha";
 
 import { atom, h, mount, renderToString } from "../src/index.ts";

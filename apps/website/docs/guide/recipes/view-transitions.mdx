@@ -30,3 +30,32 @@ export default function Card() {
 ```
 
 The callback must update state synchronously so the browser can snapshot both sides of the transition.
+
+## Animate mount and unmount
+
+There is no transition hook for entering or leaving. You render conditionally from an atom and wrap the write in `startViewTransition()`:
+
+```tsx twoslash
+import { atom } from "ilha";
+
+export default function Panel() {
+  const open = atom(false);
+
+  const toggle = () => {
+    document.startViewTransition(() => {
+      open.update((value) => !value);
+    });
+  };
+
+  return (
+    <>
+      <button type="button" onclick={toggle}>
+        {open() ? "Hide" : "Show"}
+      </button>
+      {open() ? <p style="view-transition-name: panel">Details</p> : null}
+    </>
+  );
+}
+```
+
+The old subtree snapshots out while the new one snapshots in. Keep the conditional inside the same component so one atom write drives both sides.

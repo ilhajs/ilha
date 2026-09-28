@@ -1,4 +1,4 @@
-import { h, mount, renderToString } from "ilha";
+import { ErrorBoundary, atom, h, mount, renderToString } from "ilha";
 import type { Component, View } from "ilha";
 
 import { REQUEST_ALS_KEY } from "./als-key";
@@ -164,7 +164,11 @@ export interface RenderPageOptions {
 }
 
 export interface RouterBuilder {
-  route: (pattern: string, page: Page) => RouterBuilder;
+  route: (
+    pattern: string,
+    page: Page,
+    opts?: { layouts?: LayoutHandler[] }
+  ) => RouterBuilder;
   errorBoundary: (pattern: string, handler: ErrorHandler) => RouterBuilder;
   routes: () => RouteRecord[];
   prime: () => void;
@@ -200,6 +204,7 @@ type AfterNavigateHook = (nav: Navigation) => void;
 interface RouteData {
   page: Page;
   pattern: string;
+  layouts: LayoutHandler[];
   errorHandler?: ErrorHandler;
 }
 
@@ -476,6 +481,71 @@ export const navigate = (to: string, opts: NavigateOptions = {}): void => {
   runAfterNavigateHooks({ from: current, to, type });
 };
 
+export interface SearchParamOptions<T> {
+  /** Value when the param is absent. Writing it removes the param. */
+  default: T;
+  /** Decode the raw param. Default: the raw string. */
+  parse?: (raw: string) => T;
+  /** Encode a value for the URL. Default: `String(value)`. */
+  serialize?: (value: T) => string;
+}
+
+export interface SearchParam<T> {
+  (): T;
+  set: (next: T) => void;
+  update: (f: (current: T) => T) => void;
+}
+
+export interface SearchParamFn {
+  /** String param: `parse` is optional. */
+  (name: string, opts: SearchParamOptions<string>): SearchParam<string>;
+  /** Non-string param: `parse` is required to decode the raw string. */
+  <T>(
+    name: string,
+    opts: SearchParamOptions<T> & { parse: (raw: string) => T }
+  ): SearchParam<T>;
+}
+
+/**
+ * Read and write one query param through the router. Writes `replace` the
+ * history entry without scrolling, so the mounted router re-renders the
+ * current route in place instead of remounting it.
+ */
+export const searchParam: SearchParamFn = <T>(
+  name: string,
+  opts: SearchParamOptions<T>
+): SearchParam<T> => {
+  const serialize = opts.serialize ?? String;
+  const read = (): T => {
+    const raw = new URLSearchParams(_search).get(name);
+    if (raw === null) {
+      return opts.default;
+    }
+    // SAFETY: SearchParamFn requires parse unless T is string, so identity is exact.
+    return opts.parse ? opts.parse(raw) : (raw as T);
+  };
+  const set = (next: T): void => {
+    const params = new URLSearchParams(_search);
+    const encoded = serialize(next);
+    if (encoded === serialize(opts.default)) {
+      params.delete(name);
+    } else {
+      params.set(name, encoded);
+    }
+    const qs = params.toString();
+    navigate(`${_path}${qs ? `?${qs}` : ""}${_hash}`, {
+      replace: true,
+      scroll: false,
+    });
+  };
+  return Object.assign(read, {
+    set,
+    update: (f: (current: T) => T) => {
+      set(f(read()));
+    },
+  });
+};
+
 export type LinkInterceptionOptions = Record<string, never>;
 
 const NON_NAV_SCHEME = /^(?:mailto|tel|javascript):/iu;
@@ -609,16 +679,26 @@ const resolveRequestUrl = (urlOrRequest: string | URL | Request): URL => {
   }
 };
 
-const pageForPath = (
+const composedPageForPath = (
   pathname: string,
   routes: RouteRegistry,
   notFound: Page | null
 ): Page | null => {
   const match = matchRoute(routes, pathname);
-  if (match) {
-    return match.data.page;
+  if (!match) {
+    return notFound;
   }
-  return notFound;
+  // Layouts compose here; error boundaries stay in renderResponse's RouteError
+  // branch so thrown statuses keep their kind/status mapping.
+  const { layouts } = match.data;
+  let { page } = match.data;
+  for (let j = layouts.length - 1; j >= 0; j -= 1) {
+    const layout = layouts[j];
+    if (layout) {
+      page = wrapLayout(layout, page);
+    }
+  }
+  return page;
 };
 
 const renderPage = (page: Page, opts?: RenderPageOptions): Promise<string> =>
@@ -714,27 +794,75 @@ export const router = (options: RouterOptions = {}): RouterBuilder => {
         history.scrollRestoration = "manual";
       }
 
-      let unmountView: (() => void) | null = null;
+      let unmountShell: (() => void) | null = null;
       let headSession: ReturnType<typeof openBrowserHead> | null = null;
-      const remount = () => {
-        unmountView?.();
-        headSession?.close();
-        headSession = null;
-        const page = pageForPath(_path, routes, notFound);
-        if (!page) {
-          unmountView = null;
-          applyHeadEntriesToDocument([]);
-          return;
+      let bumpShell: (() => void) | null = null;
+      // Persistent shell: one mount for the router lifetime. Navigations bump
+      // a tick atom so the shell re-renders instead of remounting — matching
+      // layout components keep their state and DOM. Route state itself stays
+      // in module vars (atom handles are fiber-bound, so they cannot be shared
+      // across islands); the tick subscription is what makes renders reactive.
+      const Shell = () => {
+        const tick = atom(0);
+        bumpShell = () => {
+          tick.update((t: number) => t + 1);
+        };
+        tick();
+        const match = matchRoute(routes, _path);
+        if (!match) {
+          // SAFETY: notFound is a Page component; h accepts the island call surface.
+          return notFound ? h(notFound as never, null) : "";
         }
+        const { errorHandler, layouts, page } = match.data;
+        // SAFETY: route pages are Components; h accepts the island call surface.
+        let view: View = h(page as never, null);
+        for (let j = layouts.length - 1; j >= 0; j -= 1) {
+          const layout = layouts[j];
+          if (layout) {
+            // SAFETY: layouts are Components; h accepts the island call surface.
+            view = h(layout as never, null, view);
+          }
+        }
+        if (errorHandler) {
+          const onBoundary = errorHandler;
+          view = h(
+            // SAFETY: ErrorBoundary is a Component; h accepts the island call surface.
+            ErrorBoundary as never,
+            // SAFETY: fallback is an ErrorBoundary prop, not a DOM event handler.
+            {
+              fallback: ({ error }: { error: Error }) =>
+                onBoundary({ message: error.message }, snapshot()),
+            } as never,
+            view
+          );
+        }
+        return view;
+      };
+      const mountShell = () => {
+        headSession?.close();
         const session = openBrowserHead();
         headSession = session;
-        unmountView = mount(host, page, {
-          hydrate: unmountView === null && hydrate,
-        });
+        unmountShell = mount(host, Shell, { hydrate });
         // Nested layout/page fibers may call head() after mount() returns.
         queueMicrotask(() => {
           session.flush();
         });
+      };
+      const refresh = () => {
+        if (bumpShell) {
+          // Fresh head window per navigation: reused layouts and the page
+          // re-run head() on this render, so the previous route's entries
+          // must not linger.
+          headSession?.close();
+          const session = openBrowserHead();
+          headSession = session;
+          bumpShell();
+          queueMicrotask(() => {
+            session.flush();
+          });
+          return;
+        }
+        mountShell();
       };
 
       const popHandler = () => {
@@ -754,7 +882,7 @@ export const router = (options: RouterOptions = {}): RouterBuilder => {
           to: _path + _search + _hash,
           type: "pop",
         });
-        remount();
+        refresh();
       };
       navChangeCleanup = getAdapter().onChange(popHandler);
       linkCleanup =
@@ -762,18 +890,20 @@ export const router = (options: RouterOptions = {}): RouterBuilder => {
           ? enableLinkInterception(document)
           : null;
 
-      remount();
+      mountShell();
 
       const offNav = afterNavigate(() => {
         if (mounted) {
-          remount();
+          refresh();
         }
       });
 
       return () => {
         mounted = false;
         offNav();
-        unmountView?.();
+        bumpShell = null;
+        unmountShell?.();
+        unmountShell = null;
         headSession?.close();
         headSession = null;
         navChangeCleanup?.();
@@ -803,7 +933,7 @@ export const router = (options: RouterOptions = {}): RouterBuilder => {
       // SAFETY: head store starts empty; entries are HeadInput contributions.
       const store = { entries: [] as HeadInput[] };
       try {
-        const page = pageForPath(parsed.pathname, routes, notFound);
+        const page = composedPageForPath(parsed.pathname, routes, notFound);
         if (!page) {
           throw new RouteError(404, "Not found");
         }
@@ -896,8 +1026,16 @@ export const router = (options: RouterOptions = {}): RouterBuilder => {
       });
     },
 
-    route(pattern: string, page: Page): RouterBuilder {
-      const data: RouteData = { page, pattern };
+    route(
+      pattern: string,
+      page: Page,
+      opts: { layouts?: LayoutHandler[] } = {}
+    ): RouterBuilder {
+      const data: RouteData = {
+        layouts: opts.layouts ?? [],
+        page,
+        pattern,
+      };
       records.push({ page, pattern });
       addRouteEntry(routes, pattern, data);
       patternToData.set(pattern, data);

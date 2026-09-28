@@ -1,10 +1,11 @@
 import * as Effect from "effect/Effect";
+import type { Atom } from "effect/reactivity";
 import * as Stream from "effect/Stream";
-import type { Atom } from "effect/unstable/reactivity";
 
 import { isAtomHandle } from "./atom.ts";
 import { toError } from "./errors.ts";
 import { isEventProp } from "./events.ts";
+import { morphInner } from "./morph.ts";
 import {
   closeFiber,
   makeFiber,
@@ -61,10 +62,14 @@ export interface PaintEl<Node> {
   append: (...nodes: Node[]) => void;
 }
 
+export const SVG_NS = "http://www.w3.org/2000/svg";
+export const MATHML_NS = "http://www.w3.org/1998/Math/MathML";
+export const HTML_NS = "http://www.w3.org/1999/xhtml";
+
 export type FormControlKey = "value" | "checked" | "selected";
 
 export interface PaintOps<Node, El extends PaintEl<Node>> {
-  createElement: (tag: string) => El;
+  createElement: (tag: string, ns?: string) => El;
   createText: (text: string) => Node;
   /**
    * Parse pre-rendered HTML into nodes under `parent` (DOM:
@@ -114,6 +119,66 @@ const disposeHoles = (fiber: FiberLocal, opts?: { morph?: boolean }): void => {
     h.dispose();
   }
   fiber.holes = keep;
+};
+
+const parentNsOf = (root: ParentNode): string | null => {
+  if ("namespaceURI" in root) {
+    // SAFETY: `in` narrowed root to a host exposing namespaceURI (DOM Element).
+    const ns = (root as Element).namespaceURI;
+    return ns ?? null;
+  }
+  return null;
+};
+
+const elementNs = (
+  lower: string,
+  parentNs: string | null
+): string | undefined => {
+  if (lower === "svg") {
+    return SVG_NS;
+  }
+  if (lower === "math") {
+    return MATHML_NS;
+  }
+  if (lower === "foreignobject") {
+    return HTML_NS;
+  }
+  if (parentNs === SVG_NS || parentNs === MATHML_NS) {
+    return parentNs;
+  }
+  return undefined;
+};
+
+const canMorphRoot = (root: ParentNode): root is Element =>
+  typeof Element !== "undefined" &&
+  typeof document !== "undefined" &&
+  root instanceof Element &&
+  root.childNodes.length > 0;
+
+const sweepComponentSlots = (fiber: FiberLocal): void => {
+  const cframe = fiber.componentFrame;
+  if (!cframe) {
+    return;
+  }
+  const { slots } = cframe;
+  for (let j = cframe.i; j < slots.length; j += 1) {
+    const s = slots[j];
+    if (s) {
+      const { hole } = s;
+      if (!hole.closed) {
+        const idx = fiber.holes.findIndex((h) => h.holeFiber === hole);
+        if (idx === -1) {
+          closeFiber(hole);
+        } else {
+          const [removed] = fiber.holes.splice(idx, 1);
+          removed?.dispose();
+        }
+      }
+    }
+    // SAFETY: swept slots are unreachable after truncation below.
+    slots[j] = undefined as never;
+  }
+  slots.length = cframe.i;
 };
 
 const findReusableAtomHost = (
@@ -346,6 +411,12 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         fiber.islandFrame = frame;
       }
       frame.i = 0;
+      let cframe = fiber.componentFrame;
+      if (!cframe) {
+        cframe = { i: 0, slots: [] };
+        fiber.componentFrame = cframe;
+      }
+      cframe.i = 0;
       const list = Array.isArray(view) ? view : null;
       if (
         list &&
@@ -356,9 +427,39 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         paintFns.keyedPaintHole(fiber, list as VNode[]);
         return;
       }
-      disposeHoles(fiber);
-      ops.clearRoot(fiber.root);
-      api.insert(fiber, api.materialize(view, fiber));
+      // Unkeyed component holes survive disposal so positional reuse below can
+      // push new props instead of remounting; leftovers are swept afterwards.
+      const kept = new Set<FiberLocal>();
+      for (const s of cframe.slots) {
+        if (s && !s.hole.closed) {
+          kept.add(s.hole);
+        }
+      }
+      const keep: Hole[] = [];
+      for (const h of fiber.holes) {
+        if (h.holeFiber && kept.has(h.holeFiber)) {
+          keep.push(h);
+          continue;
+        }
+        h.dispose();
+      }
+      fiber.holes = keep;
+      const fresh = api.materialize(view, fiber);
+      if (canMorphRoot(fiber.root)) {
+        // Live DOM: morph so reused holes (same slot id) keep their nodes.
+        // SSR shims and empty roots take the clear-and-insert path below.
+        const tmp = document.createElement("div");
+        for (const n of fresh) {
+          // SAFETY: painter Nodes are DOM Nodes under the DOM ops.
+          tmp.append(n as Node);
+        }
+        morphInner(fiber.root, tmp);
+      } else {
+        ops.clearRoot(fiber.root);
+        api.insert(fiber, fresh);
+      }
+      // Sweep component slots that no longer match this render.
+      sweepComponentSlots(fiber);
     },
   };
 
@@ -484,6 +585,55 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     return [el];
   };
 
+  const materializeUnkeyedComponent = (
+    run: ComponentFn,
+    type: ComponentFn | JsxComponent,
+    props: PropBag,
+    fiber: FiberLocal
+  ): Node[] => {
+    let { componentFrame: cframe } = fiber;
+    if (!cframe) {
+      cframe = { i: 0, slots: [] };
+      fiber.componentFrame = cframe;
+    }
+    const at = cframe.i;
+    cframe.i = at + 1;
+    const existing = cframe.slots[at];
+    if (existing) {
+      const { hole } = existing;
+      if (existing.type === type && !hole.closed) {
+        hole.propsBox = { current: props };
+        runSetup(hole, () => run(props));
+        return [ops.asNode(hole.root)];
+      }
+      if (!hole.closed) {
+        const idx = fiber.holes.findIndex((h) => h.holeFiber === hole);
+        if (idx === -1) {
+          closeFiber(hole);
+        } else {
+          const [removed] = fiber.holes.splice(idx, 1);
+          removed?.dispose();
+        }
+      }
+    }
+    const { fiber: hole, nodes } = api.openHole(fiber);
+    hole.propsBox = { current: props };
+    hole.componentType = type;
+    cframe.slots[at] = { hole, type };
+    fiber.runtime.later(() => {
+      if (hole.closed) {
+        return;
+      }
+      const box = hole.propsBox;
+      if (!box) {
+        return;
+      }
+      runSetup(hole, () => run(box.current));
+    });
+    trackHole(fiber, hole, undefined, { keyed: true });
+    return nodes;
+  };
+
   const materializeComponent = (
     view: VNode,
     type: ComponentFn | JsxComponent,
@@ -520,29 +670,35 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       }
       return [ops.asNode(reuse.root)];
     }
-    const { fiber: hole, nodes } = api.openHole(fiber);
-    hole.propsBox = { current: props };
-    if (k) {
-      fiber.keyedHoles ??= new Map();
-      fiber.keyedHoles.set(k, hole);
+    if (!k) {
+      return materializeUnkeyedComponent(run, type, props, fiber);
     }
+    const { fiber: khole, nodes: knodes } = api.openHole(fiber);
+    khole.propsBox = { current: props };
+    fiber.keyedHoles ??= new Map();
+    fiber.keyedHoles.set(k, khole);
     fiber.runtime.later(() => {
-      if (hole.closed) {
+      if (khole.closed) {
         return;
       }
-      const box = hole.propsBox;
+      const box = khole.propsBox;
       if (!box) {
         return;
       }
-      runSetup(hole, () => run(box.current));
+      runSetup(khole, () => run(box.current));
     });
-    trackHole(fiber, hole, undefined, k ? { keyed: true } : undefined);
-    return nodes;
+    trackHole(fiber, khole, undefined, { keyed: true });
+    return knodes;
   };
 
   const materializeElement = (view: VNode, fiber: FiberLocal): Node[] => {
     // SAFETY: caller narrowed view.type to a string tag.
-    const el = ops.createElement(view.type as string);
+    const tag = view.type as string;
+    const lower = tag.toLowerCase();
+    // The fiber root may be a DOM Element (namespaceURI) or the SSR shim
+    // (no such field) — narrow instead of casting.
+    const ns = elementNs(lower, parentNsOf(fiber.root));
+    const el = ops.createElement(tag, ns);
     if (view.key !== null && view.key !== undefined) {
       el.setAttribute(KEY_ATTR, String(view.key));
     }
@@ -579,7 +735,10 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
 
   paintFns.materialize = (view: View, fiber: FiberLocal): Node[] => {
     if (skip(view)) {
-      return [];
+      // Stable placeholder keeps sibling indexes aligned across renders, so a
+      // conditional above an input no longer shifts the morph below it. The
+      // empty text serializes to "" — SSR string output is unchanged.
+      return [ops.createText("")];
     }
     if (isUnsafeHtml(view)) {
       return ops.createRaw(view.html, fiber.root);
