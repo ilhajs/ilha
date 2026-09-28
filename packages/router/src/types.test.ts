@@ -1,7 +1,18 @@
 import { describe, expect, it } from "bun:test";
 
-import { httpResponse, router, serializeHead } from "./index";
-import type { Page, RenderResponse } from "./index";
+import {
+  beforeNavigate,
+  httpResponse,
+  navigating,
+  prime,
+  routeHash,
+  router,
+  searchParam,
+  serializeHead,
+  useContext,
+  useRoute,
+} from "./index";
+import type { Navigation, Page, RenderResponse } from "./index";
 import { __ilhaServerAction } from "./ssr";
 
 declare const aPage: Page;
@@ -37,6 +48,45 @@ const typecheckServerActionResult = (): void => {
 
 void typecheckRouterApi;
 void typecheckServerActionResult;
+
+const typecheckRouteHooks = (): void => {
+  const off: () => void = beforeNavigate(
+    (nav: Navigation & { cancel: () => void }) => {
+      const to: string = nav.to;
+      void to;
+    }
+  );
+  const busy: boolean = navigating();
+  const hash: string = routeHash();
+  const route = useRoute();
+  const path: string = route.path();
+  const params: Record<string, string> = route.params();
+  const search: string = route.search();
+  const ctx: { request?: Request } = useContext();
+  void ctx.request;
+  prime();
+  off();
+  void busy;
+  void hash;
+  void path;
+  void params;
+  void search;
+};
+
+void typecheckRouteHooks;
+
+const typecheckSearchParam = (): void => {
+  const tab = searchParam("t", { default: "overview" });
+  const current: string = tab();
+  tab.set("logs");
+  const page = searchParam("p", { default: 1, parse: Number });
+  page.update((n) => n + 1);
+  // @ts-expect-error page is numeric
+  page.set("2");
+  void current;
+};
+
+void typecheckSearchParam;
 
 describe("types.test anchors", () => {
   it("exposes callable public surface", () => {

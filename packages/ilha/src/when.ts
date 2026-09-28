@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
+import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import * as Stream from "effect/Stream";
-import type { AtomRegistry } from "effect/unstable/reactivity/AtomRegistry";
 
 import { instr } from "./atom.ts";
 import { interpret } from "./interpret.ts";

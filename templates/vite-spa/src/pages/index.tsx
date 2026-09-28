@@ -1,5 +1,5 @@
 import { head } from "@ilha/router";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { atom, batch } from "ilha";
 
 interface Todo {

@@ -3,22 +3,21 @@ import path from "node:path";
 import ilha from "@ilha/astro";
 import icon from "astro-icon";
 import { defineConfig } from "blume";
+import { script } from "blume/analytics";
 
 const HERE = import.meta.dirname;
 
 export default defineConfig({
-  ai: { llmsTxt: true },
-  analytics: {
-    scripts: [
-      {
-        attributes: {
-          "data-website-id": "410cd0a6-1ee7-4d3a-b1ae-52dd9379e9c7",
-        },
-        src: "https://umami.guarana.studio/script.js",
-        strategy: "defer",
+  agents: { llmsTxt: true },
+  analytics: [
+    script({
+      attributes: {
+        "data-website-id": "410cd0a6-1ee7-4d3a-b1ae-52dd9379e9c7",
       },
-    ],
-  },
+      src: "https://umami.guarana.studio/script.js",
+      strategy: "defer",
+    }),
+  ],
   deployment: { site: "https://ilha.build" },
   description:
     "Ilha is a lightweight UI framework under 2,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
@@ -51,7 +50,7 @@ export default defineConfig({
   ],
   logo: "/logo.svg",
   markdown: {
-    codeBlocks: {
+    code: {
       theme: { dark: "catppuccin-mocha", light: "catppuccin-latte" },
     },
   },

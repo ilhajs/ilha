@@ -10,8 +10,6 @@
     "build": "bun run --filter ilha build && bun run --filter './packages/*' build",
     "build:website": "bun run --filter website build",
     "cleanup": "bun run --parallel --filter '*' cleanup && rimraf node_modules",
-    "fmt": "oxfmt",
-    "lint": "oxlint",
     "lint:docs": "bun run --filter website lint:docs",
     "prepare": "husky",
     "test": "bun run --parallel --filter './packages/*' test",
@@ -32,6 +30,6 @@
     "ultracite": "7.10.7"
   },
   "patchedDependencies": {
-    "blume@1.6.3": "patches/blume@1.6.3.patch"
+    "blume@2.0.3": "patches/blume@2.0.3.patch"
   }
 }

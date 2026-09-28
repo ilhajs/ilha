@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import * as Effect from "effect/Effect";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
 import { atom, batch, mount } from "../src/index.ts";
 

@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
-import { atom, mount } from "../src/index.ts";
+import { atom, mount, watch } from "../src/index.ts";
 import type { PropBag } from "../src/types.ts";
 
 const mapAtom = Atom.map;
@@ -462,4 +462,77 @@ test("sync reads while async setups are suspended do not leak trackGet", async (
   aEl.remove();
   bEl.remove();
   cEl.remove();
+});
+
+test("atom structural equals skips notify on equal JSON", async () => {
+  const seen: string[] = [];
+  let set!: (v: { a: number }) => void;
+  const App = () => {
+    const o = atom({ a: 1 }, { equals: "structural" });
+    set = (v) => o.set(v);
+    watch(o, (v) => {
+      seen.push(JSON.stringify(v));
+    });
+    return { $$ilha: 1 as const, children: ["x"], props: {}, type: "p" };
+  };
+  const el = document.createElement("div");
+  document.body.append(el);
+  mount(el, App);
+  await Bun.sleep(5);
+  expect(seen).toEqual(['{"a":1}']);
+  set({ a: 1 });
+  await Bun.sleep(5);
+  expect(seen).toEqual(['{"a":1}']);
+  set({ a: 2 });
+  await Bun.sleep(5);
+  expect(seen).toEqual(['{"a":1}', '{"a":2}']);
+  el.remove();
+});
+
+test("atom function equals skips notify", async () => {
+  const seen: number[] = [];
+  let set!: (v: string) => void;
+  const App = () => {
+    const s = atom("Hello", {
+      equals: (a, b) => a.toLowerCase() === b.toLowerCase(),
+    });
+    set = (v) => s.set(v);
+    watch(s, (v) => {
+      seen.push(v.length);
+    });
+    return { $$ilha: 1 as const, children: ["x"], props: {}, type: "p" };
+  };
+  const el = document.createElement("div");
+  document.body.append(el);
+  mount(el, App);
+  await Bun.sleep(5);
+  expect(seen).toEqual([5]);
+  set("HELLO");
+  await Bun.sleep(5);
+  expect(seen).toEqual([5]);
+  set("bye");
+  await Bun.sleep(5);
+  expect(seen).toEqual([5, 3]);
+  el.remove();
+});
+
+test("atom without equals notifies on equal-shaped objects", async () => {
+  const seen: string[] = [];
+  let set!: (v: { a: number }) => void;
+  const App = () => {
+    const o = atom({ a: 1 });
+    set = (v) => o.set(v);
+    watch(o, (v) => {
+      seen.push(JSON.stringify(v));
+    });
+    return { $$ilha: 1 as const, children: ["x"], props: {}, type: "p" };
+  };
+  const el = document.createElement("div");
+  document.body.append(el);
+  mount(el, App);
+  await Bun.sleep(5);
+  set({ a: 1 });
+  await Bun.sleep(5);
+  expect(seen).toEqual(['{"a":1}', '{"a":1}']);
+  el.remove();
 });

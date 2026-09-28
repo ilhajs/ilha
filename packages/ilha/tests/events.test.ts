@@ -89,3 +89,27 @@ test("multiple events on one element", () => {
   expect(seen).toEqual(["focus", "input"]);
   el.remove();
 });
+
+test("ontoggle binds on details", () => {
+  const seen: string[] = [];
+  const App = function* App() {
+    yield {
+      $$ilha: 1 as const,
+      children: [],
+      props: {
+        ontoggle: () => seen.push("toggle"),
+      },
+      type: "details",
+    };
+  };
+  const el = document.createElement("div");
+  document.body.append(el);
+  mount(el, App);
+  const details = el.querySelector("details");
+  if (!details) {
+    throw new Error("details missing");
+  }
+  details.dispatchEvent(new Event("toggle"));
+  expect(seen).toEqual(["toggle"]);
+  el.remove();
+});

@@ -1,12 +1,13 @@
+import { Equal } from "effect";
 import * as Effect from "effect/Effect";
+import * as Atom from "effect/reactivity/Atom";
+import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
-import type { AtomRegistry } from "effect/unstable/reactivity/AtomRegistry";
 
 import type { FiberLocal } from "./runtime.ts";
-import { getActiveFiber, getFiber, withFiber } from "./runtime.ts";
+import { closeFiber, getActiveFiber, getFiber, withFiber } from "./runtime.ts";
 import { isFunction } from "./shared.ts";
-import type { AtomHandle, Instruction } from "./types.ts";
+import type { AtomHandle, AtomOptions, Instruction } from "./types.ts";
 
 export const handleOwner = new WeakMap<object, FiberLocal>();
 
@@ -71,6 +72,9 @@ export const isAtomHandle = <T>(x: T): x is T & AtomHandle<unknown> =>
   // on every atom handle; x has passed the callable check above.
   isFunction(x) && (x as AtomHandle<unknown>).$$atom === 1;
 
+/** Key-order-insensitive deep equality for JSON-shaped values. */
+export const structuralEqual = Equal.equals;
+
 type TrackGet = <A>(atom: Atom.Atom<A>) => A;
 let trackGet: TrackGet | undefined;
 const trackStack: {
@@ -121,6 +125,33 @@ export const beginPrimitiveFrame = (fiber: FiberLocal): void => {
     islandFrame.slots.length = usedIslands;
   }
   islandFrame.i = 0;
+  let { componentFrame } = fiber;
+  if (!componentFrame) {
+    componentFrame = { i: 0, slots: [] };
+    fiber.componentFrame = componentFrame;
+  }
+  const usedComponents = componentFrame.i;
+  if (usedComponents < componentFrame.slots.length) {
+    for (let j = usedComponents; j < componentFrame.slots.length; j += 1) {
+      const slot = componentFrame.slots[j];
+      if (slot) {
+        const { hole } = slot;
+        if (!hole.closed) {
+          const idx = fiber.holes.findIndex((h) => h.holeFiber === hole);
+          if (idx === -1) {
+            closeFiber(hole);
+          } else {
+            const [removed] = fiber.holes.splice(idx, 1);
+            removed?.dispose();
+          }
+        }
+      }
+      // SAFETY: swept slots are unreachable after truncation below.
+      componentFrame.slots[j] = undefined as never;
+    }
+    componentFrame.slots.length = usedComponents;
+  }
+  componentFrame.i = 0;
 };
 
 interface PrimitiveSlot<A> {
@@ -294,7 +325,8 @@ const makeAtom = <A>(
     | A
     | Atom.Atom<A>
     | Effect.Effect<A, unknown, AtomRegistry>
-    | Stream.Stream<A, unknown, AtomRegistry>
+    | Stream.Stream<A, unknown, AtomRegistry>,
+  options?: AtomOptions<A>
 ): AtomHandle<A> => {
   const fiber = getFiber();
   const snap = fiber.runtime.hydrateValues;
@@ -324,7 +356,15 @@ const makeAtom = <A>(
       return Atom.make(seed as Effect.Effect<A, unknown>) as Atom.Atom<A>;
     }
     // SAFETY: every other union member is the plain seed value A itself.
-    return Atom.make(seed as A);
+    const made = Atom.make(seed as A);
+    const eq = options?.equals;
+    if (eq === undefined) {
+      return made;
+    }
+    // SAFETY: withEquality copies a writable atom with a new comparator;
+    // the registry consults atom.equals before notifying subscribers.
+    const equalsFn = eq === "structural" ? structuralEqual : eq;
+    return Atom.withEquality(made, equalsFn);
   });
   const handle = wrapHandle(a, fiber);
   if (fresh && fiber.runtime.ssr) {
@@ -362,7 +402,8 @@ export interface AtomFn {
       | A
       | Atom.Atom<A>
       | Effect.Effect<A, unknown, AtomRegistry>
-      | Stream.Stream<A, unknown, AtomRegistry>
+      | Stream.Stream<A, unknown, AtomRegistry>,
+    options?: AtomOptions<A>
   ): AtomHandle<A>;
   lazy: <A>(init: () => A) => AtomHandle<A>;
 }

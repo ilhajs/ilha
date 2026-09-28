@@ -47,6 +47,12 @@ const HeadPage = () => {
   return h("p", null, "home");
 };
 
+const AsyncHeadPage = async () => {
+  await Promise.resolve();
+  head({ title: "Loaded" });
+  return h("p", null, "loaded");
+};
+
 const HeadLayout = (props: { children?: unknown }) => {
   head({
     titleTemplate: (title) => `${title ?? ""} · App`,
@@ -142,5 +148,16 @@ describe("router", () => {
     document.title = "old";
     head({ title: "Direct" });
     expect(document.title).toBe("Direct");
+  });
+
+  it("applies head() called after await in the same mount", async () => {
+    window.location.href = "http://localhost/";
+    document.title = "";
+    const host = makeEl();
+    const r = router().route("/", AsyncHeadPage);
+    const unmount = r.mount(host);
+    await Bun.sleep(20);
+    expect(document.title).toBe("Loaded");
+    unmount();
   });
 });

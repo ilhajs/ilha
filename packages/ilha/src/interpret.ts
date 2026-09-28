@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import type { AtomRegistry } from "effect/unstable/reactivity/AtomRegistry";
+import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 
 import { asFailure, failureMessage } from "./errors.ts";
 import type { FiberLocal } from "./runtime.ts";

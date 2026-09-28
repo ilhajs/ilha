@@ -138,7 +138,7 @@ test("flags storing a function value in atom()", async () => {
 test("accepts Atom.transform for derived values", async () => {
   const { messages, raw } = await lint(`
     import { atom } from "ilha";
-    import * as Atom from "effect/unstable/reactivity/Atom";
+    import * as Atom from "effect/reactivity/Atom";
     export default function Cart() {
       const items = atom([{ n: 1 }]);
       const total = atom(Atom.transform(items.atom, (get, source) => get(source).reduce((sum, item) => sum + item.n, 0)));
@@ -152,7 +152,7 @@ test("accepts Atom.transform for derived values", async () => {
 test("accepts Atom.map for derived values", async () => {
   const { messages, raw } = await lint(`
     import { atom } from "ilha";
-    import * as Atom from "effect/unstable/reactivity/Atom";
+    import * as Atom from "effect/reactivity/Atom";
     export default function Board() {
       const items = atom([{ done: false }]);
       const pending = atom(Atom.map(items.atom, (list) => list.filter((item) => !item.done).length));

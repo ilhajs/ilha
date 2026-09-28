@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 
 import * as Effect from "effect/Effect";
+import * as Atom from "effect/reactivity/Atom";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
 
 import { atom, mount, when } from "../src/index.ts";
 

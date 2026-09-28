@@ -28,7 +28,39 @@ const Counter = () => {
 };
 ```
 
+Disclosure and dialog elements report their own state changes: `ontoggle` and `onbeforetoggle` on `<details>`, `onclose` and `oncancel` on `<dialog>`. The handler's `currentTarget` carries the typed element:
+
+```tsx twoslash
+const Panel = () => (
+  <details
+    ontoggle={(e) => {
+      console.log(e.currentTarget.open);
+    }}
+  >
+    <summary>More</summary>
+    <p>Details</p>
+  </details>
+);
+```
+
 On a server island, bind `oxidejs` `action`s with `.with(...)` on event props so SSR can serialize frame sentinels. Plain client islands keep plain handlers. See [Server islands](/guide/routing/server-islands).
+
+## Touch the DOM node
+
+Pass `ref` to read the live element. You receive the node on mount and `null` on unmount:
+
+```tsx twoslash
+const Field = () => (
+  <input
+    type="text"
+    ref={(el) => {
+      el?.focus();
+    }}
+  />
+);
+```
+
+Treat the `null` call as cleanup: disconnect observers and release library handles there. Do not keep the node past `null`; a rerender may replace it. See [Render and hydrate](/guide/ui/render) for a full vanilla-library recipe.
 
 ## Lists
 
@@ -51,9 +83,31 @@ const List = () => {
 };
 ```
 
-When `items` changes, the component reruns and morphs the list. Keys on `li` reuse DOM nodes when the array shifts.
+When `items` changes, the component reruns and morphs the list. Keys on `li` reuse DOM nodes when the array shifts. Components accept `key` the same way with no extra prop type — `JSX.IntrinsicAttributes` covers it.
 
 For live server lists, paint a Stream into a hole. See [Streams](/guide/ui/streams).
+
+## Keep user state across rerenders
+
+Rerenders morph the live DOM instead of replacing it. Form values, focus, and a user-opened `<details>` or `<dialog>` survive by default — the morph keeps `open` unless your render sets it explicitly.
+
+When a render must not overwrite an attribute that code outside the render changed, mark it with `data-morph-preserve`:
+
+```tsx twoslash
+const Card = () => (
+  <div
+    data-morph-preserve="title"
+    title="rendered"
+    onmouseenter={(e) => {
+      e.currentTarget.title = "seen";
+    }}
+  >
+    content
+  </div>
+);
+```
+
+The handler writes a live `title`, and later rerenders keep it. List attribute names separated by spaces.
 
 ## Raw HTML
 

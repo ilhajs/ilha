@@ -81,6 +81,44 @@ if (root) mount(root, App, { hydrate: true });
 
 Hydration restores atom snapshots in declaration order, then attaches events. A mismatch logs a warning and does a full mount.
 
-## File routes
+## Wrap a vanilla library
 
-`@ilha/router` calls `renderToString` and `mount` for you. See [Routing](/guide/routing/overview).
+Some libraries own their DOM node: maps, editors, charts. You grab the node with `ref`, build the instance on mount, and destroy it on the `null` call:
+
+```tsx twoslash
+declare const createMap: (el: HTMLDivElement) => { destroy: () => void };
+
+const MapView = () => {
+  let map: { destroy: () => void } | null = null;
+  return (
+    <div
+      class="map"
+      ref={(el) => {
+        if (el) {
+          map = createMap(el);
+        } else {
+          map?.destroy();
+          map = null;
+        }
+      }}
+    />
+  );
+};
+```
+
+The `ref` fires again with the new node when a rerender replaces the element, so always route teardown through the `null` branch. Before you mount a second tree on the same host, call the first `unmount()`:
+
+```ts twoslash
+import { mount } from "ilha";
+
+declare const App: () => string;
+declare const root: HTMLElement;
+// ---cut---
+let unmount = mount(root, App);
+unmount();
+unmount = mount(root, App);
+```
+
+Skipping the first `unmount()` leaves two trees — and two `ref` callbacks — fighting over one node.
+
+## File routes

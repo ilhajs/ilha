@@ -1,0 +1,147 @@
+import * as Effect from "effect/Effect";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
+
+import { atom } from "./atom.ts";
+import { getFiber } from "./runtime.ts";
+import { isString } from "./shared.ts";
+import type {
+  AtomHandle,
+  EventSourceFeed,
+  EventSourceOptions,
+  EventSourceStatus,
+} from "./types.ts";
+import { watch } from "./watch.ts";
+
+interface FeedCell<T> {
+  status: AtomHandle<EventSourceStatus>;
+  latest: AtomHandle<T | undefined>;
+  targets: Set<(value: T) => void>;
+  stream: Stream.Stream<T, never, never>;
+}
+
+const cells = new WeakMap<object, Map<string, unknown>>();
+
+const MAX_BACKOFF_MS = 30_000;
+
+/**
+ * Subscribe to server-sent events. Opens one connection per `(url, event)`
+ * per component, reconnects with backoff, and closes on unmount. SSR renders
+ * an empty stream with status `"closed"`. Call unconditionally at the top
+ * level of a component.
+ */
+export const fromEventSource = <T = string>(
+  url: string,
+  opts?: EventSourceOptions<T>
+): EventSourceFeed<T> => {
+  const fiber = getFiber();
+  const status = atom<EventSourceStatus>("connecting");
+  // oxlint-disable-next-line unicorn/no-useless-undefined -- the feed starts valueless; undefined is the seed
+  const latest = atom<T | undefined>(undefined);
+
+  const feedKey = `${url}\n${opts?.event ?? ""}`;
+  let byKey = cells.get(fiber);
+  if (!byKey) {
+    byKey = new Map();
+    cells.set(fiber, byKey);
+  }
+  // SAFETY: one feed per (fiber, url, event); T matches because the call-site options are stable.
+  let cell = byKey.get(feedKey) as FeedCell<T> | undefined;
+  if (!cell) {
+    const targets = new Set<(value: T) => void>();
+    const stream: Stream.Stream<T, never, never> = fiber.runtime.ssr
+      ? Stream.empty
+      : Stream.callback<T>((queue) => {
+          const push = (value: T): void => {
+            Queue.offerUnsafe(queue, value);
+          };
+          targets.add(push);
+          return Effect.acquireRelease(Effect.void, () =>
+            Effect.sync(() => targets.delete(push))
+          );
+        });
+    cell = { latest, status, stream, targets };
+    byKey.set(feedKey, cell);
+  }
+  // SAFETY: slots reuse the same underlying atoms across renders, so any
+  // generation of handles reads and writes the same values.
+  cell.status = status;
+  cell.latest = latest;
+  const c = cell;
+
+  // SAFETY: without a schema T defaults to string, so identity is exact.
+  const decode = opts?.schema ?? ((raw: string) => raw as T);
+  const retryBase = opts?.retryBaseMs ?? 1000;
+
+  // Runs once per mount for slot stability; the callback itself runs once.
+  watch.once(() => {
+    if (fiber.runtime.ssr || globalThis.EventSource === undefined) {
+      c.status.set("closed");
+      return;
+    }
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let source: EventSource | undefined;
+    let disposed = false;
+    const emit = (value: T): void => {
+      c.latest.set(value);
+      for (const push of c.targets) {
+        push(value);
+      }
+    };
+    const open = (): void => {
+      if (disposed) {
+        return;
+      }
+      c.status.set(attempt === 0 ? "connecting" : "retrying");
+      const es = new EventSource(url);
+      source = es;
+      const onMessage = (ev: Event): void => {
+        // SAFETY: server-sent events arrive as MessageEvent with string data.
+        const raw = (ev as MessageEvent).data;
+        if (!isString(raw)) {
+          return;
+        }
+        let value: T;
+        try {
+          value = decode(raw);
+        } catch {
+          return;
+        }
+        emit(value);
+      };
+      const onOpen = (): void => {
+        attempt = 0;
+        c.status.set("open");
+      };
+      const onError = (): void => {
+        if (disposed || es.readyState !== EventSource.CLOSED) {
+          return;
+        }
+        es.close();
+        attempt += 1;
+        c.status.set("retrying");
+        timer = setTimeout(
+          open,
+          Math.min(retryBase * 2 ** (attempt - 1), MAX_BACKOFF_MS)
+        );
+      };
+      if (opts?.event) {
+        es.addEventListener(opts.event, onMessage);
+      } else {
+        es.addEventListener("message", onMessage);
+      }
+      es.addEventListener("open", onOpen);
+      es.addEventListener("error", onError);
+    };
+    open();
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      source?.close();
+      c.status.set("closed");
+    };
+  });
+
+  return { latest, status, stream: c.stream };
+};

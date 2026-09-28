@@ -1,7 +1,7 @@
 import type { Effect, Stream } from "effect";
+import type { Atom } from "effect/reactivity";
+import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import type { Closeable } from "effect/Scope";
-import type { Atom } from "effect/unstable/reactivity";
-import type { AtomRegistry } from "effect/unstable/reactivity/AtomRegistry";
 
 export type JsonText = string | number | bigint | boolean | null | undefined;
 
@@ -117,4 +117,71 @@ export interface AtomHandle<A> {
   (): A;
   set: (next: A) => void;
   update: (f: (current: A) => A) => void;
+}
+
+/** Equality for plain-value atoms. `"structural"` deep-compares JSON-shaped values. */
+export type AtomEquality<A> = "structural" | ((prev: A, next: A) => boolean);
+
+export interface AtomOptions<A = unknown> {
+  /** Skip subscriber notify when `equals(prev, next)` holds. Plain values only. */
+  readonly equals?: AtomEquality<A>;
+}
+
+/** Optional disposer returned from `watch.once`. */
+export type WatchOnceCleanup = () => void;
+
+/**
+ * Cancellation context handed to watch callbacks. `signal` aborts when the
+ * run goes stale (a newer value arrives), on unmount, or on slot disposal.
+ * Register extra teardowns with `onCleanup`.
+ */
+export interface WatchContext {
+  readonly signal: AbortSignal;
+  onCleanup: (fn: () => void) => void;
+}
+
+export type WatchCallback<A> = (
+  value: A,
+  ctx: WatchContext
+) => WatchOnceCleanup | undefined | Promise<WatchOnceCleanup | undefined>;
+
+/** Options for `resource()`. */
+export interface ResourceOptions {
+  /** Serve cached data while revalidating in the background. Default `true`. */
+  readonly staleWhileRevalidate?: boolean;
+}
+
+/** Async fetch scoped to a resource key. Receives an abort signal. */
+export type ResourceFetcher<T> = (
+  key: string,
+  ctx: { signal: AbortSignal }
+) => Promise<T>;
+
+/** Handles returned by `resource()`. */
+export interface Resource<T> {
+  readonly data: AtomHandle<T | undefined>;
+  readonly error: AtomHandle<unknown>;
+  readonly loading: AtomHandle<boolean>;
+  refetch: () => Promise<T | undefined>;
+}
+
+/** Connection state of a `fromEventSource` feed. */
+export type EventSourceStatus = "connecting" | "open" | "retrying" | "closed";
+
+/** Options for `fromEventSource()`. */
+export interface EventSourceOptions<T = string> {
+  /** Named event to listen for. Default: the `message` event. */
+  readonly event?: string;
+  /** Decode (and validate) `data` into `T`. Throwing skips the message. */
+  readonly schema?: (data: string) => T;
+  /** Base backoff between reconnects. Default `1000`. Capped at 30s. */
+  readonly retryBaseMs?: number;
+}
+
+/** Live server-sent-events feed. */
+export interface EventSourceFeed<T = string> {
+  /** Paint with `yield Stream.map(feed.stream, ...)`; watch `latest` instead in sync components. */
+  readonly stream: Stream.Stream<T, never, never>;
+  readonly status: AtomHandle<EventSourceStatus>;
+  readonly latest: AtomHandle<T | undefined>;
 }

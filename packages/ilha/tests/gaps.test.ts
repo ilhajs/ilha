@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 
 import * as Effect from "effect/Effect";
+import * as Atom from "effect/reactivity/Atom";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
 
 import { define } from "../src/define.ts";
 import { failureMessage } from "../src/errors.ts";

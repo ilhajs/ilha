@@ -381,7 +381,8 @@ const pushRegistryAndRoutes = (
   wrappedId: string,
   registryLines: string[],
   routeLines: string[],
-  includeRoutes: boolean
+  includeRoutes: boolean,
+  decomposeLayouts = false
 ): void => {
   registryLines.push(
     `  ${JSON.stringify(entry.name)}: ${wrappedId}${index < entriesLength - 1 ? "," : ""}`
@@ -389,7 +390,18 @@ const pushRegistryAndRoutes = (
   if (!includeRoutes) {
     return;
   }
-  routeLines.push(`  .route(${JSON.stringify(entry.pattern)}, ${wrappedId})`);
+  // Layouts stay decomposed on the client so the shell can keep matching
+  // layouts mounted across navigations; the server keeps the composed page.
+  if (decomposeLayouts && entry.layouts.length > 0) {
+    const layouts = entry.layouts
+      .map((_, j) => `_layout${index}_${j}`)
+      .join(", ");
+    routeLines.push(
+      `  .route(${JSON.stringify(entry.pattern)}, _page${index}, { layouts: [${layouts}] })`
+    );
+  } else {
+    routeLines.push(`  .route(${JSON.stringify(entry.pattern)}, ${wrappedId})`);
+  }
   if (entry.errors.length > 0) {
     routeLines.push(
       `  .errorBoundary(${JSON.stringify(entry.pattern)}, _error${index}_${entry.errors.length - 1})`
@@ -488,7 +500,8 @@ const emitClientEntry = (
     wrappedId,
     registryLines,
     routeLines,
-    !isStatic
+    !isStatic,
+    true
   );
 };
 

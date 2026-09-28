@@ -44,7 +44,7 @@ mount(document.getElementById("signup")!, Signup);`;
 
 export const SIGNALS_CODE = `import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import { atom, mount, when } from "ilha";
 
 function* Search() {
@@ -122,7 +122,7 @@ export default defineConfig({
   integrations: [ilha()],
 });`;
 
-export const PREVIEW_CODE = `import * as Atom from "effect/unstable/reactivity/Atom";
+export const PREVIEW_CODE = `import * as Atom from "effect/reactivity/Atom";
 import { atom } from "ilha";
 
 let nextId = 4;

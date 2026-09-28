@@ -2,7 +2,19 @@ import { describe, expect, it } from "bun:test";
 
 import type { JSX } from "./jsx-types.ts";
 import { isFunction } from "./shared.ts";
-import type { AtomHandle, UnsafeHtml, View } from "./types.ts";
+import type {
+  AtomHandle,
+  AtomOptions,
+  EventSourceFeed,
+  EventSourceOptions,
+  Resource,
+  ResourceFetcher,
+  ResourceOptions,
+  UnsafeHtml,
+  View,
+  WatchCallback,
+  WatchContext,
+} from "./types.ts";
 import { unsafe } from "./unsafe.ts";
 
 const click: NonNullable<JSX.IntrinsicElements["button"]["onclick"]> = (e) => {
@@ -46,6 +58,8 @@ const typecheckUntrack = (): void => {
   void n;
 };
 
+const KeyedItem = (_props: { id: string }): View => "x";
+
 const typecheckJsxProps = (): void => {
   const count = asHandle<number>();
   const on = asHandle<boolean>();
@@ -57,6 +71,9 @@ const typecheckJsxProps = (): void => {
     disabled: true,
     name: "go",
     onclick: click,
+    ref: (el) => {
+      void el?.tagName;
+    },
     type: "button",
   };
   const formProps: JSX.IntrinsicElements["form"] = {
@@ -82,9 +99,30 @@ const typecheckJsxProps = (): void => {
     "aria-label": "x",
     class: "card",
     "data-ilha": "",
+    "data-morph-preserve": "title",
     style: { color: "red", marginTop: 4 },
   };
+  const detailsProps: JSX.IntrinsicElements["details"] = {
+    ontoggle: (e) => {
+      void e.currentTarget.open;
+    },
+  };
+  const dialogProps: JSX.IntrinsicElements["dialog"] = {
+    oncancel: (e) => {
+      e.preventDefault();
+    },
+    onclose: (e) => {
+      void e.currentTarget.returnValue;
+    },
+  };
+  const popoverProps: JSX.IntrinsicElements["div"] = {
+    onbeforetoggle: (e) => {
+      void e.currentTarget;
+    },
+  };
 
+  const keyAttrs: JSX.IntrinsicAttributes = { key: "row-1" };
+  const keyedComponent = <KeyedItem id="a" key="a" />;
   // @ts-expect-error value is not a boolean binding
   const badValue: JSX.IntrinsicElements["input"] = { value: on };
   // @ts-expect-error checked expects boolean atom/value
@@ -104,6 +142,11 @@ const typecheckJsxProps = (): void => {
   void checkProps;
   void labelProps;
   void styleProps;
+  void detailsProps;
+  void dialogProps;
+  void popoverProps;
+  void keyAttrs;
+  void keyedComponent;
   void badValue;
   void badChecked;
   void badClick;
@@ -111,6 +154,73 @@ const typecheckJsxProps = (): void => {
   void badDivDisabled;
   void badPForm;
   void count;
+};
+declare const res: Resource<string>;
+declare const feed: EventSourceFeed<number>;
+
+const ctxFn: WatchCallback<number> = (value, ctx) => {
+  ctx.signal.addEventListener("abort", () => {});
+  ctx.onCleanup(() => {});
+  void value;
+};
+const asyncCtxFn: WatchCallback<string> = (value, ctx) => {
+  void value;
+  void ctx.signal;
+  return Promise.resolve(() => {
+    // Nothing to clean in the anchor.
+  });
+};
+const legacy: WatchCallback<number> = (value) => {
+  void value;
+};
+const useCtx = (_ctx: WatchContext): void => {};
+const fetcher: ResourceFetcher<string> = (key, { signal }) => {
+  void key;
+  void signal.aborted;
+  return Promise.resolve("v");
+};
+const typecheckAsyncApis = (): void => {
+  const eqOpts: AtomOptions<{ a: number }> = { equals: "structural" };
+  const fnOpts: AtomOptions<string> = {
+    equals: (a, b) => a.toLowerCase() === b.toLowerCase(),
+  };
+  // @ts-expect-error equals must be "structural" or a comparator
+  const badOpts: AtomOptions<number> = { equals: "fuzzy" };
+
+  const resOpts: ResourceOptions = { staleWhileRevalidate: false };
+  // @ts-expect-error unknown resource option
+  const badResOpts: ResourceOptions = { stale: true };
+  const data: AtomHandle<string | undefined> = res.data;
+  const loading: AtomHandle<boolean> = res.loading;
+  const refetch: () => Promise<string | undefined> = res.refetch;
+  // @ts-expect-error data is possibly undefined
+  const badData: AtomHandle<string> = res.data;
+
+  const sseOpts: EventSourceOptions<number> = {
+    event: "count",
+    retryBaseMs: 500,
+    schema: Number,
+  };
+  const latest: AtomHandle<number | undefined> = feed.latest;
+  void feed.stream;
+  void feed.status;
+
+  void eqOpts;
+  void fnOpts;
+  void badOpts;
+  void resOpts;
+  void badResOpts;
+  void fetcher;
+  void data;
+  void loading;
+  void refetch;
+  void badData;
+  void sseOpts;
+  void latest;
+  void ctxFn;
+  void asyncCtxFn;
+  void legacy;
+  void useCtx;
 };
 
 const typecheckUnsafe = (): void => {
@@ -129,5 +239,6 @@ describe("jsx types", () => {
     expect(isFunction(typecheckWatch)).toBe(true);
     expect(isFunction(typecheckUntrack)).toBe(true);
     expect(isFunction(typecheckUnsafe)).toBe(true);
+    expect(isFunction(typecheckAsyncApis)).toBe(true);
   });
 });

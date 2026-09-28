@@ -1,7 +1,7 @@
 // @jsxImportSource ../src
 import { expect, test } from "bun:test";
 
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 
 import { atom, mount } from "../src/index.ts";
 

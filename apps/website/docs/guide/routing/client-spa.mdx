@@ -1,0 +1,52 @@
+---
+title: Client-only SPA with Oxide actions
+description: Serve a static SPA shell, render frames on demand, and drop SSR guards you do not need.
+---
+
+Ship one HTML shell and mount the router in the browser. Add the Oxide SSR middleware only when server islands or actions need a frame renderer.
+
+## Mount without SSR
+
+```ts
+import { pageRouter } from "ilha:pages/client";
+
+pageRouter.mount("#app");
+```
+
+Serve `index.html` for every route (a static host fallback). Deep links load the shell, then the router paints the page. Reach for hash mode when the host is `file://` or cannot serve a fallback:
+
+```ts
+import { setHistoryMode } from "@ilha/router";
+
+setHistoryMode("hash");
+```
+
+The logical path then lives in `location.hash`, which the server never sees.
+
+## Add Oxide actions
+
+Actions still need a server. The client proxy posts to `POST /__ilha/frame`, and that endpoint only exists behind `@ilha/router/ssr`:
+
+```ts
+import pages from "@ilha/router/vite";
+import oxide from "oxidejs/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [oxide({ middleware: ["@ilha/router/ssr"] }), pages()],
+});
+```
+
+On the client you keep the same `mount()` call. Frames render on demand and morph into the SPA tree. See [Server islands](/guide/routing/server-islands).
+
+## Drop guards you do not need
+
+Frame guards (`setFrameGuard`, `setFrameAuth`) protect server island state. A pure static SPA has no frame endpoint, so there is nothing to guard — skip them. Add them the moment you serve frames: production denies unguarded frame POSTs with `403`. Demos over world-readable state open the endpoint explicitly:
+
+```ts
+import { setFrameAuth } from "@ilha/router/ssr";
+
+setFrameAuth({ defaultAction: "open" });
+```
+
+Keep `"open"` to demos. Gate real user state with `setFrameGuard()`. See [Middleware and security](/guide/routing/middleware-and-security).
