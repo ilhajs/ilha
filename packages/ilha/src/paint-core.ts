@@ -181,6 +181,24 @@ const sweepComponentSlots = (fiber: FiberLocal): void => {
   slots.length = cframe.i;
 };
 
+const sweepIslandSlots = (fiber: FiberLocal): void => {
+  const frame = fiber.islandFrame;
+  if (!frame || frame.i >= frame.slots.length) {
+    return;
+  }
+  const stale = new Set(frame.slots.slice(frame.i));
+  const keep: Hole[] = [];
+  for (const h of fiber.holes) {
+    if (h.islandSlot && stale.has(h.islandSlot)) {
+      h.dispose();
+      continue;
+    }
+    keep.push(h);
+  }
+  fiber.holes = keep;
+  frame.slots.length = frame.i;
+};
+
 const findReusableAtomHost = (
   fiber: FiberLocal,
   atom: AtomRef
@@ -427,17 +445,22 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         paintFns.keyedPaintHole(fiber, list as VNode[]);
         return;
       }
-      // Unkeyed component holes survive disposal so positional reuse below can
-      // push new props instead of remounting; leftovers are swept afterwards.
+      // Unkeyed component and island holes survive disposal so positional
+      // reuse below can push new props instead of remounting; leftovers are
+      // swept afterwards.
       const kept = new Set<FiberLocal>();
       for (const s of cframe.slots) {
         if (s && !s.hole.closed) {
           kept.add(s.hole);
         }
       }
+      const keptIslands = new Set(frame.slots);
       const keep: Hole[] = [];
       for (const h of fiber.holes) {
-        if (h.holeFiber && kept.has(h.holeFiber)) {
+        const reusable =
+          (h.holeFiber && kept.has(h.holeFiber)) ||
+          (h.islandSlot && keptIslands.has(h.islandSlot));
+        if (reusable) {
           keep.push(h);
           continue;
         }
@@ -458,8 +481,9 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         ops.clearRoot(fiber.root);
         api.insert(fiber, fresh);
       }
-      // Sweep component slots that no longer match this render.
+      // Sweep component and island slots that no longer match this render.
       sweepComponentSlots(fiber);
+      sweepIslandSlots(fiber);
     },
   };
 
@@ -579,6 +603,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
             frame.slots[i] = undefined;
           }
         },
+        islandSlot: slot,
         keepOnMorph: true,
       });
     }

@@ -107,3 +107,54 @@ test("island updateProps survives nested element materialization", async () => {
   expect(el.querySelector("section")?.textContent).toBe("Ada");
   el.remove();
 });
+
+test("island keeps its live host when a nested component rerenders", async () => {
+  let mounts = 0;
+  const Proxy = Object.assign(() => "", {
+    [ISLAND]: true,
+    [TAG]: "section",
+    [MOUNT]: (host: Element, props?: PropBag) => {
+      mounts += 1;
+      // Server islands paint async and only into a connected host.
+      const paint = (next?: PropBag) => {
+        queueMicrotask(() => {
+          if (host.isConnected) {
+            host.textContent = String(next?.name ?? "");
+          }
+        });
+      };
+      paint(props);
+      return {
+        unmount() {
+          host.textContent = "";
+        },
+        updateProps: paint,
+      };
+    },
+  });
+
+  const App = () => {
+    const name = atom("Ilha");
+    return h("div", null, [
+      h("button", { onclick: () => name.set("Ada") }, "go"),
+      // SAFETY: Proxy carries the island brand symbols for the mount hook.
+      h(Proxy as never, { name: name() }),
+    ]);
+  };
+
+  // Router-style shell: the page is an unkeyed child component.
+  const Shell = () => h(App, null);
+
+  const el = document.createElement("div");
+  document.body.append(el);
+  mount(el, Shell);
+  await Bun.sleep(5);
+  const host = el.querySelector("section");
+  expect(host?.textContent).toBe("Ilha");
+  el.querySelector("button")?.click();
+  await Bun.sleep(5);
+  expect(el.querySelector("section")).toBe(host);
+  expect(host?.textContent).toBe("Ada");
+  expect(mounts).toBe(1);
+  el.remove();
+});
