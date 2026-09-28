@@ -273,6 +273,9 @@ export const resource = <T>(
 
   if (!c.held) {
     c.held = true;
+    const onInvalidate = (): void => {
+      void settleStart();
+    };
     watch.once(() => {
       // Runs once per mount: the slot exists on later renders.
       let live = liveRefetchers.get(key);
@@ -280,9 +283,6 @@ export const resource = <T>(
         live = new Set();
         liveRefetchers.set(key, live);
       }
-      const onInvalidate = (): void => {
-        void settleStart();
-      };
       live.add(onInvalidate);
       return () => {
         c.alive = false;

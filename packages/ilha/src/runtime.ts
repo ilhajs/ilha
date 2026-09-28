@@ -23,6 +23,7 @@ export interface Hole {
   atom?: Atom.Atom<unknown>;
   host?: Element;
   holeFiber?: FiberLocal;
+  islandSlot?: IslandSlot;
 }
 
 export interface IslandSlot {

@@ -181,6 +181,26 @@ const sweepComponentSlots = (fiber: FiberLocal): void => {
   slots.length = cframe.i;
 };
 
+const sweepIslandSlots = (fiber: FiberLocal): void => {
+  const frame = fiber.islandFrame;
+  if (!frame) {
+    return;
+  }
+  // Match by identity: a slot replaced in place keeps the count unchanged
+  // but orphans the previous slot's hole.
+  const active = new Set(frame.slots.slice(0, frame.i));
+  const keep: Hole[] = [];
+  for (const h of fiber.holes) {
+    if (h.islandSlot && !active.has(h.islandSlot)) {
+      h.dispose();
+      continue;
+    }
+    keep.push(h);
+  }
+  fiber.holes = keep;
+  frame.slots.length = Math.min(frame.slots.length, frame.i);
+};
+
 const findReusableAtomHost = (
   fiber: FiberLocal,
   atom: AtomRef
@@ -425,19 +445,27 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       ) {
         // SAFETY: every() verified each item is a keyed VNode.
         paintFns.keyedPaintHole(fiber, list as VNode[]);
+        // Release slots left over from an earlier unkeyed render.
+        sweepComponentSlots(fiber);
+        sweepIslandSlots(fiber);
         return;
       }
-      // Unkeyed component holes survive disposal so positional reuse below can
-      // push new props instead of remounting; leftovers are swept afterwards.
+      // Unkeyed component and island holes survive disposal so positional
+      // reuse below can push new props instead of remounting; leftovers are
+      // swept afterwards.
       const kept = new Set<FiberLocal>();
       for (const s of cframe.slots) {
         if (s && !s.hole.closed) {
           kept.add(s.hole);
         }
       }
+      const keptIslands = new Set(frame.slots);
       const keep: Hole[] = [];
       for (const h of fiber.holes) {
-        if (h.holeFiber && kept.has(h.holeFiber)) {
+        const reusable =
+          (h.holeFiber && kept.has(h.holeFiber)) ||
+          (h.islandSlot && keptIslands.has(h.islandSlot));
+        if (reusable) {
           keep.push(h);
           continue;
         }
@@ -458,8 +486,9 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         ops.clearRoot(fiber.root);
         api.insert(fiber, fresh);
       }
-      // Sweep component slots that no longer match this render.
+      // Sweep component and island slots that no longer match this render.
       sweepComponentSlots(fiber);
+      sweepIslandSlots(fiber);
     },
   };
 
@@ -557,7 +586,16 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       existing.updateProps(props);
       return [ops.asNode(existing.host)];
     }
-    existing?.unmount?.();
+    if (existing) {
+      // Dispose through the hole so the old island unmounts exactly once.
+      const idx = fiber.holes.findIndex((h) => h.islandSlot === existing);
+      if (idx === -1) {
+        existing.unmount?.();
+      } else {
+        const [removed] = fiber.holes.splice(idx, 1);
+        removed?.dispose();
+      }
+    }
     const tag = isString(type[ISLAND_SLOT_TAG]) ? type[ISLAND_SLOT_TAG] : "div";
     const el = ops.createElement(tag);
     el.dataset.ilha = "";
@@ -579,6 +617,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
             frame.slots[i] = undefined;
           }
         },
+        islandSlot: slot,
         keepOnMorph: true,
       });
     }

@@ -66,31 +66,34 @@ test("ErrorBoundary paints fallback and reset remounts", async () => {
   el.remove();
 });
 
+const LocalErrorApp = () =>
+  vnode("div", {}, [vnode("p", {}, ["ok"]), BoomAsync]);
+
 test("without ErrorBoundary, child still paints local error", async () => {
-  const App = () => vnode("div", {}, [vnode("p", {}, ["ok"]), BoomAsync]);
   const el = document.createElement("div");
   document.body.append(el);
-  mount(el, App);
+  mount(el, LocalErrorApp);
   await Bun.sleep(15);
   expect(el.textContent).toContain("ok");
   expect(el.querySelector("[data-ilha-error]")?.textContent).toContain("boom");
   el.remove();
 });
 
+const NestedBoomApp = () =>
+  vnode("div", {}, [
+    vnode(
+      ErrorBoundary,
+      {
+        fallback: ({ error }: { error: Error }) => error.message,
+      },
+      [vnode("div", {}, [vnode(Boom)])]
+    ),
+  ]);
+
 test("ErrorBoundary catches nested component throw", async () => {
-  const App = () =>
-    vnode("div", {}, [
-      vnode(
-        ErrorBoundary,
-        {
-          fallback: ({ error }: { error: Error }) => error.message,
-        },
-        [vnode("div", {}, [vnode(Boom)])]
-      ),
-    ]);
   const el = document.createElement("div");
   document.body.append(el);
-  const unmount = mount(el, App);
+  const unmount = mount(el, NestedBoomApp);
   await Bun.sleep(15);
   expect(el.textContent).toBe("boom");
   expect(el.querySelector("[data-ilha-error]")).toBeNull();

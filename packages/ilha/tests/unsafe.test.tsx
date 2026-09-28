@@ -102,9 +102,10 @@ test("SSR keeps unsafe() table fragments verbatim", async () => {
   expect(html).toContain("<tr><td>cell</td></tr>");
 });
 
+const UnsafeApp = () => <div>{unsafe(RAW)}</div>;
+
 test("hydrate keeps SSR unsafe() markup", async () => {
-  const App = () => <div>{unsafe(RAW)}</div>;
-  const html = await renderToString(App);
+  const html = await renderToString(UnsafeApp);
   const el = document.createElement("div");
   el.append(
     ...new DOMParser().parseFromString(html, "text/html").body.childNodes
@@ -113,7 +114,7 @@ test("hydrate keeps SSR unsafe() markup", async () => {
   const found = el.querySelector("[data-ilha]");
   // SAFETY: hydrate host is either the island root or the wrapper we created.
   const host = (found ?? el) as Element;
-  const unmount = mount(host, App, { hydrate: true });
+  const unmount = mount(host, UnsafeApp, { hydrate: true });
   await Bun.sleep(15);
   expect(host.querySelector("strong.hi")?.textContent).toBe("Hi");
   unmount();

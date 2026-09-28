@@ -9,15 +9,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ilha/router": "^0.11.10",
+    "@ilha/router": "^0.11.11",
     "effect": "^4.0.0-rc.118",
-    "ilha": "^0.14.7"
+    "ilha": "^0.14.8"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "daisyui": "^5.7.22",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.2.2"
+    "vite": "^8.3.1"
   }
 }

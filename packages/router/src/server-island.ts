@@ -391,18 +391,18 @@ const hydrateServerIsland = (
           continue;
         }
         const boundKey = actionKey;
+        const run = async () => {
+          try {
+            await Promise.resolve(actionFn(...callArgs));
+            hooks.repaintModule();
+          } catch (error) {
+            console.error(
+              `[ilha-router] action "${String(boundKey)}" failed:`,
+              error
+            );
+          }
+        };
         const listener = (): void => {
-          const run = async () => {
-            try {
-              await Promise.resolve(actionFn(...callArgs));
-              hooks.repaintModule();
-            } catch (error) {
-              console.error(
-                `[ilha-router] action "${String(boundKey)}" failed:`,
-                error
-              );
-            }
-          };
           void run();
         };
         el.addEventListener(eventType, listener);
@@ -436,14 +436,12 @@ const hydrateServerIsland = (
         // SAFETY: marker.a is a JSON array of ServerActionPayload values.
         args = marker.a as ServerActionPayload[];
       }
-      const revived = (..._runtimeArgs: SnapshotValue[]) => {
-        const run = async () => {
-          const result = await Promise.resolve(actionFn(...args));
-          hooks.repaintModule();
-          return result;
-        };
-        return run();
+      const run = async () => {
+        const result = await Promise.resolve(actionFn(...args));
+        hooks.repaintModule();
+        return result;
       };
+      const revived = (..._runtimeArgs: SnapshotValue[]) => run();
       // SAFETY: child props accept revived action callables at mount time.
       Object.assign(next, { [key]: revived });
     }
