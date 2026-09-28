@@ -188,3 +188,30 @@ test("fromEventSource stream paints via Stream.map", async () => {
   expect(el.textContent).toBe("b");
   el.remove();
 });
+
+const SharedApp = () => {
+  const a = fromEventSource("https://x.test/shared");
+  const b = fromEventSource("https://x.test/shared");
+  return (
+    <p>
+      {a.status()}:{a.latest() ?? "none"}|{b.status()}:{b.latest() ?? "none"}
+    </p>
+  );
+};
+
+test("fromEventSource shares one connection per (url, event)", async () => {
+  install();
+  const el = document.createElement("div");
+  document.body.append(el);
+  const unmount = mount(el, SharedApp);
+  expect(FakeEventSource.instances.length).toBe(1);
+  const [source] = FakeEventSource.instances;
+  source?.open();
+  source?.message("hi");
+  await Bun.sleep(5);
+  expect(el.textContent).toBe("open:hi|open:hi");
+  expect(FakeEventSource.instances.length).toBe(1);
+  unmount();
+  expect(source?.readyState).toBe(FakeEventSource.CLOSED);
+  el.remove();
+});
