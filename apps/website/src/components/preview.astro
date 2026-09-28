@@ -94,82 +94,80 @@ if (eager && !mobilePreview) {
 <script>
   const mq = () => window.matchMedia("(min-width: 640px)");
 
-  (() => {
-    const editorMode = (root: HTMLElement) => {
-      if (Object.hasOwn(root.dataset, "previewOnly")) {
-        return false;
-      }
-      return !Object.hasOwn(root.dataset, "mobilePreview") || mq().matches;
-    };
-
-    const targetSrc = (root: HTMLElement) => {
-      const preview = root.dataset.previewSrc ?? "";
-      const editor = root.dataset.editorSrc ?? "";
-      return editorMode(root) ? editor : preview;
-    };
-
-    const syncMode = (root: HTMLElement) => {
-      if (root.dataset.activated !== "1") {
-        return;
-      }
-      if (!Object.hasOwn(root.dataset, "mobilePreview")) {
-        return;
-      }
-      const frame = root.querySelector<HTMLIFrameElement>("[data-ilha-preview-frame]");
-      if (!frame) {
-        return;
-      }
-      const next = targetSrc(root);
-      if (frame.getAttribute("src") !== next) {
-        frame.src = next;
-      }
-    };
-
-    const activate = (root: HTMLElement) => {
-      if (root.dataset.activated === "1") {
-        syncMode(root);
-        return;
-      }
-      root.dataset.activated = "1";
-      const frame = root.querySelector<HTMLIFrameElement>("[data-ilha-preview-frame]");
-      if (!frame) {
-        return;
-      }
-      frame.src = targetSrc(root);
-      root.querySelector("[data-ilha-preview-gate]")?.remove();
-    };
-
-    const wire = (root: HTMLElement) => {
-      const mode = root.dataset.activate ?? "eager";
-
-      if (mode === "click") {
-        root.querySelector("[data-ilha-preview-run]")?.addEventListener(
-          "click",
-          () => activate(root),
-          { once: true },
-        );
-      } else if (mode === "visible") {
-        const io = new IntersectionObserver(
-          (entries) => {
-            if (entries.some((e) => e.isIntersecting)) {
-              activate(root);
-              io.disconnect();
-            }
-          },
-          { rootMargin: "200px 0px" },
-        );
-        io.observe(root);
-      } else {
-        activate(root);
-      }
-
-      if (Object.hasOwn(root.dataset, "mobilePreview")) {
-        mq().addEventListener("change", () => syncMode(root));
-      }
-    };
-
-    for (const root of document.querySelectorAll<HTMLElement>("[data-ilha-preview]")) {
-      wire(root);
+  const editorMode = (root: HTMLElement) => {
+    if (Object.hasOwn(root.dataset, "previewOnly")) {
+      return false;
     }
-  })();
+    return !Object.hasOwn(root.dataset, "mobilePreview") || mq().matches;
+  };
+
+  const targetSrc = (root: HTMLElement) => {
+    const preview = root.dataset.previewSrc ?? "";
+    const editor = root.dataset.editorSrc ?? "";
+    return editorMode(root) ? editor : preview;
+  };
+
+  const syncMode = (root: HTMLElement) => {
+    if (root.dataset.activated !== "1") {
+      return;
+    }
+    if (!Object.hasOwn(root.dataset, "mobilePreview")) {
+      return;
+    }
+    const frame = root.querySelector<HTMLIFrameElement>("[data-ilha-preview-frame]");
+    if (!frame) {
+      return;
+    }
+    const next = targetSrc(root);
+    if (frame.getAttribute("src") !== next) {
+      frame.src = next;
+    }
+  };
+
+  const activate = (root: HTMLElement) => {
+    if (root.dataset.activated === "1") {
+      syncMode(root);
+      return;
+    }
+    root.dataset.activated = "1";
+    const frame = root.querySelector<HTMLIFrameElement>("[data-ilha-preview-frame]");
+    if (!frame) {
+      return;
+    }
+    frame.src = targetSrc(root);
+    root.querySelector("[data-ilha-preview-gate]")?.remove();
+  };
+
+  const wire = (root: HTMLElement) => {
+    const mode = root.dataset.activate ?? "eager";
+
+    if (mode === "click") {
+      root.querySelector("[data-ilha-preview-run]")?.addEventListener(
+        "click",
+        () => activate(root),
+        { once: true },
+      );
+    } else if (mode === "visible") {
+      const io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) {
+            activate(root);
+            io.disconnect();
+          }
+        },
+        { rootMargin: "200px 0px" },
+      );
+      io.observe(root);
+    } else {
+      activate(root);
+    }
+
+    if (Object.hasOwn(root.dataset, "mobilePreview")) {
+      mq().addEventListener("change", () => syncMode(root));
+    }
+  };
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-ilha-preview]")) {
+    wire(root);
+  }
 </script>

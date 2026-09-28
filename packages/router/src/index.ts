@@ -560,6 +560,55 @@ const resolveClickTarget = (_href: string, url: URL): string => {
   return url.pathname + url.search + url.hash;
 };
 
+const onLinkClick = (event: Event): void => {
+  // SAFETY: click listeners receive MouseEvent.
+  const mouseEvent = event as MouseEvent;
+  if (
+    mouseEvent.defaultPrevented ||
+    mouseEvent.button !== 0 ||
+    mouseEvent.metaKey ||
+    mouseEvent.ctrlKey ||
+    mouseEvent.shiftKey ||
+    mouseEvent.altKey
+  ) {
+    return;
+  }
+  const { target } = mouseEvent;
+  if (!(target instanceof Element)) {
+    return;
+  }
+  const anchor = target.closest("a");
+  if (
+    !anchor ||
+    anchor.hasAttribute("download") ||
+    anchor.getAttribute("target") === "_blank" ||
+    anchor.matches("[data-no-intercept]")
+  ) {
+    return;
+  }
+  const href = anchor.getAttribute("href");
+  if (!href || NON_NAV_SCHEME.test(href)) {
+    return;
+  }
+  if (href.startsWith("#") && getHistoryMode() !== "hash") {
+    return;
+  }
+  if (href.startsWith("#") && !href.startsWith("#/")) {
+    return;
+  }
+  let url: URL;
+  try {
+    url = new URL(href, location.href);
+  } catch {
+    return;
+  }
+  if (url.origin !== location.origin) {
+    return;
+  }
+  mouseEvent.preventDefault();
+  navigate(resolveClickTarget(href, url));
+};
+
 export const enableLinkInterception = (
   root: Element | Document = document,
   _options: LinkInterceptionOptions = {}
@@ -567,56 +616,10 @@ export const enableLinkInterception = (
   if (!isBrowser) {
     return noop;
   }
-  const clickHandler = (event: Event) => {
-    // SAFETY: click listeners receive MouseEvent.
-    const mouseEvent = event as MouseEvent;
-    if (
-      mouseEvent.defaultPrevented ||
-      mouseEvent.button !== 0 ||
-      mouseEvent.metaKey ||
-      mouseEvent.ctrlKey ||
-      mouseEvent.shiftKey ||
-      mouseEvent.altKey
-    ) {
-      return;
-    }
-    const { target } = mouseEvent;
-    if (!(target instanceof Element)) {
-      return;
-    }
-    const anchor = target.closest("a");
-    if (
-      !anchor ||
-      anchor.hasAttribute("download") ||
-      anchor.getAttribute("target") === "_blank" ||
-      anchor.matches("[data-no-intercept]")
-    ) {
-      return;
-    }
-    const href = anchor.getAttribute("href");
-    if (!href || NON_NAV_SCHEME.test(href)) {
-      return;
-    }
-    if (href.startsWith("#") && getHistoryMode() !== "hash") {
-      return;
-    }
-    if (href.startsWith("#") && !href.startsWith("#/")) {
-      return;
-    }
-    let url: URL;
-    try {
-      url = new URL(href, location.href);
-    } catch {
-      return;
-    }
-    if (url.origin !== location.origin) {
-      return;
-    }
-    mouseEvent.preventDefault();
-    navigate(resolveClickTarget(href, url));
-  };
-  root.addEventListener("click", clickHandler);
-  return () => root.removeEventListener("click", clickHandler);
+  // A fresh listener object per call, so each cleanup removes only its own.
+  const listener: EventListenerObject = { handleEvent: onLinkClick };
+  root.addEventListener("click", listener);
+  return () => root.removeEventListener("click", listener);
 };
 
 export interface IsActiveOptions {

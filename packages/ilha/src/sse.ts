@@ -68,6 +68,20 @@ const connect = <T>({
       push(value);
     }
   };
+  const onMessage = (ev: Event): void => {
+    // SAFETY: server-sent events arrive as MessageEvent with string data.
+    const raw = (ev as MessageEvent).data;
+    if (!isString(raw)) {
+      return;
+    }
+    let value: T;
+    try {
+      value = decode(raw);
+    } catch {
+      return;
+    }
+    emit(value);
+  };
   const open = (): void => {
     if (disposed) {
       return;
@@ -75,20 +89,6 @@ const connect = <T>({
     setStatus(c, attempt === 0 ? "connecting" : "retrying");
     const es = new EventSource(url);
     source = es;
-    const onMessage = (ev: Event): void => {
-      // SAFETY: server-sent events arrive as MessageEvent with string data.
-      const raw = (ev as MessageEvent).data;
-      if (!isString(raw)) {
-        return;
-      }
-      let value: T;
-      try {
-        value = decode(raw);
-      } catch {
-        return;
-      }
-      emit(value);
-    };
     const onOpen = (): void => {
       attempt = 0;
       setStatus(c, "open");
