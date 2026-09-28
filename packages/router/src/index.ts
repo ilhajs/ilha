@@ -496,12 +496,22 @@ export interface SearchParam<T> {
   update: (f: (current: T) => T) => void;
 }
 
+export interface SearchParamFn {
+  /** String param: `parse` is optional. */
+  (name: string, opts: SearchParamOptions<string>): SearchParam<string>;
+  /** Non-string param: `parse` is required to decode the raw string. */
+  <T>(
+    name: string,
+    opts: SearchParamOptions<T> & { parse: (raw: string) => T }
+  ): SearchParam<T>;
+}
+
 /**
  * Read and write one query param through the router. Writes `replace` the
  * history entry without scrolling, so the mounted router re-renders the
  * current route in place instead of remounting it.
  */
-export const searchParam = <T = string>(
+export const searchParam: SearchParamFn = <T>(
   name: string,
   opts: SearchParamOptions<T>
 ): SearchParam<T> => {
@@ -511,7 +521,7 @@ export const searchParam = <T = string>(
     if (raw === null) {
       return opts.default;
     }
-    // SAFETY: without a parser T defaults to string, so identity is exact.
+    // SAFETY: SearchParamFn requires parse unless T is string, so identity is exact.
     return opts.parse ? opts.parse(raw) : (raw as T);
   };
   const set = (next: T): void => {

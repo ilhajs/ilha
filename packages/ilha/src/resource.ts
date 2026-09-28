@@ -1,3 +1,6 @@
+import * as Effect from "effect/Effect";
+import * as Scope from "effect/Scope";
+
 import { atom } from "./atom.ts";
 import { getFiber } from "./runtime.ts";
 import type { FiberLocal } from "./runtime.ts";
@@ -30,6 +33,12 @@ interface Cell<T> {
   alive: boolean;
   started: boolean;
   held: boolean;
+  sink: Sink<T>;
+}
+
+interface SsrCell<T> {
+  ctrl: AbortController | null;
+  refetch: () => Promise<T | undefined>;
   sink: Sink<T>;
 }
 
@@ -71,29 +80,69 @@ export const resource = <T>(
   const error = atom<unknown>(undefined);
   const loading = atom<boolean>(true);
 
-  if (fiber.runtime.ssr) {
-    // Server: fetch fresh per render; the shared cache never crosses requests.
-    const ctrl = new AbortController();
-    const settleSsr = async (): Promise<void> => {
-      try {
-        const v = await fetcher(key, { signal: ctrl.signal });
-        data.set(v);
-        error.set(undefined);
-        loading.set(false);
-      } catch (fetchError) {
-        error.set(fetchError);
-        loading.set(false);
-      }
-    };
-    void settleSsr();
-    return { data, error, loading, refetch: () => Promise.resolve(data()) };
-  }
-
   let byKey = cells.get(fiber);
   if (!byKey) {
     byKey = new Map();
     cells.set(fiber, byKey);
   }
+
+  if (fiber.runtime.ssr) {
+    // Server: fetch fresh per render; the shared cache never crosses requests.
+    // SAFETY: one SSR cell per (fiber, key); T matches because the call-site fetcher is stable.
+    let ssrCell = byKey.get(key) as SsrCell<T> | undefined;
+    if (!ssrCell) {
+      const { runtime } = fiber;
+      const sc: SsrCell<T> = {
+        ctrl: null,
+        refetch: async () => {
+          sc.ctrl?.abort();
+          const ctrl = new AbortController();
+          sc.ctrl = ctrl;
+          sc.sink.loading.set(true);
+          // Hold renderToString() open until this fetch settles.
+          runtime.begin();
+          try {
+            const v = await fetcher(key, { signal: ctrl.signal });
+            if (!ctrl.signal.aborted) {
+              sc.sink.data.set(v);
+              sc.sink.error.set(undefined);
+              sc.sink.loading.set(false);
+            }
+            return v;
+          } catch (fetchError) {
+            if (!ctrl.signal.aborted) {
+              sc.sink.error.set(fetchError);
+              sc.sink.loading.set(false);
+            }
+            throw fetchError;
+          } finally {
+            runtime.end();
+          }
+        },
+        sink: { data, error, loading },
+      };
+      Effect.runSync(
+        Scope.addFinalizer(
+          fiber.scope,
+          Effect.sync(() => sc.ctrl?.abort())
+        )
+      );
+      byKey.set(key, sc);
+      ssrCell = sc;
+      const settleSsr = async (): Promise<void> => {
+        try {
+          await sc.refetch();
+        } catch {
+          // Failures land in the error atom.
+        }
+      };
+      void settleSsr();
+    }
+    // SAFETY: slots reuse the same underlying atoms across renders.
+    ssrCell.sink = { data, error, loading };
+    return { data, error, loading, refetch: ssrCell.refetch };
+  }
+
   // SAFETY: one cell per (fiber, key); T matches because the call-site fetcher is stable.
   let cell = byKey.get(key) as Cell<T> | undefined;
   if (!cell) {
@@ -110,6 +159,7 @@ export const resource = <T>(
   // generation of handles reads and writes the same values.
   cell.sink = { data, error, loading };
   const c = cell;
+  const fiberCells = byKey;
 
   const adoptShared = async (shared: Promise<T>): Promise<void> => {
     try {
@@ -241,6 +291,9 @@ export const resource = <T>(
         s?.delete(onInvalidate);
         if (s && s.size === 0) {
           liveRefetchers.delete(key);
+        }
+        if (fiberCells.get(key) === c) {
+          fiberCells.delete(key);
         }
       };
     });

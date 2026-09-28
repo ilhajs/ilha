@@ -130,17 +130,15 @@ const Boot = () => {
 };
 ```
 
-`watch.once()` accepts an async callback and hands you a cancellation context. The signal aborts on unmount; the promised cleanup still runs:
+`watch.once()` accepts an async callback and hands you an abort signal. The signal aborts on unmount:
 
 ```tsx twoslash
 import { watch } from "ilha";
 
 const Feed = () => {
-  watch.once(async ({ signal, onCleanup }) => {
+  watch.once(async ({ signal }) => {
     const socket = new WebSocket("wss://example.com/live");
     signal.addEventListener("abort", () => socket.close());
-    onCleanup(() => socket.close());
-    return () => socket.close();
   });
   return <p>live</p>;
 };
@@ -286,7 +284,7 @@ import { invalidate } from "ilha";
 invalidate("user:42");
 ```
 
-Call `resource()` unconditionally at the top level, before any `await`. The fetcher receives an abort signal that fires when a newer fetch starts or the component unmounts. On the server each render fetches fresh — the shared cache never crosses requests.
+Call `resource()` unconditionally at the top level, before any `await`. The fetcher receives an abort signal that fires when a newer fetch starts or the component unmounts. On the server each render fetches fresh — the shared cache never crosses requests. `await renderToString(Component)` waits for the fetch; pass `{user.data}` in JSX to put the value in the HTML, since the component body renders once on the server.
 
 ## Lazy initialization
 

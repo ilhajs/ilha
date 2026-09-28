@@ -124,7 +124,8 @@ const runWithSignal = (
   cell.ctrl = ctrl;
   const ctx: WatchContext = {
     onCleanup: (extra) => {
-      if (cell.ctrl === null) {
+      // This run is stale once cancelled, even if a newer run owns the cell.
+      if (ctrl.signal.aborted || cell.gen !== gen) {
         extra();
         return;
       }

@@ -117,3 +117,29 @@ test("watch(source) onCleanup runs on unmount", async () => {
   expect(cleaned).toEqual(["extra"]);
   el.remove();
 });
+
+test("onCleanup from a stale run executes immediately", async () => {
+  const order: string[] = [];
+  const gate = Promise.withResolvers<null>();
+  let bump: (() => void) | undefined;
+  const App = () => {
+    const src = atom(0);
+    bump = () => src.set(1);
+    watch(src, async (v, { onCleanup }) => {
+      if (v === 0) {
+        await gate.promise;
+        onCleanup(() => order.push("stale"));
+      }
+    });
+    return null;
+  };
+  const el = shell();
+  const unmount = mount(el, App);
+  bump?.();
+  gate.resolve(null);
+  await Bun.sleep(5);
+  expect(order).toEqual(["stale"]);
+  unmount();
+  expect(order).toEqual(["stale"]);
+  el.remove();
+});

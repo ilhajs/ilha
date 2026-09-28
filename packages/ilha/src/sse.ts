@@ -82,6 +82,7 @@ export const fromEventSource = <T = string>(
     let attempt = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let source: EventSource | undefined;
+    let detach: (() => void) | undefined;
     let disposed = false;
     const emit = (value: T): void => {
       c.latest.set(value);
@@ -118,6 +119,7 @@ export const fromEventSource = <T = string>(
         if (disposed || es.readyState !== EventSource.CLOSED) {
           return;
         }
+        detach?.();
         es.close();
         attempt += 1;
         c.status.set("retrying");
@@ -126,18 +128,21 @@ export const fromEventSource = <T = string>(
           Math.min(retryBase * 2 ** (attempt - 1), MAX_BACKOFF_MS)
         );
       };
-      if (opts?.event) {
-        es.addEventListener(opts.event, onMessage);
-      } else {
-        es.addEventListener("message", onMessage);
-      }
+      const messageEvent = opts?.event ?? "message";
+      es.addEventListener(messageEvent, onMessage);
       es.addEventListener("open", onOpen);
       es.addEventListener("error", onError);
+      detach = () => {
+        es.removeEventListener(messageEvent, onMessage);
+        es.removeEventListener("open", onOpen);
+        es.removeEventListener("error", onError);
+      };
     };
     open();
     return () => {
       disposed = true;
       clearTimeout(timer);
+      detach?.();
       source?.close();
       c.status.set("closed");
     };

@@ -37,14 +37,14 @@ jobs:
       - name: Build templates
         run: bun run --filter './templates/*' build
 
-      - name: Test
-        run: bun run test
+      - name: Check
+        run: bun run check
 
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Lint
-        run: bun run lint
+      - name: Test
+        run: bun run test
 
       - name: Publish preview packages
         if: github.event_name != 'pull_request'

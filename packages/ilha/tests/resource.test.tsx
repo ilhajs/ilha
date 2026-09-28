@@ -1,7 +1,7 @@
 // @jsxImportSource ../src
 import { expect, test } from "bun:test";
 
-import { invalidate, mount, resource } from "../src/index.ts";
+import { invalidate, mount, renderToString, resource } from "../src/index.ts";
 
 const paint = (el: HTMLElement): void => {
   document.body.append(el);
@@ -155,4 +155,36 @@ test("invalidate updates every live component sharing a key", async () => {
   offB();
   a.remove();
   b.remove();
+});
+
+test("renderToString waits for resource and fetches once", async () => {
+  let calls = 0;
+  const App = () => {
+    const res = resource("p6-ssr", async () => {
+      calls += 1;
+      await Bun.sleep(5);
+      return `n${calls}`;
+    });
+    return <p>{res.data}</p>;
+  };
+  const html = await renderToString(App, { markers: false, snapshot: false });
+  expect(html).toContain(">n1</span>");
+  expect(calls).toBe(1);
+});
+
+test("SSR resource refetch starts a fresh fetch", async () => {
+  let calls = 0;
+  let refetched: number | undefined;
+  const App = () => {
+    const res = resource("p6-ssr-refetch", () => {
+      calls += 1;
+      return Promise.resolve(calls);
+    });
+    void res.refetch().then((v) => {
+      refetched = v;
+    });
+    return <p>{res.data}</p>;
+  };
+  await renderToString(App, { markers: false, snapshot: false });
+  expect(refetched).toBe(2);
 });

@@ -83,6 +83,9 @@ const typecheckSearchParam = (): void => {
   page.update((n) => n + 1);
   // @ts-expect-error page is numeric
   page.set("2");
+  // @ts-expect-error non-string params require parse
+  const bad = searchParam("n", { default: 1 });
+  void bad;
   void current;
 };
 
