@@ -89,7 +89,9 @@ For live server lists, paint a Stream into a hole. See [Streams](/guide/ui/strea
 
 ## Keep user state across rerenders
 
-Rerenders morph the live DOM instead of replacing it. Form values, focus, and a user-opened `<details>` or `<dialog>` survive by default — the morph keeps `open` unless your render sets it explicitly.
+Rerenders morph the live DOM instead of replacing it. Form values, focus, caret position, and a user-opened `<details>` or `<dialog>` survive by default — the morph keeps `open` unless your render sets it explicitly.
+
+Reused components, keyed rows, and atom holes stay attached while their parent rerenders. An `<iframe>`, a playing `<video>`, a scrolled container, or a custom element inside them keeps its state. An empty `contenteditable` element keeps what the user typed; give it children when you want the render to control its content.
 
 When a render must not overwrite an attribute that code outside the render changed, mark it with `data-morph-preserve`:
 
@@ -108,6 +110,18 @@ const Card = () => (
 ```
 
 The handler writes a live `title`, and later rerenders keep it. List attribute names separated by spaces.
+
+Add the `children` token when code outside the render owns an element's content, such as a chart or editor library:
+
+```tsx twoslash
+const Chart = () => (
+  <div class="chart" data-morph-preserve="children">
+    <p>Loading chart…</p>
+  </div>
+);
+```
+
+The first paint inserts the placeholder. Later rerenders still sync the element's attributes, but they leave its children alone. Tokens combine, as in `data-morph-preserve="title children"`. Code can also add the attribute to a live element at runtime to claim it.
 
 ## Raw HTML
 

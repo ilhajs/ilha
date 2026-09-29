@@ -52,7 +52,7 @@ Nested functions share the parent fiber. `mount` / `renderToString` on a functio
 
 Every element accepts `key` and `ref` with no extra types. `key` reuses DOM nodes in lists; `ref` receives the live node on mount and `null` on unmount. Components accept `key` through `JSX.IntrinsicAttributes` — never add it to your own props. Disclosure and dialog events (`ontoggle`, `onbeforetoggle`, `onclose`, `oncancel`) type `currentTarget` to the element.
 
-`data-morph-preserve="a b"` keeps the named live attributes across rerenders. A user-opened `<details>` or `<dialog>` keeps `open` unless the render sets it explicitly. See [Templating](/guide/ui/templating).
+`data-morph-preserve="a b"` keeps the named live attributes across rerenders; the `children` token keeps the element's live children. A user-opened `<details>` or `<dialog>` keeps `open` unless the render sets it explicitly. See [Templating](/guide/ui/templating).
 
 Paint Effect [`Stream`](https://www.effect.website/docs/v4/api/effect/Stream) values with `yield Stream.map(...)` — see [Streams](/guide/ui/streams).
 

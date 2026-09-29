@@ -110,6 +110,41 @@ test("morph drops removed attributes except preserved ones", () => {
   expect(from.dataset.new).toBe("1");
 });
 
+test("data-morph-preserve children keeps live children and syncs attributes", () => {
+  const from = document.createElement("div");
+  from.dataset.morphPreserve = "children";
+  from.className = "old";
+  const canvas = document.createElement("canvas");
+  from.append(canvas);
+  const to = document.createElement("div");
+  to.dataset.morphPreserve = "children";
+  to.className = "new";
+  to.append("rendered");
+  const host = document.createElement("div");
+  host.append(from);
+  const target = document.createElement("div");
+  target.append(to);
+  morphInner(host, target);
+  expect(from.className).toBe("new");
+  expect([...from.childNodes]).toEqual([canvas]);
+});
+
+test("code outside the render can claim children at runtime", () => {
+  const from = document.createElement("div");
+  const canvas = document.createElement("canvas");
+  from.append(canvas);
+  // A library marks its node after the first paint.
+  from.dataset.morphPreserve = "children";
+  const to = document.createElement("div");
+  to.append("rendered");
+  const host = document.createElement("div");
+  host.append(from);
+  const target = document.createElement("div");
+  target.append(to);
+  morphInner(host, target);
+  expect([...from.childNodes]).toEqual([canvas]);
+});
+
 const SiblingFocusApp = () => {
   const count = atom(0);
   return (

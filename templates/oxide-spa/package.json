@@ -10,9 +10,9 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@ilha/router": "^0.11.11",
+    "@ilha/router": "^0.11.12",
     "effect": "^4.0.0-rc.118",
-    "ilha": "^0.14.8"
+    "ilha": "^0.14.9"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

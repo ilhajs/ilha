@@ -32,7 +32,10 @@ interface Cell<T> {
   ctrl: AbortController | null;
   alive: boolean;
   started: boolean;
-  held: boolean;
+  /** Registered in `liveRefetchers[key]` while the cell is alive. */
+  onInvalidate: () => void;
+  /** Background refetch, rebound each render to the latest fetcher. */
+  revalidate: () => void;
   sink: Sink<T>;
 }
 
@@ -45,6 +48,22 @@ interface SsrCell<T> {
 const sharedCache = new Map<string, CacheEntry<unknown>>();
 const liveRefetchers = new Map<string, Set<() => void>>();
 const cells = new WeakMap<object, Map<string, unknown>>();
+
+/** Unmount: stop every client cell of one fiber (all keys it ever used). */
+const releaseCells = (byKey: Map<string, unknown>): void => {
+  for (const [key, entry] of byKey) {
+    // SAFETY: client fibers only store Cell entries (SSR returns earlier).
+    const c = entry as Cell<unknown>;
+    c.alive = false;
+    c.ctrl?.abort();
+    const live = liveRefetchers.get(key);
+    live?.delete(c.onInvalidate);
+    if (live && live.size === 0) {
+      liveRefetchers.delete(key);
+    }
+  }
+  byKey.clear();
+};
 
 const entryFor = <T>(key: string): CacheEntry<T> | undefined =>
   // SAFETY: entries are written by the same keyed fetch path with type T.
@@ -146,14 +165,28 @@ export const resource = <T>(
   // SAFETY: one cell per (fiber, key); T matches because the call-site fetcher is stable.
   let cell = byKey.get(key) as Cell<T> | undefined;
   if (!cell) {
-    cell = {
+    const fresh: Cell<T> = {
       alive: true,
       ctrl: null,
-      held: false,
+      onInvalidate: () => {
+        fresh.revalidate();
+      },
+      revalidate: () => {
+        // Bound below, before anything can invalidate this cell.
+      },
       sink: { data, error, loading },
       started: false,
     };
+    cell = fresh;
     byKey.set(key, cell);
+    // Live from creation, not from a first-render-only watch: a key that
+    // changes on a later render still gets invalidations.
+    let live = liveRefetchers.get(key);
+    if (!live) {
+      live = new Set();
+      liveRefetchers.set(key, live);
+    }
+    live.add(cell.onInvalidate);
   }
   // SAFETY: slots reuse the same underlying atoms across renders, so any
   // generation of handles reads and writes the same values.
@@ -237,6 +270,9 @@ export const resource = <T>(
       // Background failures land in the error atom.
     }
   };
+  c.revalidate = () => {
+    void settleStart();
+  };
 
   if (!c.started) {
     c.started = true;
@@ -271,33 +307,13 @@ export const resource = <T>(
     }
   }
 
-  if (!c.held) {
-    c.held = true;
-    const onInvalidate = (): void => {
-      void settleStart();
-    };
-    watch.once(() => {
-      // Runs once per mount: the slot exists on later renders.
-      let live = liveRefetchers.get(key);
-      if (!live) {
-        live = new Set();
-        liveRefetchers.set(key, live);
-      }
-      live.add(onInvalidate);
-      return () => {
-        c.alive = false;
-        c.ctrl?.abort();
-        const s = liveRefetchers.get(key);
-        s?.delete(onInvalidate);
-        if (s && s.size === 0) {
-          liveRefetchers.delete(key);
-        }
-        if (fiberCells.get(key) === c) {
-          fiberCells.delete(key);
-        }
-      };
-    });
-  }
+  // Unconditional: watch slots are positional, so a watch.once that only
+  // runs on the first render would shift every later watch() in the
+  // component — and the shifted slot's dispose kills this cell mid-fetch.
+  // One teardown per fiber covers every key it ever used.
+  watch.once(() => () => {
+    releaseCells(fiberCells);
+  });
 
   return { data, error, loading, refetch: () => start() };
 };

@@ -1,7 +1,13 @@
 import type { Atom } from "effect/reactivity";
 
 import { bindEvents } from "./events.ts";
-import { morphInner } from "./morph.ts";
+import {
+  committedElement,
+  insertRendered,
+  morphInner,
+  placeChildren,
+  standInFor,
+} from "./morph.ts";
 import { createPainter } from "./paint-core.ts";
 import type { PaintOps } from "./paint-core.ts";
 import type { FiberLocal } from "./runtime.ts";
@@ -14,7 +20,7 @@ const noopDisconnect = (): void => {
 };
 
 const domOps: PaintOps<Node, Element> = {
-  appendRoot: (root, node) => root.append(node),
+  appendRoot: (root, node) => insertRendered(root, node, null),
   asElement: (el) => el,
   asNode: (host) => host,
   asRoot: (el) => el,
@@ -24,6 +30,7 @@ const domOps: PaintOps<Node, Element> = {
       root.replaceChildren();
     }
   },
+  committed: committedElement,
   createElement: (tag, ns) =>
     ns ? document.createElementNS(ns, tag) : document.createElement(tag),
   createRaw: (html, parent) => {
@@ -44,6 +51,14 @@ const domOps: PaintOps<Node, Element> = {
   },
   createText: (text) => document.createTextNode(text),
   disconnect: noopDisconnect,
+  placeChildren: (root, nodes) => {
+    if (root instanceof Element) {
+      placeChildren(root, nodes);
+    }
+  },
+  // A connected host stays where it is; the morph resolves the stand-in.
+  reuseNode: (host) =>
+    host instanceof Element && host.isConnected ? standInFor(host) : host,
   setFormControl: (el, key, v) => {
     // SAFETY: form controls expose value/checked/selected live properties.
     const node = el as HTMLElement & {
@@ -147,7 +162,7 @@ const paintHydrate = (fiber: FiberLocal, view: VNode): void => {
   el.replaceChildren();
   for (const c of view.children) {
     for (const n of core.materialize(c, childFiber)) {
-      el.append(n);
+      insertRendered(el, n, null);
     }
   }
 };
@@ -174,7 +189,7 @@ const paintMorphLive = (fiber: FiberLocal, view: VNode): void => {
   pruneDisconnectedAtomHoles(fiber);
 };
 
-export const paint = (fiber: FiberLocal, view: View): void => {
+const paintRoot = (fiber: FiberLocal, view: View): void => {
   fiber.islandFrame ??= { i: 0, slots: [] };
   if (fiber.hydrate) {
     if (canHydrate(fiber, view)) {
@@ -217,6 +232,12 @@ export const paint = (fiber: FiberLocal, view: View): void => {
   if (first) {
     fiber.liveEl = first;
   }
+};
+
+export const paint = (fiber: FiberLocal, view: View): void => {
+  core.commit(() => {
+    paintRoot(fiber, view);
+  });
 };
 
 export const paintError = <E>(fiber: FiberLocal, e: E): void => {
