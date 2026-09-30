@@ -88,6 +88,7 @@ const ssrOps: PaintOps<SsrNode, SsrEl> = {
   bindEvents: bindSsrEvents,
   // SAFETY: under SSR, fiber.root is always an SsrRoot/SsrEl host.
   clearRoot: (root) => ssrAs<SsrHost>(root as never).replaceChildren(),
+  committed: (el) => el,
   createElement: createSsrElement,
   createRaw: (html, _parent) => [createSsrRaw(html)],
   createSlotHost: (slotId) => {
@@ -102,6 +103,16 @@ const ssrOps: PaintOps<SsrNode, SsrEl> = {
   disconnect: (el) => {
     el.isConnected = false;
   },
+  placeChildren: (root, nodes) => {
+    // SAFETY: under SSR, fiber.root is always an SsrRoot/SsrEl host.
+    const host = ssrAs<SsrHost>(root as never);
+    host.replaceChildren();
+    for (const n of nodes) {
+      host.append(n);
+    }
+  },
+  // SAFETY: reused SSR hosts are SsrNode values; SSR has no morph to protect.
+  reuseNode: (host) => ssrAs<SsrNode>(host as never),
   setFormControl: (el, key, v) => {
     if (key === "value") {
       el.setAttribute("value", String(v ?? ""));

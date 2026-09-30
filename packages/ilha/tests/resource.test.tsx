@@ -1,7 +1,14 @@
 // @jsxImportSource ../src
 import { expect, test } from "bun:test";
 
-import { invalidate, mount, renderToString, resource } from "../src/index.ts";
+import {
+  atom,
+  invalidate,
+  mount,
+  renderToString,
+  resource,
+  watch,
+} from "../src/index.ts";
 
 const paint = (el: HTMLElement): void => {
   document.body.append(el);
@@ -187,4 +194,67 @@ test("SSR resource refetch starts a fresh fetch", async () => {
   };
   await renderToString(App, { markers: false, snapshot: false });
   expect(refetched).toBe(2);
+});
+
+test("resource survives a re-render before its fetch lands (watch after it)", async () => {
+  const gate = Promise.withResolvers<string>();
+  const Child = () => {
+    const res = resource("p6-slots", () => gate.promise);
+    const pending = atom<string | null>(null);
+    watch(pending, () => {});
+    return <p>{res.loading() ? "loading" : (res.data() ?? "empty")}</p>;
+  };
+  let bump: (() => void) | undefined;
+  const Parent = () => {
+    const tick = atom(0);
+    bump = () => {
+      tick.set(1);
+    };
+    return (
+      <div>
+        <span>{tick()}</span>
+        <Child />
+      </div>
+    );
+  };
+  const el = document.createElement("div");
+  paint(el);
+  mount(el, Parent);
+  await Bun.sleep(0);
+  expect(el.textContent).toBe("0loading");
+  // Parent re-renders the child while its fetch is still in flight: the
+  // child's watch slots must keep their positions.
+  bump?.();
+  await Bun.sleep(10);
+  gate.resolve("v1");
+  await Bun.sleep(10);
+  expect(el.textContent).toBe("1v1");
+  el.remove();
+});
+
+test("invalidate reaches a key first used on a later render", async () => {
+  let calls = 0;
+  let switchKey: (() => void) | undefined;
+  const App = () => {
+    const key = atom("p6-late-a");
+    switchKey = () => {
+      key.set("p6-late-b");
+    };
+    const res = resource(key(), (k) => {
+      calls += 1;
+      return Promise.resolve(`${k}:${calls}`);
+    });
+    return <p>{res.data() ?? "wait"}</p>;
+  };
+  const el = document.createElement("div");
+  paint(el);
+  mount(el, App);
+  await Bun.sleep(10);
+  switchKey?.();
+  await Bun.sleep(10);
+  expect(el.textContent).toBe("p6-late-b:2");
+  invalidate("p6-late-b");
+  await Bun.sleep(10);
+  expect(el.textContent).toBe("p6-late-b:3");
+  el.remove();
 });

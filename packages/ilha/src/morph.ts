@@ -1,3 +1,4 @@
+import { adoptEvents } from "./events.ts";
 import { KEY_ATTR, SLOT_ATTR } from "./shared.ts";
 
 export { KEY_ATTR, SLOT_ATTR } from "./shared.ts";
@@ -13,6 +14,20 @@ const morphKeyOf = (el: Element): string | null => {
   return s === null ? null : `s:${s}`;
 };
 
+/** Whether `data-morph-preserve` on `el` lists `token`. */
+const hasPreserveToken = (el: Element, token: string): boolean => {
+  const custom = el.getAttribute(PRESERVE_ATTR);
+  if (custom === null) {
+    return false;
+  }
+  for (const listed of custom.split(/\s+/u)) {
+    if (listed === token) {
+      return true;
+    }
+  }
+  return false;
+};
+
 const shouldPreserveMorphAttr = (el: Element, name: string): boolean => {
   if (name === "value" || name === "checked" || name === "selected") {
     return true;
@@ -20,15 +35,7 @@ const shouldPreserveMorphAttr = (el: Element, name: string): boolean => {
   if (name === PRESERVE_ATTR) {
     return el.hasAttribute(PRESERVE_ATTR);
   }
-  const custom = el.getAttribute(PRESERVE_ATTR);
-  if (custom !== null) {
-    for (const token of custom.split(/\s+/u)) {
-      if (token === name) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return hasPreserveToken(el, name);
 };
 
 const syncAttributes = (from: Element, to: Element): void => {
@@ -68,13 +75,42 @@ interface MorphFocusSnapshot {
     end: number | null;
     dir: string | null;
   } | null;
+  /** Caret/selection ranges inside a focused contenteditable. */
+  ranges: Range[] | null;
 }
+
+/** Deepest focused element, looking through open shadow roots. */
+const deepActiveElement = (): Element | null => {
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) {
+    active = active.shadowRoot.activeElement;
+  }
+  return active;
+};
+
+const snapshotRanges = (active: HTMLElement): Range[] | null => {
+  if (!active.isContentEditable) {
+    return null;
+  }
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0) {
+    return null;
+  }
+  const ranges: Range[] = [];
+  for (let i = 0; i < sel.rangeCount; i += 1) {
+    const range = sel.getRangeAt(i);
+    if (active.contains(range.startContainer)) {
+      ranges.push(range.cloneRange());
+    }
+  }
+  return ranges.length > 0 ? ranges : null;
+};
 
 const snapshotFocus = (): MorphFocusSnapshot | null => {
   if (globalThis.document === undefined) {
     return null;
   }
-  const active = document.activeElement;
+  const active = deepActiveElement();
   if (!(active instanceof HTMLElement) || active === document.body) {
     return null;
   }
@@ -93,7 +129,18 @@ const snapshotFocus = (): MorphFocusSnapshot | null => {
   } catch {
     /* type=email */
   }
-  return { active, selection };
+  return { active, ranges: snapshotRanges(active), selection };
+};
+
+const restoreRanges = (ranges: Range[]): void => {
+  const sel = document.getSelection();
+  if (!sel || !ranges.every((r) => r.startContainer.isConnected)) {
+    return;
+  }
+  sel.removeAllRanges();
+  for (const r of ranges) {
+    sel.addRange(r);
+  }
 };
 
 const restoreFocus = (snapshot: MorphFocusSnapshot | null): void => {
@@ -101,8 +148,12 @@ const restoreFocus = (snapshot: MorphFocusSnapshot | null): void => {
     return;
   }
   try {
-    if (document.activeElement !== snapshot.active) {
+    if (deepActiveElement() !== snapshot.active) {
       snapshot.active.focus({ preventScroll: true });
+      if (snapshot.ranges) {
+        // Refocusing a contenteditable resets its caret.
+        restoreRanges(snapshot.ranges);
+      }
     }
     const sel = snapshot.selection;
     if (sel && sel.start !== null) {
@@ -120,6 +171,179 @@ const restoreFocus = (snapshot: MorphFocusSnapshot | null): void => {
   } catch {
     /* best-effort */
   }
+};
+
+// Reused live nodes (component, island, and atom hosts) never enter the
+// scratch tree a render materializes into: moving them there detaches them,
+// which blurs inputs, reloads iframes, closes modal dialogs and popovers, and
+// reruns custom element lifecycles. The scratch tree holds a stand-in instead,
+// and the morph swaps it for the live node where it already sits.
+const STAND_IN_ATTR = "data-ilha-reuse";
+const standIns = new WeakMap<Node, Element>();
+/** Live nodes with an outstanding stand-in: the morph must not consume them. */
+const claimed = new WeakSet<Node>();
+
+/** Placeholder for a connected live node inside a scratch render tree. */
+export const standInFor = (live: Element): Element => {
+  const el = document.createElementNS(live.namespaceURI, live.localName);
+  for (const name of [SLOT_ATTR, KEY_ATTR]) {
+    const v = live.getAttribute(name);
+    if (v !== null) {
+      el.setAttribute(name, v);
+    }
+  }
+  el.setAttribute(STAND_IN_ATTR, "");
+  standIns.set(el, live);
+  claimed.add(live);
+  return el;
+};
+
+const liveOf = (node: Node): Node => {
+  const live = standIns.get(node);
+  if (!live) {
+    return node;
+  }
+  claimed.delete(live);
+  return live;
+};
+
+type MoveCapable = ParentNode & {
+  moveBefore?: (node: Node, child: Node | null) => void;
+};
+
+/**
+ * Insert `node` before `ref`. Connected nodes move with `moveBefore` where the
+ * browser has it, so they keep focus, iframe, dialog, and element state.
+ */
+const place = (
+  parent: MoveCapable,
+  node: Node,
+  ref: ChildNode | null
+): void => {
+  if (
+    node === ref ||
+    (node.parentNode === parent && node.nextSibling === ref)
+  ) {
+    return;
+  }
+  if (node.isConnected && parent.isConnected && parent.moveBefore) {
+    try {
+      parent.moveBefore(node, ref);
+      return;
+    } catch {
+      /* different root or unsupported node: plain insert */
+    }
+  }
+  if (ref) {
+    ref.before(node);
+  } else {
+    parent.append(node);
+  }
+};
+
+/** Swap stand-ins nested in `node` (now in the document) for live nodes. */
+const resolveNested = (node: Node): void => {
+  if (!(node instanceof Element) || !node.firstElementChild) {
+    return;
+  }
+  const nested = node.querySelectorAll(`[${STAND_IN_ATTR}]`);
+  for (const s of nested) {
+    const live = liveOf(s);
+    if (live !== s && s.parentNode) {
+      place(s.parentNode, live, s);
+      s.remove();
+    }
+  }
+};
+
+/**
+ * Put a rendered node into the live tree: stand-ins become their live nodes,
+ * and stand-ins nested in fresh subtrees resolve once the subtree is attached.
+ */
+export const insertRendered = (
+  parent: ParentNode,
+  node: Node,
+  ref: ChildNode | null
+): void => {
+  const live = liveOf(node);
+  place(parent, live, ref);
+  if (live === node) {
+    resolveNested(node);
+  }
+};
+
+/** Longest increasing run of old indexes: those nodes never move. */
+const stableSet = (nodes: Node[], oldIndex: Map<Node, number>): Set<Node> => {
+  const tails: number[] = [];
+  const prev: number[] = [];
+  for (let i = 0; i < nodes.length; i += 1) {
+    const node = nodes[i];
+    const idx = node ? oldIndex.get(node) : undefined;
+    if (idx === undefined) {
+      prev.push(-1);
+      continue;
+    }
+    let lo = 0;
+    let hi = tails.length;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const tail = nodes[tails[mid] ?? 0];
+      if ((tail ? (oldIndex.get(tail) ?? 0) : 0) < idx) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    prev.push(lo > 0 ? (tails[lo - 1] ?? -1) : -1);
+    tails[lo] = i;
+  }
+  const stable = new Set<Node>();
+  let k = tails.length > 0 ? (tails.at(-1) ?? -1) : -1;
+  while (k >= 0) {
+    const node = nodes[k];
+    if (node) {
+      stable.add(node);
+    }
+    k = prev[k] ?? -1;
+  }
+  return stable;
+};
+
+/**
+ * Make `parent`'s children exactly `nodes` with the fewest moves. Nodes that
+ * keep their relative order stay attached; removed nodes leave first.
+ */
+export const placeChildren = (parent: Element, rendered: Node[]): void => {
+  const focus = snapshotFocus();
+  const nodes = rendered.map(liveOf);
+  const wanted = new Set(nodes);
+  const oldIndex = new Map<Node, number>();
+  let child = parent.firstChild;
+  while (child) {
+    const next = child.nextSibling;
+    if (wanted.has(child)) {
+      oldIndex.set(child, oldIndex.size);
+    } else {
+      child.remove();
+    }
+    child = next;
+  }
+  const stable = stableSet(nodes, oldIndex);
+  let next: Node | null = null;
+  for (let i = nodes.length - 1; i >= 0; i -= 1) {
+    const node = nodes[i];
+    if (!node) {
+      continue;
+    }
+    if (!stable.has(node)) {
+      place(parent, node, next);
+      if (!oldIndex.has(node)) {
+        resolveNested(node);
+      }
+    }
+    next = node;
+  }
+  restoreFocus(focus);
 };
 
 const buildKeyedIndex = (parent: Element): Map<string, Element> | null => {
@@ -231,13 +455,50 @@ const morphSelect = (fromEl: Element, toEl: Element, api: MorphApi): void => {
   }
 };
 
+/** Rendered element → the live element the morph kept in its place. */
+const adoptedBy = new WeakMap<Element, Element>();
+
+/** The element a rendered element ended up as in the document. */
+export const committedElement = (el: Element): Element =>
+  adoptedBy.get(el) ?? el;
+
+/** `live` stays in the document for `fresh`: move the render's bindings. */
+const adopt = (live: Element, fresh: Element): void => {
+  adoptedBy.set(fresh, live);
+  adoptEvents(live, fresh);
+};
+
+/**
+ * A contenteditable the render leaves empty is uncontrolled: the user's
+ * content (and caret) survives, like an uncontrolled textarea.
+ */
+const isUncontrolledEditable = (from: Element, to: Element): boolean => {
+  const mode = to.getAttribute("contenteditable");
+  return (
+    mode !== null &&
+    mode !== "false" &&
+    !to.hasChildNodes() &&
+    from.getAttribute("contenteditable") === mode
+  );
+};
+
+/** Swap `fromNode` for a rendered node without ever detaching live nodes. */
+const replaceRendered = (fromNode: ChildNode, toNode: Node): void => {
+  const parent = fromNode.parentNode;
+  if (!parent) {
+    return;
+  }
+  insertRendered(parent, toNode, fromNode);
+  fromNode.remove();
+};
+
 const morphElementPair = (
   fromEl: Element,
   toEl: Element,
   api: MorphApi
 ): void => {
   if (fromEl.localName !== toEl.localName) {
-    fromEl.replaceWith(toEl);
+    replaceRendered(fromEl, toEl);
     return;
   }
   const toSlot = toEl.getAttribute(SLOT_ATTR);
@@ -248,9 +509,10 @@ const morphElementPair = (
   }
   if (toSlot !== null) {
     // New hole fiber roots point at `toEl`; install it in the document.
-    fromEl.replaceWith(toEl);
+    replaceRendered(fromEl, toEl);
     return;
   }
+  adopt(fromEl, toEl);
   if (fromEl.localName === "input") {
     morphInput(fromEl, toEl);
     return;
@@ -259,12 +521,31 @@ const morphElementPair = (
     morphSelect(fromEl, toEl, api);
     return;
   }
+  // `data-morph-preserve="children"` hands the subtree to code outside the
+  // render after the first paint. Like attribute tokens, the live element's
+  // list counts too, so a library can claim its node at runtime.
+  const keepChildren =
+    hasPreserveToken(fromEl, "children") ||
+    hasPreserveToken(toEl, "children") ||
+    isUncontrolledEditable(fromEl, toEl);
   syncAttributes(fromEl, toEl);
+  if (keepChildren) {
+    return;
+  }
   if (fromEl.localName === "textarea") {
     morphTextarea(fromEl, toEl);
   } else {
     api.morphChildren(fromEl, toEl);
   }
+};
+
+/** Keyed node the new render drops and no stand-in still needs. */
+const isStaleKeyed = (node: ChildNode, toKeys: Set<string>): boolean => {
+  if (!(node instanceof Element) || claimed.has(node)) {
+    return false;
+  }
+  const key = morphKeyOf(node);
+  return key !== null && !toKeys.has(key);
 };
 
 const alignKeyedNode = (
@@ -281,11 +562,15 @@ const alignKeyedNode = (
     const match = fromKeyed.get(toKey);
     if (match) {
       fromKeyed.delete(toKey);
+      // Removed rows ahead of the match leave instead of the match moving
+      // back past them: dropping the head of a list moves nothing.
+      while (current && current !== match && isStaleKeyed(current, toKeys)) {
+        const next: ChildNode | null = current.nextSibling;
+        current.remove();
+        current = next ?? undefined;
+      }
       if (match !== current) {
-        current?.before(match);
-        if (!current) {
-          fromParent.append(match);
-        }
+        place(fromParent, match, current ?? null);
         current = match;
       }
     }
@@ -293,11 +578,51 @@ const alignKeyedNode = (
   if (current instanceof Element) {
     const fromKey = morphKeyOf(current);
     if (fromKey !== null && fromKey !== toKey && toKeys.has(fromKey)) {
-      current.before(toNode);
+      insertRendered(fromParent, toNode, current);
       return "continue";
     }
   }
   return current;
+};
+
+interface MorphChildInput {
+  api: MorphApi;
+  fromParent: Element;
+  fromNode: ChildNode | undefined;
+  toNode: ChildNode;
+}
+
+const morphChild = ({
+  api,
+  fromParent,
+  fromNode,
+  toNode,
+}: MorphChildInput): void => {
+  if (standIns.has(toNode)) {
+    // Reused host: keep it where it sits, or move it into this position.
+    insertRendered(fromParent, toNode, fromNode ?? null);
+    return;
+  }
+  if (!fromNode || claimed.has(fromNode)) {
+    // A claimed node is a reused host a later stand-in still wants: render
+    // in front of it rather than morphing it into something else.
+    insertRendered(fromParent, toNode, fromNode ?? null);
+    return;
+  }
+  if (fromNode.nodeType !== toNode.nodeType) {
+    replaceRendered(fromNode, toNode);
+    return;
+  }
+  if (fromNode.nodeType === 3 || fromNode.nodeType === 8) {
+    if (fromNode.nodeValue !== toNode.nodeValue) {
+      fromNode.nodeValue = toNode.nodeValue;
+    }
+    return;
+  }
+  if (fromNode.nodeType === 1) {
+    // SAFETY: nodeType 1 is Element on both sides after the type match above.
+    morphElementPair(fromNode as Element, toNode as Element, api);
+  }
 };
 
 const api = {
@@ -326,25 +651,7 @@ const api = {
         }
         fromNode = aligned;
       }
-
-      if (!fromNode) {
-        fromParent.append(toNode);
-        continue;
-      }
-      if (fromNode.nodeType !== toNode.nodeType) {
-        fromNode.replaceWith(toNode);
-        continue;
-      }
-      if (fromNode.nodeType === 3 || fromNode.nodeType === 8) {
-        if (fromNode.nodeValue !== toNode.nodeValue) {
-          fromNode.nodeValue = toNode.nodeValue;
-        }
-        continue;
-      }
-      if (fromNode.nodeType === 1) {
-        // SAFETY: nodeType 1 is Element on both sides after the type match above.
-        morphElementPair(fromNode as Element, toNode as Element, api);
-      }
+      morphChild({ api, fromNode, fromParent, toNode });
     }
     while (fromParent.childNodes.length > toNodes.length) {
       fromParent.lastChild?.remove();

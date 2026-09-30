@@ -106,7 +106,9 @@ const MapView = () => {
 };
 ```
 
-The `ref` fires again with the new node when a rerender replaces the element, so always route teardown through the `null` branch. Before you mount a second tree on the same host, call the first `unmount()`:
+Each rerender calls the previous `ref` with `null`, then the new `ref` with the element in the document, so always route teardown through the `null` branch. If code outside a `ref` fills an element's children, mark the element with `data-morph-preserve="children"` so rerenders leave that content alone. See [Keep user state across rerenders](/guide/ui/templating#keep-user-state-across-rerenders).
+
+Before you mount a second tree on the same host, call the first `unmount()`:
 
 ```ts twoslash
 import { mount } from "ilha";
