@@ -483,12 +483,20 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         }
         cframe.i = 0;
         const list = Array.isArray(view) ? view : null;
+        // Only keyed component lists reuse holes by key here. Keyed elements
+        // take the morph below, where alignKeyedNode keeps their live nodes.
         if (
           list &&
           list.length > 0 &&
-          list.every((v) => isVNode(v) && v.key !== null && v.key !== undefined)
+          list.every(
+            (v) =>
+              isVNode(v) &&
+              isFunction(v.type) &&
+              v.key !== null &&
+              v.key !== undefined
+          )
         ) {
-          // SAFETY: every() verified each item is a keyed VNode.
+          // SAFETY: every() verified each item is a keyed component VNode.
           paintFns.keyedPaintHole(fiber, list as VNode[]);
           // Release slots left over from an earlier unkeyed render.
           sweepComponentSlots(fiber);

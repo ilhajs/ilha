@@ -241,3 +241,37 @@ test("island host stays attached and receives new props", async () => {
   expect(seen).toEqual([0, 1]);
   expect(detachedProbes.length).toBe(0);
 });
+
+test("keyed element list returned from a component keeps live rows", async () => {
+  let setItems: ((ids: string[]) => void) | undefined;
+  const List = () => {
+    const items = atom(["a", "b"]);
+    setItems = (ids) => items.set(ids);
+    return items().map((id) => (
+      <li key={id}>
+        <reuse-probe />
+        <input id={`in-${id}`} />
+      </li>
+    ));
+  };
+  const el = host();
+  mount(el, () => (
+    <ul>
+      <List />
+    </ul>
+  ));
+  await Bun.sleep(10);
+  const input = focusInput(el, "b");
+  input.value = "typed";
+  setItems?.(["a", "b", "c"]);
+  await Bun.sleep(10);
+  setItems?.(["x", "a", "b", "c"]);
+  await Bun.sleep(10);
+  setItems?.(["b", "c"]);
+  await Bun.sleep(10);
+  expect(el.querySelector("#in-b")).toBe(input);
+  expect(input.value).toBe("typed");
+  expect(document.activeElement).toBe(input);
+  // Only the removed rows (x, a) leave the document.
+  expect(detachedProbes.length).toBe(2);
+});
