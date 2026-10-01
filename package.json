@@ -19,17 +19,17 @@
     "fix": "ultracite fix"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "^20.11.2",
-    "@types/bun": "^1.3.14",
+    "@happy-dom/global-registrator": "^20.14.5",
+    "@types/bun": "^1.4.2",
     "husky": "^9.1.7",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
     "rimraf": "^6.1.3",
-    "tsdown": "^0.22.14",
-    "typescript": "^6.0.3",
-    "ultracite": "7.12.1"
+    "tsdown": "^0.23.0",
+    "typescript": "^7",
+    "ultracite": "7.12.2"
   },
   "patchedDependencies": {
-    "blume@2.0.3": "patches/blume@2.0.3.patch"
+    "blume@2.1.0": "patches/blume@2.1.0.patch"
   }
 }
