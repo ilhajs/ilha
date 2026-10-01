@@ -1,0 +1,53 @@
+---
+/**
+ * Illustrates the islands model: a mostly static page with two hydrated regions.
+ * Decorative only — the surrounding copy carries the meaning.
+ */
+---
+
+<figure class="landing-diagram" aria-hidden="true">
+  <div class="landing-diagram-chrome">
+    <span class="landing-dot"></span>
+    <span class="landing-dot"></span>
+    <span class="landing-dot"></span>
+    <span class="landing-diagram-url">shop.example/products</span>
+  </div>
+  <div class="landing-diagram-page">
+    <div class="landing-diagram-nav">
+      <span class="landing-bar w-16"></span>
+      <span class="ml-auto flex gap-2">
+        <span class="landing-bar w-10"></span>
+        <span class="landing-bar w-10"></span>
+      </span>
+      <span class="landing-island landing-island-sm">
+        <span class="landing-island-tag">island</span>
+        Cart · 2
+      </span>
+    </div>
+
+    <div class="grid gap-2">
+      <span class="landing-bar landing-bar-lg w-3/4"></span>
+      <span class="landing-bar w-full"></span>
+      <span class="landing-bar w-5/6"></span>
+    </div>
+
+    <div class="landing-island">
+      <span class="landing-island-tag">island</span>
+      <span class="landing-diagram-input">Search products…</span>
+      <span class="grid gap-1.5">
+        <span class="landing-bar w-2/3"></span>
+        <span class="landing-bar w-1/2"></span>
+      </span>
+    </div>
+
+    <div class="grid grid-cols-3 gap-2">
+      <span class="landing-tile"></span>
+      <span class="landing-tile"></span>
+      <span class="landing-tile"></span>
+    </div>
+  </div>
+  <figcaption class="landing-diagram-legend">
+    <span><span class="landing-swatch"></span>Static HTML</span>
+    <span><span class="landing-swatch landing-swatch-island"></span>Hydrated island</span>
+  </figcaption>
+</figure>

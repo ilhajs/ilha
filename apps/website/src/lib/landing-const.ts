@@ -10,7 +10,7 @@ export const DEFAULT_INSTALL_COMMAND =
   "npx giget@latest gh:ilhajs/ilha/templates/vite-spa my-app";
 
 export const META_DESCRIPTION =
-  "Build fast, interactive websites with JavaScript only where you need it. Ilha works with your existing stack and keeps every page lightweight.";
+  "Ilha is a tiny, isomorphic UI library. Render function components to HTML on the server, then hydrate only the islands that need JavaScript. No virtual DOM, no compiler.";
 
 export const COUNTER_CODE = `import { atom, mount } from "ilha";
 
@@ -83,13 +83,15 @@ mount(document.getElementById("search")!, Search);`;
 export const RENDERING_CODE = `import { mount, renderToString } from "ilha";
 import { ProductCard } from "./product-card";
 
+// server.ts — paint HTML and embed atom snapshots
 const html = await renderToString(() => ProductCard({ featured: true }));
 
+// client.ts — restore the snapshots and attach events
 const host = document.querySelector("#product-card")!;
 mount(host, () => ProductCard({ featured: true }), { hydrate: true });`;
 
 export const ILHA_ROUTER_CODE = `// vite.config.ts
-import { pages } from "@ilha/router/vite";
+import pages from "@ilha/router/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
@@ -103,16 +105,26 @@ export default defineConfig({
 import { pageRouter } from "ilha:pages/client";
 pageRouter.mount("#app", { hydrate: true });`;
 
-export const ILHA_STORE_CODE = `// src/lib/cart.ts
-import { atom } from "ilha";
-import type { Item } from "./types";
+export const ILHA_CONTEXT_CODE = `import { atom, context, createContext } from "ilha";
 
-export const cart = atom<Item[]>([]);
-export const add = (product: Item) =>
-  cart.update((items) => [...items, product]);
-export const remove = (id: string) =>
-  cart.update((items) => items.filter((p) => p.id !== id));
-export const count = () => cart().length;`;
+const Theme = createContext("light");
+
+const Label = () => {
+  const theme = context(Theme);
+  return <span>{theme}</span>;
+};
+
+export const App = () => {
+  const mode = atom("dark");
+  return (
+    <Theme.Provider value={mode()}>
+      <button type="button" onclick={() => mode.set("light")}>
+        Light
+      </button>
+      <Label />
+    </Theme.Provider>
+  );
+};`;
 
 export const ILHA_ASTRO_CODE = `// astro.config.ts
 import { defineConfig } from "astro/config";
@@ -204,55 +216,55 @@ export const PRIMARY_ILHA_CARDS = [
   {
     code: COUNTER_CODE,
     description:
-      "The data, user actions, and HTML for a feature stay together. You can understand it at a glance, move it between pages, or remove it cleanly.",
+      "A component is a function that returns JSX. You declare atom() values inside it, and markup, state, and events stay in one file you can read top to bottom.",
     file: "signup.tsx",
     id: "syntax",
-    label: "Easy to follow",
+    label: "Components",
     points: [
-      "Familiar event handling",
-      "Local state with atom()",
-      "No app shell required",
+      "Plain functions, no classes or hooks rules to learn",
+      "Lowercase native events: onclick, oninput",
+      "Interpolations escape by default",
     ],
-    title: "Keep each interaction in one clear place.",
+    title: "Write a function. Return HTML-shaped JSX.",
   },
   {
     code: SIGNALS_CODE,
     description:
-      "Signals connect your data directly to the page. When something changes, Ilha updates the affected element instead of redrawing the whole interface.",
-    file: "signals.tsx",
+      "Reading an atom subscribes the component that read it. A write reruns only that component and morphs its host DOM, with no virtual DOM diffing a whole tree.",
+    file: "search.tsx",
     id: "signals",
-    label: "Efficient updates",
+    label: "Fine-grained reactivity",
     points: [
-      "Simple state updates",
-      "Stale requests cancel automatically",
-      "No page-wide redraws",
+      "Derived values with Atom.map and Atom.transform",
+      "Effect Streams for debounce, merge, and live feeds",
+      "when() interrupts stale async work",
     ],
-    title: "Update only what changed.",
+    title: "Update only the component that changed.",
   },
   {
     code: RENDERING_CODE,
     description:
-      "Render HTML on your server for a fast first view, then activate only the components people can interact with. Each island works independently.",
+      "You call await renderToString() on the server and mount() with hydrate: true in the browser. The same function runs in both places, so you never split server and client copies.",
     file: "product-card.tsx",
     id: "rendering",
-    label: "Flexible delivery",
+    label: "Isomorphic rendering",
     points: [
-      "Fast server-rendered HTML",
-      "Async data support",
-      "Independent interactivity",
+      "Runs in Node, Bun, and edge runtimes without a DOM polyfill",
+      "Atom snapshots travel with the HTML",
+      "Every island hydrates on its own",
     ],
-    title: "Send useful content before JavaScript loads.",
+    title: "Render on the server. Hydrate in the browser.",
   },
 ] as const;
 
 export const USEFUL_EXTRAS_CARD = {
   description:
-    "Begin with one lightweight package. Add routing, shared data, or Astro support only when your website needs it.",
-  label: "Add what you need",
+    "The core package covers components, atoms, and rendering. Add file-system routing, context, or the Astro integration when your project asks for them.",
+  label: "Grow when you need to",
   points: [
-    "Pages and dynamic routes",
-    "Shared data for carts and sessions",
-    "First-class Astro integration",
+    "@ilha/router: file-system routes and server islands",
+    "createContext() for values shared across a subtree",
+    "@ilha/astro: Ilha components as Astro islands",
   ],
-  title: "Start small. Expand when your product grows.",
+  title: "Start with one package. Add the rest later.",
 } as const;
