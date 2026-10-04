@@ -7,6 +7,8 @@ import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import * as Registry from "effect/reactivity/AtomRegistry";
 import * as Scope from "effect/Scope";
 
+import { toError } from "./errors.ts";
+import { errorView } from "./shared.ts";
 import type { SnapshotValue } from "./snapshot.ts";
 import type {
   ComponentFn,
@@ -58,9 +60,15 @@ export interface FiberLocal {
   closed: boolean;
   hydrate?: boolean;
   keyedHoles?: Map<string, FiberLocal>;
+  /** Counts this fiber's paints; a keyed hole records the last one it was in. */
+  keyedGen?: number;
+  /** On a keyed hole: the parent's `keyedGen` of the last paint that reached it. */
+  keyedSeen?: number;
   liveEl?: Element;
   primitiveI?: number;
   primitives?: Atom.Atom<unknown>[];
+  /** Releases for the state atoms this fiber keeps in the registry. */
+  primitiveHolds?: (() => void)[];
   watchI?: number;
   watchSlots?: WatchSlot[];
   islandFrame?: IslandFrame;
@@ -153,6 +161,10 @@ export const clearFiberView = (fiber: FiberLocal): void => {
   fiber.watchI = 0;
   fiber.primitives = undefined;
   fiber.primitiveI = 0;
+  for (const release of fiber.primitiveHolds ?? []) {
+    release();
+  }
+  fiber.primitiveHolds = undefined;
   fiber.islandFrame = undefined;
   fiber.keyedHoles = undefined;
   for (const h of fiber.holes) {
@@ -177,6 +189,7 @@ export const makeRuntime = (opts?: {
   ssr?: boolean;
   hydrate?: SnapshotValue[];
   ssrCapture?: boolean;
+  onError?: (error: Error) => void;
 }): IlhaRuntime => {
   const registry = Registry.make();
   const scope = Scope.makeUnsafe();
@@ -214,6 +227,7 @@ export const makeRuntime = (opts?: {
       holeSeq += 1;
       return holeSeq;
     },
+    onError: opts?.onError,
     registry,
     scope,
     setIdle: (onReady) => {
@@ -295,4 +309,31 @@ export const reportFiberError = (fiber: FiberLocal, error: Error): boolean => {
     current = current.parent;
   }
   return false;
+};
+
+/**
+ * Open a mount's root fiber. A failing root component reports to
+ * `runtime.onError`, paints the error view, and settles the mount.
+ */
+export const makeRootFiber = ({
+  runtime,
+  root,
+  paint,
+  settle,
+}: {
+  runtime: IlhaRuntime;
+  root: ParentNode;
+  paint: (fiber: FiberLocal, view: View) => void;
+  settle: () => void;
+}): FiberLocal => {
+  const fiber = makeFiber(runtime, root, paint, {
+    onFail: (e) => {
+      const error = toError(e);
+      runtime.onError?.(error);
+      console.error(error);
+      fiber.paint(errorView(error));
+      settle();
+    },
+  });
+  return fiber;
 };

@@ -193,6 +193,20 @@ const usePrimitiveSlot = <A>(
   return { atom: a, fresh: true };
 };
 
+/**
+ * Keep a component's own state atom in the registry while its fiber lives.
+ *
+ * The registry drops an atom nothing subscribes to. State that a handler
+ * writes and the view never reads would otherwise reset between events.
+ */
+const holdState = <A>(fiber: FiberLocal, atom: Atom.Atom<A>): Atom.Atom<A> => {
+  if (!fiber.runtime.ssr) {
+    fiber.primitiveHolds ??= [];
+    fiber.primitiveHolds.push(fiber.registry.mount(atom));
+  }
+  return atom;
+};
+
 export const withTrackGetRun = <A, E = never>(
   fiber: FiberLocal,
   fn: () => A | Promise<A>,
@@ -359,12 +373,12 @@ const makeAtom = <A>(
     const made = Atom.make(seed as A);
     const eq = options?.equals;
     if (eq === undefined) {
-      return made;
+      return holdState(fiber, made);
     }
     // SAFETY: withEquality copies a writable atom with a new comparator;
     // the registry consults atom.equals before notifying subscribers.
     const equalsFn = eq === "structural" ? structuralEqual : eq;
-    return Atom.withEquality(made, equalsFn);
+    return holdState(fiber, Atom.withEquality(made, equalsFn));
   });
   const handle = wrapHandle(a, fiber);
   if (fresh && fiber.runtime.ssr) {
@@ -387,7 +401,7 @@ const atomLazy = <A>(init: () => A): AtomHandle<A> => {
         seed = v as A;
       }
     }
-    return Atom.make(seed);
+    return holdState(fiber, Atom.make(seed));
   });
   const handle = wrapHandle(a, fiber);
   if (fresh && fiber.runtime.ssr) {

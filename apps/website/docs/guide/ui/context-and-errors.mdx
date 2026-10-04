@@ -72,4 +72,4 @@ const App = () => (
 | `onError(error)`             | Optional side channel (logging) |
 | `children`                   | Protected subtree               |
 
-Without a boundary, a failed child hole paints the default `[data-ilha-error]` view and the parent stays up. Route-level failures still use `@ilha/router` `+error` — see [Error boundaries](/guide/routing/error-boundaries).
+Without a boundary, a failed child hole paints the default `[data-ilha-error]` view and the parent stays up. `mount(host, Component, { onError })` receives that failure as an `Error`, so you can report it from one place. Route-level failures still use `@ilha/router` `+error` — see [Error boundaries](/guide/routing/error-boundaries).

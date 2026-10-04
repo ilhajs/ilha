@@ -129,9 +129,49 @@ Waits until in-flight work is idle, then serializes. `when` and Stream views tak
 ```ts
 const unmount = mount(element, component, {
   hydrate?: boolean;              // restore snapshots from existing markup
-  onError?: (error) => void;      // component failure hook
+  onError?: (error: Error) => void; // component failure hook
 });
 ```
+
+`onError` receives a failing root component and a nested component no `ErrorBoundary` caught, before the error view paints.
+
+## ilha/renderer
+
+`createRenderer(ops)` paints components into a host that is not a DOM: a native toolkit, a canvas scene graph, a test tree. You supply `PaintOps`; atoms, generators, streams, contexts, keyed components, and error boundaries behave as they do under `mount()`.
+
+```ts
+import { createRenderer } from "ilha/renderer";
+import type { PaintOps } from "ilha/renderer";
+
+const renderer = createRenderer(ops);
+const { unmount, ready, runtime } = renderer.mount(root, App, {
+  onError?: (error: Error) => void;         // component failure hook
+  onRuntime?: (runtime: IlhaRuntime) => void; // runs before the root component
+});
+```
+
+Every paint materializes fresh host nodes and hands the complete child list of the painted root to `ops.placeChildren(root, nodes)`. Your host decides what to keep.
+
+| Op | Role |
+| --- | --- |
+| `createElement`, `createText` | Build a host node |
+| `createRaw(html, parent)` | Nodes for an `unsafe()` view |
+| `createSlotHost(slotId)` | Host of a component, atom, or stream hole |
+| `asRoot`, `asNode`, `asElement` | View a host as a fiber root, a placeable node, or an element |
+| `placeChildren(root, nodes)` | Make a root's children exactly `nodes` |
+| `appendRoot(root, node)` | Append one node. Only `painter.insert` calls it, never `mount()` |
+| `reuseNode(host)` | Node to place for a hole that survived the repaint |
+| `setProp(el, key, value)` | Optional. Return `true` to claim a prop with its original value |
+| `setStyle`, `setFormControl` | Default handling for `style` and `value` / `checked` |
+| `bindEvents(el, props, fiber)` | Bind event props; call the exported `bindEvents` to reuse Ilha's |
+| `disconnect(el)` | A hole's host left the tree for good |
+| `committed(el)` | The element a rendered element ended up as, for refs |
+
+Every op except `setProp` is required.
+
+Without `setProp`, a prop reaches the host as a string attribute and a `style` object as CSS text. Implement it to receive objects as written.
+
+`onRuntime` hands you the mount's runtime before any component runs. Every fiber of the mount carries it, so `getFiber().runtime` identifies the mount from inside a component.
 
 ## Types
 

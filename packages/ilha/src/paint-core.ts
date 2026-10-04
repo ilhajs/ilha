@@ -88,8 +88,8 @@ export interface PaintOps<Node, El extends PaintEl<Node>> {
   reuseNode: (host: ParentNode) => Node;
   /** Make `root`'s children exactly `nodes`, moving as little as possible. */
   placeChildren: (root: ParentNode, nodes: Node[]) => void;
+  /** Append one node to `root`. Only `Painter.insert` calls it. */
   appendRoot: (root: ParentNode, node: Node) => void;
-  clearRoot: (root: ParentNode) => void;
   /** Element view of a host (SSR: SsrEl masquerades as Element). */
   asElement: (el: El) => Element;
   /**
@@ -99,6 +99,13 @@ export interface PaintOps<Node, El extends PaintEl<Node>> {
   committed: (el: El) => El;
   /** Mark a host disconnected (SSR: flag flip; DOM: noop, the DOM tracks it). */
   disconnect: (el: El) => void;
+  /**
+   * Take a prop as the component wrote it, before it is stringified. Return
+   * `true` to claim it; anything else falls through to the attribute, style
+   * and form-control handling below. A host that is not a DOM uses it to keep
+   * object values. Event props, `children`, `key` and `ref` never reach it.
+   */
+  setProp?: (el: El, key: string, value: PropValue) => boolean;
   setStyle: (el: El, css: string) => void;
   setFormControl: (el: El, key: FormControlKey, v: PropValue) => void;
   bindEvents: (el: El, props: PropBag, fiber: FiberLocal) => void;
@@ -192,6 +199,58 @@ const sweepComponentSlots = (fiber: FiberLocal): void => {
   slots.length = cframe.i;
 };
 
+/** Close a child hole through the parent's hole list, so it disposes once. */
+const releaseHole = (fiber: FiberLocal, hole: FiberLocal): void => {
+  const idx = fiber.holes.findIndex((h) => h.holeFiber === hole);
+  if (idx === -1) {
+    closeFiber(hole);
+  } else {
+    const [removed] = fiber.holes.splice(idx, 1);
+    removed?.dispose();
+  }
+};
+
+/** Close the keyed components the paint that just ran did not reach. */
+const sweepKeyedHoles = (fiber: FiberLocal): void => {
+  const { keyedHoles, keyedGen } = fiber;
+  if (!keyedHoles) {
+    return;
+  }
+  for (const [k, hole] of keyedHoles) {
+    if (!hole.closed && hole.keyedSeen === keyedGen) {
+      continue;
+    }
+    keyedHoles.delete(k);
+    if (!hole.closed) {
+      releaseHole(fiber, hole);
+    }
+  }
+};
+
+/**
+ * Run `fn` as one paint of `fiber`: the keyed components it materializes stay
+ * alive, and the ones it no longer reaches are closed afterwards.
+ */
+const pass = (fiber: FiberLocal, fn: () => void): void => {
+  // Created here so the element fibers spread from `fiber` share the map.
+  fiber.keyedHoles ??= new Map();
+  fiber.keyedGen = (fiber.keyedGen ?? 0) + 1;
+  fn();
+  sweepKeyedHoles(fiber);
+};
+
+const warnedKeys = new Set<string>();
+
+const warnDuplicateKey = (key: string): void => {
+  if (warnedKeys.has(key)) {
+    return;
+  }
+  warnedKeys.add(key);
+  console.warn(
+    `ilha: key "${key}" is used by more than one component in the same parent component; keys must be unique there. The duplicate keeps its state by position instead.`
+  );
+};
+
 const sweepIslandSlots = (fiber: FiberLocal): void => {
   const frame = fiber.islandFrame;
   if (!frame) {
@@ -279,6 +338,22 @@ interface PaintFns {
   keyedPaintHole: (fiber: FiberLocal, views: VNode[]) => void;
 }
 
+/** Painter surface returned by `createPainter`, shared by every host. */
+export interface Painter<Node, El> {
+  applyProps: (el: El, props: PropBag, fiber: FiberLocal) => void;
+  /** Runs `fn` and flushes queued refs once the outermost paint commits. */
+  commit: (fn: () => void) => void;
+  /**
+   * Runs `fn` as one paint of `fiber`: the keyed components it materializes
+   * stay alive, and the ones it no longer reaches are closed afterwards.
+   */
+  pass: (fiber: FiberLocal, fn: () => void) => void;
+  disposeHoles: (fiber: FiberLocal, opts?: { morph?: boolean }) => void;
+  insert: (fiber: FiberLocal, nodes: Node[]) => void;
+  materialize: (view: View, fiber: FiberLocal) => Node[];
+  paintHole: (fiber: FiberLocal, view: View | typeof KEEP) => void;
+}
+
 const writeAttr = <Node, El extends PaintEl<Node>>(
   el: El,
   k: string,
@@ -309,7 +384,7 @@ const isSkippedPropKey = (k: string): boolean =>
  */
 export const createPainter = <Node, El extends PaintEl<Node> & Node>(
   ops: PaintOps<Node, El>
-) => {
+): Painter<Node, El> => {
   // Refs run once the outermost paint commits, so they receive the element
   // that is in the document rather than a scratch copy the morph discards.
   let paintDepth = 0;
@@ -394,6 +469,9 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       if (isSkippedPropKey(k)) {
         continue;
       }
+      if (ops.setProp?.(el, k, v) === true) {
+        continue;
+      }
       if (k === "className") {
         el.setAttribute("class", String(v ?? ""));
         continue;
@@ -457,6 +535,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
             if (reportFiberError(child, error)) {
               return;
             }
+            parent.runtime.onError?.(error);
             console.error(error);
             api.paintHole(child, errorView(error));
           },
@@ -465,84 +544,88 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       );
       return { fiber: child, nodes: [host] };
     },
-    paintHole: (fiber, view) =>
+    paintHole: (fiber, view) => {
+      if (view === KEEP) {
+        return;
+      }
       commit(() => {
-        if (view === KEEP) {
-          return;
-        }
-        let frame = fiber.islandFrame;
-        if (!frame) {
-          frame = { i: 0, slots: [] };
-          fiber.islandFrame = frame;
-        }
-        frame.i = 0;
-        let cframe = fiber.componentFrame;
-        if (!cframe) {
-          cframe = { i: 0, slots: [] };
-          fiber.componentFrame = cframe;
-        }
-        cframe.i = 0;
-        const list = Array.isArray(view) ? view : null;
-        // Only keyed component lists reuse holes by key here. Keyed elements
-        // take the morph below, where alignKeyedNode keeps their live nodes.
-        if (
-          list &&
-          list.length > 0 &&
-          list.every(
-            (v) =>
-              isVNode(v) &&
-              isFunction(v.type) &&
-              v.key !== null &&
-              v.key !== undefined
-          )
-        ) {
-          // SAFETY: every() verified each item is a keyed component VNode.
-          paintFns.keyedPaintHole(fiber, list as VNode[]);
-          // Release slots left over from an earlier unkeyed render.
+        pass(fiber, () => {
+          let frame = fiber.islandFrame;
+          if (!frame) {
+            frame = { i: 0, slots: [] };
+            fiber.islandFrame = frame;
+          }
+          frame.i = 0;
+          let cframe = fiber.componentFrame;
+          if (!cframe) {
+            cframe = { i: 0, slots: [] };
+            fiber.componentFrame = cframe;
+          }
+          cframe.i = 0;
+          const list = Array.isArray(view) ? view : null;
+          // Only keyed component lists reuse holes by key here. Keyed elements
+          // take the morph below, where alignKeyedNode keeps their live nodes.
+          if (
+            list &&
+            list.length > 0 &&
+            list.every(
+              (v) =>
+                isVNode(v) &&
+                isFunction(v.type) &&
+                v.key !== null &&
+                v.key !== undefined
+            )
+          ) {
+            // SAFETY: every() verified each item is a keyed component VNode.
+            paintFns.keyedPaintHole(fiber, list as VNode[]);
+            // Release slots left over from an earlier unkeyed render.
+            sweepComponentSlots(fiber);
+            sweepIslandSlots(fiber);
+            return;
+          }
+          // Unkeyed component and island holes survive disposal so positional
+          // reuse below can push new props instead of remounting; leftovers are
+          // swept afterwards.
+          const kept = new Set<FiberLocal>();
+          for (const s of cframe.slots) {
+            if (s && !s.hole.closed) {
+              kept.add(s.hole);
+            }
+          }
+          const keptIslands = new Set(frame.slots);
+          const keep: Hole[] = [];
+          for (const h of fiber.holes) {
+            const reusable =
+              (h.holeFiber && kept.has(h.holeFiber)) ||
+              (h.islandSlot && keptIslands.has(h.islandSlot));
+            if (reusable) {
+              keep.push(h);
+              continue;
+            }
+            h.dispose();
+          }
+          fiber.holes = keep;
+          const fresh = api.materialize(view, fiber);
+          if (canMorphRoot(fiber.root)) {
+            // Live DOM: morph so reused holes (same slot id) keep their nodes.
+            // Hosts without a morph and empty roots take the placement path below.
+            const tmp = document.createElement("div");
+            for (const n of fresh) {
+              // SAFETY: painter Nodes are DOM Nodes under the DOM ops.
+              tmp.append(n as Node);
+            }
+            morphInner(fiber.root, tmp);
+          } else {
+            // One call with the whole list, so a host can diff it against what it
+            // holds instead of rebuilding from a clear and a run of appends.
+            ops.placeChildren(fiber.root, fresh);
+          }
+          // Sweep component and island slots that no longer match this render.
           sweepComponentSlots(fiber);
           sweepIslandSlots(fiber);
-          return;
-        }
-        // Unkeyed component and island holes survive disposal so positional
-        // reuse below can push new props instead of remounting; leftovers are
-        // swept afterwards.
-        const kept = new Set<FiberLocal>();
-        for (const s of cframe.slots) {
-          if (s && !s.hole.closed) {
-            kept.add(s.hole);
-          }
-        }
-        const keptIslands = new Set(frame.slots);
-        const keep: Hole[] = [];
-        for (const h of fiber.holes) {
-          const reusable =
-            (h.holeFiber && kept.has(h.holeFiber)) ||
-            (h.islandSlot && keptIslands.has(h.islandSlot));
-          if (reusable) {
-            keep.push(h);
-            continue;
-          }
-          h.dispose();
-        }
-        fiber.holes = keep;
-        const fresh = api.materialize(view, fiber);
-        if (canMorphRoot(fiber.root)) {
-          // Live DOM: morph so reused holes (same slot id) keep their nodes.
-          // SSR shims and empty roots take the clear-and-insert path below.
-          const tmp = document.createElement("div");
-          for (const n of fresh) {
-            // SAFETY: painter Nodes are DOM Nodes under the DOM ops.
-            tmp.append(n as Node);
-          }
-          morphInner(fiber.root, tmp);
-        } else {
-          ops.clearRoot(fiber.root);
-          api.insert(fiber, fresh);
-        }
-        // Sweep component and island slots that no longer match this render.
-        sweepComponentSlots(fiber);
-        sweepIslandSlots(fiber);
-      }),
+        });
+      });
+    },
   };
 
   const materializeAtom = (
@@ -749,7 +832,14 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     const reuse = k ? fiber.keyedHoles?.get(k) : undefined;
     // SAFETY: paint always supplies a PropBag bag; JSX component props are for typing.
     const run = type as ComponentFn;
+    const gen = fiber.keyedGen;
+    if (k && reuse && !reuse.closed && reuse.keyedSeen === gen) {
+      // This paint already placed the hole: a second use would move its host.
+      warnDuplicateKey(k);
+      return materializeUnkeyedComponent(run, type, props, fiber);
+    }
     if (reuse && !reuse.closed) {
+      reuse.keyedSeen = gen;
       if (reuse.propsBox) {
         reuse.propsBox.current = props;
       }
@@ -767,8 +857,8 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     }
     const { fiber: khole, nodes: knodes } = api.openHole(fiber);
     khole.propsBox = { current: props };
-    fiber.keyedHoles ??= new Map();
-    fiber.keyedHoles.set(k, khole);
+    khole.keyedSeen = gen;
+    fiber.keyedHoles?.set(k, khole);
     fiber.runtime.later(() => {
       if (khole.closed) {
         return;
@@ -795,7 +885,6 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       el.setAttribute(KEY_ATTR, String(view.key));
     }
     api.applyProps(el, view.props, fiber);
-    fiber.keyedHoles ??= new Map();
     const childFiber: FiberLocal = {
       ...fiber,
       holes: fiber.holes,
@@ -865,31 +954,17 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
   };
 
   paintFns.keyedPaintHole = (fiber: FiberLocal, views: VNode[]): void => {
-    const prev = fiber.keyedHoles ?? new Map();
-    const keep = new Set(views.map((v) => String(v.key)));
-    for (const [k, h] of prev) {
-      if (!keep.has(k)) {
-        closeFiber(h);
-      }
-    }
-    const next = new Map<string, FiberLocal>();
+    // Rows this paint does not reach are closed by the sweep that ends it.
     const nodes: Node[] = [];
     for (const v of views) {
-      const k = String(v.key);
-      const reuse = prev.get(k);
+      const reuse = fiber.keyedHoles?.get(String(v.key));
       if (reuse && !reuse.closed) {
-        next.set(k, reuse);
+        reuse.keyedSeen = fiber.keyedGen;
         nodes.push(ops.asNode(reuse.root));
         continue;
       }
-      const made = api.materialize(v, fiber);
-      const hole = fiber.keyedHoles?.get(k);
-      if (hole) {
-        next.set(k, hole);
-      }
-      nodes.push(...made);
+      nodes.push(...api.materialize(v, fiber));
     }
-    fiber.keyedHoles = next;
     // Reused rows stay attached; only new, removed, and reordered rows move.
     ops.placeChildren(fiber.root, nodes);
   };
@@ -902,5 +977,6 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     insert: api.insert,
     materialize: api.materialize,
     paintHole: api.paintHole,
+    pass,
   };
 };

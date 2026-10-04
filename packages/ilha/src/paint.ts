@@ -11,7 +11,7 @@ import {
 import { createPainter } from "./paint-core.ts";
 import type { PaintOps } from "./paint-core.ts";
 import type { FiberLocal } from "./runtime.ts";
-import { errorView, isString, KEEP, SLOT_ATTR, unwrap } from "./shared.ts";
+import { isString, KEEP, SLOT_ATTR, unwrap } from "./shared.ts";
 import type { VNode, View } from "./types.ts";
 import { isVNode } from "./vnode.ts";
 
@@ -25,11 +25,6 @@ const domOps: PaintOps<Node, Element> = {
   asNode: (host) => host,
   asRoot: (el) => el,
   bindEvents,
-  clearRoot: (root) => {
-    if (root instanceof Element) {
-      root.replaceChildren();
-    }
-  },
   committed: committedElement,
   createElement: (tag, ns) =>
     ns ? document.createElementNS(ns, tag) : document.createElement(tag),
@@ -236,11 +231,8 @@ const paintRoot = (fiber: FiberLocal, view: View): void => {
 
 export const paint = (fiber: FiberLocal, view: View): void => {
   core.commit(() => {
-    paintRoot(fiber, view);
+    core.pass(fiber, () => {
+      paintRoot(fiber, view);
+    });
   });
-};
-
-export const paintError = <E>(fiber: FiberLocal, e: E): void => {
-  console.error(e);
-  paint(fiber, errorView(e));
 };
