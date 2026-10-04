@@ -1,9 +1,9 @@
 import { eventTypeFromProp } from "./events.ts";
 import { createPainter } from "./paint-core.ts";
 import type { PaintOps } from "./paint-core.ts";
-import { closeFiber, makeFiber, makeRuntime } from "./runtime.ts";
+import { closeFiber, makeRootFiber, makeRuntime } from "./runtime.ts";
 import type { FiberLocal } from "./runtime.ts";
-import { errorView, isFunction, SLOT_ATTR } from "./shared.ts";
+import { defer, isFunction, SLOT_ATTR } from "./shared.ts";
 import {
   createSsrElement,
   createSsrRaw,
@@ -33,21 +33,6 @@ interface ActionBrand {
   k?: string;
   a?: SsrAction["a"];
 }
-
-interface Deferred {
-  promise: Promise<null>;
-  resolve: () => void;
-}
-
-const defer = (): Deferred => {
-  const { promise, resolve } = Promise.withResolvers<null>();
-  return {
-    promise,
-    resolve: () => {
-      resolve(null);
-    },
-  };
-};
 
 const bindSsrEvents = (el: SsrEl, props: PropBag, fiber: FiberLocal): void => {
   const seen = new Set<string>();
@@ -86,8 +71,6 @@ const ssrOps: PaintOps<SsrNode, SsrEl> = {
   // SAFETY: SsrEl hosts act as ParentNode for nested fiber roots.
   asRoot: (el) => ssrAs<ParentNode>(el as never),
   bindEvents: bindSsrEvents,
-  // SAFETY: under SSR, fiber.root is always an SsrRoot/SsrEl host.
-  clearRoot: (root) => ssrAs<SsrHost>(root as never).replaceChildren(),
   committed: (el) => el,
   createElement: createSsrElement,
   createRaw: (html, _parent) => [createSsrRaw(html)],
@@ -129,15 +112,13 @@ const core = createPainter(ssrOps);
 
 export const paint = (fiber: FiberLocal, view: View): void => {
   fiber.islandFrame ??= { i: 0, slots: [] };
-  // SSR rebuilds the whole tree each paint — no DOM morph identity to preserve.
-  core.disposeHoles(fiber);
-  ssrOps.clearRoot(fiber.root);
-  core.insert(fiber, core.materialize(view, fiber));
-};
-
-export const paintError = <E>(fiber: FiberLocal, e: E): void => {
-  console.error(e);
-  paint(fiber, errorView(e));
+  core.pass(fiber, () => {
+    // SSR rebuilds the whole tree each paint — no DOM morph identity to preserve.
+    core.disposeHoles(fiber);
+    // SAFETY: under SSR, fiber.root is always an SsrRoot/SsrEl host.
+    ssrAs<SsrHost>(fiber.root as never).replaceChildren();
+    core.insert(fiber, core.materialize(view, fiber));
+  });
 };
 
 export interface AttachSsrHandle {
@@ -149,21 +130,21 @@ export interface AttachSsrHandle {
 
 export const attachSsr = (
   fn: Component,
-  opts?: { onError?: <E>(error: E) => void; ssrCapture?: boolean }
+  opts?: { onError?: (error: Error) => void; ssrCapture?: boolean }
 ): AttachSsrHandle => {
   const root = createSsrRoot();
   const runtime = makeRuntime({
+    onError: opts?.onError,
     ssr: true,
     ssrCapture: opts?.ssrCapture === true,
   });
   const { promise: ready, resolve } = defer();
-  // SAFETY: SsrRoot is the SSR stand-in for ParentNode on the fiber.
-  const fiber = makeFiber(runtime, ssrAs<ParentNode>(root as never), paint, {
-    onFail: (e) => {
-      opts?.onError?.(e);
-      paintError(fiber, e);
-      resolve();
-    },
+  const fiber = makeRootFiber({
+    paint,
+    // SAFETY: SsrRoot is the SSR stand-in for ParentNode on the fiber.
+    root: ssrAs<ParentNode>(root as never),
+    runtime,
+    settle: resolve,
   });
   runtime.begin();
   runtime.setIdle(resolve);

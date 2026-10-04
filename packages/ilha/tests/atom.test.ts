@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import * as Atom from "effect/reactivity/Atom";
 
-import { atom, mount, watch } from "../src/index.ts";
+import { atom, h, mount, watch } from "../src/index.ts";
 import type { PropBag } from "../src/types.ts";
 
 const mapAtom = Atom.map;
@@ -534,5 +534,40 @@ test("atom without equals notifies on equal-shaped objects", async () => {
   set({ a: 1 });
   await Bun.sleep(5);
   expect(seen).toEqual(['{"a":1}', '{"a":1}']);
+  el.remove();
+});
+
+const Tally = () => {
+  const shown = atom(0);
+  // Written in the handler and never read in the view.
+  const seq = atom(0);
+  const lazySeq = atom.lazy(() => 10);
+  return h(
+    "button",
+    {
+      onclick: () => {
+        seq.update((n: number) => n + 1);
+        lazySeq.update((n: number) => n + 1);
+        shown.set(seq() + lazySeq());
+      },
+    },
+    shown
+  );
+};
+
+test("state the view never reads survives between events", async () => {
+  const el = document.createElement("div");
+  document.body.append(el);
+  const unmount = mount(el, Tally);
+  await Bun.sleep(5);
+  el.querySelector("button")?.click();
+  await Bun.sleep(5);
+  el.querySelector("button")?.click();
+  await Bun.sleep(5);
+  el.querySelector("button")?.click();
+  await Bun.sleep(5);
+  // 3 + 13: both counters kept every write.
+  expect(el.textContent).toBe("16");
+  unmount();
   el.remove();
 });

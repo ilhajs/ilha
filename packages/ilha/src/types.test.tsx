@@ -7,6 +7,7 @@ import type {
   AtomOptions,
   EventSourceFeed,
   EventSourceOptions,
+  IlhaRuntime,
   Resource,
   ResourceFetcher,
   ResourceOptions,
@@ -233,6 +234,16 @@ const typecheckUnsafe = (): void => {
   void branded;
 };
 
+type RuntimeOnError = NonNullable<IlhaRuntime["onError"]>;
+
+const onErrorAnchor: RuntimeOnError = (error) => {
+  void error.message;
+};
+// @ts-expect-error onError receives an Error, not an arbitrary payload
+const badOnErrorAnchor: RuntimeOnError = (error: string) => {
+  void error;
+};
+
 describe("jsx types", () => {
   it("keeps type anchors importable", () => {
     expect(isFunction(typecheckJsxProps)).toBe(true);
@@ -240,5 +251,7 @@ describe("jsx types", () => {
     expect(isFunction(typecheckUntrack)).toBe(true);
     expect(isFunction(typecheckUnsafe)).toBe(true);
     expect(isFunction(typecheckAsyncApis)).toBe(true);
+    expect(isFunction(onErrorAnchor)).toBe(true);
+    expect(isFunction(badOnErrorAnchor)).toBe(true);
   });
 });

@@ -66,6 +66,21 @@ export const unwrap = <T>(
   return value as View;
 };
 
+export interface Deferred {
+  promise: Promise<null>;
+  resolve: () => void;
+}
+
+export const defer = (): Deferred => {
+  const { promise, resolve } = Promise.withResolvers<null>();
+  return {
+    promise,
+    resolve: () => {
+      resolve(null);
+    },
+  };
+};
+
 export const errorView = <T>(e: T): View => ({
   $$ilha: 1,
   children: [failureMessage(e)],

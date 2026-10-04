@@ -1,5 +1,6 @@
-import { paint, paintError } from "./paint.ts";
-import { closeFiber, makeFiber, makeRuntime } from "./runtime.ts";
+import { paint } from "./paint.ts";
+import { closeFiber, makeRootFiber, makeRuntime } from "./runtime.ts";
+import { defer } from "./shared.ts";
 import { decodeSnapshot, encodeSnapshot } from "./snapshot.ts";
 import type { SnapshotValue } from "./snapshot.ts";
 import { escapeAttr } from "./ssr-dom.ts";
@@ -16,7 +17,11 @@ export interface RenderToStringOptions {
 
 export interface MountOptions {
   hydrate?: boolean;
-  onError?: <E>(error: E) => void;
+  /**
+   * Called with a failing root component, and with a nested component no
+   * `ErrorBoundary` caught, before the error view paints.
+   */
+  onError?: (error: Error) => void;
 }
 
 export interface MountHandle {
@@ -24,21 +29,6 @@ export interface MountHandle {
   ready: Promise<null>;
   runtime: IlhaRuntime;
 }
-
-interface Deferred {
-  promise: Promise<null>;
-  resolve: () => void;
-}
-
-const defer = (): Deferred => {
-  const { promise, resolve } = Promise.withResolvers<null>();
-  return {
-    promise,
-    resolve: () => {
-      resolve(null);
-    },
-  };
-};
 
 const readHydrate = (el: Element): SnapshotValue[] | undefined => {
   const host = el.matches("[data-ilha]") ? el : el.querySelector("[data-ilha]");
@@ -71,15 +61,10 @@ const attach = (
   }
   const runtime = makeRuntime({
     hydrate: opts?.hydrate ? readHydrate(el) : undefined,
+    onError: opts?.onError,
   });
   const { promise: ready, resolve } = defer();
-  const fiber = makeFiber(runtime, el, paint, {
-    onFail: (e) => {
-      opts?.onError?.(e);
-      paintError(fiber, e);
-      resolve();
-    },
-  });
+  const fiber = makeRootFiber({ paint, root: el, runtime, settle: resolve });
   if (opts?.hydrate) {
     fiber.hydrate = true;
   }

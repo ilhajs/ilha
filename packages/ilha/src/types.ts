@@ -109,6 +109,11 @@ export interface IlhaRuntime {
   later: (fn: () => void) => void;
   setIdle: (cb: () => void) => void;
   close: () => void;
+  /**
+   * The mount's failure hook. Called for a failing root component and for a
+   * nested component no `ErrorBoundary` caught, before the error view paints.
+   */
+  onError?: (error: Error) => void;
 }
 
 export interface AtomHandle<A> {

@@ -1,6 +1,6 @@
 {
   "name": "ilha",
-  "version": "0.14.10",
+  "version": "0.15.0",
   "description": "Generator-first island UI on Effect",
   "keywords": [
     "effect",
@@ -52,6 +52,10 @@
     "./define": {
       "types": "./dist/define.d.ts",
       "import": "./dist/define.js"
+    },
+    "./renderer": {
+      "types": "./dist/renderer.d.ts",
+      "import": "./dist/renderer.js"
     }
   },
   "publishConfig": {

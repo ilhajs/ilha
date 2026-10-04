@@ -85,6 +85,10 @@ const List = () => {
 
 When `items` changes, the component reruns and morphs the list. Keys on `li` reuse DOM nodes when the array shifts. Components accept `key` the same way with no extra prop type — `JSX.IntrinsicAttributes` covers it.
 
+A keyed component keeps its state while the view keeps the key. When a render drops the key, the component unmounts: its `watch.once` cleanup runs, and the same key later mounts a new component with fresh state.
+
+Give each keyed component a key that is unique within the component that renders it, not only within its list. Two lists in one component that both key their rows by index share keys. Ilha warns once and keeps the duplicate's state by position instead.
+
 For live server lists, paint a Stream into a hole. See [Streams](/guide/ui/streams).
 
 ## Keep user state across rerenders
