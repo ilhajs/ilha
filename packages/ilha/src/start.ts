@@ -70,6 +70,7 @@ export const runSetup = (fiber: FiberLocal, fn: Component): void => {
       if (fiber.closed) {
         return;
       }
+      fiber.renderGen = (fiber.renderGen ?? 0) + 1;
       fiber.runtime.begin();
       beginPrimitiveFrame(fiber);
       withTrackGetRun(

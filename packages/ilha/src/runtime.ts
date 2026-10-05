@@ -75,6 +75,8 @@ export interface FiberLocal {
   componentFrame?: ComponentFrame;
   componentType?: unknown;
   renderSub?: () => void;
+  /** Counts the renders this fiber started; see `subscribeRenderDeps`. */
+  renderGen?: number;
   trackRestore?: () => void;
   propsBox?: { current: PropBag };
   parent?: FiberLocal;

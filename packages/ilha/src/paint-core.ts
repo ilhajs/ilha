@@ -6,13 +6,13 @@ import { isAtomHandle } from "./atom.ts";
 import { toError } from "./errors.ts";
 import { isEventProp } from "./events.ts";
 import { morphInner } from "./morph.ts";
-import {
-  closeFiber,
-  makeFiber,
-  reportFiberError,
-  withFiber,
+import { closeFiber, makeFiber, reportFiberError } from "./runtime.ts";
+import type {
+  ComponentFrame,
+  FiberLocal,
+  Hole,
+  IslandFrame,
 } from "./runtime.ts";
-import type { FiberLocal, Hole } from "./runtime.ts";
 import {
   isSafeUrlAttrValue,
   isUrlAttributeName,
@@ -173,32 +173,6 @@ const canMorphRoot = (root: ParentNode): root is Element =>
   root instanceof Element &&
   root.childNodes.length > 0;
 
-const sweepComponentSlots = (fiber: FiberLocal): void => {
-  const cframe = fiber.componentFrame;
-  if (!cframe) {
-    return;
-  }
-  const { slots } = cframe;
-  for (let j = cframe.i; j < slots.length; j += 1) {
-    const s = slots[j];
-    if (s) {
-      const { hole } = s;
-      if (!hole.closed) {
-        const idx = fiber.holes.findIndex((h) => h.holeFiber === hole);
-        if (idx === -1) {
-          closeFiber(hole);
-        } else {
-          const [removed] = fiber.holes.splice(idx, 1);
-          removed?.dispose();
-        }
-      }
-    }
-    // SAFETY: swept slots are unreachable after truncation below.
-    slots[j] = undefined as never;
-  }
-  slots.length = cframe.i;
-};
-
 /** Close a child hole through the parent's hole list, so it disposes once. */
 const releaseHole = (fiber: FiberLocal, hole: FiberLocal): void => {
   const idx = fiber.holes.findIndex((h) => h.holeFiber === hole);
@@ -208,6 +182,23 @@ const releaseHole = (fiber: FiberLocal, hole: FiberLocal): void => {
     const [removed] = fiber.holes.splice(idx, 1);
     removed?.dispose();
   }
+};
+
+const sweepComponentSlots = (fiber: FiberLocal): void => {
+  const cframe = fiber.componentFrame;
+  if (!cframe) {
+    return;
+  }
+  const { slots } = cframe;
+  for (let j = cframe.i; j < slots.length; j += 1) {
+    const s = slots[j];
+    if (s && !s.hole.closed) {
+      releaseHole(fiber, s.hole);
+    }
+    // SAFETY: swept slots are unreachable after truncation below.
+    slots[j] = undefined as never;
+  }
+  slots.length = cframe.i;
 };
 
 /** Close the keyed components the paint that just ran did not reach. */
@@ -237,6 +228,96 @@ const pass = (fiber: FiberLocal, fn: () => void): void => {
   fiber.keyedGen = (fiber.keyedGen ?? 0) + 1;
   fn();
   sweepKeyedHoles(fiber);
+};
+
+/**
+ * Dispose a hole fiber's child holes before it repaints, except the component
+ * and island holes the repaint can reuse: positional children, keyed
+ * children, and islands. Reuse pushes new props instead of remounting, and the
+ * sweeps that end the paint close whatever it did not reach.
+ */
+const keepReusableHoles = (
+  fiber: FiberLocal,
+  cframe: ComponentFrame,
+  frame: IslandFrame
+): void => {
+  const kept = new Set<FiberLocal>();
+  for (const s of cframe.slots) {
+    if (s && !s.hole.closed) {
+      kept.add(s.hole);
+    }
+  }
+  for (const hole of fiber.keyedHoles?.values() ?? []) {
+    if (!hole.closed) {
+      kept.add(hole);
+    }
+  }
+  const keptIslands = new Set(frame.slots);
+  const keep: Hole[] = [];
+  for (const h of fiber.holes) {
+    const reusable =
+      (h.holeFiber && kept.has(h.holeFiber)) ||
+      (h.islandSlot && keptIslands.has(h.islandSlot));
+    if (reusable) {
+      keep.push(h);
+      continue;
+    }
+    h.dispose();
+  }
+  fiber.holes = keep;
+};
+
+/** Shallow equality of two prop bags, children compared item by item. */
+const sameProps = (prev: PropBag | undefined, next: PropBag): boolean => {
+  if (!prev) {
+    return false;
+  }
+  const keys = Object.keys(next);
+  if (keys.length !== Object.keys(prev).length) {
+    return false;
+  }
+  return keys.every((k) => {
+    const a = prev[k];
+    const b = next[k];
+    if (k === "children" && Array.isArray(a) && Array.isArray(b)) {
+      return a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
+    }
+    return Object.is(a, b);
+  });
+};
+
+/**
+ * Rerun a reused component hole with new props, in its own fiber. The props
+ * box is updated in place, so every render closure of the hole reads the
+ * latest props, including a self-render queued while an async render ran.
+ */
+const rerunHole = (
+  hole: FiberLocal,
+  run: ComponentFn,
+  props: PropBag
+): void => {
+  const box = hole.propsBox ?? { current: props };
+  box.current = props;
+  hole.propsBox = box;
+  runSetup(hole, () => run(box.current));
+};
+
+/**
+ * Run a new component hole's first render after the paint that opened it. A
+ * repaint that reached the hole first already rendered it with newer props.
+ */
+const mountHoleLater = (
+  fiber: FiberLocal,
+  hole: FiberLocal,
+  run: ComponentFn
+): void => {
+  fiber.runtime.later(() => {
+    const box = hole.propsBox;
+    if (hole.closed || hole.renderGen !== undefined || !box) {
+      return;
+    }
+    runSetup(hole, () => run(box.current));
+  });
 };
 
 const warnedKeys = new Set<string>();
@@ -310,14 +391,6 @@ const styleCss = (v: PropValue): string => {
     return serializeStyleAttr(v as string | StyleObject);
   }
   return "";
-};
-
-const isThenable = <T>(value: T): boolean => {
-  if (!isObject(value) && !isFunction(value)) {
-    return false;
-  }
-  // SAFETY: Promise-like detection for sync vs async component returns.
-  return isFunction((value as { then?: unknown }).then);
 };
 
 interface HoleOpen<El> {
@@ -583,28 +656,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
             sweepIslandSlots(fiber);
             return;
           }
-          // Unkeyed component and island holes survive disposal so positional
-          // reuse below can push new props instead of remounting; leftovers are
-          // swept afterwards.
-          const kept = new Set<FiberLocal>();
-          for (const s of cframe.slots) {
-            if (s && !s.hole.closed) {
-              kept.add(s.hole);
-            }
-          }
-          const keptIslands = new Set(frame.slots);
-          const keep: Hole[] = [];
-          for (const h of fiber.holes) {
-            const reusable =
-              (h.holeFiber && kept.has(h.holeFiber)) ||
-              (h.islandSlot && keptIslands.has(h.islandSlot));
-            if (reusable) {
-              keep.push(h);
-              continue;
-            }
-            h.dispose();
-          }
-          fiber.holes = keep;
+          keepReusableHoles(fiber, cframe, frame);
           const fresh = api.materialize(view, fiber);
           if (canMorphRoot(fiber.root)) {
             // Live DOM: morph so reused holes (same slot id) keep their nodes.
@@ -777,36 +829,66 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     if (existing) {
       const { hole } = existing;
       if (existing.type === type && !hole.closed) {
-        hole.propsBox = { current: props };
-        runSetup(hole, () => run(props));
+        rerunHole(hole, run, props);
         return [ops.reuseNode(hole.root)];
       }
       if (!hole.closed) {
-        const idx = fiber.holes.findIndex((h) => h.holeFiber === hole);
-        if (idx === -1) {
-          closeFiber(hole);
-        } else {
-          const [removed] = fiber.holes.splice(idx, 1);
-          removed?.dispose();
-        }
+        releaseHole(fiber, hole);
       }
     }
     const { fiber: hole, nodes } = api.openHole(fiber);
     hole.propsBox = { current: props };
     hole.componentType = type;
     cframe.slots[at] = { hole, type };
-    fiber.runtime.later(() => {
-      if (hole.closed) {
-        return;
-      }
-      const box = hole.propsBox;
-      if (!box) {
-        return;
-      }
-      runSetup(hole, () => run(box.current));
-    });
+    mountHoleLater(fiber, hole, run);
     trackHole(fiber, hole, undefined, { keyed: true });
     return nodes;
+  };
+
+  const materializeKeyedComponent = ({
+    run,
+    type,
+    props,
+    key,
+    fiber,
+  }: {
+    run: ComponentFn;
+    type: ComponentFn | JsxComponent;
+    props: PropBag;
+    key: string;
+    fiber: FiberLocal;
+  }): Node[] => {
+    let reuse = fiber.keyedHoles?.get(key);
+    const gen = fiber.keyedGen;
+    if (reuse && !reuse.closed && reuse.keyedSeen === gen) {
+      // This paint already placed the hole: a second use would move its host.
+      warnDuplicateKey(key);
+      return materializeUnkeyedComponent(run, type, props, fiber);
+    }
+    if (reuse && !reuse.closed && reuse.componentType !== type) {
+      // Another component under the same key: its atoms and watches belong to
+      // the old one, so the key mounts fresh.
+      fiber.keyedHoles?.delete(key);
+      releaseHole(fiber, reuse);
+      reuse = undefined;
+    }
+    if (reuse && !reuse.closed) {
+      reuse.keyedSeen = gen;
+      // Equal props leave the row alone, so a long keyed list costs what
+      // changed in it; the row still reruns when an atom it read changes.
+      if (!sameProps(reuse.propsBox?.current, props)) {
+        rerunHole(reuse, run, props);
+      }
+      return [ops.reuseNode(reuse.root)];
+    }
+    const { fiber: khole, nodes: knodes } = api.openHole(fiber);
+    khole.propsBox = { current: props };
+    khole.componentType = type;
+    khole.keyedSeen = gen;
+    fiber.keyedHoles?.set(key, khole);
+    mountHoleLater(fiber, khole, run);
+    trackHole(fiber, khole, undefined, { keyed: true });
+    return knodes;
   };
 
   const materializeComponent = (
@@ -825,52 +907,18 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         fiber
       );
     }
-    const k =
-      view.key === null || view.key === undefined
-        ? undefined
-        : String(view.key);
-    const reuse = k ? fiber.keyedHoles?.get(k) : undefined;
     // SAFETY: paint always supplies a PropBag bag; JSX component props are for typing.
     const run = type as ComponentFn;
-    const gen = fiber.keyedGen;
-    if (k && reuse && !reuse.closed && reuse.keyedSeen === gen) {
-      // This paint already placed the hole: a second use would move its host.
-      warnDuplicateKey(k);
+    if (view.key === null || view.key === undefined) {
       return materializeUnkeyedComponent(run, type, props, fiber);
     }
-    if (reuse && !reuse.closed) {
-      reuse.keyedSeen = gen;
-      if (reuse.propsBox) {
-        reuse.propsBox.current = props;
-      }
-      const next = withFiber(fiber, () =>
-        run(reuse.propsBox?.current ?? props)
-      );
-      if (next && !isThenable(next) && !isSetupFn(next)) {
-        // SAFETY: sync non-setup return values are Views.
-        reuse.paint(next as View);
-      }
-      return [ops.reuseNode(reuse.root)];
-    }
-    if (!k) {
-      return materializeUnkeyedComponent(run, type, props, fiber);
-    }
-    const { fiber: khole, nodes: knodes } = api.openHole(fiber);
-    khole.propsBox = { current: props };
-    khole.keyedSeen = gen;
-    fiber.keyedHoles?.set(k, khole);
-    fiber.runtime.later(() => {
-      if (khole.closed) {
-        return;
-      }
-      const box = khole.propsBox;
-      if (!box) {
-        return;
-      }
-      runSetup(khole, () => run(box.current));
+    return materializeKeyedComponent({
+      fiber,
+      key: String(view.key),
+      props,
+      run,
+      type,
     });
-    trackHole(fiber, khole, undefined, { keyed: true });
-    return knodes;
   };
 
   const materializeElement = (view: VNode, fiber: FiberLocal): Node[] => {
@@ -958,8 +1006,20 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     const nodes: Node[] = [];
     for (const v of views) {
       const reuse = fiber.keyedHoles?.get(String(v.key));
-      if (reuse && !reuse.closed) {
+      // A duplicate key or a different component under the key takes the
+      // general path, which warns or remounts.
+      const reusable =
+        reuse &&
+        !reuse.closed &&
+        reuse.keyedSeen !== fiber.keyedGen &&
+        reuse.componentType === v.type;
+      if (reuse && reusable) {
         reuse.keyedSeen = fiber.keyedGen;
+        const props = { ...v.props, children: v.children };
+        if (!sameProps(reuse.propsBox?.current, props)) {
+          // SAFETY: the caller verified every item is a component vnode.
+          rerunHole(reuse, v.type as ComponentFn, props);
+        }
         nodes.push(ops.asNode(reuse.root));
         continue;
       }
