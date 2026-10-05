@@ -282,8 +282,15 @@ export const subscribeRenderDeps = (
       return;
     }
     scheduled = true;
+    const seen = fiber.renderGen;
     fiber.runtime.later(() => {
       scheduled = false;
+      // A render that started after the change already read the new value,
+      // for example the parent rerunning this component with new props.
+      // Running this one too would render the same state twice.
+      if (fiber.renderGen !== seen) {
+        return;
+      }
       run();
     });
   };

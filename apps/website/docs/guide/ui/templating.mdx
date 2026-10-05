@@ -85,7 +85,9 @@ const List = () => {
 
 When `items` changes, the component reruns and morphs the list. Keys on `li` reuse DOM nodes when the array shifts. Components accept `key` the same way with no extra prop type — `JSX.IntrinsicAttributes` covers it.
 
-A keyed component keeps its state while the view keeps the key. When a render drops the key, the component unmounts: its `watch.once` cleanup runs, and the same key later mounts a new component with fresh state.
+A keyed component keeps its state while the view keeps the key. When the parent reruns, the component reruns only if its props changed, so a long keyed list costs what changed in it. Props compare shallowly: an inline object, an inline function, or a JSX element child counts as a change on every render. The component still reruns on its own when an atom it reads changes.
+
+When a render drops the key, the component unmounts: its `watch.once` cleanup runs, and the same key later mounts a new component with fresh state. A key that moves to a different component also mounts it fresh.
 
 Give each keyed component a key that is unique within the component that renders it, not only within its list. Two lists in one component that both key their rows by index share keys. Ilha warns once and keeps the duplicate's state by position instead.
 

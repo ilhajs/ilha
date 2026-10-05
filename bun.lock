@@ -44,19 +44,19 @@
     },
     "packages/astro": {
       "name": "@ilha/astro",
-      "version": "0.3.11",
+      "version": "0.3.12",
       "devDependencies": {
         "astro": "^7.3.5",
-        "ilha": "0.14.10",
+        "ilha": "0.15.1",
       },
       "peerDependencies": {
         "astro": "^7.3.5",
-        "ilha": "^0.14.10",
+        "ilha": "^0.15.1",
       },
     },
     "packages/ilha": {
       "name": "ilha",
-      "version": "0.15.0",
+      "version": "0.15.1",
       "devDependencies": {
         "@happy-dom/global-registrator": "^20.14.5",
         "effect": "^4.0.0",
@@ -67,18 +67,18 @@
     },
     "packages/router": {
       "name": "@ilha/router",
-      "version": "0.11.14",
+      "version": "0.11.15",
       "dependencies": {
         "effect": "^4.0.0",
         "unplugin": "3.4.0",
       },
       "devDependencies": {
-        "ilha": "^0.14.10",
+        "ilha": "^0.15.1",
         "oxidejs": "^0.5.10",
         "vite": "^8.3.1",
       },
       "peerDependencies": {
-        "ilha": ">=0.14.10",
+        "ilha": ">=0.15.1",
         "oxidejs": ">=0.5.10",
       },
       "optionalPeers": [
@@ -89,9 +89,9 @@
       "name": "@ilha/template-oxide-spa",
       "version": "0.0.0",
       "dependencies": {
-        "@ilha/router": "^0.11.13",
+        "@ilha/router": "^0.11.15",
         "effect": "^4.0.0",
-        "ilha": "^0.14.10",
+        "ilha": "^0.15.1",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.3",
@@ -107,9 +107,9 @@
       "name": "@ilha/template-vite-spa",
       "version": "0.0.0",
       "dependencies": {
-        "@ilha/router": "^0.11.13",
+        "@ilha/router": "^0.11.15",
         "effect": "^4.0.0",
-        "ilha": "^0.14.10",
+        "ilha": "^0.15.1",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.3",
