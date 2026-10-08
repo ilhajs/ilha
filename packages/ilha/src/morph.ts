@@ -1,4 +1,5 @@
 import { adoptEvents } from "./events.ts";
+import type { FormControlKey } from "./paint-core.ts";
 import { KEY_ATTR, SLOT_ATTR } from "./shared.ts";
 
 export { KEY_ATTR, SLOT_ATTR } from "./shared.ts";
@@ -371,15 +372,23 @@ const collectKeys = (parent: Element): Set<string> => {
   return keys;
 };
 
-/** Rendered inputs that carried a `checked` prop. `checked={false}` leaves no
- * attribute, so presence alone can't tell a controlled "off" from an
- * uncontrolled box. */
-const controlledChecked = new WeakSet<Element>();
-
-/** Mark a rendered input as controlled: the morph syncs its `checked` either way. */
-export const markControlledChecked = (el: Element): void => {
-  controlledChecked.add(el);
+/** Rendered elements that carried a non-null form-control prop, per key.
+ * `checked={false}`, `selected={false}` and `<select value>` leave no
+ * attribute, so presence alone can't tell a controlled render from an
+ * uncontrolled one. */
+const controlledBy: Record<FormControlKey, WeakSet<Element>> = {
+  checked: new WeakSet(),
+  selected: new WeakSet(),
+  value: new WeakSet(),
 };
+
+/** Mark a rendered element controlled for `key`: the morph syncs it either way. */
+export const markControlled = (el: Element, key: FormControlKey): void => {
+  controlledBy[key].add(el);
+};
+
+const isControlled = (el: Element, key: FormControlKey): boolean =>
+  controlledBy[key].has(el);
 
 const morphInput = (fromEl: Element, toEl: Element): void => {
   syncAttributes(fromEl, toEl);
@@ -399,7 +408,7 @@ const morphInput = (fromEl: Element, toEl: Element): void => {
       fromEl.removeAttribute("checked");
     }
   }
-  const controlled = toChecked || controlledChecked.has(toEl);
+  const controlled = toChecked || isControlled(toEl, "checked");
   if (controlled && from.checked !== to.checked) {
     from.checked = to.checked;
   }
@@ -422,9 +431,13 @@ const morphTextarea = (fromEl: Element, toEl: Element): void => {
   const from = fromEl as HTMLTextAreaElement;
   // SAFETY: same pair check covers the render-side node.
   const to = toEl as HTMLTextAreaElement;
-  // Children are the controlled signal: no children anywhere means an
+  // Children or a `value` prop are the controlled signal: neither means an
   // uncontrolled box whose live value (user edits) must survive.
-  if (to.textContent !== "" || from.textContent !== to.textContent) {
+  if (
+    isControlled(toEl, "value") ||
+    to.textContent !== "" ||
+    from.textContent !== to.textContent
+  ) {
     if (from.value !== to.value) {
       from.value = to.value;
     }
@@ -438,10 +451,40 @@ interface MorphApi {
   morphChildren: (fromParent: Element, toParent: Element) => void;
 }
 
+const isControlledSelect = (select: HTMLSelectElement): boolean => {
+  if (isControlled(select, "value")) {
+    return true;
+  }
+  for (const o of select.options) {
+    if (isControlled(o, "selected")) {
+      return true;
+    }
+  }
+  return false;
+};
+
 const morphSelect = (fromEl: Element, toEl: Element, api: MorphApi): void => {
-  const before = new Map<HTMLOptionElement, { attr: boolean; live: boolean }>();
   // SAFETY: localName === select.
   const fromSelect = fromEl as HTMLSelectElement;
+  // SAFETY: same pair check covers the render-side node.
+  const toSelect = toEl as HTMLSelectElement;
+  if (isControlledSelect(toSelect)) {
+    syncAttributes(fromEl, toEl);
+    api.morphChildren(fromEl, toEl);
+    // The morph mirrors the option list, so indexes line up; the render's
+    // selection wins over the user's.
+    const want = toSelect.options;
+    let i = 0;
+    for (const o of fromSelect.options) {
+      const selected = want[i]?.selected ?? false;
+      if (o.selected !== selected) {
+        o.selected = selected;
+      }
+      i += 1;
+    }
+    return;
+  }
+  const before = new Map<HTMLOptionElement, { attr: boolean; live: boolean }>();
   for (const o of fromSelect.options) {
     before.set(o, { attr: o.hasAttribute("selected"), live: o.selected });
   }

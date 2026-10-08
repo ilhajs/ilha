@@ -4,7 +4,7 @@ import { bindEvents } from "./events.ts";
 import {
   committedElement,
   insertRendered,
-  markControlledChecked,
+  markControlled,
   morphInner,
   placeChildren,
   standInFor,
@@ -59,21 +59,35 @@ const domOps: PaintOps<Node, Element> = {
     // SAFETY: form controls expose value/checked/selected live properties.
     const node = el as HTMLElement & {
       value?: string;
+      defaultValue?: string;
       checked?: boolean;
       selected?: boolean;
     };
+    // `null`/`undefined` mean uncontrolled: the morph keeps user edits.
+    if (v !== null && v !== undefined) {
+      markControlled(el, key);
+    }
     if (key === "value") {
-      // Mirror to the attribute so the morph can tell controlled renders
-      // (attr present) from uncontrolled ones (attr absent, user edits win).
-      if (v === null || v === undefined) {
+      const text = v === null || v === undefined ? "" : String(v);
+      if (el.localName === "textarea") {
+        // A textarea's default value is its text: SSR markup and the morph
+        // compare that, not a `value` attribute.
+        node.defaultValue = text;
+        node.value = text;
+      } else if (el.localName === "select") {
+        // Picks among the options; the painter applies select props after
+        // its children, so they exist here.
+        node.value = text;
+      } else if (v === null || v === undefined) {
+        // Mirror to the attribute so the morph can tell controlled renders
+        // (attr present) from uncontrolled ones (attr absent, user edits win).
         el.removeAttribute("value");
         node.value = "";
       } else {
-        el.setAttribute("value", String(v));
-        node.value = String(v);
+        el.setAttribute("value", text);
+        node.value = text;
       }
     } else if (key === "checked") {
-      markControlledChecked(el);
       node.checked = Boolean(v);
       if (v) {
         el.setAttribute("checked", "");

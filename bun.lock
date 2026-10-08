@@ -44,19 +44,19 @@
     },
     "packages/astro": {
       "name": "@ilha/astro",
-      "version": "0.3.12",
+      "version": "0.3.13",
       "devDependencies": {
         "astro": "^7.3.5",
-        "ilha": "0.15.1",
+        "ilha": "0.15.2",
       },
       "peerDependencies": {
         "astro": "^7.3.5",
-        "ilha": "^0.15.1",
+        "ilha": "^0.15.2",
       },
     },
     "packages/ilha": {
       "name": "ilha",
-      "version": "0.15.1",
+      "version": "0.15.2",
       "devDependencies": {
         "@happy-dom/global-registrator": "^20.14.5",
         "effect": "^4.0.0",
@@ -67,7 +67,7 @@
     },
     "packages/router": {
       "name": "@ilha/router",
-      "version": "0.11.15",
+      "version": "0.11.16",
       "dependencies": {
         "effect": "^4.0.0",
         "unplugin": "3.4.0",
