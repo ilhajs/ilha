@@ -61,6 +61,39 @@ const bindSsrEvents = (el: SsrEl, props: PropBag, fiber: FiberLocal): void => {
   }
 };
 
+const WHITESPACE_RUN = /\s+/gu;
+
+/**
+ * Mark the first option whose value is `value` selected and clear the rest,
+ * as setting a live select's `.value` does. Returns whether one matched.
+ */
+const selectOption = (
+  parent: SsrEl,
+  value: string,
+  found: boolean
+): boolean => {
+  let matched = found;
+  for (const child of parent.children) {
+    if (child.kind !== "element") {
+      continue;
+    }
+    if (child.localName === "optgroup") {
+      matched = selectOption(child, value, matched);
+    } else if (child.localName === "option") {
+      const optionValue =
+        child.getAttribute("value") ??
+        child.textContent.trim().replaceAll(WHITESPACE_RUN, " ");
+      if (!matched && optionValue === value) {
+        child.setAttribute("selected", "");
+        matched = true;
+      } else {
+        child.removeAttribute("selected");
+      }
+    }
+  }
+  return matched;
+};
+
 const ssrOps: PaintOps<SsrNode, SsrEl> = {
   // SAFETY: under SSR, fiber.root is always an SsrRoot/SsrEl host.
   appendRoot: (root, node) => ssrAs<SsrHost>(root as never).append(node),
@@ -98,7 +131,18 @@ const ssrOps: PaintOps<SsrNode, SsrEl> = {
   reuseNode: (host) => ssrAs<SsrNode>(host as never),
   setFormControl: (el, key, v) => {
     if (key === "value") {
-      el.setAttribute("value", String(v ?? ""));
+      const text = String(v ?? "");
+      if (el.localName === "textarea") {
+        // A textarea's value is its text; a `value` attribute is ignored.
+        el.textContent = text;
+      } else if (el.localName === "select") {
+        // `null`/`undefined` leave the options' own `selected` alone.
+        if (v !== null && v !== undefined) {
+          selectOption(el, text, false);
+        }
+      } else {
+        el.setAttribute("value", text);
+      }
     } else if (v) {
       el.setAttribute(key, "");
     } else {

@@ -129,6 +129,41 @@ const Chart = () => (
 
 The first paint inserts the placeholder. Later rerenders still sync the element's attributes, but they leave its children alone. Tokens combine, as in `data-morph-preserve="title children"`. Code can also add the attribute to a live element at runtime to claim it.
 
+### Control form fields
+
+You control a field by passing its value prop. Each rerender then resets the live field to the rendered value, undoing edits you did not accept:
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Settings = () => {
+  const size = atom("m");
+  const notify = atom(false);
+  return (
+    <form>
+      <select value={size()} onchange={(e) => size.set(e.currentTarget.value)}>
+        <option value="s">Small</option>
+        <option value="m">Medium</option>
+      </select>
+      <input
+        type="checkbox"
+        checked={notify()}
+        onchange={(e) => notify.set(e.currentTarget.checked)}
+      />
+      <textarea value="Notes" />
+    </form>
+  );
+};
+```
+
+| Field        | Controlled by                                   |
+| ------------ | ----------------------------------------------- |
+| `<input>`    | `value`, or `checked` for checkboxes and radios |
+| `<textarea>` | `value` or its children                         |
+| `<select>`   | `value`, or `selected` on its options           |
+
+`false` and `""` are controlled values: `checked={false}` unchecks the box on every rerender. Omit the prop, or pass `undefined` or `null`, to leave the field uncontrolled so the user's input survives.
+
 ## Raw HTML
 
 Interpolated strings escape. You wrap pre-rendered markup in `unsafe()` to paint it as HTML:

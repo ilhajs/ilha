@@ -932,7 +932,11 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     if (view.key !== null && view.key !== undefined) {
       el.setAttribute(KEY_ATTR, String(view.key));
     }
-    api.applyProps(el, view.props, fiber);
+    // A select's `value` picks among its options, so they must exist first.
+    const propsAfterChildren = lower === "select";
+    if (!propsAfterChildren) {
+      api.applyProps(el, view.props, fiber);
+    }
     const childFiber: FiberLocal = {
       ...fiber,
       holes: fiber.holes,
@@ -943,6 +947,9 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       for (const n of api.materialize(c, childFiber)) {
         el.append(n);
       }
+    }
+    if (propsAfterChildren) {
+      api.applyProps(el, view.props, fiber);
     }
     return [el];
   };
