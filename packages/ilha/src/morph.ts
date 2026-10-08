@@ -371,6 +371,16 @@ const collectKeys = (parent: Element): Set<string> => {
   return keys;
 };
 
+/** Rendered inputs that carried a `checked` prop. `checked={false}` leaves no
+ * attribute, so presence alone can't tell a controlled "off" from an
+ * uncontrolled box. */
+const controlledChecked = new WeakSet<Element>();
+
+/** Mark a rendered input as controlled: the morph syncs its `checked` either way. */
+export const markControlledChecked = (el: Element): void => {
+  controlledChecked.add(el);
+};
+
 const morphInput = (fromEl: Element, toEl: Element): void => {
   syncAttributes(fromEl, toEl);
   // SAFETY: localName === input on both sides after the pair check above.
@@ -389,7 +399,8 @@ const morphInput = (fromEl: Element, toEl: Element): void => {
       fromEl.removeAttribute("checked");
     }
   }
-  if (toChecked && from.checked !== to.checked) {
+  const controlled = toChecked || controlledChecked.has(toEl);
+  if (controlled && from.checked !== to.checked) {
     from.checked = to.checked;
   }
   const toValue = toEl.getAttribute("value");

@@ -4,6 +4,7 @@ import { bindEvents } from "./events.ts";
 import {
   committedElement,
   insertRendered,
+  markControlledChecked,
   morphInner,
   placeChildren,
   standInFor,
@@ -72,6 +73,7 @@ const domOps: PaintOps<Node, Element> = {
         node.value = String(v);
       }
     } else if (key === "checked") {
+      markControlledChecked(el);
       node.checked = Boolean(v);
       if (v) {
         el.setAttribute("checked", "");
