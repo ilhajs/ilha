@@ -4,10 +4,12 @@ import type { JSX } from "./jsx-types.ts";
 import { isFunction } from "./shared.ts";
 import type {
   AtomHandle,
+  AtomLazyOptions,
   AtomOptions,
   EventSourceFeed,
   EventSourceOptions,
   IlhaRuntime,
+  MountOptions,
   Resource,
   ResourceFetcher,
   ResourceOptions,
@@ -244,6 +246,24 @@ const badOnErrorAnchor: RuntimeOnError = (error: string) => {
   void error;
 };
 
+const typecheckSnapshotOptions = (): void => {
+  const plain: AtomOptions<number> = { snapshot: false };
+  const lazy: AtomLazyOptions = { snapshot: false };
+  // @ts-expect-error snapshot is a boolean
+  const bad: AtomLazyOptions = { snapshot: "no" };
+  void plain;
+  void lazy;
+  void bad;
+};
+
+const typecheckMountOptions = (): void => {
+  const opts: MountOptions = { hydrate: true, onIdle: () => {} };
+  // @ts-expect-error onIdle takes no arguments
+  const bad: MountOptions = { onIdle: (_n: number) => {} };
+  void opts;
+  void bad;
+};
+
 describe("jsx types", () => {
   it("keeps type anchors importable", () => {
     expect(isFunction(typecheckJsxProps)).toBe(true);
@@ -251,6 +271,8 @@ describe("jsx types", () => {
     expect(isFunction(typecheckUntrack)).toBe(true);
     expect(isFunction(typecheckUnsafe)).toBe(true);
     expect(isFunction(typecheckAsyncApis)).toBe(true);
+    expect(isFunction(typecheckSnapshotOptions)).toBe(true);
+    expect(isFunction(typecheckMountOptions)).toBe(true);
     expect(isFunction(onErrorAnchor)).toBe(true);
     expect(isFunction(badOnErrorAnchor)).toBe(true);
   });

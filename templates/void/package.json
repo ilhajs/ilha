@@ -1,0 +1,22 @@
+{
+  "name": "@ilha/template-void",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "effect": "^4.0.0",
+    "hono": "^4.13.13",
+    "ilha": "^0.15.2"
+  },
+  "devDependencies": {
+    "@ilha/void": "^0.1.0",
+    "typescript": "^7",
+    "vite": "^8.3.1",
+    "void": "^1.1.11"
+  }
+}

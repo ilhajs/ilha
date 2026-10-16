@@ -1,3 +1,5 @@
+import { SLOT_ATTR } from "./shared.ts";
+
 const VOID = new Set([
   "area",
   "base",
@@ -66,6 +68,8 @@ export interface SsrRoot {
   append: (...nodes: SsrNode[]) => void;
   replaceChildren: () => void;
   readonly innerHTML: string;
+  /** Markup without hole hosts, for renders that never hydrate. */
+  readonly bareHTML: string;
 }
 
 export const createSsrText = (text: string): SsrText => ({
@@ -82,12 +86,21 @@ const serializeRawText = (tag: string, text: string): string => {
   return text;
 };
 
-export const serializeNode = (node: SsrNode): string => {
+/**
+ * Serialize a node. With `bare`, hole hosts (`data-ilha-slot`) vanish and only
+ * their content remains: a render that never hydrates needs no hole markers.
+ */
+export const serializeNode = (node: SsrNode, bare = false): string => {
   if (node.kind === "text") {
     return escapeText(node.text);
   }
   if (node.kind === "raw") {
     return node.html;
+  }
+  const serializeChildren = (): string =>
+    node.children.map((child) => serializeNode(child, bare)).join("");
+  if (bare && node.attrs.has(SLOT_ATTR)) {
+    return serializeChildren();
   }
   const parts: string[] = [];
   for (const [name, value] of node.attrs) {
@@ -102,7 +115,7 @@ export const serializeNode = (node: SsrNode): string => {
     const raw = serializeRawText(tag, node.textContent);
     return `<${tag}${attr}>${raw}</${tag}>`;
   }
-  return `<${tag}${attr}>${node.children.map(serializeNode).join("")}</${tag}>`;
+  return `<${tag}${attr}>${serializeChildren()}</${tag}>`;
 };
 
 const toDataAttr = (key: string): string =>
@@ -194,6 +207,9 @@ export const createSsrRoot = (): SsrRoot => {
     },
     appendChild: (node) => {
       children.push(node);
+    },
+    get bareHTML() {
+      return children.map((child) => serializeNode(child, true)).join("");
     },
     children,
     get innerHTML() {

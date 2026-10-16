@@ -18,6 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      # Void requires Node.js 24.21 or newer to build the template.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - name: Cache dependencies
         uses: actions/cache@v4

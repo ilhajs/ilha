@@ -302,6 +302,27 @@ const Panel = () => {
 };
 ```
 
+### Keep a slot out of the snapshot
+
+Server renders embed plain-value atoms in the HTML so hydration can restore them. Pass `{ snapshot: false }` to `atom()` or `atom.lazy()` to skip that for timers, observers, and other mutable refs. The slot starts from its initial value on the client.
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Visible = () => {
+  const observer = atom.lazy(
+    () => ({ current: undefined as IntersectionObserver | undefined }),
+    {
+      snapshot: false,
+    }
+  );
+  const now = atom(0, { snapshot: false });
+  return <p>{now()}</p>;
+};
+```
+
+Derived atoms (`atom(Atom.map(...))`) never enter the snapshot. Hydration recomputes them from their sources.
+
 ## Props vs state
 
 State initialized from props does not reset when props change. Atoms hold data, not JSX.

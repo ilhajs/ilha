@@ -18,7 +18,8 @@ export type StyleObject = Readonly<
   Record<string, string | number | null | undefined>
 >;
 
-export type EventHandler = (event: Event) => void;
+/** Event and ref callbacks. `never` accepts handlers typed for a specific event. */
+export type EventHandler = (event: never) => void;
 
 /** Indexed bag — interface so PropValue can recurse without a circular type alias. */
 export interface PropBag {
@@ -130,6 +131,20 @@ export type AtomEquality<A> = "structural" | ((prev: A, next: A) => boolean);
 export interface AtomOptions<A = unknown> {
   /** Skip subscriber notify when `equals(prev, next)` holds. Plain values only. */
   readonly equals?: AtomEquality<A>;
+  /**
+   * Set `false` to keep a plain-value slot out of the SSR snapshot. The slot
+   * starts from its initial value on hydration. Default `true`.
+   */
+  readonly snapshot?: boolean;
+}
+
+/** Options for `atom.lazy()`. */
+export interface AtomLazyOptions {
+  /**
+   * Set `false` to keep the slot out of the SSR snapshot, for timers,
+   * observers, and other mutable refs. Default `true`.
+   */
+  readonly snapshot?: boolean;
 }
 
 /** Optional disposer returned from `watch.once`. */
@@ -189,4 +204,19 @@ export interface EventSourceFeed<T = string> {
   readonly stream: Stream.Stream<T, never, never>;
   readonly status: AtomHandle<EventSourceStatus>;
   readonly latest: AtomHandle<T | undefined>;
+}
+
+export interface MountOptions {
+  hydrate?: boolean;
+  /**
+   * Called with a failing root component, and with a nested component no
+   * `ErrorBoundary` caught, before the error view paints.
+   */
+  onError?: (error: Error) => void;
+  /**
+   * Called each time the mount has no pending work left: after the first
+   * paint and again after every rerender, async component, and watcher
+   * settles. Use it to learn when the DOM reflects an atom update.
+   */
+  onIdle?: () => void;
 }

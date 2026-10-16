@@ -3,13 +3,12 @@ import { atom } from "ilha";
 import { URLS } from "@/lib/landing-const";
 
 const TEMPLATES = [
-  { icon: "/vite.svg", label: "Vite SPA", sandbox: true, value: "vite-spa" },
-  { icon: "/oxide.svg", label: "Oxide SPA", sandbox: true, value: "oxide-spa" },
+  { icon: "/favicon.svg", label: "Void", sandbox: false, value: "void" },
 ] as const;
 
 export const ProjectCreatorForm = () => {
   const name = atom("");
-  const template = atom<(typeof TEMPLATES)[number]["value"]>("vite-spa");
+  const template = atom<(typeof TEMPLATES)[number]["value"]>("void");
   const useBun = atom(false);
 
   const command = () => {

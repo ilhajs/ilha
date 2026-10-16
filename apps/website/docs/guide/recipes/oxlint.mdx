@@ -5,14 +5,14 @@ description: Lint Ilha components for primitive placement, generator instruction
 
 TypeScript types your props and atoms. It cannot see call order, generator frames, or React-shaped event names. The Oxlint plugin flags those mistakes in the editor and in CI.
 
-The plugin ships as `@ilha/router/oxlint`. It is a JavaScript Oxlint plugin — no extra compiler.
+The plugin ships as `ilha/oxlint`. It is a JavaScript Oxlint plugin — no extra compiler.
 
 ## Install
 
-Install Oxlint and `@ilha/router` if the app does not already depend on the router.
+Install Oxlint. The plugin ships inside `ilha`, so there is nothing else to add.
 
 ```package-install
-npm i -D oxlint @ilha/router
+npm i -D oxlint
 ```
 
 ## Enable the plugin
@@ -21,7 +21,7 @@ Point Oxlint at the export and turn on the rules you want.
 
 ```json
 {
-  "jsPlugins": ["@ilha/router/oxlint"],
+  "jsPlugins": ["ilha/oxlint"],
   "rules": {
     "oxlint-plugin-ilha/no-conditional-primitive": "error",
     "oxlint-plugin-ilha/no-primitive-outside-component": "error",
@@ -34,7 +34,7 @@ Point Oxlint at the export and turn on the rules you want.
 
 Save this as `.oxlintrc.json` at the repo root. Run `oxlint` in your lint script.
 
-The plugin only treats `atom`, `watch`, and `when` as primitives when you import them from `"ilha"`. A router `action()` or a local binding does not match.
+The plugin only treats `atom`, `watch`, and `when` as primitives when you import them from `"ilha"`. A local binding with the same name does not match.
 
 ## Rules
 

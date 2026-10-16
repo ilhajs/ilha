@@ -546,6 +546,12 @@ const replaceRendered = (fromNode: ChildNode, toNode: Node): void => {
   fromNode.remove();
 };
 
+/**
+ * While hydrating, server slot hosts are replaced by the freshly painted ones:
+ * the new hole fibers are rooted in those, so their content must be installed.
+ */
+let hydrating = false;
+
 const morphElementPair = (
   fromEl: Element,
   toEl: Element,
@@ -557,7 +563,7 @@ const morphElementPair = (
   }
   const toSlot = toEl.getAttribute(SLOT_ATTR);
   const fromSlot = fromEl.getAttribute(SLOT_ATTR);
-  if (toSlot !== null && fromSlot === toSlot) {
+  if (toSlot !== null && fromSlot === toSlot && !hydrating) {
     // Same hole host — keep the live node (atom reuse / keepOnMorph).
     return;
   }
@@ -717,4 +723,14 @@ export const morphInner = (from: Element, to: Element): void => {
   const focus = snapshotFocus();
   api.morphChildren(from, to);
   restoreFocus(focus);
+};
+
+/** Morph the first client render into server markup, replacing slot hosts. */
+export const hydrateInner = (from: Element, to: Element): void => {
+  hydrating = true;
+  try {
+    morphInner(from, to);
+  } finally {
+    hydrating = false;
+  }
 };

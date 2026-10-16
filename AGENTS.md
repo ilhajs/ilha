@@ -3,9 +3,9 @@
 ## Project overview
 
 - Ilha is a tiny, isomorphic web UI library built around the islands architecture — ship minimal JavaScript, hydrate only what matters.
-- It is a Bun monorepo containing three packages (`ilha`, `@ilha/router`, `@ilha/astro`), one documentation app (`apps/website`), and scaffolding templates (`templates/`).
+- It is a Bun monorepo containing three packages (`ilha`, `@ilha/void`, `@ilha/astro`), one documentation app (`apps/website`), and scaffolding templates (`templates/`).
 - The core package (`packages/ilha`) implements islands as function components with order-based reactive primitives: signal-based reactivity, SSR rendering, DOM hydration, and a JSX runtime — no virtual DOM, no compiler.
-- `@ilha/router` provides an isomorphic SPA router with a Vite file-system routing plugin.
+- `@ilha/void` integrates Ilha with Void: it renders and hydrates Void pages, layouts, forms, and islands. Void owns routing, loaders, actions, and deployment.
 - The documentation site (`apps/website`) is built with Blume, Ilha, and Areia. It prerenders to static HTML and is deployed to Vercel.
 
 ## Build and run
@@ -27,8 +27,8 @@
 
 - `packages/ilha/src/index.ts` — public entrypoint; core implementation lives alongside it in `packages/ilha/src/`.
 - `packages/ilha/src/jsx-runtime.ts` — JSX factory; do not merge with `index.ts`.
-- `packages/router/` follows the same single-entrypoint pattern with its own `tsdown.config.ts` and `package.json`.
-- `templates/` — official starters (vite-spa, oxide-spa). Keep them minimal and copy-pasteable; do not add build-time complexity.
+- `packages/void/` and `packages/astro/` are adapters with their own `tsdown.config.ts` and `package.json`. `@ilha/void` imports Void through its public `void/pages*` exports only.
+- `templates/` — official starter (void). Keep them minimal and copy-pasteable; do not add build-time complexity.
 - `apps/website/docs/` — all MDX documentation lives here. Directory structure maps to URLs; `meta.ts` files control navigation order.
 
 ## Island API conventions

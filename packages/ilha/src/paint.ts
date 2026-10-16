@@ -3,6 +3,7 @@ import type { Atom } from "effect/reactivity";
 import { bindEvents } from "./events.ts";
 import {
   committedElement,
+  hydrateInner,
   insertRendered,
   markControlled,
   morphInner,
@@ -149,33 +150,13 @@ const pruneDisconnectedAtomHoles = (fiber: FiberLocal): void => {
   });
 };
 
-const canHydrate = (fiber: FiberLocal, view: View): view is VNode => {
+/** An element root only reuses server markup whose first element matches. */
+const hydrateMismatch = (fiber: FiberLocal, view: View): boolean => {
   if (!isVNode(view) || !isString(view.type)) {
     return false;
   }
   const el = fiber.root.firstElementChild;
-  return !!el && el.tagName === view.type.toUpperCase();
-};
-
-const paintHydrate = (fiber: FiberLocal, view: VNode): void => {
-  const el = fiber.root.firstElementChild;
-  if (!el) {
-    return;
-  }
-  fiber.hydrate = false;
-  fiber.liveEl = el;
-  core.applyProps(el, view.props, fiber);
-  const childFiber: FiberLocal = {
-    ...fiber,
-    holes: fiber.holes,
-    root: el,
-  };
-  el.replaceChildren();
-  for (const c of view.children) {
-    for (const n of core.materialize(c, childFiber)) {
-      insertRendered(el, n, null);
-    }
-  }
+  return !el || el.tagName !== view.type.toUpperCase();
 };
 
 const paintMorphLive = (fiber: FiberLocal, view: VNode): void => {
@@ -202,15 +183,13 @@ const paintMorphLive = (fiber: FiberLocal, view: VNode): void => {
 
 const paintRoot = (fiber: FiberLocal, view: View): void => {
   fiber.islandFrame ??= { i: 0, slots: [] };
+  const wasHydrating = fiber.hydrate === true;
   if (fiber.hydrate) {
-    if (canHydrate(fiber, view)) {
-      paintHydrate(fiber, view);
-      return;
-    }
-    console.warn("[ilha] hydrate mismatch, full mount");
+    // Hydration morphs the first render into the server DOM below, so nodes
+    // (and anything typed into them) survive and only handlers attach.
     fiber.hydrate = false;
-    if (fiber.root instanceof Element) {
-      fiber.root.replaceChildren();
+    if (hydrateMismatch(fiber, view)) {
+      console.warn("[ilha] hydrate mismatch, full mount");
     }
   }
   if (
@@ -230,7 +209,7 @@ const paintRoot = (fiber: FiberLocal, view: View): void => {
     for (const n of core.materialize(view, fiber)) {
       tmp.append(n);
     }
-    morphInner(fiber.root, tmp);
+    (wasHydrating ? hydrateInner : morphInner)(fiber.root, tmp);
     const first = fiber.root.firstElementChild;
     if (first) {
       fiber.liveEl = first;

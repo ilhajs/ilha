@@ -35,7 +35,7 @@ export const createContext = <A>(defaultValue: A): IlhaContext<A> => {
   const Provider = (props: ContextProviderProps<A>): View => {
     const fiber = getFiber();
     const { value: next, children } = props;
-    const handle = atom(next);
+    const handle = atom(next, { snapshot: false });
     if (
       !Object.is(
         untrack(() => handle()),

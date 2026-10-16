@@ -22,7 +22,7 @@ const flatten = (xs: View[]): View[] => {
   return out;
 };
 
-export const h = (
+const createVNode = (
   type: string | Fragment | ComponentFn | JsxComponent,
   props: PropBag | null | undefined,
   ...rest: View[]
@@ -50,6 +50,27 @@ export const h = (
     type,
   };
 };
+
+/**
+ * Build a vnode. A component with typed props gets its props checked against
+ * that type; elements and untyped components take a plain prop bag.
+ */
+export interface HFn {
+  <P>(
+    type: (props: P) => ReturnType<JsxComponent>,
+    props: P | null | undefined,
+    ...rest: View[]
+  ): VNode;
+  (
+    type: string | Fragment | ComponentFn | JsxComponent,
+    props: PropBag | null | undefined,
+    ...rest: View[]
+  ): VNode;
+}
+
+// SAFETY: createVNode is the shared implementation behind both overloads;
+// typed-props components are plain prop bags at runtime.
+export const h = createVNode as HFn;
 
 export const isVNode = <T>(x: T): x is T & VNode => {
   if (!isObject(x)) {

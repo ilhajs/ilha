@@ -175,7 +175,7 @@ test("renderToString waits for resource and fetches once", async () => {
     return <p>{res.data}</p>;
   };
   const html = await renderToString(App, { markers: false, snapshot: false });
-  expect(html).toContain(">n1</span>");
+  expect(html).toContain("<p>n1</p>");
   expect(calls).toBe(1);
 });
 

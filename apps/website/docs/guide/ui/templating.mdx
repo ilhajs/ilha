@@ -43,8 +43,6 @@ const Panel = () => (
 );
 ```
 
-On a server island, bind `oxidejs` `action`s with `.with(...)` on event props so SSR can serialize frame sentinels. Plain client islands keep plain handlers. See [Server islands](/guide/routing/server-islands).
-
 ## Touch the DOM node
 
 Pass `ref` to read the live element. You receive the node on mount and `null` on unmount:

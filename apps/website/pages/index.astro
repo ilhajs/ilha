@@ -7,8 +7,8 @@ import { ProjectCreatorForm } from "../src/components/landing/landing";
 import {
   DEFAULT_INSTALL_COMMAND,
   ILHA_ASTRO_CODE,
-  ILHA_ROUTER_CODE,
   ILHA_CONTEXT_CODE,
+  ILHA_VOID_CODE,
   META_DESCRIPTION,
   PREVIEW_CODE,
   PRIMARY_ILHA_CARDS,
@@ -21,12 +21,11 @@ import { highlight } from "./_home/highlight";
 
 const { config } = data;
 
-const VITE_SPA_SANDBOX = `${URLS.SANDBOX.replace("{template}", "vite-spa")}?file=src%2Fpages%2Findex.tsx`;
 const PLAYGROUND_URL = playgroundUrl(PREVIEW_CODE);
 const SEO_TITLE = "Ilha - Server HTML first, islands where it matters";
 
 const previewHtml = highlight(PREVIEW_CODE, "ts");
-const routingHtml = highlight(ILHA_ROUTER_CODE, "ts");
+const voidHtml = highlight(ILHA_VOID_CODE, "ts");
 const contextHtml = highlight(ILHA_CONTEXT_CODE, "ts");
 const astroHtml = highlight(ILHA_ASTRO_CODE, "ts");
 
@@ -45,7 +44,7 @@ const MENTAL_MODEL = [
 ] as const;
 
 const EXTRAS = [
-  { file: "vite.config.ts", html: routingHtml, label: "@ilha/router" },
+  { file: "vite.config.ts", html: voidHtml, label: "@ilha/void" },
   { file: "theme.tsx", html: contextHtml, label: "Context" },
   { file: "astro.config.ts", html: astroHtml, label: "@ilha/astro" },
 ] as const;
@@ -100,13 +99,10 @@ const EXTRAS = [
                   Get started
                 </a>
                 <a
-                  href={VITE_SPA_SANDBOX}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href="/guide/void"
                   class="btn w-full justify-center sm:w-auto sm:flex-none"
                 >
-                  <img src="/stackblitz.svg" class="size-4" alt="" />
-                  Open in StackBlitz
+                  Use with Void
                 </a>
               </div>
               <button

@@ -6,22 +6,15 @@ import type { SnapshotValue } from "./snapshot.ts";
 import { escapeAttr } from "./ssr-dom.ts";
 import { attachSsr } from "./ssr-paint.ts";
 import { runSetup } from "./start.ts";
-import type { Component, IlhaRuntime } from "./types.ts";
+import type { Component, IlhaRuntime, MountOptions } from "./types.ts";
+
+export type { MountOptions } from "./types.ts";
 
 export interface RenderToStringOptions {
   snapshot?: boolean;
   markers?: boolean;
   timeout?: number;
   captureActions?: boolean;
-}
-
-export interface MountOptions {
-  hydrate?: boolean;
-  /**
-   * Called with a failing root component, and with a nested component no
-   * `ErrorBoundary` caught, before the error view paints.
-   */
-  onError?: (error: Error) => void;
 }
 
 export interface MountHandle {
@@ -69,7 +62,10 @@ const attach = (
     fiber.hydrate = true;
   }
   runtime.begin();
-  runtime.setIdle(resolve);
+  runtime.setIdle(() => {
+    resolve();
+    opts?.onIdle?.();
+  });
   runSetup(fiber, fn);
   runtime.end();
   return {
@@ -102,7 +98,8 @@ export const renderToString = async (
   });
   const timeout = opts?.timeout;
   await (timeout === undefined ? ready : Promise.race([ready, delay(timeout)]));
-  let inner = root.innerHTML;
+  // Nothing can hydrate this output, so hole hosts add only bytes.
+  let inner = markers || snapshot ? root.innerHTML : root.bareHTML;
   const actions = runtime.ssrActions;
   if (Object.keys(actions).length > 0) {
     inner = `<template data-ilha-actions="${escapeAttr(JSON.stringify(actions))}"></template>${inner}`;

@@ -7,7 +7,12 @@ import * as Stream from "effect/Stream";
 import type { FiberLocal } from "./runtime.ts";
 import { closeFiber, getActiveFiber, getFiber, withFiber } from "./runtime.ts";
 import { isFunction } from "./shared.ts";
-import type { AtomHandle, AtomOptions, Instruction } from "./types.ts";
+import type {
+  AtomHandle,
+  AtomLazyOptions,
+  AtomOptions,
+  Instruction,
+} from "./types.ts";
 
 export const handleOwner = new WeakMap<object, FiberLocal>();
 
@@ -160,16 +165,22 @@ interface PrimitiveSlot<A> {
 }
 
 const readTracked = <A>(atom: Atom.Atom<A>, registry: AtomRegistry): A => {
-  const frame = trackStack.at(-1);
   const active = getActiveFiber();
+  // Another root (a nested `renderToString`, a sibling async render) may have
+  // pushed its own frame above this fiber's, so match the frame by fiber
+  // instead of trusting the top of the stack.
+  const frame =
+    active === undefined
+      ? trackStack.at(-1)
+      : trackStack.findLast((f) => f.fiber === active);
   // Async setup: after an `await`, the component's continuation resumes with an
   // empty fiber stack. The pending frame (kept open by withTrackGetRun for the
   // in-flight promise) is then the only render context — trust it when nothing
   // else is on the stack, so post-await atom reads stay reactive.
-  if (trackGet && frame && (active === frame.fiber || active === undefined)) {
+  if (trackGet && frame) {
     // SAFETY: the tracked getter returns the same atom's current value that
     // registry.get would; the A parameter is the caller's atom type.
-    return trackGet(atom) as A;
+    return frame.get(atom) as A;
   }
   // SAFETY: registry.get returns the current value of exactly this atom.
   return registry.get(atom) as A;
@@ -351,14 +362,16 @@ const makeAtom = <A>(
 ): AtomHandle<A> => {
   const fiber = getFiber();
   const snap = fiber.runtime.hydrateValues;
+  // Only plain-value slots occupy a snapshot entry. SSR pushes and hydration
+  // consumes under this same rule so the two stay index-aligned.
+  const snapshotted =
+    options?.snapshot !== false &&
+    !Atom.isAtom(init) &&
+    !Effect.isEffect(init) &&
+    !Stream.isStream(init);
   const { atom: a, fresh } = usePrimitiveSlot(fiber, () => {
     let seed = init;
-    if (
-      snap &&
-      !Atom.isAtom(init) &&
-      !Effect.isEffect(init) &&
-      !Stream.isStream(init)
-    ) {
+    if (snap && snapshotted) {
       const v = snap[fiber.runtime.hydrateI];
       fiber.runtime.hydrateI += 1;
       if (v !== undefined) {
@@ -388,18 +401,22 @@ const makeAtom = <A>(
     return holdState(fiber, Atom.withEquality(made, equalsFn));
   });
   const handle = wrapHandle(a, fiber);
-  if (fresh && fiber.runtime.ssr) {
+  if (fresh && snapshotted && fiber.runtime.ssr) {
     fiber.runtime.ssrValues.push(fiber.registry.get(a));
   }
   return handle;
 };
 
-const atomLazy = <A>(init: () => A): AtomHandle<A> => {
+const atomLazy = <A>(
+  init: () => A,
+  options?: AtomLazyOptions
+): AtomHandle<A> => {
   const fiber = getFiber();
   const snap = fiber.runtime.hydrateValues;
+  const snapshotted = options?.snapshot !== false;
   const { atom: a, fresh } = usePrimitiveSlot(fiber, () => {
     let seed = init();
-    if (snap) {
+    if (snap && snapshotted) {
       const v = snap[fiber.runtime.hydrateI];
       fiber.runtime.hydrateI += 1;
       if (v !== undefined) {
@@ -411,7 +428,7 @@ const atomLazy = <A>(init: () => A): AtomHandle<A> => {
     return holdState(fiber, Atom.make(seed));
   });
   const handle = wrapHandle(a, fiber);
-  if (fresh && fiber.runtime.ssr) {
+  if (fresh && snapshotted && fiber.runtime.ssr) {
     fiber.runtime.ssrValues.push(fiber.registry.get(a));
   }
   return handle;
@@ -426,7 +443,7 @@ export interface AtomFn {
       | Stream.Stream<A, unknown, AtomRegistry>,
     options?: AtomOptions<A>
   ): AtomHandle<A>;
-  lazy: <A>(init: () => A) => AtomHandle<A>;
+  lazy: <A>(init: () => A, options?: AtomLazyOptions) => AtomHandle<A>;
 }
 
 export const atom: AtomFn = Object.assign(makeAtom, { lazy: atomLazy });

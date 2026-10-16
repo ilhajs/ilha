@@ -160,9 +160,9 @@ define("ilha-counter", () => {
 
 ---
 
-## Routing and Astro
+## Void and Astro
 
-- [`@ilha/router`](https://github.com/ilhajs/ilha/tree/main/packages/router) — file-system SPA routes and Oxide server islands.
+- [`@ilha/void`](https://github.com/ilhajs/ilha/tree/main/packages/void) — Void pages, layouts, forms, and islands.
 - [`@ilha/astro`](https://github.com/ilhajs/ilha/tree/main/packages/astro) — Astro renderer (`renderToString` + `mount`).
 
 Docs: [ilha.build](https://ilha.build)

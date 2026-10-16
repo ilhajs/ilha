@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "allowImportingTsExtensions": false,
+    "types": ["@types/bun"],
+    "strictNullChecks": true
+  },
+  "include": [
+    "src/index.ts",
+    "src/client.ts",
+    "src/islands.ts",
+    "src/plugin.ts",
+    "src/server.ts"
+  ]
+}

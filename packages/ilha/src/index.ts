@@ -20,6 +20,7 @@ export { unsafe } from "./unsafe.ts";
 export type {
   AtomEquality,
   AtomHandle,
+  AtomLazyOptions,
   AtomOptions,
   Component,
   EventSourceFeed,

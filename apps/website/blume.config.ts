@@ -79,25 +79,12 @@ export default defineConfig({
             label: "Build UI",
           },
           {
-            items: [
-              "/guide/routing/overview",
-              "/guide/routing/routes-and-navigation",
-              "/guide/routing/error-boundaries",
-              "/guide/routing/file-system-routing",
-              "/guide/routing/server-islands",
-              "/guide/routing/middleware-and-security",
-              "/guide/routing/deployment",
-            ],
-            label: "Routing",
-          },
-          {
-            items: ["/guide/astro"],
+            items: ["/guide/astro", "/guide/void"],
             label: "Integrations",
           },
           {
             items: [
               "/guide/recipes/h",
-              "/guide/recipes/pubsub-state",
               "/guide/recipes/testing",
               "/guide/recipes/view-transitions",
               "/guide/recipes/oxlint",
@@ -119,7 +106,7 @@ export default defineConfig({
         root: "/guide",
       },
       {
-        items: ["/reference/ilha", "/reference/router", "/reference/astro"],
+        items: ["/reference/ilha", "/reference/astro", "/reference/void"],
         label: "Reference",
         root: "/reference",
       },
