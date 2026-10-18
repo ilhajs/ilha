@@ -48,6 +48,10 @@ export const Form = ({
       "aria-busy": String(form.pending),
       onsubmit: async (event: SubmitEvent) => {
         event.preventDefault();
+        // Refresh the retry clock on every attempt: retries are only
+        // scheduled for the error on mount, so without this a form
+        // rate-limited after mount stays blocked past its retry window.
+        now.set(Date.now());
         if (!formSubmissionBlocked(form, now())) {
           await form[method]();
         }
