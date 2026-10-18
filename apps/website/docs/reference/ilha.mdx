@@ -42,6 +42,8 @@ Nested functions share the parent fiber. `mount` / `renderToString` on a functio
 | `watch.once(fn)` | Run once on mount; async callbacks with signal + promised cleanup | [State](/guide/ui/state) |
 | `when(stream, body)` | Per-emission generator (interrupts stale) | [Streams](/guide/ui/streams) |
 | `h` / `Fragment` | JSX factory | [Templating](/guide/ui/templating) |
+| `unsafe(html)` | Pre-rendered HTML painted without escaping | [Templating](/guide/ui/templating#raw-html) |
+| `IlhaError` / `IlhaCode` | Stable error codes with fix hints and docs links | [Errors](/errors) |
 | `mount` | Activate a component in the DOM | [Render](/guide/ui/render) |
 | `renderToString` | Serialize a component to HTML | [Render](/guide/ui/render) |
 
@@ -108,6 +110,18 @@ Generator instruction — use with `yield*` inside a generator component. Prefer
 
 Stream views (`yield Stream.map(...)`) also take one value on SSR. Side effects and user-gated flows use Effect (`Stream.runForEach`, `Deferred`) — see [Streams](/guide/ui/streams).
 
+## unsafe
+
+Marks a string as pre-rendered HTML and paints it without escaping:
+
+```tsx twoslash
+import { unsafe } from "ilha";
+
+const Badge = ({ svg }: { svg: string }) => <span>{unsafe(svg)}</span>;
+```
+
+Use it for markup you built or sanitized yourself — SVG from an external library, Markdown rendered to HTML, embed codes. Never pass untrusted user input. Inserted scripts do not run, but event attributes and other markup still apply, and the URL and style sanitizers that guard JSX props are skipped. See [Templating](/guide/ui/templating#raw-html).
+
 ## renderToString
 
 ```ts
@@ -130,6 +144,24 @@ const unmount = mount(element, component, {
 ```
 
 `onError` receives a failing root component and a nested component no `ErrorBoundary` caught, before the error view paints.
+
+## Errors
+
+Failures throw `IlhaError`, which exposes `code`, `fix`, and `docs`:
+
+```tsx twoslash
+import { IlhaError, atom } from "ilha";
+
+try {
+  atom(0);
+} catch (error) {
+  if (error instanceof IlhaError) {
+    console.log(error.code, error.fix, error.docs);
+  }
+}
+```
+
+Warnings go through `console.warn` with the same message shape, once per code and detail. Every code has a page under [/errors](/errors).
 
 ## ilha/renderer
 
@@ -166,4 +198,4 @@ Without `setProp`, a prop reaches the host as a string attribute and a `style` o
 
 ## Types
 
-`Component`, `View`, `AtomHandle`, `MountOptions`, `RenderToStringOptions`.
+`Component`, `View`, `AtomHandle`, `UnsafeHtml`, `IlhaError`, `IlhaCode`, `MountOptions`, `RenderToStringOptions`.
