@@ -1,18 +1,17 @@
 import { describe, expect, it } from "bun:test";
 
+import * as Effect from "effect/Effect";
+import type * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { atom } from "./atom.ts";
 import type { JSX } from "./jsx-types.ts";
 import { isFunction } from "./shared.ts";
 import type {
   AtomHandle,
   AtomLazyOptions,
   AtomOptions,
-  EventSourceFeed,
-  EventSourceOptions,
   IlhaRuntime,
   MountOptions,
-  Resource,
-  ResourceFetcher,
-  ResourceOptions,
   UnsafeHtml,
   View,
   WatchCallback,
@@ -158,8 +157,6 @@ const typecheckJsxProps = (): void => {
   void badPForm;
   void count;
 };
-declare const res: Resource<string>;
-declare const feed: EventSourceFeed<number>;
 
 const ctxFn: WatchCallback<number> = (value, ctx) => {
   ctx.signal.addEventListener("abort", () => {});
@@ -177,11 +174,6 @@ const legacy: WatchCallback<number> = (value) => {
   void value;
 };
 const useCtx = (_ctx: WatchContext): void => {};
-const fetcher: ResourceFetcher<string> = (key, { signal }) => {
-  void key;
-  void signal.aborted;
-  return Promise.resolve("v");
-};
 const typecheckAsyncApis = (): void => {
   const eqOpts: AtomOptions<{ a: number }> = { equals: "structural" };
   const fnOpts: AtomOptions<string> = {
@@ -190,36 +182,9 @@ const typecheckAsyncApis = (): void => {
   // @ts-expect-error equals must be "structural" or a comparator
   const badOpts: AtomOptions<number> = { equals: "fuzzy" };
 
-  const resOpts: ResourceOptions = { staleWhileRevalidate: false };
-  // @ts-expect-error unknown resource option
-  const badResOpts: ResourceOptions = { stale: true };
-  const data: AtomHandle<string | undefined> = res.data;
-  const loading: AtomHandle<boolean> = res.loading;
-  const refetch: () => Promise<string | undefined> = res.refetch;
-  // @ts-expect-error data is possibly undefined
-  const badData: AtomHandle<string> = res.data;
-
-  const sseOpts: EventSourceOptions<number> = {
-    event: "count",
-    retryBaseMs: 500,
-    schema: Number,
-  };
-  const latest: AtomHandle<number | undefined> = feed.latest;
-  void feed.stream;
-  void feed.status;
-
   void eqOpts;
   void fnOpts;
   void badOpts;
-  void resOpts;
-  void badResOpts;
-  void fetcher;
-  void data;
-  void loading;
-  void refetch;
-  void badData;
-  void sseOpts;
-  void latest;
   void ctxFn;
   void asyncCtxFn;
   void legacy;
@@ -264,6 +229,17 @@ const typecheckMountOptions = (): void => {
   void bad;
 };
 
+const typecheckEffectAtom = (): void => {
+  const loaded = atom(Effect.succeed(1));
+  const result: AtomHandle<AsyncResult.AsyncResult<number, never>> = loaded;
+  // @ts-expect-error an effect atom holds an AsyncResult, not the value
+  const plain: AtomHandle<number> = loaded;
+  const view: View = loaded;
+  void result;
+  void plain;
+  void view;
+};
+
 describe("jsx types", () => {
   it("keeps type anchors importable", () => {
     expect(isFunction(typecheckJsxProps)).toBe(true);
@@ -273,6 +249,7 @@ describe("jsx types", () => {
     expect(isFunction(typecheckAsyncApis)).toBe(true);
     expect(isFunction(typecheckSnapshotOptions)).toBe(true);
     expect(isFunction(typecheckMountOptions)).toBe(true);
+    expect(isFunction(typecheckEffectAtom)).toBe(true);
     expect(isFunction(onErrorAnchor)).toBe(true);
     expect(isFunction(badOnErrorAnchor)).toBe(true);
   });

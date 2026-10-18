@@ -6,7 +6,6 @@ export default defineConfig({
     "src/index.ts",
     "src/jsx-runtime.ts",
     "src/jsx-dev-runtime.ts",
-    "src/define.ts",
     "src/renderer.ts",
   ],
   external: ["effect"],

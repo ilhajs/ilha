@@ -30,7 +30,7 @@ export type View =
   | VNode
   | UnsafeHtml
   | JsonText
-  | AtomHandle<unknown>
+  | AtomView
   | Stream.Stream<View, unknown, unknown>
   | GeneratorFn
   | Component
@@ -109,6 +109,12 @@ export interface IlhaRuntime {
   onError?: (error: Error) => void;
 }
 
+/** Any atom handle as a view: the painter subscribes to `atom`, whatever it holds. */
+export interface AtomView {
+  readonly $$atom: 1;
+  readonly atom: Atom.Atom<unknown>;
+}
+
 export interface AtomHandle<A> {
   readonly $$atom: 1;
   readonly atom: Atom.Atom<A>;
@@ -156,47 +162,6 @@ export type WatchCallback<A> = (
   value: A,
   ctx: WatchContext
 ) => WatchOnceCleanup | undefined | Promise<WatchOnceCleanup | undefined>;
-
-/** Options for `resource()`. */
-export interface ResourceOptions {
-  /** Serve cached data while revalidating in the background. Default `true`. */
-  readonly staleWhileRevalidate?: boolean;
-}
-
-/** Async fetch scoped to a resource key. Receives an abort signal. */
-export type ResourceFetcher<T> = (
-  key: string,
-  ctx: { signal: AbortSignal }
-) => Promise<T>;
-
-/** Handles returned by `resource()`. */
-export interface Resource<T> {
-  readonly data: AtomHandle<T | undefined>;
-  readonly error: AtomHandle<unknown>;
-  readonly loading: AtomHandle<boolean>;
-  refetch: () => Promise<T | undefined>;
-}
-
-/** Connection state of a `fromEventSource` feed. */
-export type EventSourceStatus = "connecting" | "open" | "retrying" | "closed";
-
-/** Options for `fromEventSource()`. */
-export interface EventSourceOptions<T = string> {
-  /** Named event to listen for. Default: the `message` event. */
-  readonly event?: string;
-  /** Decode (and validate) `data` into `T`. Throwing skips the message. */
-  readonly schema?: (data: string) => T;
-  /** Base backoff between reconnects. Default `1000`. Capped at 30s. */
-  readonly retryBaseMs?: number;
-}
-
-/** Live server-sent-events feed. */
-export interface EventSourceFeed<T = string> {
-  /** Paint with `yield Stream.map(feed.stream, ...)`; watch `latest` instead in sync components. */
-  readonly stream: Stream.Stream<T, never, never>;
-  readonly status: AtomHandle<EventSourceStatus>;
-  readonly latest: AtomHandle<T | undefined>;
-}
 
 export interface MountOptions {
   hydrate?: boolean;

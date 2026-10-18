@@ -34,9 +34,6 @@ Nested functions share the parent fiber. `mount` / `renderToString` on a functio
 | --- | --- | --- |
 | `atom(init, { equals? })` | Writable reactive value; skip notify on equal writes | [State](/guide/ui/state) |
 | `atom.lazy(init)` | One-time initializer | [State](/guide/ui/state) |
-| `resource(key, fetcher, { staleWhileRevalidate? })` | Shared async fetch with dedupe + SWR | [State](/guide/ui/state) |
-| `invalidate(key)` | Drop a cached resource and refetch live users | [State](/guide/ui/state) |
-| `fromEventSource(url, { event?, schema?, retryBaseMs? })` | SSE stream, status, and latest value | [Streams](/guide/ui/streams) |
 | `batch(fn)` | Coalesce multiple atom writes | [State](/guide/ui/state) |
 | `untrack(fn)` | Read atoms without subscribing | [State](/guide/ui/state) |
 | `createContext` / `context` | Atom-backed tree context | [Context and errors](/guide/ui/context-and-errors) |
@@ -56,7 +53,7 @@ Every element accepts `key` and `ref` with no extra types. `key` reuses DOM node
 
 Paint Effect [`Stream`](https://www.effect.website/docs/v4/api/effect/Stream) values with `yield Stream.map(...)` — see [Streams](/guide/ui/streams).
 
-`define` lives at `ilha/define` — see [Custom elements](/guide/ui/custom-elements).
+Data fetching, server-sent events, and custom elements are recipes, not exports — see [Recipes](/guide/recipes/data-fetching).
 
 ## atom
 

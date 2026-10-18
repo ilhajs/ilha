@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
+import type * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import * as Stream from "effect/Stream";
@@ -58,9 +59,6 @@ export const isInstruction = <T>(x: T): x is T & Instruction<unknown> =>
 
 export const isAtomHandle = <T>(x: T): x is T & AtomHandle<unknown> =>
   hasBrand(x, "$$atom");
-
-/** Key-order-insensitive deep equality for JSON-shaped values. */
-export const structuralEqual = Equal.equals;
 
 interface TrackFrame {
   fiber: FiberLocal;
@@ -302,11 +300,19 @@ type AtomInit<A> =
   | Stream.Stream<A, unknown, AtomRegistry>;
 
 export interface AtomFn {
-  <A>(init: AtomInit<A>, options?: AtomOptions<A>): AtomHandle<A>;
+  /** An effect or stream runs once; the handle holds its `AsyncResult`. */
+  <A, E>(
+    init: Effect.Effect<A, E, AtomRegistry> | Stream.Stream<A, E, AtomRegistry>,
+    options?: AtomOptions<AsyncResult.AsyncResult<A, E>>
+  ): AtomHandle<AsyncResult.AsyncResult<A, E>>;
+  /** An existing Effect atom, or a plain value. */
+  <A>(init: Atom.Atom<A> | A, options?: AtomOptions<A>): AtomHandle<A>;
   lazy: <A>(init: () => A, options?: AtomLazyOptions) => AtomHandle<A>;
 }
 
-export const atom: AtomFn = Object.assign(
+// SAFETY: the overloads in AtomFn describe the runtime shapes below; an
+// effect/stream slot holds the AsyncResult that Atom.make produces.
+export const atom = Object.assign(
   <A>(init: AtomInit<A>, options?: AtomOptions<A>): AtomHandle<A> => {
     // Only plain-value slots occupy a snapshot entry, on SSR and hydration alike.
     const plain =
@@ -316,8 +322,8 @@ export const atom: AtomFn = Object.assign(
         return init;
       }
       if (!plain) {
-        // SAFETY: an effect/stream atom holds AsyncResult<A>; the handle and
-        // paint pipeline unwrap it, so the slot is typed Atom<A>.
+        // SAFETY: an effect/stream atom holds AsyncResult<A>; AtomFn types
+        // the handle accordingly, and the painter unwraps it.
         return Atom.make(init as Effect.Effect<A>) as Atom.Atom<A>;
       }
       // SAFETY: the remaining union member is the plain seed value A.
@@ -326,7 +332,7 @@ export const atom: AtomFn = Object.assign(
       return holdState(
         fiber,
         eq
-          ? Atom.withEquality(made, eq === "structural" ? structuralEqual : eq)
+          ? Atom.withEquality(made, eq === "structural" ? Equal.equals : eq)
           : made
       );
     });
@@ -337,6 +343,6 @@ export const atom: AtomFn = Object.assign(
         holdState(fiber, Atom.make(seed === undefined ? init() : seed))
       ),
   }
-);
+) as AtomFn;
 
 export const { batch } = Atom;

@@ -4,7 +4,6 @@ import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
 import * as Stream from "effect/Stream";
 
-import { define } from "../src/define.ts";
 import { atom, h, mount, renderToString } from "../src/index.ts";
 import { encodeSnapshot } from "../src/snapshot.ts";
 import type { PropBag } from "../src/types.ts";
@@ -243,14 +242,4 @@ test("style string and empty async setup", async () => {
   mount(el2, async () => {});
   await Bun.sleep(5);
   expect(el2.innerHTML).toBe("");
-});
-
-test("define hydrate then disconnect", async () => {
-  define("ilha-h", () => h("span", null, "h"));
-  const el = document.createElement("ilha-h");
-  el.dataset.ilha = "";
-  document.body.append(el);
-  await Bun.sleep(20);
-  expect(el.textContent).toContain("h");
-  el.remove();
 });

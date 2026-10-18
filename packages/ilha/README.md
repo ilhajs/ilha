@@ -137,25 +137,9 @@ Event props are lowercase (`onclick`, `onchange`). Use `class`, not `className`.
 
 ---
 
-## Custom elements
+## Recipes
 
-```ts
-import { atom } from "ilha";
-import { define } from "ilha/define";
-
-define("ilha-counter", () => {
-  const count = atom(0);
-  return (
-    <button type="button" onclick={() => count.update((n: number) => n + 1)}>
-      {count}
-    </button>
-  );
-});
-```
-
-```html
-<ilha-counter data-ilha></ilha-counter>
-```
+Data fetching, server-sent events, and custom elements are short Effect recipes rather than exports: see [ilha.build/guide/recipes](https://ilha.build/guide/recipes/data-fetching).
 
 ---
 
