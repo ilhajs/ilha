@@ -42,12 +42,11 @@ Default output looks like:
 </div>
 ```
 
-| Option           | Default | Meaning                                      |
-| ---------------- | ------- | -------------------------------------------- |
-| `snapshot`       | `true`  | Embed atom values for hydration              |
-| `markers`        | `true`  | Wrap in `<div data-ilha>`                    |
-| `timeout`        | none    | Serialize after this many ms even if busy    |
-| `captureActions` | `false` | Probe event handlers for server-action calls |
+| Option     | Default | Meaning                                   |
+| ---------- | ------- | ----------------------------------------- |
+| `snapshot` | `true`  | Embed atom values for hydration           |
+| `markers`  | `true`  | Wrap in `<div data-ilha>`                 |
+| `timeout`  | none    | Serialize after this many ms even if busy |
 
 Pass `{ markers: false }` when a host already exists. With both `markers: false` and `snapshot: false`, the output can never hydrate, so `renderToString` also drops the hole hosts (`<span data-ilha-slot>`) and emits plain markup.
 

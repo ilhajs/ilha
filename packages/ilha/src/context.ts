@@ -16,53 +16,42 @@ export interface IlhaContext<A> {
   readonly Provider: (props: ContextProviderProps<A>) => View;
 }
 
-const defaults = new WeakMap<object, Atom.Atom<unknown>>();
-
-const getDefaultAtom = <A>(ctx: IlhaContext<A>): Atom.Atom<A> => {
-  const existing = defaults.get(ctx);
-  if (existing) {
-    // SAFETY: stored under this context object with Atom.Atom<A>.
-    return existing as Atom.Atom<A>;
-  }
-  const made = Atom.make(ctx.defaultValue);
-  defaults.set(ctx, made);
-  return made;
-};
+const fallbacks = new WeakMap<object, Atom.Atom<unknown>>();
 
 export const createContext = <A>(defaultValue: A): IlhaContext<A> => {
   const id = Symbol("ilha.context");
-
-  const Provider = (props: ContextProviderProps<A>): View => {
-    const fiber = getFiber();
-    const { value: next, children } = props;
-    const handle = atom(next, { snapshot: false });
-    if (
-      !Object.is(
-        untrack(() => handle()),
-        next
-      )
-    ) {
-      handle.set(next);
-    }
-    fiber.contexts ??= new Map();
-    fiber.contexts.set(id, handle.atom);
-    return children;
+  const ctx: IlhaContext<A> = {
+    Provider: ({ value, children }) => {
+      const fiber = getFiber();
+      const handle = atom(value, { snapshot: false });
+      if (!Object.is(untrack(handle), value)) {
+        handle.set(value);
+      }
+      fiber.contexts ??= new Map();
+      fiber.contexts.set(id, handle.atom);
+      return children;
+    },
+    defaultValue,
+    id,
   };
-
-  return { Provider, defaultValue, id };
+  fallbacks.set(ctx, Atom.make(defaultValue));
+  return ctx;
 };
 
 /** Read a context value as an atom handle. Subscribes the active fiber on read. */
 export const context = <A>(ctx: IlhaContext<A>): AtomHandle<A> => {
   const fiber = getFiber();
-  let current: FiberLocal | undefined = fiber;
-  while (current) {
-    const found = current.contexts?.get(ctx.id);
-    if (found) {
-      // SAFETY: Provider stored Atom.Atom<A> under this context id.
-      return wrapHandle(found as Atom.Atom<A>, fiber);
+  let found = fallbacks.get(ctx);
+  for (let f: FiberLocal | undefined = fiber; f; f = f.parent) {
+    const provided = f.contexts?.get(ctx.id);
+    if (provided) {
+      found = provided;
+      break;
     }
-    current = current.parent;
   }
-  return wrapHandle(getDefaultAtom(ctx), fiber);
+  // SAFETY: the Provider and the fallback store this context's Atom<A>.
+  return wrapHandle(
+    (found ?? Atom.make(ctx.defaultValue)) as Atom.Atom<A>,
+    fiber
+  );
 };

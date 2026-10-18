@@ -1,31 +1,31 @@
-import type { Atom } from "effect/reactivity";
-
 import { bindEvents } from "./events.ts";
 import {
   committedElement,
   hydrateInner,
-  insertRendered,
   markControlled,
   morphInner,
   placeChildren,
   standInFor,
 } from "./morph.ts";
 import { createPainter } from "./paint-core.ts";
-import type { PaintOps } from "./paint-core.ts";
-import type { FiberLocal } from "./runtime.ts";
-import { isString, KEEP, SLOT_ATTR, unwrap } from "./shared.ts";
-import type { VNode, View } from "./types.ts";
-import { isVNode } from "./vnode.ts";
 
-const noopDisconnect = (): void => {
-  /* empty — DOM tracks connectedness */
+type FormNode = HTMLElement & {
+  value?: string;
+  defaultValue?: string;
+  checked?: boolean;
+  selected?: boolean;
 };
 
-const domOps: PaintOps<Node, Element> = {
-  appendRoot: (root, node) => insertRendered(root, node, null),
-  asElement: (el) => el,
-  asNode: (host) => host,
-  asRoot: (el) => el,
+const toggleAttr = (el: Element, name: string, on: boolean): void => {
+  if (on) {
+    el.setAttribute(name, "");
+  } else {
+    el.removeAttribute(name);
+  }
+};
+
+/** The DOM painter: fresh renders morph into the live tree. */
+export const { paint } = createPainter<Node, Element>({
   bindEvents,
   committed: committedElement,
   createElement: (tag, ns) =>
@@ -34,200 +34,65 @@ const domOps: PaintOps<Node, Element> = {
     // SAFETY: raw injection is the documented contract of unsafe() — the
     // caller vouches for the markup. Parsed scripts do not execute on insert.
     const range = document.createRange();
-    // SAFETY: fiber roots are live Elements, so they are valid Range contexts.
+    // SAFETY: fiber roots are live Elements, valid Range contexts.
     range.selectNodeContents(parent as Node);
     return [...range.createContextualFragment(html).childNodes];
   },
-  createSlotHost: (slotId) => {
-    const host = document.createElement("span");
-    if (slotId !== null) {
-      host.setAttribute(SLOT_ATTR, slotId);
-    }
-    host.style.display = "contents";
-    return host;
-  },
   createText: (text) => document.createTextNode(text),
-  disconnect: noopDisconnect,
-  placeChildren: (root, nodes) => {
-    if (root instanceof Element) {
-      placeChildren(root, nodes);
+  morph: (root, nodes, hydrate) => {
+    // SAFETY: DOM fiber roots are Elements (mount host or hole host).
+    const el = root as Element;
+    if (!el.hasChildNodes()) {
+      placeChildren(el, nodes);
+      return;
     }
+    const tmp = document.createElement("div");
+    tmp.append(...nodes);
+    if (hydrate) {
+      const want = tmp.firstElementChild?.tagName;
+      if (want && el.firstElementChild?.tagName !== want) {
+        console.warn("[ilha] hydrate mismatch, full mount");
+      }
+    }
+    (hydrate ? hydrateInner : morphInner)(el, tmp);
   },
+  // SAFETY: DOM fiber roots are Elements.
+  placeChildren: (root, nodes) => placeChildren(root as Element, nodes),
   // A connected host stays where it is; the morph resolves the stand-in.
-  reuseNode: (host) =>
-    host instanceof Element && host.isConnected ? standInFor(host) : host,
+  reuseNode: (host) => (host.isConnected ? standInFor(host) : host),
   setFormControl: (el, key, v) => {
     // SAFETY: form controls expose value/checked/selected live properties.
-    const node = el as HTMLElement & {
-      value?: string;
-      defaultValue?: string;
-      checked?: boolean;
-      selected?: boolean;
-    };
+    const node = el as FormNode;
     // `null`/`undefined` mean uncontrolled: the morph keeps user edits.
-    if (v !== null && v !== undefined) {
+    const set = v !== null && v !== undefined;
+    if (set) {
       markControlled(el, key);
     }
-    if (key === "value") {
-      const text = v === null || v === undefined ? "" : String(v);
-      if (el.localName === "textarea") {
-        // A textarea's default value is its text: SSR markup and the morph
-        // compare that, not a `value` attribute.
-        node.defaultValue = text;
-        node.value = text;
-      } else if (el.localName === "select") {
-        // Picks among the options; the painter applies select props after
-        // its children, so they exist here.
-        node.value = text;
-      } else if (v === null || v === undefined) {
-        // Mirror to the attribute so the morph can tell controlled renders
-        // (attr present) from uncontrolled ones (attr absent, user edits win).
-        el.removeAttribute("value");
-        node.value = "";
-      } else {
+    if (key !== "value") {
+      node[key] = Boolean(v);
+      toggleAttr(el, key, Boolean(v));
+      return;
+    }
+    const text = set ? String(v) : "";
+    if (el.localName === "textarea") {
+      // A textarea's default value is its text: SSR markup and the morph
+      // compare that, not a `value` attribute.
+      node.defaultValue = text;
+    } else if (el.localName !== "select") {
+      // Mirror to the attribute so the morph can tell controlled renders
+      // (attr present) from uncontrolled ones (attr absent, user edits win).
+      if (set) {
         el.setAttribute("value", text);
-        node.value = text;
-      }
-    } else if (key === "checked") {
-      node.checked = Boolean(v);
-      if (v) {
-        el.setAttribute("checked", "");
       } else {
-        el.removeAttribute("checked");
-      }
-    } else {
-      node.selected = Boolean(v);
-      if (v) {
-        el.setAttribute("selected", "");
-      } else {
-        el.removeAttribute("selected");
+        el.removeAttribute("value");
       }
     }
+    // A select picks among its options; the painter applies select props
+    // after its children, so they exist here.
+    node.value = text;
   },
   setStyle: (el, css) => {
-    // SAFETY: style props are applied to HTMLElements from the DOM painter.
+    // SAFETY: style props apply to HTML/SVG elements, which carry `style`.
     (el as HTMLElement).style.cssText = css;
   },
-};
-
-const core = createPainter(domOps);
-
-const refreshAtomHost = (
-  fiber: FiberLocal,
-  atom: Atom.Atom<unknown>,
-  host: Element,
-  hole: FiberLocal
-): void => {
-  if (hole.closed || !host.isConnected) {
-    return;
-  }
-  const next = unwrap(fiber.registry.get(atom));
-  if (next === KEEP) {
-    return;
-  }
-  // SAFETY: unwrap returns View | KEEP; KEEP already returned above.
-  core.paintHole(hole, next as View);
-};
-
-const refreshAllAtomHosts = (fiber: FiberLocal): void => {
-  for (const h of fiber.holes) {
-    if (h.atom && h.host && h.holeFiber) {
-      refreshAtomHost(fiber, h.atom, h.host, h.holeFiber);
-    }
-  }
-};
-
-const pruneDisconnectedAtomHoles = (fiber: FiberLocal): void => {
-  fiber.holes = fiber.holes.filter((h) => {
-    if (!h.atom || !h.host || !h.holeFiber) {
-      return true;
-    }
-    if (h.host.isConnected) {
-      return true;
-    }
-    h.dispose();
-    return false;
-  });
-};
-
-/** An element root only reuses server markup whose first element matches. */
-const hydrateMismatch = (fiber: FiberLocal, view: View): boolean => {
-  if (!isVNode(view) || !isString(view.type)) {
-    return false;
-  }
-  const el = fiber.root.firstElementChild;
-  return !el || el.tagName !== view.type.toUpperCase();
-};
-
-const paintMorphLive = (fiber: FiberLocal, view: VNode): void => {
-  if (!fiber.liveEl) {
-    return;
-  }
-  core.disposeHoles(fiber, { morph: true });
-  core.applyProps(fiber.liveEl, view.props, fiber);
-  const liveNs = fiber.liveEl.namespaceURI;
-  const tmp =
-    liveNs && liveNs !== "http://www.w3.org/1999/xhtml"
-      ? document.createElementNS(liveNs, fiber.liveEl.localName)
-      : document.createElement(fiber.liveEl.localName);
-  const childFiber: FiberLocal = { ...fiber, holes: fiber.holes, root: tmp };
-  for (const c of view.children) {
-    for (const n of core.materialize(c, childFiber)) {
-      tmp.append(n);
-    }
-  }
-  morphInner(fiber.liveEl, tmp);
-  refreshAllAtomHosts(fiber);
-  pruneDisconnectedAtomHoles(fiber);
-};
-
-const paintRoot = (fiber: FiberLocal, view: View): void => {
-  fiber.islandFrame ??= { i: 0, slots: [] };
-  const wasHydrating = fiber.hydrate === true;
-  if (fiber.hydrate) {
-    // Hydration morphs the first render into the server DOM below, so nodes
-    // (and anything typed into them) survive and only handlers attach.
-    fiber.hydrate = false;
-    if (hydrateMismatch(fiber, view)) {
-      console.warn("[ilha] hydrate mismatch, full mount");
-    }
-  }
-  if (
-    fiber.liveEl &&
-    isVNode(view) &&
-    isString(view.type) &&
-    fiber.liveEl.localName === view.type
-  ) {
-    paintMorphLive(fiber, view);
-    return;
-  }
-  // Morph disposal keeps atom, island, keyed, and positional component holes
-  // alive so matching nodes survive; leftovers are swept next render.
-  core.disposeHoles(fiber, { morph: true });
-  if (fiber.root instanceof Element && fiber.root.childNodes.length > 0) {
-    const tmp = document.createElement("div");
-    for (const n of core.materialize(view, fiber)) {
-      tmp.append(n);
-    }
-    (wasHydrating ? hydrateInner : morphInner)(fiber.root, tmp);
-    const first = fiber.root.firstElementChild;
-    if (first) {
-      fiber.liveEl = first;
-    }
-    return;
-  }
-  core.insert(fiber, core.materialize(view, fiber));
-  const first =
-    fiber.root instanceof Element ? fiber.root.firstElementChild : null;
-  if (first) {
-    fiber.liveEl = first;
-  }
-};
-
-export const paint = (fiber: FiberLocal, view: View): void => {
-  core.commit(() => {
-    core.pass(fiber, () => {
-      paintRoot(fiber, view);
-    });
-  });
-};
+});

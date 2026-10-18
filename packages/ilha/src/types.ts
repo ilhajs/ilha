@@ -26,13 +26,6 @@ export interface PropBag {
   readonly [key: string]: PropValue | undefined;
 }
 
-export type ActionArg = JsonText | PropBag | readonly ActionArg[];
-
-export interface SsrAction {
-  readonly k: string;
-  readonly a: readonly ActionArg[];
-}
-
 export type View =
   | VNode
   | UnsafeHtml
@@ -97,14 +90,13 @@ export type Component =
 export interface IlhaRuntime {
   readonly registry: AtomRegistry;
   readonly scope: Closeable;
+  /** Run an effect synchronously with the mount's `AtomRegistry` provided. */
+  readonly fork: <A, E>(effect: Effect.Effect<A, E, AtomRegistry>) => A;
   readonly ssr: boolean;
   readonly ssrValues: unknown[];
-  ssrActions: Record<string, SsrAction>;
-  ssrEventI: number;
-  ssrCapture: boolean;
   hydrateValues?: unknown[];
   hydrateI: number;
-  nextHole: () => number;
+  holeSeq: number;
   begin: () => void;
   end: () => void;
   later: (fn: () => void) => void;

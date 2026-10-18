@@ -2,9 +2,9 @@ import { adoptEvents } from "./events.ts";
 import type { FormControlKey } from "./paint-core.ts";
 import { KEY_ATTR, SLOT_ATTR } from "./shared.ts";
 
-export { KEY_ATTR, SLOT_ATTR } from "./shared.ts";
-
 const PRESERVE_ATTR = "data-morph-preserve";
+const STAND_IN_ATTR = "data-ilha-reuse";
+const FORM_ATTR = /^(?:value|checked|selected)$/u;
 
 const morphKeyOf = (el: Element): string | null => {
   const k = el.getAttribute(KEY_ATTR);
@@ -16,68 +16,34 @@ const morphKeyOf = (el: Element): string | null => {
 };
 
 /** Whether `data-morph-preserve` on `el` lists `token`. */
-const hasPreserveToken = (el: Element, token: string): boolean => {
-  const custom = el.getAttribute(PRESERVE_ATTR);
-  if (custom === null) {
-    return false;
-  }
-  for (const listed of custom.split(/\s+/u)) {
-    if (listed === token) {
-      return true;
-    }
-  }
-  return false;
-};
+const preserves = (el: Element, token: string): boolean =>
+  el.getAttribute(PRESERVE_ATTR)?.split(/\s+/u).includes(token) ?? false;
 
-const shouldPreserveMorphAttr = (el: Element, name: string): boolean => {
-  if (name === "value" || name === "checked" || name === "selected") {
-    return true;
-  }
-  if (name === PRESERVE_ATTR) {
-    return el.hasAttribute(PRESERVE_ATTR);
-  }
-  return hasPreserveToken(el, name);
-};
+/** Attributes the morph leaves to live state or to code outside the render. */
+const keepAttr = (el: Element, name: string): boolean =>
+  FORM_ATTR.test(name) ||
+  (name === PRESERVE_ATTR ? el.hasAttribute(name) : preserves(el, name));
 
 const syncAttributes = (from: Element, to: Element): void => {
   for (const { name, value } of to.attributes) {
-    if (shouldPreserveMorphAttr(from, name)) {
-      continue;
-    }
-    if (from.getAttribute(name) !== value) {
+    if (!keepAttr(from, name) && from.getAttribute(name) !== value) {
       from.setAttribute(name, value);
     }
   }
-  // Snapshot names first — NamedNodeMap is live under removeAttribute.
-  const names: string[] = [];
-  for (const { name } of from.attributes) {
-    names.push(name);
-  }
-  for (const name of names) {
-    if (name === "open" && !to.hasAttribute("open")) {
-      // A user-opened <details> or <dialog> stays open across rerenders
-      // unless the new render explicitly sets `open`. Attribute sync above
-      // still applies an explicit `open` from the render.
-      continue;
-    }
-    if (shouldPreserveMorphAttr(from, name)) {
-      continue;
-    }
-    if (!to.hasAttribute(name)) {
+  // getAttributeNames() is a static copy, safe under removeAttribute. A
+  // user-opened <details> or <dialog> stays open unless the render sets `open`.
+  for (const name of from.getAttributeNames()) {
+    if (!to.hasAttribute(name) && name !== "open" && !keepAttr(from, name)) {
       from.removeAttribute(name);
     }
   }
 };
 
-interface MorphFocusSnapshot {
+interface FocusSnapshot {
   active: HTMLElement;
-  selection: {
-    start: number | null;
-    end: number | null;
-    dir: string | null;
-  } | null;
+  selection?: { start: number; end: number | null; dir: string | null };
   /** Caret/selection ranges inside a focused contenteditable. */
-  ranges: Range[] | null;
+  ranges?: Range[];
 }
 
 /** Deepest focused element, looking through open shadow roots. */
@@ -89,84 +55,74 @@ const deepActiveElement = (): Element | null => {
   return active;
 };
 
-const snapshotRanges = (active: HTMLElement): Range[] | null => {
-  if (!active.isContentEditable) {
-    return null;
-  }
-  const sel = document.getSelection();
-  if (!sel || sel.rangeCount === 0) {
-    return null;
-  }
-  const ranges: Range[] = [];
-  for (let i = 0; i < sel.rangeCount; i += 1) {
-    const range = sel.getRangeAt(i);
-    if (active.contains(range.startContainer)) {
-      ranges.push(range.cloneRange());
-    }
-  }
-  return ranges.length > 0 ? ranges : null;
-};
-
-const snapshotFocus = (): MorphFocusSnapshot | null => {
+const snapshotFocus = (): FocusSnapshot | undefined => {
   if (globalThis.document === undefined) {
-    return null;
+    return undefined;
   }
   const active = deepActiveElement();
   if (!(active instanceof HTMLElement) || active === document.body) {
-    return null;
+    return undefined;
   }
-  let selection: MorphFocusSnapshot["selection"] = null;
+  const snap: FocusSnapshot = { active };
   try {
     if (
-      active instanceof HTMLInputElement ||
-      active instanceof HTMLTextAreaElement
+      (active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement) &&
+      active.selectionStart !== null
     ) {
-      selection = {
+      snap.selection = {
         dir: active.selectionDirection,
         end: active.selectionEnd,
         start: active.selectionStart,
       };
     }
   } catch {
-    /* type=email */
+    /* type=email has no selection API */
   }
-  return { active, ranges: snapshotRanges(active), selection };
-};
-
-const restoreRanges = (ranges: Range[]): void => {
-  const sel = document.getSelection();
-  if (!sel || !ranges.every((r) => r.startContainer.isConnected)) {
-    return;
-  }
-  sel.removeAllRanges();
-  for (const r of ranges) {
-    sel.addRange(r);
-  }
-};
-
-const restoreFocus = (snapshot: MorphFocusSnapshot | null): void => {
-  if (!snapshot || !snapshot.active.isConnected) {
-    return;
-  }
-  try {
-    if (deepActiveElement() !== snapshot.active) {
-      snapshot.active.focus({ preventScroll: true });
-      if (snapshot.ranges) {
-        // Refocusing a contenteditable resets its caret.
-        restoreRanges(snapshot.ranges);
+  const sel = active.isContentEditable ? document.getSelection() : null;
+  if (sel) {
+    const ranges: Range[] = [];
+    for (let i = 0; i < sel.rangeCount; i += 1) {
+      const range = sel.getRangeAt(i);
+      if (active.contains(range.startContainer)) {
+        ranges.push(range.cloneRange());
       }
     }
-    const sel = snapshot.selection;
-    if (sel && sel.start !== null) {
+    snap.ranges = ranges.length > 0 ? ranges : undefined;
+  }
+  return snap;
+};
+
+const restoreFocus = (snap: FocusSnapshot | undefined): void => {
+  if (!snap?.active.isConnected) {
+    return;
+  }
+  const { active, ranges, selection } = snap;
+  try {
+    if (deepActiveElement() !== active) {
+      active.focus({ preventScroll: true });
+      // Refocusing a contenteditable resets its caret.
+      const sel = document.getSelection();
+      if (ranges && sel && ranges.every((r) => r.startContainer.isConnected)) {
+        sel.removeAllRanges();
+        for (const r of ranges) {
+          sel.addRange(r);
+        }
+      }
+    }
+    if (selection) {
       // SAFETY: selection is only recorded for input/textarea elements.
-      const el = snapshot.active as HTMLInputElement;
-      if (el.selectionStart !== sel.start || el.selectionEnd !== sel.end) {
+      const el = active as HTMLInputElement;
+      if (
+        el.selectionStart !== selection.start ||
+        el.selectionEnd !== selection.end
+      ) {
         // SAFETY: selectionDirection is forward|backward|none when present.
-        el.setSelectionRange(
-          sel.start,
-          sel.end,
-          (sel.dir as "forward" | "backward" | "none") ?? "none"
-        );
+        const dir = (selection.dir ?? "none") as
+          | "forward"
+          | "backward"
+          | "none";
+        el.setSelectionRange(selection.start, selection.end, dir);
       }
     }
   } catch {
@@ -174,12 +130,11 @@ const restoreFocus = (snapshot: MorphFocusSnapshot | null): void => {
   }
 };
 
-// Reused live nodes (component, island, and atom hosts) never enter the
-// scratch tree a render materializes into: moving them there detaches them,
-// which blurs inputs, reloads iframes, closes modal dialogs and popovers, and
-// reruns custom element lifecycles. The scratch tree holds a stand-in instead,
-// and the morph swaps it for the live node where it already sits.
-const STAND_IN_ATTR = "data-ilha-reuse";
+// Reused live nodes (component and atom hosts) never enter the scratch tree a
+// render materializes into: moving them there detaches them, which blurs
+// inputs, reloads iframes, closes modal dialogs and popovers, and reruns
+// custom element lifecycles. The scratch tree holds a stand-in instead, and
+// the morph swaps it for the live node where it already sits.
 const standIns = new WeakMap<Node, Element>();
 /** Live nodes with an outstanding stand-in: the morph must not consume them. */
 const claimed = new WeakSet<Node>();
@@ -208,38 +163,31 @@ const liveOf = (node: Node): Node => {
   return live;
 };
 
-type MoveCapable = ParentNode & {
-  moveBefore?: (node: Node, child: Node | null) => void;
-};
-
 /**
  * Insert `node` before `ref`. Connected nodes move with `moveBefore` where the
  * browser has it, so they keep focus, iframe, dialog, and element state.
  */
-const place = (
-  parent: MoveCapable,
-  node: Node,
-  ref: ChildNode | null
-): void => {
+const place = (parent: ParentNode, node: Node, ref: Node | null): void => {
   if (
     node === ref ||
     (node.parentNode === parent && node.nextSibling === ref)
   ) {
     return;
   }
-  if (node.isConnected && parent.isConnected && parent.moveBefore) {
+  // SAFETY: moveBefore is a newer ParentNode method not yet in every lib.dom.
+  const movable = parent as ParentNode & {
+    moveBefore?: (node: Node, child: Node | null) => void;
+  };
+  if (node.isConnected && parent.isConnected && movable.moveBefore) {
     try {
-      parent.moveBefore(node, ref);
+      movable.moveBefore(node, ref);
       return;
     } catch {
       /* different root or unsupported node: plain insert */
     }
   }
-  if (ref) {
-    ref.before(node);
-  } else {
-    parent.append(node);
-  }
+  // SAFETY: every ParentNode the painter targets is a Node.
+  (parent as ParentNode & Node).insertBefore(node, ref);
 };
 
 /** Swap stand-ins nested in `node` (now in the document) for live nodes. */
@@ -247,8 +195,7 @@ const resolveNested = (node: Node): void => {
   if (!(node instanceof Element) || !node.firstElementChild) {
     return;
   }
-  const nested = node.querySelectorAll(`[${STAND_IN_ATTR}]`);
-  for (const s of nested) {
+  for (const s of node.querySelectorAll(`[${STAND_IN_ATTR}]`)) {
     const live = liveOf(s);
     if (live !== s && s.parentNode) {
       place(s.parentNode, live, s);
@@ -261,10 +208,10 @@ const resolveNested = (node: Node): void => {
  * Put a rendered node into the live tree: stand-ins become their live nodes,
  * and stand-ins nested in fresh subtrees resolve once the subtree is attached.
  */
-export const insertRendered = (
+const insertRendered = (
   parent: ParentNode,
   node: Node,
-  ref: ChildNode | null
+  ref: Node | null
 ): void => {
   const live = liveOf(node);
   place(parent, live, ref);
@@ -273,39 +220,30 @@ export const insertRendered = (
   }
 };
 
-/** Longest increasing run of old indexes: those nodes never move. */
-const stableSet = (nodes: Node[], oldIndex: Map<Node, number>): Set<Node> => {
+/** Positions of the longest run of increasing old indexes: those never move. */
+const stableSet = (olds: (number | undefined)[]): Set<number> => {
   const tails: number[] = [];
   const prev: number[] = [];
-  for (let i = 0; i < nodes.length; i += 1) {
-    const node = nodes[i];
-    const idx = node ? oldIndex.get(node) : undefined;
+  for (const [i, idx] of olds.entries()) {
     if (idx === undefined) {
-      prev.push(-1);
       continue;
     }
     let lo = 0;
     let hi = tails.length;
     while (lo < hi) {
       const mid = Math.floor((lo + hi) / 2);
-      const tail = nodes[tails[mid] ?? 0];
-      if ((tail ? (oldIndex.get(tail) ?? 0) : 0) < idx) {
+      if ((olds[tails[mid] ?? 0] ?? 0) < idx) {
         lo = mid + 1;
       } else {
         hi = mid;
       }
     }
-    prev.push(lo > 0 ? (tails[lo - 1] ?? -1) : -1);
+    prev[i] = tails[lo - 1] ?? -1;
     tails[lo] = i;
   }
-  const stable = new Set<Node>();
-  let k = tails.length > 0 ? (tails.at(-1) ?? -1) : -1;
-  while (k >= 0) {
-    const node = nodes[k];
-    if (node) {
-      stable.add(node);
-    }
-    k = prev[k] ?? -1;
+  const stable = new Set<number>();
+  for (let k = tails.at(-1) ?? -1; k >= 0; k = prev[k] ?? -1) {
+    stable.add(k);
   }
   return stable;
 };
@@ -319,24 +257,20 @@ export const placeChildren = (parent: Element, rendered: Node[]): void => {
   const nodes = rendered.map(liveOf);
   const wanted = new Set(nodes);
   const oldIndex = new Map<Node, number>();
-  let child = parent.firstChild;
-  while (child) {
-    const next = child.nextSibling;
+  for (let child = parent.firstChild; child;) {
+    const after: ChildNode | null = child.nextSibling;
     if (wanted.has(child)) {
       oldIndex.set(child, oldIndex.size);
     } else {
       child.remove();
     }
-    child = next;
+    child = after;
   }
-  const stable = stableSet(nodes, oldIndex);
+  const stable = stableSet(nodes.map((n) => oldIndex.get(n)));
   let next: Node | null = null;
   for (let i = nodes.length - 1; i >= 0; i -= 1) {
-    const node = nodes[i];
-    if (!node) {
-      continue;
-    }
-    if (!stable.has(node)) {
+    const node = nodes[i] ?? null;
+    if (node && !stable.has(i)) {
       place(parent, node, next);
       if (!oldIndex.has(node)) {
         resolveNested(node);
@@ -347,35 +281,20 @@ export const placeChildren = (parent: Element, rendered: Node[]): void => {
   restoreFocus(focus);
 };
 
-const buildKeyedIndex = (parent: Element): Map<string, Element> | null => {
-  let fromKeyed: Map<string, Element> | null = null;
-  for (const child of parent.children) {
-    const k = morphKeyOf(child);
-    if (k !== null) {
-      fromKeyed ??= new Map();
-      if (!fromKeyed.has(k)) {
-        fromKeyed.set(k, child);
-      }
-    }
-  }
-  return fromKeyed;
-};
-
-const collectKeys = (parent: Element): Set<string> => {
-  const keys = new Set<string>();
-  for (const child of parent.children) {
-    const k = morphKeyOf(child);
-    if (k !== null) {
-      keys.add(k);
-    }
-  }
-  return keys;
-};
-
-/** Rendered elements that carried a non-null form-control prop, per key.
+/**
+ * Rendered elements that carried a non-null form-control prop, per key.
  * `checked={false}`, `selected={false}` and `<select value>` leave no
  * attribute, so presence alone can't tell a controlled render from an
- * uncontrolled one. */
+ * uncontrolled one.
+ */
+interface TreeMorph {
+  morphChildren: (from: Element, to: Element) => void;
+}
+
+/** Late-bound: element morphs recurse into children morphed below. */
+// SAFETY: morphChildren is assigned at module load, before any morph runs.
+const tree = {} as TreeMorph;
+
 const controlledBy: Record<FormControlKey, WeakSet<Element>> = {
   checked: new WeakSet(),
   selected: new WeakSet(),
@@ -387,54 +306,40 @@ export const markControlled = (el: Element, key: FormControlKey): void => {
   controlledBy[key].add(el);
 };
 
-const isControlled = (el: Element, key: FormControlKey): boolean =>
-  controlledBy[key].has(el);
-
-const morphInput = (fromEl: Element, toEl: Element): void => {
-  syncAttributes(fromEl, toEl);
-  // SAFETY: localName === input on both sides after the pair check above.
-  const from = fromEl as HTMLInputElement;
-  // SAFETY: same pair check covers the render-side node.
-  const to = toEl as HTMLInputElement;
-  // Live props beat attributes: a fresh materialization sets the value the
-  // render asked for, while the live node may hold user edits. Attribute
-  // presence marks controlled renders — uncontrolled inputs keep user edits.
-  // Equal values skip the write so a focused input keeps its caret.
-  const toChecked = toEl.hasAttribute("checked");
-  if (toChecked !== fromEl.hasAttribute("checked")) {
-    if (toChecked) {
-      fromEl.setAttribute("checked", "");
-    } else {
-      fromEl.removeAttribute("checked");
-    }
-  }
-  const controlled = toChecked || isControlled(toEl, "checked");
-  if (controlled && from.checked !== to.checked) {
+const morphInput = (from: HTMLInputElement, to: HTMLInputElement): void => {
+  // Live props beat attributes: a fresh render sets the value it asked for,
+  // while the live node may hold user edits. Attribute presence marks
+  // controlled renders; uncontrolled inputs keep user edits. Equal values
+  // skip the write so a focused input keeps its caret.
+  const checked = to.hasAttribute("checked");
+  from.toggleAttribute("checked", checked);
+  if (
+    (checked || controlledBy.checked.has(to)) &&
+    from.checked !== to.checked
+  ) {
     from.checked = to.checked;
   }
-  const toValue = toEl.getAttribute("value");
-  if (toValue !== fromEl.getAttribute("value")) {
-    if (toValue === null) {
-      fromEl.removeAttribute("value");
-    } else {
-      fromEl.setAttribute("value", toValue);
+  const value = to.getAttribute("value");
+  if (value === null) {
+    from.removeAttribute("value");
+  } else {
+    if (from.getAttribute("value") !== value) {
+      from.setAttribute("value", value);
     }
-  }
-  if (toValue !== null && from.value !== to.value) {
-    from.value = to.value;
+    if (from.value !== to.value) {
+      from.value = to.value;
+    }
   }
 };
 
-const morphTextarea = (fromEl: Element, toEl: Element): void => {
-  syncAttributes(fromEl, toEl);
-  // SAFETY: localName === textarea on both sides.
-  const from = fromEl as HTMLTextAreaElement;
-  // SAFETY: same pair check covers the render-side node.
-  const to = toEl as HTMLTextAreaElement;
+const morphTextarea = (
+  from: HTMLTextAreaElement,
+  to: HTMLTextAreaElement
+): void => {
   // Children or a `value` prop are the controlled signal: neither means an
   // uncontrolled box whose live value (user edits) must survive.
   if (
-    isControlled(toEl, "value") ||
+    controlledBy.value.has(to) ||
     to.textContent !== "" ||
     from.textContent !== to.textContent
   ) {
@@ -447,64 +352,30 @@ const morphTextarea = (fromEl: Element, toEl: Element): void => {
   }
 };
 
-interface MorphApi {
-  morphChildren: (fromParent: Element, toParent: Element) => void;
-}
-
-const isControlledSelect = (select: HTMLSelectElement): boolean => {
-  if (isControlled(select, "value")) {
-    return true;
-  }
-  for (const o of select.options) {
-    if (isControlled(o, "selected")) {
-      return true;
+const morphSelect = (from: HTMLSelectElement, to: HTMLSelectElement): void => {
+  const controlled =
+    controlledBy.value.has(to) ||
+    [...to.options].some((o) => controlledBy.selected.has(o));
+  const before = new Map(
+    [...from.options].map((o) => [o, [o.hasAttribute("selected"), o.selected]])
+  );
+  tree.morphChildren(from, to);
+  const options = [...from.options];
+  // The morph mirrors the option list, so indexes line up. A controlled
+  // render's selection wins; otherwise changed `selected` attributes win,
+  // and failing those the user's selection survives.
+  const attrsChanged = options.some(
+    (o) => o.hasAttribute("selected") !== (before.get(o)?.[0] ?? false)
+  );
+  for (const [i, o] of options.entries()) {
+    let want = before.get(o)?.[1] ?? o.selected;
+    if (controlled) {
+      want = to.options[i]?.selected ?? false;
+    } else if (attrsChanged) {
+      want = o.hasAttribute("selected");
     }
-  }
-  return false;
-};
-
-const morphSelect = (fromEl: Element, toEl: Element, api: MorphApi): void => {
-  // SAFETY: localName === select.
-  const fromSelect = fromEl as HTMLSelectElement;
-  // SAFETY: same pair check covers the render-side node.
-  const toSelect = toEl as HTMLSelectElement;
-  if (isControlledSelect(toSelect)) {
-    syncAttributes(fromEl, toEl);
-    api.morphChildren(fromEl, toEl);
-    // The morph mirrors the option list, so indexes line up; the render's
-    // selection wins over the user's.
-    const want = toSelect.options;
-    let i = 0;
-    for (const o of fromSelect.options) {
-      const selected = want[i]?.selected ?? false;
-      if (o.selected !== selected) {
-        o.selected = selected;
-      }
-      i += 1;
-    }
-    return;
-  }
-  const before = new Map<HTMLOptionElement, { attr: boolean; live: boolean }>();
-  for (const o of fromSelect.options) {
-    before.set(o, { attr: o.hasAttribute("selected"), live: o.selected });
-  }
-  syncAttributes(fromEl, toEl);
-  api.morphChildren(fromEl, toEl);
-  const options = [...fromSelect.options];
-  if (
-    options.some(
-      (o) => o.hasAttribute("selected") !== (before.get(o)?.attr ?? false)
-    )
-  ) {
-    for (const o of options) {
-      o.selected = o.hasAttribute("selected");
-    }
-  } else {
-    for (const o of options) {
-      const prev = before.get(o);
-      if (prev && o.selected !== prev.live) {
-        o.selected = prev.live;
-      }
+    if (o.selected !== want) {
+      o.selected = want;
     }
   }
 };
@@ -516,34 +387,12 @@ const adoptedBy = new WeakMap<Element, Element>();
 export const committedElement = (el: Element): Element =>
   adoptedBy.get(el) ?? el;
 
-/** `live` stays in the document for `fresh`: move the render's bindings. */
-const adopt = (live: Element, fresh: Element): void => {
-  adoptedBy.set(fresh, live);
-  adoptEvents(live, fresh);
-};
-
-/**
- * A contenteditable the render leaves empty is uncontrolled: the user's
- * content (and caret) survives, like an uncontrolled textarea.
- */
-const isUncontrolledEditable = (from: Element, to: Element): boolean => {
-  const mode = to.getAttribute("contenteditable");
-  return (
-    mode !== null &&
-    mode !== "false" &&
-    !to.hasChildNodes() &&
-    from.getAttribute("contenteditable") === mode
-  );
-};
-
 /** Swap `fromNode` for a rendered node without ever detaching live nodes. */
 const replaceRendered = (fromNode: ChildNode, toNode: Node): void => {
-  const parent = fromNode.parentNode;
-  if (!parent) {
-    return;
+  if (fromNode.parentNode) {
+    insertRendered(fromNode.parentNode, toNode, fromNode);
+    fromNode.remove();
   }
-  insertRendered(parent, toNode, fromNode);
-  fromNode.remove();
 };
 
 /**
@@ -552,176 +401,158 @@ const replaceRendered = (fromNode: ChildNode, toNode: Node): void => {
  */
 let hydrating = false;
 
-const morphElementPair = (
-  fromEl: Element,
-  toEl: Element,
-  api: MorphApi
-): void => {
-  if (fromEl.localName !== toEl.localName) {
-    replaceRendered(fromEl, toEl);
-    return;
-  }
-  const toSlot = toEl.getAttribute(SLOT_ATTR);
-  const fromSlot = fromEl.getAttribute(SLOT_ATTR);
-  if (toSlot !== null && fromSlot === toSlot && !hydrating) {
-    // Same hole host — keep the live node (atom reuse / keepOnMorph).
+const morphElementPair = (from: Element, to: Element): void => {
+  const toSlot = to.getAttribute(SLOT_ATTR);
+  if (from.localName !== to.localName || (toSlot !== null && hydrating)) {
+    replaceRendered(from, to);
     return;
   }
   if (toSlot !== null) {
-    // New hole fiber roots point at `toEl`; install it in the document.
-    replaceRendered(fromEl, toEl);
+    // The same hole host keeps its live node; a new hole's fiber is rooted
+    // in `to`, so install it.
+    if (from.getAttribute(SLOT_ATTR) !== toSlot) {
+      replaceRendered(from, to);
+    }
     return;
   }
-  adopt(fromEl, toEl);
-  if (fromEl.localName === "input") {
-    morphInput(fromEl, toEl);
-    return;
-  }
-  if (fromEl.localName === "select") {
-    morphSelect(fromEl, toEl, api);
-    return;
-  }
+  adoptedBy.set(to, from);
+  adoptEvents(from, to);
   // `data-morph-preserve="children"` hands the subtree to code outside the
-  // render after the first paint. Like attribute tokens, the live element's
-  // list counts too, so a library can claim its node at runtime.
+  // render after the first paint. A contenteditable the render leaves empty
+  // is uncontrolled: the user's content and caret survive.
+  const mode = to.getAttribute("contenteditable");
   const keepChildren =
-    hasPreserveToken(fromEl, "children") ||
-    hasPreserveToken(toEl, "children") ||
-    isUncontrolledEditable(fromEl, toEl);
-  syncAttributes(fromEl, toEl);
-  if (keepChildren) {
-    return;
-  }
-  if (fromEl.localName === "textarea") {
-    morphTextarea(fromEl, toEl);
+    preserves(from, "children") ||
+    preserves(to, "children") ||
+    (mode !== null &&
+      mode !== "false" &&
+      !to.hasChildNodes() &&
+      from.getAttribute("contenteditable") === mode);
+  syncAttributes(from, to);
+  if (from instanceof HTMLInputElement) {
+    // SAFETY: localName matched, so `to` is an input too.
+    morphInput(from, to as HTMLInputElement);
+  } else if (from instanceof HTMLSelectElement) {
+    // SAFETY: localName matched, so `to` is a select too.
+    morphSelect(from, to as HTMLSelectElement);
+  } else if (keepChildren) {
+    // Left to code outside the render.
+  } else if (from instanceof HTMLTextAreaElement) {
+    // SAFETY: localName matched, so `to` is a textarea too.
+    morphTextarea(from, to as HTMLTextAreaElement);
   } else {
-    api.morphChildren(fromEl, toEl);
+    tree.morphChildren(from, to);
   }
 };
 
-/** Keyed node the new render drops and no stand-in still needs. */
-const isStaleKeyed = (node: ChildNode, toKeys: Set<string>): boolean => {
-  if (!(node instanceof Element) || claimed.has(node)) {
-    return false;
+const morphChild = (
+  parent: Element,
+  from: ChildNode | undefined,
+  to: ChildNode
+): void => {
+  // A stand-in keeps its live node where it sits, or moves it here. A claimed
+  // node is a reused host a later stand-in still wants: render in front of it
+  // rather than morphing it into something else.
+  if (standIns.has(to) || !from || claimed.has(from)) {
+    insertRendered(parent, to, from ?? null);
+  } else if (from.nodeType !== to.nodeType) {
+    replaceRendered(from, to);
+  } else if (from instanceof Element) {
+    // SAFETY: nodeType matched, so `to` is an Element too.
+    morphElementPair(from, to as Element);
+  } else if (from.nodeValue !== to.nodeValue) {
+    from.nodeValue = to.nodeValue;
   }
-  const key = morphKeyOf(node);
-  return key !== null && !toKeys.has(key);
 };
 
-const alignKeyedNode = (
-  fromParent: Element,
-  fromNode: ChildNode | undefined,
-  toNode: ChildNode,
-  fromKeyed: Map<string, Element>,
-  toKeys: Set<string>
-): ChildNode | undefined | "continue" => {
-  // SAFETY: nodeType 1 is Element; morphKeyOf only reads element attributes.
-  const toKey = toNode.nodeType === 1 ? morphKeyOf(toNode as Element) : null;
-  let current = fromNode;
-  if (toKey !== null) {
-    const match = fromKeyed.get(toKey);
-    if (match) {
-      fromKeyed.delete(toKey);
-      // Removed rows ahead of the match leave instead of the match moving
-      // back past them: dropping the head of a list moves nothing.
-      while (current && current !== match && isStaleKeyed(current, toKeys)) {
-        const next: ChildNode | null = current.nextSibling;
-        current.remove();
-        current = next ?? undefined;
-      }
-      if (match !== current) {
-        place(fromParent, match, current ?? null);
-        current = match;
-      }
-    }
-  }
-  if (current instanceof Element) {
-    const fromKey = morphKeyOf(current);
-    if (fromKey !== null && fromKey !== toKey && toKeys.has(fromKey)) {
-      insertRendered(fromParent, toNode, current);
-      return "continue";
-    }
-  }
-  return current;
-};
-
-interface MorphChildInput {
-  api: MorphApi;
-  fromParent: Element;
-  fromNode: ChildNode | undefined;
-  toNode: ChildNode;
+interface KeyedIndex {
+  /** First live child per key. */
+  from: Map<string, Element>;
+  /** Keys the new render uses. */
+  to: Set<string | null>;
 }
 
-const morphChild = ({
-  api,
-  fromParent,
-  fromNode,
-  toNode,
-}: MorphChildInput): void => {
-  if (standIns.has(toNode)) {
-    // Reused host: keep it where it sits, or move it into this position.
-    insertRendered(fromParent, toNode, fromNode ?? null);
-    return;
-  }
-  if (!fromNode || claimed.has(fromNode)) {
-    // A claimed node is a reused host a later stand-in still wants: render
-    // in front of it rather than morphing it into something else.
-    insertRendered(fromParent, toNode, fromNode ?? null);
-    return;
-  }
-  if (fromNode.nodeType !== toNode.nodeType) {
-    replaceRendered(fromNode, toNode);
-    return;
-  }
-  if (fromNode.nodeType === 3 || fromNode.nodeType === 8) {
-    if (fromNode.nodeValue !== toNode.nodeValue) {
-      fromNode.nodeValue = toNode.nodeValue;
+const keyedIndex = (
+  fromParent: Element,
+  toParent: Element
+): KeyedIndex | undefined => {
+  const from = new Map<string, Element>();
+  for (const child of fromParent.children) {
+    const k = morphKeyOf(child);
+    if (k !== null && !from.has(k)) {
+      from.set(k, child);
     }
-    return;
   }
-  if (fromNode.nodeType === 1) {
-    // SAFETY: nodeType 1 is Element on both sides after the type match above.
-    morphElementPair(fromNode as Element, toNode as Element, api);
+  if (from.size === 0) {
+    return undefined;
+  }
+  const to = new Set(Array.from(toParent.children, morphKeyOf));
+  to.delete(null);
+  return { from, to };
+};
+
+/** A keyed live node the new render drops and no stand-in still needs. */
+const isStale = (node: ChildNode, index: KeyedIndex): boolean => {
+  const key =
+    node instanceof Element && !claimed.has(node) ? morphKeyOf(node) : null;
+  return key !== null && !index.to.has(key);
+};
+
+/**
+ * Bring the live node keyed like `to` into position `from`. Returns the node
+ * to morph against, or `null` once `to` was inserted ahead of a keyed live
+ * node that belongs further down.
+ */
+const alignKeyed = (
+  parent: Element,
+  start: ChildNode | undefined,
+  to: ChildNode,
+  index: KeyedIndex
+): ChildNode | undefined | null => {
+  let from = start;
+  const toKey = to instanceof Element ? morphKeyOf(to) : null;
+  const match = toKey === null ? undefined : index.from.get(toKey);
+  if (toKey !== null && match) {
+    index.from.delete(toKey);
+    // Removed rows ahead of the match leave instead of the match moving
+    // back past them: dropping the head of a list moves nothing.
+    while (from && from !== match && isStale(from, index)) {
+      const next: ChildNode | null = from.nextSibling;
+      from.remove();
+      from = next ?? undefined;
+    }
+    if (match !== from) {
+      place(parent, match, from ?? null);
+      from = match;
+    }
+  }
+  const fromKey = from instanceof Element ? morphKeyOf(from) : null;
+  if (from && fromKey !== null && fromKey !== toKey && index.to.has(fromKey)) {
+    insertRendered(parent, to, from);
+    return null;
+  }
+  return from;
+};
+
+tree.morphChildren = (fromParent, toParent) => {
+  const toNodes = [...toParent.childNodes];
+  const index = keyedIndex(fromParent, toParent);
+  for (const [i, to] of toNodes.entries()) {
+    const at = fromParent.childNodes[i];
+    const from = index ? alignKeyed(fromParent, at, to, index) : at;
+    if (from !== null) {
+      morphChild(fromParent, from, to);
+    }
+  }
+  while (fromParent.childNodes.length > toNodes.length) {
+    fromParent.lastChild?.remove();
   }
 };
 
-const api = {
-  morphChildren: (fromParent: Element, toParent: Element): void => {
-    const toNodes = [...toParent.childNodes];
-    const fromKeyed = buildKeyedIndex(fromParent);
-    const toKeys = fromKeyed === null ? null : collectKeys(toParent);
-
-    for (let i = 0; i < toNodes.length; i += 1) {
-      const toNode = toNodes[i];
-      if (!toNode) {
-        continue;
-      }
-      let fromNode: ChildNode | undefined = fromParent.childNodes[i];
-
-      if (fromKeyed !== null && toKeys !== null) {
-        const aligned = alignKeyedNode(
-          fromParent,
-          fromNode,
-          toNode,
-          fromKeyed,
-          toKeys
-        );
-        if (aligned === "continue") {
-          continue;
-        }
-        fromNode = aligned;
-      }
-      morphChild({ api, fromNode, fromParent, toNode });
-    }
-    while (fromParent.childNodes.length > toNodes.length) {
-      fromParent.lastChild?.remove();
-    }
-  },
-} satisfies MorphApi;
-
+/** Morph `from`'s children into `to`'s, keeping focus and selection. */
 export const morphInner = (from: Element, to: Element): void => {
   const focus = snapshotFocus();
-  api.morphChildren(from, to);
+  tree.morphChildren(from, to);
   restoreFocus(focus);
 };
 

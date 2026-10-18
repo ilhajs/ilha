@@ -1,12 +1,12 @@
-import { Equal } from "effect";
 import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
 import * as Atom from "effect/reactivity/Atom";
 import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import * as Stream from "effect/Stream";
 
 import type { FiberLocal } from "./runtime.ts";
-import { closeFiber, getActiveFiber, getFiber, withFiber } from "./runtime.ts";
-import { isFunction } from "./shared.ts";
+import { getActiveFiber, getFiber, withFiber } from "./runtime.ts";
+import { hasBrand, toError } from "./shared.ts";
 import type {
   AtomHandle,
   AtomLazyOptions,
@@ -14,20 +14,7 @@ import type {
   Instruction,
 } from "./types.ts";
 
-export const handleOwner = new WeakMap<object, FiberLocal>();
-
-const guardHandleFiber = (handle: AtomHandle<unknown>): void => {
-  const owner = handleOwner.get(handle);
-  if (!owner) {
-    return;
-  }
-  const active = getActiveFiber();
-  if (!active || active.registry === owner.registry) {
-    return;
-  }
-  throw new Error("ilha: atom handle used from a different island");
-};
-
+/** Wrap an effect as a `yield*`-able, awaitable instruction bound to the active fiber. */
 export const instr = <A, E = never>(
   effect: Effect.Effect<A, E, AtomRegistry>
 ): Instruction<A, E> => {
@@ -36,74 +23,89 @@ export const instr = <A, E = never>(
     $$ilhaOp: 1,
     effect,
     *[Symbol.iterator](): Iterator<Instruction<A, E>, A, A> {
-      // SAFETY: `out` is the finished Instruction — `then` is attached via
-      // defineProperty immediately after this literal; interpret resumes the
-      // generator with the effect result (A).
+      // SAFETY: `out` is the finished Instruction; interpret resumes the
+      // generator with the effect's success value.
       return yield out as Instruction<A, E>;
     },
   };
-  const awaitInstruction = async <E2>(
-    onFulfilled?: (value: A) => void,
-    onRejected?: (error: E2) => void
-  ): Promise<void> => {
-    const { promise, resolve, reject } = Promise.withResolvers<A>();
-    fiber.run(
-      out.effect,
-      (a) => {
-        // SAFETY: fiber.run yields this effect's success value, which is exactly A.
-        withFiber(fiber, () => resolve(a as A));
-      },
-      reject
-    );
-    try {
-      const value = await promise;
-      onFulfilled?.(value);
-    } catch (error) {
-      // SAFETY: catch binding is the rejection reason forwarded to onRejected.
-      onRejected?.(error as E2);
-    }
-  };
-  // SAFETY: Instruction is deliberately a thenable — `yield*` and await consume
-  // it; the awaitInstruction bridge is attached before the typed return.
-  // oxlint-disable-next-line unicorn/no-thenable -- Instruction implements PromiseLike for yield*/await
-  Object.defineProperty(out, "then", { value: awaitInstruction });
-  // SAFETY: `out` is the finished Instruction — the thenable bridge and the
-  // iterator above complete the full Instruction surface.
+  // oxlint-disable-next-line unicorn/no-thenable -- Instruction implements PromiseLike for await
+  Object.defineProperty(out, "then", {
+    value: async <R1 = A, R2 = never>(
+      onOk?: (value: A) => R1 | PromiseLike<R1>,
+      onErr?: <F>(failure: F) => R2 | PromiseLike<R2>
+    ): Promise<R1 | R2> => {
+      const { promise, resolve, reject } = Promise.withResolvers<A>();
+      fiber.run(effect, resolve, reject);
+      let value: A;
+      try {
+        value = await promise;
+      } catch (error) {
+        if (onErr) {
+          return onErr(error);
+        }
+        throw error;
+      }
+      // SAFETY: without `onOk`, R1 defaults to A and resolves to the value.
+      return onOk ? onOk(value) : (value as never);
+    },
+  });
+  // SAFETY: the iterator and `then` complete the Instruction surface.
   return out as Instruction<A, E>;
 };
 
+export const isInstruction = <T>(x: T): x is T & Instruction<unknown> =>
+  hasBrand(x, "$$ilhaOp");
+
 export const isAtomHandle = <T>(x: T): x is T & AtomHandle<unknown> =>
-  // SAFETY: the `$$atom` brand is the runtime marker installed by wrapHandle
-  // on every atom handle; x has passed the callable check above.
-  isFunction(x) && (x as AtomHandle<unknown>).$$atom === 1;
+  hasBrand(x, "$$atom");
 
 /** Key-order-insensitive deep equality for JSON-shaped values. */
 export const structuralEqual = Equal.equals;
 
-type TrackGet = <A>(atom: Atom.Atom<A>) => A;
-let trackGet: TrackGet | undefined;
-const trackStack: {
+interface TrackFrame {
   fiber: FiberLocal;
-  deps: Set<Atom.Atom<unknown>>;
-  get: TrackGet;
-}[] = [];
+  get: <A>(atom: Atom.Atom<A>) => A;
+}
 
+// Render frames whose atom reads subscribe their fiber. `tracking` is false
+// inside `untrack`.
+const frames: TrackFrame[] = [];
+let tracking = false;
+
+/** Test seam: drop render frames a failed test left open. */
 export const resetRenderTracking = (): void => {
-  trackStack.length = 0;
-  trackGet = undefined;
+  frames.length = 0;
+  tracking = false;
 };
 
 /** Read atoms inside `fn` without subscribing the active render. Sync only. */
 export const untrack = <A>(fn: () => A): A => {
-  const prev = trackGet;
-  trackGet = undefined;
+  const prev = tracking;
+  tracking = false;
   try {
     return fn();
   } finally {
-    trackGet = prev;
+    tracking = prev;
   }
 };
 
+const readTracked = <A>(atom: Atom.Atom<A>, registry: AtomRegistry): A => {
+  if (!tracking) {
+    return registry.get(atom);
+  }
+  // Another root (a nested `renderToString`, a sibling async render) may have
+  // pushed its own frame above this fiber's, so match the frame by fiber.
+  // After an `await`, the fiber stack is empty: the pending frame (kept open
+  // by withTrackGetRun) is then the render context, so post-await reads stay
+  // reactive.
+  const active = getActiveFiber();
+  const frame = active
+    ? frames.findLast((f) => f.fiber === active)
+    : frames.at(-1);
+  return frame ? frame.get(atom) : registry.get(atom);
+};
+
+/** Reset per-render slot cursors; warn when the primitive count drifts. */
 export const beginPrimitiveFrame = (fiber: FiberLocal): void => {
   const used = fiber.primitiveI ?? 0;
   const slots = fiber.primitives?.length ?? 0;
@@ -114,100 +116,175 @@ export const beginPrimitiveFrame = (fiber: FiberLocal): void => {
   }
   fiber.primitiveI = 0;
   fiber.watchI = 0;
-  if (!fiber.islandFrame) {
-    fiber.islandFrame = { i: 0, slots: [] };
-  }
-  const { islandFrame } = fiber;
-  const usedIslands = islandFrame.i;
-  if (usedIslands < islandFrame.slots.length) {
-    for (let j = usedIslands; j < islandFrame.slots.length; j += 1) {
-      const slot = islandFrame.slots[j];
-      if (slot) {
-        slot.unmount?.();
-        islandFrame.slots[j] = undefined;
-      }
+};
+
+/**
+ * Run a render with atom reads tracked into `deps`. An async render keeps its
+ * frame open until it settles, so reads after `await` still subscribe.
+ */
+export const withTrackGetRun = <A>(
+  fiber: FiberLocal,
+  fn: () => A | Promise<A>,
+  onOk: (result: { value: A; deps: Set<Atom.Atom<unknown>> }) => void,
+  onErr: (failure: Error) => void
+): void => {
+  const deps = new Set<Atom.Atom<unknown>>();
+  const frame: TrackFrame = {
+    fiber,
+    get: (a) => {
+      deps.add(a);
+      return fiber.registry.get(a);
+    },
+  };
+  const restore = (): void => {
+    if (fiber.trackRestore !== restore) {
+      return;
     }
-    islandFrame.slots.length = usedIslands;
-  }
-  islandFrame.i = 0;
-  let { componentFrame } = fiber;
-  if (!componentFrame) {
-    componentFrame = { i: 0, slots: [] };
-    fiber.componentFrame = componentFrame;
-  }
-  const usedComponents = componentFrame.i;
-  if (usedComponents < componentFrame.slots.length) {
-    for (let j = usedComponents; j < componentFrame.slots.length; j += 1) {
-      const slot = componentFrame.slots[j];
-      if (slot) {
-        const { hole } = slot;
-        if (!hole.closed) {
-          const idx = fiber.holes.findIndex((h) => h.holeFiber === hole);
-          if (idx === -1) {
-            closeFiber(hole);
-          } else {
-            const [removed] = fiber.holes.splice(idx, 1);
-            removed?.dispose();
+    frames.splice(frames.lastIndexOf(frame), 1);
+    tracking = frames.length > 0;
+    fiber.trackRestore = undefined;
+  };
+  frames.push(frame);
+  tracking = true;
+  fiber.trackRestore = restore;
+  const done = (value: A): void => {
+    restore();
+    onOk({ deps, value });
+  };
+  const failed = <F>(failure: F): void => {
+    restore();
+    onErr(toError(failure));
+  };
+  try {
+    const result = withFiber(fiber, fn);
+    if (result instanceof Promise) {
+      // Reads in post-await continuations still land in `deps`: the frame
+      // stays open until the render settles.
+      const settle = async (): Promise<void> => {
+        try {
+          const value = await result;
+          if (!fiber.closed) {
+            done(value);
+          }
+        } catch (error) {
+          if (!fiber.closed) {
+            failed(error);
           }
         }
-      }
-      // SAFETY: swept slots are unreachable after truncation below.
-      componentFrame.slots[j] = undefined as never;
+      };
+      void settle();
+      return;
     }
-    componentFrame.slots.length = usedComponents;
+    done(result);
+  } catch (error) {
+    failed(error);
   }
-  componentFrame.i = 0;
 };
 
-interface PrimitiveSlot<A> {
-  atom: Atom.Atom<A>;
-  fresh: boolean;
-}
-
-const readTracked = <A>(atom: Atom.Atom<A>, registry: AtomRegistry): A => {
-  const active = getActiveFiber();
-  // Another root (a nested `renderToString`, a sibling async render) may have
-  // pushed its own frame above this fiber's, so match the frame by fiber
-  // instead of trusting the top of the stack.
-  const frame =
-    active === undefined
-      ? trackStack.at(-1)
-      : trackStack.findLast((f) => f.fiber === active);
-  // Async setup: after an `await`, the component's continuation resumes with an
-  // empty fiber stack. The pending frame (kept open by withTrackGetRun for the
-  // in-flight promise) is then the only render context — trust it when nothing
-  // else is on the stack, so post-await atom reads stay reactive.
-  if (trackGet && frame) {
-    // SAFETY: the tracked getter returns the same atom's current value that
-    // registry.get would; the A parameter is the caller's atom type.
-    return frame.get(atom) as A;
-  }
-  // SAFETY: registry.get returns the current value of exactly this atom.
-  return registry.get(atom) as A;
-};
-
-const usePrimitiveSlot = <A>(
+/** Rerun `run` once per microtask when any of `deps` changes. */
+export const subscribeRenderDeps = (
   fiber: FiberLocal,
-  make: () => Atom.Atom<A>
-): PrimitiveSlot<A> => {
+  deps: Set<Atom.Atom<unknown>>,
+  run: () => void
+): (() => void) => {
+  let scheduled = false;
+  const schedule = (): void => {
+    if (scheduled) {
+      return;
+    }
+    scheduled = true;
+    const seen = fiber.renderGen;
+    fiber.runtime.later(() => {
+      scheduled = false;
+      // A render that started after the change already read the new value,
+      // for example the parent rerunning this component with new props.
+      if (fiber.renderGen === seen) {
+        run();
+      }
+    });
+  };
+  const unsubs = [...deps].map((dep) =>
+    fiber.registry.subscribe(dep, schedule)
+  );
+  return () => {
+    for (const unsub of unsubs) {
+      unsub();
+    }
+  };
+};
+
+/** Callable handle over `atom` that reads through the active render's tracking. */
+export const wrapHandle = <A>(
+  atom: Atom.Atom<A>,
+  fiber: FiberLocal
+): AtomHandle<A> => {
+  const { registry } = fiber;
+  const guard = (): void => {
+    const active = getActiveFiber();
+    if (active && active.registry !== registry) {
+      throw new Error("ilha: atom handle used from a different island");
+    }
+  };
+  return Object.assign(
+    () => {
+      guard();
+      return readTracked(atom, registry);
+    },
+    {
+      $$atom: 1 as const,
+      atom,
+      set: (next: A) => {
+        guard();
+        if (Atom.isWritable(atom)) {
+          registry.set(atom, next);
+        }
+      },
+      update: (f: (current: A) => A) => {
+        guard();
+        if (Atom.isWritable(atom)) {
+          registry.update(atom, f);
+        }
+      },
+    }
+  );
+};
+
+/**
+ * Claim the fiber's next primitive slot. A fresh slot is built by `make`,
+ * seeded from the hydration snapshot when `snapshotted`; SSR records its
+ * value so hydration can restore it in the same order.
+ */
+const useSlot = <A>(
+  snapshotted: boolean,
+  make: (fiber: FiberLocal, hydrated: A | undefined) => Atom.Atom<A>
+): AtomHandle<A> => {
+  const fiber = getFiber();
+  const { runtime } = fiber;
   const i = fiber.primitiveI ?? 0;
   fiber.primitiveI = i + 1;
   fiber.primitives ??= [];
-  const existing = fiber.primitives[i];
-  if (existing) {
-    // SAFETY: slots are per-fiber and ordered, so the stored atom was created
-    // by the same primitive call site with the same A.
-    return { atom: existing as Atom.Atom<A>, fresh: false };
+  // SAFETY: slots are per-fiber and ordered, so the stored atom was created
+  // by the same primitive call site with the same A.
+  let a = fiber.primitives[i] as Atom.Atom<A> | undefined;
+  if (!a) {
+    let hydrated: A | undefined;
+    if (snapshotted && runtime.hydrateValues) {
+      // SAFETY: snapshots are recorded in primitive declaration order by SSR.
+      hydrated = runtime.hydrateValues[runtime.hydrateI] as A | undefined;
+      runtime.hydrateI += 1;
+    }
+    a = make(fiber, hydrated);
+    fiber.primitives[i] = a;
+    if (snapshotted && runtime.ssr) {
+      runtime.ssrValues.push(fiber.registry.get(a));
+    }
   }
-  const a = make();
-  fiber.primitives[i] = a;
-  return { atom: a, fresh: true };
+  return wrapHandle(a, fiber);
 };
 
 /**
  * Keep a component's own state atom in the registry while its fiber lives.
- *
- * The registry drops an atom nothing subscribes to. State that a handler
+ * The registry drops an atom nothing subscribes to, so state a handler
  * writes and the view never reads would otherwise reset between events.
  */
 const holdState = <A>(fiber: FiberLocal, atom: Atom.Atom<A>): Atom.Atom<A> => {
@@ -218,234 +295,48 @@ const holdState = <A>(fiber: FiberLocal, atom: Atom.Atom<A>): Atom.Atom<A> => {
   return atom;
 };
 
-export const withTrackGetRun = <A, E = never>(
-  fiber: FiberLocal,
-  fn: () => A | Promise<A>,
-  onOk: (result: { value: A; deps: Set<Atom.Atom<unknown>> }) => void,
-  onErr: (e: E) => void
-): void => {
-  const deps = new Set<Atom.Atom<unknown>>();
-  const get: TrackGet = (a) => {
-    deps.add(a);
-    return fiber.registry.get(a);
-  };
-  const restore = () => {
-    if (fiber.trackRestore !== restore) {
-      return;
-    }
-    const top = trackStack.pop();
-    if (top?.get !== get) {
-      if (top) {
-        trackStack.push(top);
-      }
-      const i = trackStack.findIndex((frame) => frame.get === get);
-      if (i !== -1) {
-        trackStack.splice(i, 1);
-      }
-    }
-    trackGet = trackStack.at(-1)?.get;
-    fiber.trackRestore = undefined;
-  };
-  trackStack.push({ deps, fiber, get });
-  trackGet = get;
-  fiber.trackRestore = restore;
-  try {
-    const result = withFiber(fiber, () => fn());
-    if (result instanceof Promise) {
-      // Keep the tracking frame open until the promise settles: reads performed
-      // in the component's post-await continuations (JSX built after `await`)
-      // must land in `deps`, or the painted view never re-renders.
-      const settle = async (): Promise<void> => {
-        try {
-          const value = await result;
-          restore();
-          if (fiber.closed) {
-            return;
-          }
-          onOk({ deps, value });
-        } catch (error) {
-          restore();
-          if (fiber.closed) {
-            return;
-          }
-          onErr(error);
-        }
-      };
-      void settle();
-      return;
-    }
-    restore();
-    onOk({ deps, value: result });
-  } catch (error) {
-    restore();
-    onErr(error);
-  }
-};
-
-export const subscribeRenderDeps = (
-  fiber: FiberLocal,
-  deps: Set<Atom.Atom<unknown>>,
-  run: () => void
-): (() => void) => {
-  let scheduled = false;
-  const schedule = () => {
-    if (scheduled) {
-      return;
-    }
-    scheduled = true;
-    const seen = fiber.renderGen;
-    fiber.runtime.later(() => {
-      scheduled = false;
-      // A render that started after the change already read the new value,
-      // for example the parent rerunning this component with new props.
-      // Running this one too would render the same state twice.
-      if (fiber.renderGen !== seen) {
-        return;
-      }
-      run();
-    });
-  };
-  const unsubs: (() => void)[] = [];
-  for (const dep of deps) {
-    unsubs.push(fiber.registry.subscribe(dep, schedule));
-  }
-  // With no deps this iterates an empty list — a deliberate no-op unsubscribe.
-  return () => {
-    for (const unsub of unsubs) {
-      unsub();
-    }
-  };
-};
-
-export const wrapHandle = <A>(
-  atom: Atom.Atom<A>,
-  fiber: FiberLocal
-): AtomHandle<A> => {
-  const { registry } = fiber;
-  // SAFETY: the handle is the callable read function below; the handle
-  // members are attached immediately via defineProperties.
-  const read = (() => {
-    guardHandleFiber(read);
-    return readTracked(atom, registry);
-  }) as AtomHandle<A>;
-  handleOwner.set(read, fiber);
-  Object.defineProperties(read, {
-    $$atom: { value: 1 },
-    atom: { value: atom },
-    set: {
-      value: (n: A) => {
-        guardHandleFiber(read);
-        if (Atom.isWritable(atom)) {
-          registry.set(atom, n);
-        }
-      },
-    },
-    update: {
-      value: (f: (c: A) => A) => {
-        guardHandleFiber(read);
-        if (Atom.isWritable(atom)) {
-          registry.update(atom, f);
-        }
-      },
-    },
-  });
-  return read;
-};
-
-const makeAtom = <A>(
-  init:
-    | A
-    | Atom.Atom<A>
-    | Effect.Effect<A, unknown, AtomRegistry>
-    | Stream.Stream<A, unknown, AtomRegistry>,
-  options?: AtomOptions<A>
-): AtomHandle<A> => {
-  const fiber = getFiber();
-  const snap = fiber.runtime.hydrateValues;
-  // Only plain-value slots occupy a snapshot entry. SSR pushes and hydration
-  // consumes under this same rule so the two stay index-aligned.
-  const snapshotted =
-    options?.snapshot !== false &&
-    !Atom.isAtom(init) &&
-    !Effect.isEffect(init) &&
-    !Stream.isStream(init);
-  const { atom: a, fresh } = usePrimitiveSlot(fiber, () => {
-    let seed = init;
-    if (snap && snapshotted) {
-      const v = snap[fiber.runtime.hydrateI];
-      fiber.runtime.hydrateI += 1;
-      if (v !== undefined) {
-        // SAFETY: hydration snapshots are recorded in primitive declaration
-        // order by the SSR pass; this slot's snapshot has type A.
-        seed = v as A;
-      }
-    }
-    if (Atom.isAtom(seed)) {
-      // SAFETY: the seed was narrowed to an existing Atom by isAtom above.
-      return seed as Atom.Atom<A>;
-    }
-    if (Effect.isEffect(seed) || Stream.isStream(seed)) {
-      // SAFETY: Atom.make of an effect yields Atom<AsyncResult<A>>; the handle
-      // and paint pipeline unwrap AsyncResult, so the slot is typed Atom<A>.
-      return Atom.make(seed as Effect.Effect<A, unknown>) as Atom.Atom<A>;
-    }
-    // SAFETY: every other union member is the plain seed value A itself.
-    const made = Atom.make(seed as A);
-    const eq = options?.equals;
-    if (eq === undefined) {
-      return holdState(fiber, made);
-    }
-    // SAFETY: withEquality copies a writable atom with a new comparator;
-    // the registry consults atom.equals before notifying subscribers.
-    const equalsFn = eq === "structural" ? structuralEqual : eq;
-    return holdState(fiber, Atom.withEquality(made, equalsFn));
-  });
-  const handle = wrapHandle(a, fiber);
-  if (fresh && snapshotted && fiber.runtime.ssr) {
-    fiber.runtime.ssrValues.push(fiber.registry.get(a));
-  }
-  return handle;
-};
-
-const atomLazy = <A>(
-  init: () => A,
-  options?: AtomLazyOptions
-): AtomHandle<A> => {
-  const fiber = getFiber();
-  const snap = fiber.runtime.hydrateValues;
-  const snapshotted = options?.snapshot !== false;
-  const { atom: a, fresh } = usePrimitiveSlot(fiber, () => {
-    let seed = init();
-    if (snap && snapshotted) {
-      const v = snap[fiber.runtime.hydrateI];
-      fiber.runtime.hydrateI += 1;
-      if (v !== undefined) {
-        // SAFETY: hydration snapshots are recorded in primitive declaration
-        // order by the SSR pass; this slot's snapshot has type A.
-        seed = v as A;
-      }
-    }
-    return holdState(fiber, Atom.make(seed));
-  });
-  const handle = wrapHandle(a, fiber);
-  if (fresh && snapshotted && fiber.runtime.ssr) {
-    fiber.runtime.ssrValues.push(fiber.registry.get(a));
-  }
-  return handle;
-};
+type AtomInit<A> =
+  | A
+  | Atom.Atom<A>
+  | Effect.Effect<A, unknown, AtomRegistry>
+  | Stream.Stream<A, unknown, AtomRegistry>;
 
 export interface AtomFn {
-  <A>(
-    init:
-      | A
-      | Atom.Atom<A>
-      | Effect.Effect<A, unknown, AtomRegistry>
-      | Stream.Stream<A, unknown, AtomRegistry>,
-    options?: AtomOptions<A>
-  ): AtomHandle<A>;
+  <A>(init: AtomInit<A>, options?: AtomOptions<A>): AtomHandle<A>;
   lazy: <A>(init: () => A, options?: AtomLazyOptions) => AtomHandle<A>;
 }
 
-export const atom: AtomFn = Object.assign(makeAtom, { lazy: atomLazy });
+export const atom: AtomFn = Object.assign(
+  <A>(init: AtomInit<A>, options?: AtomOptions<A>): AtomHandle<A> => {
+    // Only plain-value slots occupy a snapshot entry, on SSR and hydration alike.
+    const plain =
+      !Atom.isAtom(init) && !Effect.isEffect(init) && !Stream.isStream(init);
+    return useSlot<A>(plain && options?.snapshot !== false, (fiber, seed) => {
+      if (Atom.isAtom(init)) {
+        return init;
+      }
+      if (!plain) {
+        // SAFETY: an effect/stream atom holds AsyncResult<A>; the handle and
+        // paint pipeline unwrap it, so the slot is typed Atom<A>.
+        return Atom.make(init as Effect.Effect<A>) as Atom.Atom<A>;
+      }
+      // SAFETY: the remaining union member is the plain seed value A.
+      const made = Atom.make(seed === undefined ? (init as A) : seed);
+      const eq = options?.equals;
+      return holdState(
+        fiber,
+        eq
+          ? Atom.withEquality(made, eq === "structural" ? structuralEqual : eq)
+          : made
+      );
+    });
+  },
+  {
+    lazy: <A>(init: () => A, options?: AtomLazyOptions): AtomHandle<A> =>
+      useSlot<A>(options?.snapshot !== false, (fiber, seed) =>
+        holdState(fiber, Atom.make(seed === undefined ? init() : seed))
+      ),
+  }
+);
 
 export const { batch } = Atom;

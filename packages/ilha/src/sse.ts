@@ -4,6 +4,7 @@ import * as Stream from "effect/Stream";
 
 import { atom } from "./atom.ts";
 import { getFiber } from "./runtime.ts";
+import type { FiberLocal } from "./runtime.ts";
 import { isString } from "./shared.ts";
 import type {
   AtomHandle,
@@ -13,116 +14,91 @@ import type {
 } from "./types.ts";
 import { watch } from "./watch.ts";
 
-interface FeedSink<T> {
+interface Sink<T> {
   status: AtomHandle<EventSourceStatus>;
   latest: AtomHandle<T | undefined>;
 }
 
-interface FeedCell<T> {
-  // Keyed by each caller's underlying `latest` atom, which is slot-stable.
-  sinks: Map<object, FeedSink<T>>;
-  targets: Set<(value: T) => void>;
-  stream: Stream.Stream<T, never, never>;
-  // One connection per cell, shared by every caller; closed with the last one.
-  users: number;
+/** One connection per (fiber, url, event), shared by every caller there. */
+interface Feed<T> {
+  sinks: Set<Sink<T>>;
+  pushes: Set<(value: T) => void>;
+  stream: Stream.Stream<T>;
   state: EventSourceStatus;
   last?: { value: T };
   stop?: () => void;
 }
 
-const cells = new WeakMap<object, Map<string, unknown>>();
+const feeds = new WeakMap<FiberLocal, Map<string, unknown>>();
 
 const MAX_BACKOFF_MS = 30_000;
 
-const setStatus = <T>(c: FeedCell<T>, next: EventSourceStatus): void => {
-  c.state = next;
-  for (const sink of c.sinks.values()) {
-    sink.status.set(next);
-  }
-};
-
-const connect = <T>({
-  cell: c,
-  decode,
-  event,
-  retryBase,
-  url,
-}: {
-  cell: FeedCell<T>;
-  decode: (raw: string) => T;
-  event: string | undefined;
-  retryBase: number;
-  url: string;
-}): (() => void) => {
+/** Open `url` and keep it open with exponential backoff until stopped. */
+const connect = <T>(
+  feed: Feed<T>,
+  url: string,
+  opts: EventSourceOptions<T> | undefined
+): (() => void) => {
+  const setStatus = (next: EventSourceStatus): void => {
+    feed.state = next;
+    for (const sink of feed.sinks) {
+      sink.status.set(next);
+    }
+  };
   let attempt = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let source: EventSource | undefined;
-  let detach: (() => void) | undefined;
-  let disposed = false;
-  const emit = (value: T): void => {
-    c.last = { value };
-    for (const sink of c.sinks.values()) {
-      sink.latest.set(value);
-    }
-    for (const push of c.targets) {
-      push(value);
-    }
-  };
-  const onMessage = (ev: Event): void => {
-    // SAFETY: server-sent events arrive as MessageEvent with string data.
-    const raw = (ev as MessageEvent).data;
-    if (!isString(raw)) {
-      return;
-    }
-    let value: T;
-    try {
-      value = decode(raw);
-    } catch {
-      return;
-    }
-    emit(value);
-  };
+  let current: EventSource | undefined;
   const open = (): void => {
-    if (disposed) {
-      return;
-    }
-    setStatus(c, attempt === 0 ? "connecting" : "retrying");
+    setStatus(attempt === 0 ? "connecting" : "retrying");
     const es = new EventSource(url);
-    source = es;
-    const onOpen = (): void => {
-      attempt = 0;
-      setStatus(c, "open");
-    };
-    const onError = (): void => {
-      if (disposed || es.readyState !== EventSource.CLOSED) {
+    current = es;
+    es.addEventListener(opts?.event ?? "message", (ev) => {
+      // SAFETY: server-sent events arrive as MessageEvent.
+      const { data } = ev as MessageEvent;
+      if (es !== current || !isString(data)) {
         return;
       }
-      detach?.();
+      let value: T;
+      try {
+        // SAFETY: without a schema T defaults to string.
+        value = opts?.schema ? opts.schema(data) : (data as T);
+      } catch {
+        return;
+      }
+      feed.last = { value };
+      for (const sink of feed.sinks) {
+        sink.latest.set(value);
+      }
+      for (const push of feed.pushes) {
+        push(value);
+      }
+    });
+    es.addEventListener("open", () => {
+      if (es === current) {
+        attempt = 0;
+        setStatus("open");
+      }
+    });
+    es.addEventListener("error", () => {
+      if (es !== current || es.readyState !== EventSource.CLOSED) {
+        return;
+      }
       es.close();
       attempt += 1;
-      setStatus(c, "retrying");
+      setStatus("retrying");
+      const base = opts?.retryBaseMs ?? 1000;
       timer = setTimeout(
         open,
-        Math.min(retryBase * 2 ** (attempt - 1), MAX_BACKOFF_MS)
+        Math.min(base * 2 ** (attempt - 1), MAX_BACKOFF_MS)
       );
-    };
-    const messageEvent = event ?? "message";
-    es.addEventListener(messageEvent, onMessage);
-    es.addEventListener("open", onOpen);
-    es.addEventListener("error", onError);
-    detach = () => {
-      es.removeEventListener(messageEvent, onMessage);
-      es.removeEventListener("open", onOpen);
-      es.removeEventListener("error", onError);
-    };
+    });
   };
   open();
   return () => {
-    disposed = true;
     clearTimeout(timer);
-    detach?.();
-    source?.close();
-    setStatus(c, "closed");
+    current?.close();
+    current = undefined;
+    setStatus("closed");
   };
 };
 
@@ -138,81 +114,63 @@ export const fromEventSource = <T = string>(
 ): EventSourceFeed<T> => {
   const fiber = getFiber();
   const status = atom<EventSourceStatus>("connecting");
-  // oxlint-disable-next-line unicorn/no-useless-undefined -- the feed starts valueless; undefined is the seed
+  // oxlint-disable-next-line unicorn/no-useless-undefined -- the feed starts valueless
   const latest = atom<T | undefined>(undefined);
 
-  const feedKey = `${url}\n${opts?.event ?? ""}`;
-  let byKey = cells.get(fiber);
+  let byKey = feeds.get(fiber);
   if (!byKey) {
     byKey = new Map();
-    cells.set(fiber, byKey);
+    feeds.set(fiber, byKey);
   }
-  // SAFETY: one feed per (fiber, url, event); T matches because the call-site options are stable.
-  let cell = byKey.get(feedKey) as FeedCell<T> | undefined;
-  if (!cell) {
-    const targets = new Set<(value: T) => void>();
-    const stream: Stream.Stream<T, never, never> = fiber.runtime.ssr
-      ? Stream.empty
-      : Stream.callback<T>((queue) => {
-          const push = (value: T): void => {
-            Queue.offerUnsafe(queue, value);
-          };
-          targets.add(push);
-          return Effect.acquireRelease(Effect.void, () =>
-            Effect.sync(() => targets.delete(push))
-          );
-        });
-    cell = {
-      sinks: new Map(),
+  const key = `${url}\n${opts?.event ?? ""}`;
+  // SAFETY: one feed per (fiber, url, event); call-site options fix its T.
+  let feed = byKey.get(key) as Feed<T> | undefined;
+  if (!feed) {
+    const pushes = new Set<(value: T) => void>();
+    feed = {
+      pushes,
+      sinks: new Set(),
       state: "connecting",
-      stream,
-      targets,
-      users: 0,
+      stream: fiber.runtime.ssr
+        ? Stream.empty
+        : Stream.callback<T>((queue) => {
+            const push = (value: T): void => {
+              Queue.offerUnsafe(queue, value);
+            };
+            pushes.add(push);
+            return Effect.acquireRelease(Effect.void, () =>
+              Effect.sync(() => pushes.delete(push))
+            );
+          }),
     };
-    byKey.set(feedKey, cell);
+    byKey.set(key, feed);
   }
-  // SAFETY: slots reuse the same underlying atoms across renders, so any
-  // generation of handles reads and writes the same values.
-  const sinkKey = latest.atom;
-  cell.sinks.set(sinkKey, { latest, status });
-  const c = cell;
+  const f = feed;
 
-  // SAFETY: without a schema T defaults to string, so identity is exact.
-  const decode = opts?.schema ?? ((raw: string) => raw as T);
-  const retryBase = opts?.retryBaseMs ?? 1000;
-
-  // Runs once per mount for slot stability; the callback itself runs once.
   watch.once(() => {
     if (fiber.runtime.ssr || globalThis.EventSource === undefined) {
       status.set("closed");
       return;
     }
-    c.users += 1;
-    if (c.stop) {
+    const sink: Sink<T> = { latest, status };
+    f.sinks.add(sink);
+    if (f.stop) {
       // Join the live connection: catch this caller up to its state.
-      status.set(c.state);
-      if (c.last) {
-        latest.set(c.last.value);
+      status.set(f.state);
+      if (f.last) {
+        latest.set(f.last.value);
       }
     } else {
-      c.stop = connect({
-        cell: c,
-        decode,
-        event: opts?.event,
-        retryBase,
-        url,
-      });
+      f.stop = connect(f, url, opts);
     }
     return () => {
-      c.users -= 1;
-      if (c.users === 0) {
-        const { stop } = c;
-        c.stop = undefined;
-        stop?.();
+      f.sinks.delete(sink);
+      if (f.sinks.size === 0) {
+        f.stop?.();
+        f.stop = undefined;
       }
-      c.sinks.delete(sinkKey);
     };
   });
 
-  return { latest, status, stream: c.stream };
+  return { latest, status, stream: f.stream };
 };

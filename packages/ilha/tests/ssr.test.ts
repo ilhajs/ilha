@@ -3,12 +3,6 @@ import { expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 
 import { atom, h, renderToString } from "../src/index.ts";
-import type { ActionArg } from "../src/types.ts";
-
-const ACTION_CALL = Symbol.for("ilha.actionCall");
-
-const branded = (key: string, args: readonly ActionArg[]) =>
-  Object.assign(() => {}, { [ACTION_CALL]: { a: args, k: key } });
 
 test("renderToString works without document", async () => {
   const doc = globalThis.document;
@@ -39,16 +33,6 @@ test("renderToString paints text without handlers", async () => {
   expect(html).toContain("Count:");
   expect(html).toContain(">0<");
   expect(html).not.toContain("onclick");
-});
-
-test("renderToString captures branded server actions as sentinels", async () => {
-  const html = await renderToString(
-    () => h("button", { onclick: branded("x:del", ["1"]) }, "Delete"),
-    { captureActions: true }
-  );
-  expect(html).toContain("data-ilha-on");
-  expect(html).toContain("x:del");
-  expect(html).toContain("data-ilha-actions");
 });
 
 const SnapshotApp = () => {

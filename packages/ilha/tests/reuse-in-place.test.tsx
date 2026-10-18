@@ -2,9 +2,8 @@
 import { afterEach, expect, test } from "bun:test";
 
 import { atom, mount } from "../src/index.ts";
-import { ISLAND, ISLAND_MOUNT_INTERNAL } from "../src/shared.ts";
 
-// Counts every time a live node leaves the document. Reused component, island,
+// Counts every time a live node leaves the document. Reused component
 // and atom hosts must stay in place across rerenders: detaching them blurs
 // inputs, reloads iframes, closes modal dialogs, and re-runs custom element
 // lifecycles.
@@ -203,42 +202,6 @@ test("atom hole host stays attached when its parent rerenders", async () => {
   expect(el.querySelector("span")?.textContent).toBe("1");
   expect(el.querySelector("#in-atom")).toBe(input);
   expect(document.activeElement).toBe(input);
-  expect(detachedProbes.length).toBe(0);
-});
-
-test("island host stays attached and receives new props", async () => {
-  const seen: unknown[] = [];
-  const Island = Object.assign(() => null, {
-    [ISLAND]: true,
-    [ISLAND_MOUNT_INTERNAL]: (el: Element, props?: { n?: number }) => {
-      el.append(document.createElement("reuse-probe"));
-      seen.push(props?.n);
-      return {
-        updateProps: (next?: { n?: number }) => {
-          seen.push(next?.n);
-        },
-      };
-    },
-  });
-  let bump: (() => void) | undefined;
-  const App = () => {
-    const tick = atom(0);
-    bump = () => tick.update((n) => n + 1);
-    return (
-      <div>
-        <span>{tick()}</span>
-        <Island n={tick()} />
-      </div>
-    );
-  };
-  const el = host();
-  mount(el, App);
-  await Bun.sleep(10);
-  const islandHost = el.querySelector("[data-ilha]");
-  bump?.();
-  await Bun.sleep(10);
-  expect(el.querySelector("[data-ilha]")).toBe(islandHost);
-  expect(seen).toEqual([0, 1]);
   expect(detachedProbes.length).toBe(0);
 });
 

@@ -118,7 +118,6 @@ await renderToString(component, {
   snapshot?: boolean;      // embed atom values for hydration (default true)
   markers?: boolean;       // wrap in <div data-ilha> (default true)
   timeout?: number;        // serialize after this many ms even if busy
-  captureActions?: boolean; // probe handlers for server-action calls
 });
 ```
 
@@ -150,24 +149,19 @@ const { unmount, ready, runtime } = renderer.mount(root, App, {
 });
 ```
 
-Every paint materializes fresh host nodes and hands the complete child list of the painted root to `ops.placeChildren(root, nodes)`. Your host decides what to keep.
+Every paint materializes fresh host nodes and hands the complete child list of the painted root to `ops.placeChildren(root, nodes)`. Your host decides what to keep. Holes (components, atoms, streams) are `span` hosts built with `createElement`.
 
 | Op | Role |
 | --- | --- |
 | `createElement`, `createText` | Build a host node |
 | `createRaw(html, parent)` | Nodes for an `unsafe()` view |
-| `createSlotHost(slotId)` | Host of a component, atom, or stream hole |
-| `asRoot`, `asNode`, `asElement` | View a host as a fiber root, a placeable node, or an element |
 | `placeChildren(root, nodes)` | Make a root's children exactly `nodes` |
-| `appendRoot(root, node)` | Append one node. Only `painter.insert` calls it, never `mount()` |
-| `reuseNode(host)` | Node to place for a hole that survived the repaint |
+| `morph(root, nodes, hydrate)` | Optional. Reconcile a root with a fresh render instead of `placeChildren` |
+| `reuseNode(host)` | Optional. Node to place for a hole that survived the repaint; defaults to the host |
+| `committed(el)` | Optional. The element a rendered element ended up as, for refs; defaults to `el` |
 | `setProp(el, key, value)` | Optional. Return `true` to claim a prop with its original value |
-| `setStyle`, `setFormControl` | Default handling for `style` and `value` / `checked` |
-| `bindEvents(el, props, fiber)` | Bind event props; call the exported `bindEvents` to reuse Ilha's |
-| `disconnect(el)` | A hole's host left the tree for good |
-| `committed(el)` | The element a rendered element ended up as, for refs |
-
-Every op except `setProp` is required.
+| `setStyle`, `setFormControl` | Optional. Handle `style` and `value` / `checked` / `selected`; default to attributes |
+| `bindEvents(el, props, fiber)` | Optional. Bind event props; call the exported `bindEvents` to reuse Ilha's |
 
 Without `setProp`, a prop reaches the host as a string attribute and a `style` object as CSS text. Implement it to receive objects as written.
 

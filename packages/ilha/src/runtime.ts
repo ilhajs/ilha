@@ -1,53 +1,29 @@
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import * as Fiber from "effect/Fiber";
 import type * as Atom from "effect/reactivity/Atom";
-import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import * as Registry from "effect/reactivity/AtomRegistry";
+import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import * as Scope from "effect/Scope";
 
-import { toError } from "./errors.ts";
-import { errorView } from "./shared.ts";
+import { errorView, noop, toError } from "./shared.ts";
 import type { SnapshotValue } from "./snapshot.ts";
-import type {
-  ComponentFn,
-  Fragment,
-  PropBag,
-  View,
-  IlhaRuntime,
-} from "./types.ts";
+import type { IlhaRuntime, PropBag, View } from "./types.ts";
 import type { WatchSlot } from "./watch.ts";
 
+/** A disposable a paint leaves behind: a child fiber, subscription, or ref. */
 export interface Hole {
   dispose: () => void;
-  keepOnMorph?: boolean;
+  /** Survives repaints that reach it again (components, atom holes). */
+  keep?: boolean;
   atom?: Atom.Atom<unknown>;
-  host?: Element;
-  holeFiber?: FiberLocal;
-  islandSlot?: IslandSlot;
-}
-
-export interface IslandSlot {
-  type: string | Fragment | ComponentFn;
-  host: Element;
-  updateProps?: (props?: PropBag) => void;
-  unmount?: () => void;
-}
-
-export interface IslandFrame {
-  i: number;
-  slots: (IslandSlot | undefined)[];
-}
-
-export interface ComponentSlot {
-  type: unknown;
-  hole: FiberLocal;
+  fiber?: FiberLocal;
 }
 
 export interface ComponentFrame {
   i: number;
-  slots: ComponentSlot[];
+  slots: { type: unknown; hole: FiberLocal }[];
 }
 
 export interface FiberLocal {
@@ -60,18 +36,16 @@ export interface FiberLocal {
   closed: boolean;
   hydrate?: boolean;
   keyedHoles?: Map<string, FiberLocal>;
-  /** Counts this fiber's paints; a keyed hole records the last one it was in. */
-  keyedGen?: number;
-  /** On a keyed hole: the parent's `keyedGen` of the last paint that reached it. */
-  keyedSeen?: number;
-  liveEl?: Element;
+  /** Counts this fiber's paints. */
+  gen?: number;
+  /** On a hole: the parent's `gen` of the last paint that reached it. */
+  seen?: number;
   primitiveI?: number;
   primitives?: Atom.Atom<unknown>[];
   /** Releases for the state atoms this fiber keeps in the registry. */
   primitiveHolds?: (() => void)[];
   watchI?: number;
   watchSlots?: WatchSlot[];
-  islandFrame?: IslandFrame;
   componentFrame?: ComponentFrame;
   componentType?: unknown;
   renderSub?: () => void;
@@ -84,27 +58,31 @@ export interface FiberLocal {
   handleError?: (error: Error) => void;
   paintFn: (fiber: FiberLocal, view: View) => void;
   paint: (view: View) => void;
+  /** Fork `effect` in this fiber's scope; returns an interruptor. */
   run: <A, E>(
     effect: Effect.Effect<A, E, AtomRegistry>,
     onOk?: (a: A) => void,
     onErr?: (e: E) => void
-  ) => void;
+  ) => () => void;
   fail: <E>(e: E) => void;
 }
 
 const stack: FiberLocal[] = [];
+
+export const getActiveFiber = (): FiberLocal | undefined =>
+  stack.findLast((x) => !x.closed);
+
 // Active render context for primitives. Callers must run island setup and
 // Effect continuations inside `withFiber`; async callbacks that call `atom()`
 // without it may bind to the wrong island when another mount is on the stack.
 export const getFiber = (): FiberLocal => {
-  const f = stack.findLast((x) => !x.closed);
+  const f = getActiveFiber();
   if (!f) {
     throw new Error("ilha: no fiber");
   }
   return f;
 };
-export const getActiveFiber = (): FiberLocal | undefined =>
-  stack.findLast((x) => !x.closed);
+
 export const withFiber = <A>(fiber: FiberLocal, fn: () => A): A => {
   stack.push(fiber);
   try {
@@ -114,44 +92,6 @@ export const withFiber = <A>(fiber: FiberLocal, fn: () => A): A => {
   }
 };
 
-const provide = <A, E>(
-  effect: Effect.Effect<A, E, AtomRegistry>,
-  registry: AtomRegistry
-): Effect.Effect<A, E> =>
-  // SAFETY: provideService removes AtomRegistry from the environment.
-  effect.pipe(
-    Effect.provideService(Registry.AtomRegistry, registry)
-  ) as Effect.Effect<A, E>;
-
-const runInScope = <A, E>(
-  effect: Effect.Effect<A, E, AtomRegistry>,
-  registry: AtomRegistry,
-  scope: Scope.Scope,
-  onOk?: (a: A) => void,
-  onErr?: (e: E) => void,
-  onDone?: () => void
-): void => {
-  const provided = provide(effect, registry);
-  const f = Effect.runFork(
-    onOk || onDone
-      ? provided.pipe(
-          Effect.onExit((ex) =>
-            Effect.sync(() => {
-              onDone?.();
-              if (Exit.isSuccess(ex)) {
-                onOk?.(ex.value);
-              } else if (!Cause.hasInterruptsOnly(ex.cause)) {
-                // SAFETY: Cause.squash yields the failure channel value E.
-                onErr?.(Cause.squash(ex.cause) as E);
-              }
-            })
-          )
-        )
-      : provided
-  );
-  Effect.runSync(Scope.addFinalizer(scope, Fiber.interrupt(f)));
-};
-
 /** Clear render subscriptions and child holes without closing the fiber scope. */
 export const clearFiberView = (fiber: FiberLocal): void => {
   fiber.renderSub?.();
@@ -159,19 +99,18 @@ export const clearFiberView = (fiber: FiberLocal): void => {
   for (const slot of fiber.watchSlots ?? []) {
     slot?.dispose();
   }
+  for (const release of fiber.primitiveHolds ?? []) {
+    release();
+  }
+  for (const h of fiber.holes) {
+    h.dispose();
+  }
   fiber.watchSlots = [];
   fiber.watchI = 0;
   fiber.primitives = undefined;
   fiber.primitiveI = 0;
-  for (const release of fiber.primitiveHolds ?? []) {
-    release();
-  }
   fiber.primitiveHolds = undefined;
-  fiber.islandFrame = undefined;
   fiber.keyedHoles = undefined;
-  for (const h of fiber.holes) {
-    h.dispose();
-  }
   fiber.holes = [];
 };
 
@@ -181,7 +120,6 @@ export const closeFiber = (fiber: FiberLocal): void => {
   }
   fiber.closed = true;
   fiber.trackRestore?.();
-  fiber.trackRestore = undefined;
   fiber.handleError = undefined;
   clearFiberView(fiber);
   Effect.runFork(Scope.close(fiber.scope, Exit.void));
@@ -190,12 +128,10 @@ export const closeFiber = (fiber: FiberLocal): void => {
 export const makeRuntime = (opts?: {
   ssr?: boolean;
   hydrate?: SnapshotValue[];
-  ssrCapture?: boolean;
   onError?: (error: Error) => void;
 }): IlhaRuntime => {
   const registry = Registry.make();
   const scope = Scope.makeUnsafe();
-  let holeSeq = 0;
   let pending = 0;
   let onIdle: (() => void) | undefined;
   const runtime: IlhaRuntime = {
@@ -213,6 +149,8 @@ export const makeRuntime = (opts?: {
         onIdle?.();
       }
     },
+    fork: Effect.runSyncWith(Context.make(Registry.AtomRegistry, registry)),
+    holeSeq: 0,
     hydrateI: 0,
     hydrateValues: opts?.hydrate,
     later: (fn) => {
@@ -225,40 +163,53 @@ export const makeRuntime = (opts?: {
         }
       });
     },
-    nextHole: () => {
-      holeSeq += 1;
-      return holeSeq;
-    },
     onError: opts?.onError,
     registry,
     scope,
     setIdle: (onReady) => {
       onIdle = onReady;
       if (pending === 0) {
-        return onReady();
+        onReady();
       }
     },
     ssr: opts?.ssr === true,
-    ssrActions: {},
-    ssrCapture: opts?.ssrCapture === true,
-    ssrEventI: 0,
     ssrValues: [],
   };
   return runtime;
 };
 
-export const makeFiber = <E>(
+/** Walk this fiber and ancestors for an error boundary handler. */
+const reportFiberError = (fiber: FiberLocal, error: Error): boolean => {
+  for (let f: FiberLocal | undefined = fiber; f; f = f.parent) {
+    if (f.handleError) {
+      f.handleError(error);
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * Open a fiber. A failure reports to the nearest `ErrorBoundary`; uncaught,
+ * it calls `runtime.onError`, paints the error view, then `onFail`.
+ */
+export const makeFiber = (
   runtime: IlhaRuntime,
   root: ParentNode,
   paint: (fiber: FiberLocal, view: View) => void,
-  opts?: { onFail?: (e: E) => void; parent?: FiberLocal }
+  opts?: { onFail?: () => void; parent?: FiberLocal }
 ): FiberLocal => {
-  const scope = Scope.forkUnsafe(runtime.scope);
   const fiber: FiberLocal = {
     closed: false,
     fail: (e) => {
-      // SAFETY: onFail is typed to the caller's E; fail is invoked with that same failure.
-      opts?.onFail?.(e as E);
+      const error = toError(e);
+      if (reportFiberError(fiber, error)) {
+        return;
+      }
+      runtime.onError?.(error);
+      console.error(error);
+      fiber.paint(errorView(error));
+      opts?.onFail?.();
     },
     holes: [],
     inFlight: false,
@@ -267,75 +218,47 @@ export const makeFiber = <E>(
     parent: opts?.parent,
     registry: runtime.registry,
     root,
-    run: (effect, onOk, onErr) => {
+    run: <A, E>(
+      effect: Effect.Effect<A, E, AtomRegistry>,
+      onOk?: (a: A) => void,
+      onErr?: (e: E) => void
+    ) => {
       if (fiber.closed) {
-        return;
+        return noop;
       }
       if (onOk) {
-        fiber.runtime.begin();
+        runtime.begin();
       }
-      runInScope(
-        effect,
-        fiber.registry,
-        fiber.scope,
-        onOk &&
-          ((a) => {
-            if (!fiber.closed) {
-              withFiber(fiber, () => onOk(a));
-            }
-          }),
-        onErr &&
-          ((e) => {
-            if (!fiber.closed) {
-              withFiber(fiber, () => onErr(e));
-            }
-          }),
-        onOk && (() => fiber.runtime.end())
+      const child = runtime.fork(
+        Effect.forkIn(
+          effect.pipe(
+            Effect.onExit((exit) =>
+              Effect.sync(() => {
+                if (onOk) {
+                  runtime.end();
+                }
+                if (fiber.closed) {
+                  return;
+                }
+                if (Exit.isSuccess(exit)) {
+                  if (onOk) {
+                    withFiber(fiber, () => onOk(exit.value));
+                  }
+                } else if (onErr && !Cause.hasInterruptsOnly(exit.cause)) {
+                  // SAFETY: Cause.squash yields the failure channel value E.
+                  withFiber(fiber, () => onErr(Cause.squash(exit.cause) as E));
+                }
+              })
+            )
+          ),
+          fiber.scope,
+          { startImmediately: true }
+        )
       );
+      return () => child.interruptUnsafe();
     },
     runtime,
-    scope,
+    scope: Scope.forkUnsafe(runtime.scope),
   };
-  return fiber;
-};
-
-/** Walk this fiber and ancestors for an error boundary handler. */
-export const reportFiberError = (fiber: FiberLocal, error: Error): boolean => {
-  let current: FiberLocal | undefined = fiber;
-  while (current) {
-    const { handleError } = current;
-    if (handleError) {
-      handleError(error);
-      return true;
-    }
-    current = current.parent;
-  }
-  return false;
-};
-
-/**
- * Open a mount's root fiber. A failing root component reports to
- * `runtime.onError`, paints the error view, and settles the mount.
- */
-export const makeRootFiber = ({
-  runtime,
-  root,
-  paint,
-  settle,
-}: {
-  runtime: IlhaRuntime;
-  root: ParentNode;
-  paint: (fiber: FiberLocal, view: View) => void;
-  settle: () => void;
-}): FiberLocal => {
-  const fiber = makeFiber(runtime, root, paint, {
-    onFail: (e) => {
-      const error = toError(e);
-      runtime.onError?.(error);
-      console.error(error);
-      fiber.paint(errorView(error));
-      settle();
-    },
-  });
   return fiber;
 };

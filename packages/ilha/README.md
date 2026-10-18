@@ -112,12 +112,11 @@ const host = document.querySelector("[data-ilha]");
 if (host) mount(host, Counter, { hydrate: true });
 ```
 
-| Option           | Default | Meaning                        |
-| ---------------- | ------- | ------------------------------ |
-| `snapshot`       | `true`  | Embed atom values              |
-| `markers`        | `true`  | Wrap in `<div data-ilha>`      |
-| `timeout`        | none    | Serialize after this many ms   |
-| `captureActions` | `false` | Probe handlers for server RPCs |
+| Option     | Default | Meaning                      |
+| ---------- | ------- | ---------------------------- |
+| `snapshot` | `true`  | Embed atom values            |
+| `markers`  | `true`  | Wrap in `<div data-ilha>`    |
+| `timeout`  | none    | Serialize after this many ms |
 
 `renderToString` builds HTML without a DOM — no polyfill in Node, Bun, or edge runtimes.
 

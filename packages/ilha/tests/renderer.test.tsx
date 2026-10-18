@@ -17,7 +17,6 @@ type HostHandler = (event: HostEvent) => void;
 interface TestEl {
   kind: "element";
   tagName: string;
-  dataset: Record<string, string>;
   attrs: Map<string, string>;
   /** Props claimed through `setProp`, with the value the component wrote. */
   props: Map<string, unknown>;
@@ -25,7 +24,6 @@ interface TestEl {
   handlers: Record<string, HostHandler>;
   setAttribute: (name: string, value: string) => void;
   removeAttribute: (name: string) => void;
-  appendChild: (node: TestNode) => void;
   append: (...nodes: TestNode[]) => void;
 }
 
@@ -50,12 +48,8 @@ const createEl = (tag: string): TestEl => ({
   append(...nodes) {
     this.children.push(...nodes);
   },
-  appendChild(node) {
-    this.children.push(node);
-  },
   attrs: new Map(),
   children: [],
-  dataset: {},
   handlers: {},
   kind: "element",
   props: new Map(),
@@ -69,15 +63,6 @@ const createEl = (tag: string): TestEl => ({
 });
 
 const ops: PaintOps<TestNode, TestEl> = {
-  appendRoot: () => {
-    throw new Error("a host renderer is placed with placeChildren only");
-  },
-  // SAFETY: TestEl stands in for Element in the shared painter.
-  asElement: (el) => hostAs<Element>(el as never),
-  // SAFETY: reused hosts are TestNode values.
-  asNode: (host) => hostAs<TestNode>(host as never),
-  // SAFETY: this host's fiber roots are TestRoot/TestEl values.
-  asRoot: (el) => hostAs<ParentNode>(el as never),
   bindEvents: (el, props) => {
     for (const [key, value] of Object.entries(props)) {
       if (!key.startsWith("on") || !isFunction(value)) {
@@ -88,26 +73,13 @@ const ops: PaintOps<TestNode, TestEl> = {
       el.handlers[key.slice(2).toLowerCase()] = value as never;
     }
   },
-  committed: (el) => el,
   createElement: (tag) => createEl(tag),
   createRaw: (html) => [{ kind: "text", text: html }],
-  createSlotHost: (slotId) => {
-    const host = createEl("span");
-    if (slotId !== null) {
-      host.dataset.ilhaSlot = slotId;
-    }
-    return host;
-  },
   createText: (text) => ({ kind: "text", text }),
-  disconnect: () => {
-    /* the host tracks connectedness itself */
-  },
   placeChildren: (root, nodes) => {
     // SAFETY: this host's fiber roots are TestRoot/TestEl values.
     hostAs<TestRoot>(root as never).children = [...nodes];
   },
-  // SAFETY: this host has no morph, so a reused host is its own node.
-  reuseNode: (host) => hostAs<TestNode>(host as never),
   setFormControl: (el, key, value) => {
     el.attrs.set(key, String(value ?? ""));
   },
