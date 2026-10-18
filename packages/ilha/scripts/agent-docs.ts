@@ -3,11 +3,16 @@
  *
  * Run by `bun run build` before tsdown. The output is a pure function of
  * `package.json`, `src/index.ts`, and the JSDoc beside each export, so two
- * runs produce byte-identical files. Pass `--check` to fail when the files on
- * disk are stale instead of rewriting them.
+ * runs produce byte-identical files. Markdown outputs pass through oxfmt with
+ * the repo config so `bun run check` accepts them as generated. Pass `--check`
+ * to fail when the files on disk are stale instead of rewriting them.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+
+import { format } from "oxfmt";
+
+import formatConfig from "../../../oxfmt.config.ts";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const SITE = "https://ilha.build";
@@ -360,10 +365,21 @@ Removed and changed APIs, each with its replacement. Machine-readable form: \`MI
 ${migrations.changes.map(migrationSection).join("\n\n")}
 `;
 
+const formatMarkdown = async (
+  file: string,
+  content: string
+): Promise<string> => {
+  const { code, errors } = await format(file, content, formatConfig);
+  if (errors.length > 0) {
+    throw new Error(`agent-docs: oxfmt failed on ${file}.`);
+  }
+  return code;
+};
+
 const targets: readonly (readonly [string, string])[] = [
-  ["AGENTS.md", agents],
+  ["AGENTS.md", await formatMarkdown("AGENTS.md", agents)],
   ["llms.txt", llms],
-  ["MIGRATIONS.md", migrationsMd],
+  ["MIGRATIONS.md", await formatMarkdown("MIGRATIONS.md", migrationsMd)],
 ];
 
 const check = process.argv.includes("--check");
