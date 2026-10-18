@@ -91,39 +91,61 @@ const withNoExternal = (
   return [...new Set([...list, ...names])];
 };
 
-const configPlugin = (): Plugin => ({
-  config(userConfig) {
-    const root = userConfig.root
-      ? path.resolve(userConfig.root)
-      : process.cwd();
-    const singletons = ["ilha", "@ilha/void", ...detectIlhaConsumers(root)];
-    const jsx =
-      userConfig.oxc === false || userConfig.oxc?.jsx !== undefined
-        ? {}
-        : {
-            oxc: {
-              jsx: { importSource: "ilha", runtime: "automatic" as const },
-            },
-          };
-    return {
-      ...jsx,
-      optimizeDeps: {
-        include: [
-          "ilha",
-          "ilha/jsx-runtime",
-          // Dev JSX compiles to jsxDEV. Prebundle the dev runtime too, or it
-          // loads a second raw ilha and islands stop hydrating.
-          "ilha/jsx-dev-runtime",
-        ],
-      },
-      resolve: { dedupe: singletons },
-      ssr: {
-        noExternal: withNoExternal(userConfig.ssr?.noExternal, singletons),
-      },
-    };
-  },
-  name: "@ilha/void:config",
-});
+const configPlugin = (): Plugin => {
+  // Root seen by `config`; `configEnvironment` has no root, so it reuses the
+  // stored one (falling back to cwd when it somehow runs first).
+  let root = process.cwd();
+  const singletonExcludes = (): string[] => [
+    "ilha",
+    "ilha/jsx-runtime",
+    "ilha/jsx-dev-runtime",
+    "@ilha/void",
+    ...detectIlhaConsumers(root),
+  ];
+  return {
+    config(userConfig) {
+      root = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
+      const singletons = ["ilha", "@ilha/void", ...detectIlhaConsumers(root)];
+      const jsx =
+        userConfig.oxc === false || userConfig.oxc?.jsx !== undefined
+          ? {}
+          : {
+              oxc: {
+                jsx: { importSource: "ilha", runtime: "automatic" as const },
+              },
+            };
+      return {
+        ...jsx,
+        optimizeDeps: {
+          include: [
+            "ilha",
+            "ilha/jsx-runtime",
+            // Dev JSX compiles to jsxDEV. Prebundle the dev runtime too, or it
+            // loads a second raw ilha and islands stop hydrating.
+            "ilha/jsx-dev-runtime",
+          ],
+        },
+        resolve: { dedupe: singletons },
+        ssr: {
+          noExternal: withNoExternal(userConfig.ssr?.noExternal, singletons),
+        },
+      };
+    },
+    configEnvironment(name) {
+      // The client keeps prebundling ilha (see above). Every other
+      // environment runs SSR or worker code, where modules must all resolve
+      // ilha to the same source file: a prebundled `@ilha/void/server` would
+      // inline its own ilha copy next to transformed components reading
+      // another, so `atom()` during SSR render throws ILHA001. Excluding the
+      // singletons keeps the dep optimizer from ever splitting them.
+      if (name === "client") {
+        return;
+      }
+      return { optimizeDeps: { exclude: singletonExcludes() } };
+    },
+    name: "@ilha/void:config",
+  };
+};
 
 /**
  * Render Void pages, layouts, and islands with ilha. Add it after
