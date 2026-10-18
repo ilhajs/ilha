@@ -7,7 +7,7 @@ export const URLS = {
 } as const;
 
 export const DEFAULT_INSTALL_COMMAND =
-  "npx giget@latest gh:ilhajs/ilha/templates/vite-spa my-app";
+  "npx giget@latest gh:ilhajs/ilha/templates/void my-app";
 
 export const META_DESCRIPTION =
   "Ilha is a tiny, isomorphic UI library. Render function components to HTML on the server, then hydrate only the islands that need JavaScript. No virtual DOM, no compiler.";
@@ -90,20 +90,20 @@ const html = await renderToString(() => ProductCard({ featured: true }));
 const host = document.querySelector("#product-card")!;
 mount(host, () => ProductCard({ featured: true }), { hydrate: true });`;
 
-export const ILHA_ROUTER_CODE = `// vite.config.ts
-import pages from "@ilha/router/vite";
+export const ILHA_VOID_CODE = `// vite.config.ts
+import { voidIlha } from "@ilha/void/plugin";
 import { defineConfig } from "vite";
+import { voidPlugin } from "void";
 
 export default defineConfig({
-  plugins: [pages()],
+  plugins: [voidPlugin(), voidIlha()],
 });
 
-// File-based routes under src/pages/
+// File-based routes under pages/
 //   index.tsx        → /
 //   pricing.tsx      → /pricing
 //   blog/[slug].tsx  → /blog/:slug
-import { pageRouter } from "ilha:pages/client";
-pageRouter.mount("#app", { hydrate: true });`;
+//   about.island.tsx → static HTML, hydrated islands only`;
 
 export const ILHA_CONTEXT_CODE = `import { atom, context, createContext } from "ilha";
 
@@ -259,10 +259,10 @@ export const PRIMARY_ILHA_CARDS = [
 
 export const USEFUL_EXTRAS_CARD = {
   description:
-    "The core package covers components, atoms, and rendering. Add file-system routing, context, or the Astro integration when your project asks for them.",
+    "The core package covers components, atoms, and rendering. Add Void pages, context, or the Astro integration when your project asks for them.",
   label: "Grow when you need to",
   points: [
-    "@ilha/router: file-system routes and server islands",
+    "@ilha/void: Void pages, layouts, forms, and islands",
     "createContext() for values shared across a subtree",
     "@ilha/astro: Ilha components as Astro islands",
   ],

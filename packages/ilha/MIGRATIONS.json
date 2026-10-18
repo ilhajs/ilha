@@ -1,0 +1,96 @@
+{
+  "package": "ilha",
+  "docs": "https://ilha.build/llms.txt",
+  "changes": [
+    {
+      "id": "resource",
+      "kind": "removed",
+      "api": "resource, invalidate",
+      "import": "ilha",
+      "replacement": "An Effect Cache in a module, read through atom(Effect).",
+      "docs": "https://ilha.build/guide/recipes/data-fetching",
+      "before": "const user = resource(\"user\", (id, { signal }) => fetchUser(id, signal));\nuser.data();",
+      "after": "const users = Effect.runSync(Cache.make({ capacity: 100, lookup: loadUser, timeToLive: \"1 minute\" }));\nconst user = atom(Cache.get(users, id)); // AsyncResult"
+    },
+    {
+      "id": "from-event-source",
+      "kind": "removed",
+      "api": "fromEventSource",
+      "import": "ilha",
+      "replacement": "Stream.callback over EventSource with Stream.retry.",
+      "docs": "https://ilha.build/guide/recipes/server-sent-events",
+      "before": "const feed = fromEventSource(\"/events\");\nyield Stream.map(feed.stream, (m) => <p>{m}</p>);",
+      "after": "const events = Stream.callback<string>((queue) => { /* see recipe */ });\nyield Stream.map(events, (m) => <p>{m}</p>);"
+    },
+    {
+      "id": "define",
+      "kind": "removed",
+      "api": "define",
+      "import": "ilha/define",
+      "replacement": "Copy the define() helper from the custom-elements recipe; it calls mount() in connectedCallback.",
+      "docs": "https://ilha.build/guide/recipes/custom-elements",
+      "before": "import { define } from \"ilha/define\";\ndefine(\"ilha-counter\", Counter);",
+      "after": "import { define } from \"./define\"; // helper from the recipe\ndefine(\"ilha-counter\", Counter);"
+    },
+    {
+      "id": "structural-equal",
+      "kind": "removed",
+      "api": "structuralEqual",
+      "import": "ilha",
+      "replacement": "Equal.equals from effect, or the equals: \"structural\" atom option.",
+      "docs": "https://ilha.build/guide/ui/state",
+      "before": "atom(value, { equals: structuralEqual });",
+      "after": "atom(value, { equals: \"structural\" });\n// or: import * as Equal from \"effect/Equal\"; Equal.equals(a, b)"
+    },
+    {
+      "id": "capture-actions",
+      "kind": "removed",
+      "api": "renderToString option captureActions",
+      "import": "ilha",
+      "replacement": "Remove the option. SSR no longer captures actions; hydration restores state from the embedded snapshot.",
+      "docs": "https://ilha.build/guide/ui/render",
+      "before": "await renderToString(Component, { captureActions: true });",
+      "after": "await renderToString(Component);"
+    },
+    {
+      "id": "island-mount-hook",
+      "kind": "removed",
+      "api": "internal island mount hook (ISLAND_MOUNT_INTERNAL)",
+      "import": "ilha",
+      "replacement": "None. It was internal. Use mount(host, Component) for every root.",
+      "docs": "https://ilha.build/guide/ui/render",
+      "before": "",
+      "after": "mount(host, Component, { hydrate: true });"
+    },
+    {
+      "id": "watch-when-instruction",
+      "kind": "changed",
+      "api": "watch, watch.once, when",
+      "import": "ilha",
+      "replacement": "They return Instruction<void>. Call them at the top level of the component (yield* is optional in generators); do not read a return value.",
+      "docs": "https://ilha.build/guide/ui/state",
+      "before": "const result = yield* watch(count, fn); // loosely typed result",
+      "after": "watch(count, fn);"
+    },
+    {
+      "id": "atom-async-result",
+      "kind": "changed",
+      "api": "atom(effect | stream)",
+      "import": "ilha",
+      "replacement": "The handle is typed AtomHandle<AsyncResult<A, E>>. Branch on Initial, Success, and Failure instead of reading the value directly. Any atom handle is a valid View.",
+      "docs": "https://ilha.build/guide/recipes/data-fetching",
+      "before": "const user = atom(fetchUser); // typed as the value\nuser().name",
+      "after": "const user = atom(fetchUser); // AsyncResult<User, Error>\nAsyncResult.isSuccess(user()) && user().value.name"
+    },
+    {
+      "id": "renderer-paint-ops",
+      "kind": "changed",
+      "api": "PaintOps",
+      "import": "ilha/renderer",
+      "replacement": "appendRoot, asRoot, asNode, asElement, createSlotHost, and disconnect are removed. reuseNode, committed, setStyle, setFormControl, and bindEvents are optional. morph is added.",
+      "docs": "https://ilha.build/reference/ilha",
+      "before": "const ops: PaintOps<Node, El> = { createElement, createText, createRaw, placeChildren, appendRoot, asRoot, asNode, asElement, createSlotHost, disconnect, /* ... */ };",
+      "after": "const ops: PaintOps<Node, El> = { createElement, createText, createRaw, placeChildren, morph /* optional: reuseNode, committed, setStyle, setFormControl, bindEvents */ };"
+    }
+  ]
+}

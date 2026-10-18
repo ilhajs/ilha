@@ -1,67 +1,60 @@
 import * as Effect from "effect/Effect";
 import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 
-import { asFailure, failureMessage } from "./errors.ts";
+import { isInstruction } from "./atom.ts";
+import { ilhaError } from "./diagnostics.ts";
 import type { FiberLocal } from "./runtime.ts";
 import { withFiber } from "./runtime.ts";
-import { isObject } from "./shared.ts";
-import type { GeneratorFn, Instruction, View, Yielded } from "./types.ts";
+import { toError } from "./shared.ts";
+import type { GeneratorFn, View, Yielded } from "./types.ts";
 
-export const isInstruction = (x: Yielded): x is Instruction<unknown> =>
-  // SAFETY: the `$$ilhaOp` brand is the runtime marker installed by instr() on every Instruction.
-  isObject(x) && (x as Instruction<unknown>).$$ilhaOp === 1;
-
-const interpret = (gen: GeneratorFn, fiber: FiberLocal): void => {
+/** Drive a generator component: paint yielded views, run yielded effects. */
+export const interpret = (gen: GeneratorFn, fiber: FiberLocal): void => {
   const iter = gen();
-  const resume = <S, T>(send?: S, thrown?: T) => {
+  const resume = <S>(send?: S, thrown?: Error): void => {
     if (fiber.closed) {
       return;
     }
     withFiber(fiber, () => {
       if (fiber.inFlight) {
-        throw new Error("ilha: re-enter while Instruction in flight");
+        throw ilhaError("ILHA004");
       }
-      let step: IteratorResult<Yielded, unknown>;
+      let step: IteratorResult<Yielded, View | undefined>;
       try {
-        step = thrown === undefined ? iter.next(send) : iter.throw(thrown);
+        // SAFETY: the generator resumes with the yielded effect's success value.
+        step = thrown ? iter.throw(thrown) : iter.next(send as View);
       } catch (error) {
-        fiber.fail(asFailure(error));
+        fiber.fail(error);
         return;
       }
+      const { value } = step;
       if (step.done) {
-        if (step.value !== undefined) {
-          // SAFETY: a completed generator's return value is the view it yielded.
-          fiber.paint(step.value as View);
+        if (value !== undefined) {
+          fiber.paint(value);
         }
         return;
       }
-      let effect: Effect.Effect<unknown, unknown, AtomRegistry> | undefined;
-      if (isInstruction(step.value)) {
-        ({ effect } = step.value);
-      } else if (Effect.isEffect(step.value)) {
-        effect = step.value;
-      }
-      if (effect) {
+      const effect = isInstruction(value) ? value.effect : value;
+      if (Effect.isEffect(effect)) {
         fiber.inFlight = true;
         fiber.run(
-          effect,
+          // SAFETY: yielded effects may only require the AtomRegistry run provides.
+          effect as Effect.Effect<unknown, unknown, AtomRegistry>,
           (a) => {
             fiber.inFlight = false;
             resume(a);
           },
           (e) => {
             fiber.inFlight = false;
-            resume(undefined, new Error(failureMessage(e)));
+            resume(undefined, toError(e));
           }
         );
         return;
       }
-      // SAFETY: a non-done, non-effect step value is exactly the view to paint.
-      fiber.paint(step.value as View);
+      // SAFETY: a non-effect step value is the view to paint.
+      fiber.paint(value as View);
       resume();
     });
   };
   resume();
 };
-
-export { interpret };

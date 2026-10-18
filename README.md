@@ -137,9 +137,9 @@ Ordinary event handlers stay ordinary functions (`onclick={handler}`). Lists are
 
 Emit a `data-ilha` host, load your client module, and call `mount()`. Ilha does not require control over your backend or document.
 
-### Build an isomorphic SPA
+### Build a server-rendered app with Void
 
-[`@ilha/router`](https://ilha.build/guide/routing/overview) adds file-system routing for Vite and Rsbuild, nested layouts, and Oxide server islands.
+[`@ilha/void`](https://ilha.build/guide/void) renders [Void](https://void.cloud) pages, layouts, forms, and islands with Ilha. Void handles file routing, loaders, actions, and deployment.
 
 ### Use Ilha inside Astro
 
@@ -147,17 +147,16 @@ Emit a `data-ilha` host, load your client module, and call `mount()`. Ilha does 
 
 ## Start from a template
 
-| Template | Create | Try it |
-| --- | --- | --- |
-| [Vite SPA](https://github.com/ilhajs/ilha/tree/main/templates/vite-spa) | `npx giget@latest gh:ilhajs/ilha/templates/vite-spa` | [StackBlitz](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/vite-spa) |
-| [Oxide SPA](https://github.com/ilhajs/ilha/tree/main/templates/oxide-spa) | `npx giget@latest gh:ilhajs/ilha/templates/oxide-spa` | [StackBlitz](https://stackblitz.com/github/ilhajs/ilha/tree/main/templates/oxide-spa) |
+| Template | Create |
+| --- | --- |
+| [Void](https://github.com/ilhajs/ilha/tree/main/templates/void) | `npx giget@latest gh:ilhajs/ilha/templates/void` |
 
 ## Packages
 
 | Package | What it does |
 | --- | --- |
 | [`ilha`](./packages/ilha) | Components, atoms, JSX runtime, SSR, hydration, and DOM morphing |
-| [`@ilha/router`](./packages/router) | Isomorphic SPA routing, file-system routes, and Oxide server islands |
+| [`@ilha/void`](./packages/void) | Void integration: pages, layouts, forms, navigation, and islands |
 | [`@ilha/astro`](./packages/astro) | Astro renderer (`renderToString` + `mount`) |
 
 ## Documentation for humans and agents

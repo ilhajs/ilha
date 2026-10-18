@@ -1,4 +1,4 @@
-import { isObject } from "./shared.ts";
+import { hasBrand } from "./shared.ts";
 import type { UnsafeHtml } from "./types.ts";
 
 /**
@@ -14,10 +14,5 @@ export const unsafe = (html: string): UnsafeHtml => ({
   html,
 });
 
-export const isUnsafeHtml = <T>(x: T): x is T & UnsafeHtml => {
-  if (!isObject(x)) {
-    return false;
-  }
-  // SAFETY: $$ilhaUnsafe brand is installed by unsafe() on every raw view.
-  return (x as { readonly $$ilhaUnsafe?: unknown }).$$ilhaUnsafe === 1;
-};
+export const isUnsafeHtml = <T>(x: T): x is T & UnsafeHtml =>
+  hasBrand(x, "$$ilhaUnsafe");

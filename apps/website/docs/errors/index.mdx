@@ -1,0 +1,36 @@
+---
+title: Errors and warnings
+description: Every Ilha error and warning carries a stable ILHA code, a fix hint, and a docs link.
+---
+
+Ilha reports problems with a stable code. Each message follows one shape, so you and your tools can match on the code instead of the wording:
+
+```txt
+[ILHA001] <what went wrong>. Fix: <what to do> See https://ilha.build/errors/ILHA001
+```
+
+Errors are `IlhaError` instances. They expose `code`, `fix`, and `docs`:
+
+```tsx twoslash
+import { IlhaError, atom } from "ilha";
+
+try {
+  atom(0);
+} catch (error) {
+  if (error instanceof IlhaError) {
+    console.log(error.code, error.fix, error.docs);
+  }
+}
+```
+
+Warnings go through `console.warn` with the same message shape. Ilha shows each warning once per code and detail.
+
+| Code | Kind | Meaning |
+| --- | --- | --- |
+| [ILHA001](/errors/ILHA001) | error | A primitive ran with no active component |
+| [ILHA002](/errors/ILHA002) | warning | The atom/watch slot count changed between renders |
+| [ILHA003](/errors/ILHA003) | error | An atom handle was used from a different island |
+| [ILHA004](/errors/ILHA004) | error | A generator resumed while an instruction was running |
+| [ILHA005](/errors/ILHA005) | warning | Two sibling components share a key |
+| [ILHA006](/errors/ILHA006) | warning | Hydration found different markup and fully remounted |
+| [ILHA007](/errors/ILHA007) | error | `renderToString` found unsafe raw text in a tag |

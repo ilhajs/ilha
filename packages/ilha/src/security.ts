@@ -1,150 +1,76 @@
 import { isString } from "./shared.ts";
 import type { StyleObject } from "./types.ts";
 
-const SAFE_CSS_PROP_RE =
-  /^(?:-{2}[a-zA-Z][a-zA-Z0-9-]*|-?[a-zA-Z][a-zA-Z0-9-]*)$/u;
-const URL_ATTRS = new Set([
-  "href",
-  "src",
-  "srcset",
-  "imagesrcset",
-  "action",
-  "formaction",
-  "cite",
-  "data",
-  "poster",
-]);
-const SAFE_DATA_IMAGE_RE = /^data:image\/(?<fmt>png|jpe?g|gif|webp|avif)[;,]/iu;
-const UNSAFE_SCHEME_RE = /^(?:javascript|vbscript):/iu;
-const DATA_IMAGE_CONTEXTS = new Set([
-  "img:src",
-  "source:srcset",
-  "link:imagesrcset",
-]);
+const SAFE_CSS_PROP = /^-{0,2}[a-zA-Z][a-zA-Z0-9-]*$/u;
+const URL_ATTR =
+  /(?:^|:)(?:href|src|srcset|imagesrcset|action|formaction|cite|data|poster)$/iu;
+const SRCSET_ATTR = /^(?:srcset|imagesrcset)$/iu;
+const SAFE_DATA_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp|avif)[;,]/iu;
+const UNSAFE_SCHEME = /^(?:javascript|vbscript):/iu;
+// ASCII controls plus the Unicode whitespace and zero-width characters used to
+// pad dangerous URL schemes (NBSP, ZWSP, BOM, …).
+// oxlint-disable-next-line no-control-regex -- stripping controls is the point
+const URL_PADDING =
+  /[\0-\u0020\u00A0\u1680\u2000-\u200D\u2028\u2029\u202F\u205F\u3000\uFEFF]/gu;
+const UNSAFE_CSS = /[<>{};\\]|expression\(|javascript:|data:/iu;
+const CSS_URL = /url\s*\(\s*(?<inner>[^)]+)\s*\)/giu;
 
-// SAFETY: strips ASCII controls (\u0000-\u0020) and the Unicode whitespace /
-// zero-width characters used to pad dangerous URL schemes (NBSP, ZWSP, BOM, etc.).
-const isBlockedUrlChar = (code: number): boolean =>
-  code <= 0x20 ||
-  code === 0xa0 ||
-  code === 0x16_80 ||
-  (code >= 0x20_00 && code <= 0x20_0d) ||
-  code === 0x20_28 ||
-  code === 0x20_29 ||
-  code === 0x20_2f ||
-  code === 0x20_5f ||
-  code === 0x30_00 ||
-  code === 0xfe_ff;
-
-const normalizeUrl = (value: string): string => {
-  let out = "";
-  for (const ch of value) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (!isBlockedUrlChar(code)) {
-      out += ch;
-    }
-  }
-  return out;
-};
-
-const checkUrl = (normalized: string, allowDataImage: boolean): boolean => {
-  if (UNSAFE_SCHEME_RE.test(normalized)) {
+const isSafeUrl = (value: string, allowDataImage = false): boolean => {
+  const url = value.replaceAll(URL_PADDING, "");
+  if (UNSAFE_SCHEME.test(url)) {
     return false;
   }
-  if (/^data:/iu.test(normalized)) {
-    return allowDataImage && SAFE_DATA_IMAGE_RE.test(normalized);
-  }
-  return true;
+  return !/^data:/iu.test(url) || (allowDataImage && SAFE_DATA_IMAGE.test(url));
 };
 
-export const isUrlAttributeName = (name: string): boolean => {
-  const lower = name.toLowerCase();
-  return (
-    URL_ATTRS.has(lower) ||
-    /:(?<attr>href|src|srcset|imagesrcset|action|formaction|cite|data|poster)$/u.test(
-      lower
-    )
-  );
-};
+export const isUrlAttributeName = (name: string): boolean =>
+  URL_ATTR.test(name);
 
 export const isSafeUrlAttrValue = (
   tagName: string,
   attrName: string,
   value: string
 ): boolean => {
-  const attr = attrName.toLowerCase();
-  const allowDataImage =
-    DATA_IMAGE_CONTEXTS.has(`${tagName.toLowerCase()}:${attr}`) &&
-    !attr.startsWith("srcset") &&
-    attr !== "imagesrcset";
-  if (/^(?:srcset|imagesrcset)$/iu.test(attr)) {
-    return value.split(",").every((candidate) => {
-      const url = candidate.trim().split(/\s+/u)[0] ?? "";
-      return url === "" || checkUrl(normalizeUrl(url), false);
-    });
+  if (SRCSET_ATTR.test(attrName)) {
+    return value
+      .split(",")
+      .every((candidate) => isSafeUrl(candidate.trim().split(/\s+/u)[0] ?? ""));
   }
-  return checkUrl(normalizeUrl(value), allowDataImage);
+  // Raster data: images are allowed only as an <img src>.
+  return isSafeUrl(
+    value,
+    tagName.toLowerCase() === "img" && attrName.toLowerCase() === "src"
+  );
 };
 
-const isSafeStyleValue = (str: string): boolean => {
-  if (
-    /[<>{};]/u.test(str) ||
-    /expression\(/iu.test(str) ||
-    /javascript:/iu.test(str) ||
-    /data:/iu.test(str)
-  ) {
-    return false;
-  }
-  if (/\\/u.test(str)) {
-    return false;
-  }
-  const urlRe = /url\s*\(\s*(?<inner>[^)]+)\s*\)/giu;
-  let m: RegExpExecArray | null;
-  while ((m = urlRe.exec(str)) !== null) {
-    const inner = (m.groups?.inner ?? "")
-      .trim()
-      .replaceAll(/^['"]|['"]$/gu, "");
-    if (!checkUrl(normalizeUrl(inner), false)) {
-      return false;
-    }
-  }
-  return true;
-};
+const isSafeStyleValue = (str: string): boolean =>
+  !UNSAFE_CSS.test(str) &&
+  [...str.matchAll(CSS_URL)].every((m) =>
+    isSafeUrl((m.groups?.inner ?? "").trim().replaceAll(/^['"]|['"]$/gu, ""))
+  );
 
-const serializeStyleEntries = (value: StyleObject): string =>
-  Object.entries(value)
-    .map(([k, v]) => {
-      if (!SAFE_CSS_PROP_RE.test(k)) {
-        return "";
-      }
-      const prop = k.replaceAll(/[A-Z]/gu, (m) => `-${m.toLowerCase()}`);
-      const str = String(v);
-      if (!isSafeStyleValue(str)) {
-        return "";
-      }
-      return `${prop}:${str}`;
-    })
-    .filter(Boolean)
-    .join(";");
-
-export const serializeStyle = (value: StyleObject): string =>
-  serializeStyleEntries(value);
-
+/** Serialize a style string or object, dropping unsafe properties and values. */
 export const serializeStyleAttr = (value: string | StyleObject): string => {
-  if (isString(value)) {
-    const obj: Record<string, string | number | null | undefined> = {};
-    for (const decl of value.split(";")) {
-      const colon = decl.indexOf(":");
-      if (colon === -1) {
-        continue;
-      }
-      const prop = decl.slice(0, colon).trim();
-      const val = decl.slice(colon + 1).trim();
-      if (prop) {
-        obj[prop] = val;
-      }
-    }
-    return serializeStyleEntries(obj);
-  }
-  return serializeStyleEntries(value);
+  const entries = isString(value)
+    ? value.split(";").map((decl) => {
+        const colon = decl.indexOf(":");
+        return colon === -1
+          ? ["", ""]
+          : [decl.slice(0, colon).trim(), decl.slice(colon + 1).trim()];
+      })
+    : Object.entries(value);
+  return entries
+    .filter(
+      ([k, v]) =>
+        k &&
+        v !== null &&
+        v !== undefined &&
+        SAFE_CSS_PROP.test(k) &&
+        isSafeStyleValue(String(v))
+    )
+    .map(
+      ([k, v]) =>
+        `${(k ?? "").replaceAll(/[A-Z]/gu, (m) => `-${m.toLowerCase()}`)}:${String(v)}`
+    )
+    .join(";");
 };

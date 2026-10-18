@@ -1,0 +1,215 @@
+---
+title: Void
+description: Render Void pages, layouts, forms, and islands with Ilha components.
+---
+
+`@ilha/void` renders [Void](https://void.cloud) pages with Ilha. Void handles file routing, loaders, actions, and deployment. `@ilha/void` renders each page with `renderToString()` and hydrates it with `mount()`.
+
+It is a separate package from `ilha`. Add it when you build a server-rendered app.
+
+## Install
+
+```package-install
+@ilha/void
+```
+
+`ilha`, `vite`, and `void` are peer dependencies. Void needs Node.js 24.21 or newer.
+
+## Quick start
+
+Add `voidIlha()` after `voidPlugin()` in your Vite config.
+
+```ts
+// vite.config.ts
+import { voidIlha } from "@ilha/void/plugin";
+import { defineConfig } from "vite";
+import { voidPlugin } from "void";
+
+export default defineConfig({
+  plugins: [voidPlugin(), voidIlha()],
+});
+```
+
+Set `jsxImportSource` to `ilha` in `tsconfig.json`. Then create a page in `pages/`. Its default export is an Ilha component, and its props are the result of the page's loader.
+
+```tsx
+// pages/index.server.ts
+import { defineHandler } from "void";
+import type { InferProps } from "void";
+
+export type Props = InferProps<typeof loader>;
+
+export const loader = defineHandler(() => ({ todos: ["Ship it"] }));
+```
+
+```tsx
+// pages/index.tsx
+import type { Props } from "./index.server.ts";
+
+export default function Todos({ todos }: Props) {
+  return (
+    <ul>
+      {todos.map((todo) => (
+        <li key={todo}>{todo}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+Run `vite` to start the dev server. Scaffold a full app with `npx giget@latest gh:ilhajs/ilha/templates/void`.
+
+## How rendering works
+
+Void calls your page on the server, and `@ilha/void` renders it with its layouts through `await renderToString()`. In the browser, `mount(host, Page, { hydrate: true })` restores atom state from the snapshot in the HTML.
+
+Layouts live in `pages/layout.tsx` and wrap every page below them. A layout keeps its atom state and DOM across navigations. A page starts fresh on each navigation, because `@ilha/void` keys it by route.
+
+## Navigate with `Link`
+
+`Link` renders an `<a>` that the Void Router handles without a full page load.
+
+```tsx
+import { Link } from "@ilha/void";
+
+export default function Nav() {
+  return (
+    <nav>
+      <Link href="/" prefetch>
+        Home
+      </Link>
+      <Link href="/users/7" prefetch="visible" preserveScroll>
+        Ada
+      </Link>
+    </nav>
+  );
+}
+```
+
+| Prop | Meaning |
+| --- | --- |
+| `prefetch` | `true` (hover), or `"hover"`, `"click"`, `"mount"`, `"visible"`, or a list |
+| `cacheFor` | How long prefetched data stays fresh, such as `"30s"` |
+| `preserveScroll`, `preserveState` | Keep scroll position or page state across the visit |
+| `replace` | Replace the history entry |
+| `reloadDocument` | Skip the router and load the document |
+| `method`, `data` | Render a `<button>` that submits `data` with a non-GET method |
+| `viewTransition` | Wrap this visit in `document.startViewTransition()` |
+
+Other attributes pass through to the element. Modified clicks, `download` links, and cross-origin links fall back to the browser.
+
+## Read route state
+
+These hooks read from the current page and rerun your component when the value changes. Call them at the top level, like `atom()`.
+
+```tsx
+import { useNavigation, useParams, useRouter, useShared } from "@ilha/void";
+
+export default function UserPage() {
+  const { id } = useParams<{ id: string }>();
+  const { appName } = useShared<{ appName: string }>();
+  const navigation = useNavigation();
+  const router = useRouter();
+  return (
+    <section>
+      <h1>
+        {appName}: user {id}
+      </h1>
+      {navigation.state === "loading" ? <p>Loading…</p> : null}
+      <button type="button" onclick={() => router.refresh()}>
+        Refresh
+      </button>
+    </section>
+  );
+}
+```
+
+| Hook | Returns |
+| --- | --- |
+| `useParams()` | Route params |
+| `useShared()` | Values your middleware shares with every page |
+| `useNavigation()` | `{ state, location, method }`, idle during SSR and on island pages |
+| `useRouter()` | The Void Router: `visit()`, `refresh()`, `prefetch()`, `flush()` |
+
+## Submit forms
+
+`useForm(url, defaults)` binds field state to a page action. It submits through the Void Router, so a successful submit refreshes the page props without a reload.
+
+```tsx
+import { Form, useForm } from "@ilha/void";
+
+export default function NewTodo() {
+  const form = useForm("/", { text: "" });
+  return (
+    <Form form={form}>
+      <input
+        value={form.data.text}
+        oninput={({ currentTarget }) =>
+          form.setData("text", currentTarget.value)
+        }
+      />
+      {form.errors.text ? <p>{form.errors.text}</p> : null}
+      <button type="submit" disabled={form.pending}>
+        Add
+      </button>
+    </Form>
+  );
+}
+```
+
+`form` exposes `data`, `setData()`, `errors`, `error`, `pending`, `hasChanges`, `wasSuccessful`, `recentlySuccessful`, `reset()`, `clearErrors()`, and `clearError()`. Submit with `post()`, `put()`, `patch()`, or `delete()`. A `422` response fills `errors` from `{ errors: { field: "message" } }`.
+
+`Form` calls `form.post()` on submit, shows the form error in a `role="alert"` element, and blocks resubmits while a rate-limit retry window is open. Pass `method="put"` to change the verb.
+
+When you generate Void's route types, `useForm("/path", …)` takes its field types from the page's action.
+
+## Add islands
+
+Name a page `*.island.tsx` to render it as static HTML. Import a component with `with { island }` to hydrate only that component.
+
+```tsx
+// pages/about.island.tsx
+import Counter from "./_counter" with { island: "visible" };
+
+export default function About() {
+  return (
+    <section>
+      <h1>About</h1>
+      <Counter start={1} />
+    </section>
+  );
+}
+```
+
+The strategy is `"load"`, `"visible"`, `"idle"`, or `"media:(query)"`. Island props must be JSON, and `children` do not cross to the browser. Files that start with `_` are components, not routes.
+
+Island pages have no Void Router, so use plain `<a>` tags and `useIslandForm()`. It takes the action URL in `post(url)` and reloads the page after a successful submit.
+
+```tsx
+import { useIslandForm } from "@ilha/void";
+
+export default function Subscribe() {
+  const form = useIslandForm({ email: "" });
+  return (
+    <form
+      onsubmit={(event) => {
+        event.preventDefault();
+        return form.post("/subscribe");
+      }}
+    >
+      <input
+        value={form.data.email}
+        oninput={({ currentTarget }) =>
+          form.setData("email", currentTarget.value)
+        }
+      />
+      <button type="submit">Subscribe</button>
+    </form>
+  );
+}
+```
+
+## Current limits
+
+- Void's Markdown pages detect a fixed list of adapters, so `.md` pages are untested with `@ilha/void`.
+- Island pages load Void's router chunk, because `initIslands()` ships in `void/pages-client`.

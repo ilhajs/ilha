@@ -1,0 +1,28 @@
+{
+  "name": "@ilha/template-void",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
+    "test": "bun test",
+    "check": "bun run typecheck && bun run lint && bun run test"
+  },
+  "dependencies": {
+    "effect": "^4.0.0",
+    "hono": "^4.13.13",
+    "ilha": "^0.15.2"
+  },
+  "devDependencies": {
+    "@ilha/void": "^0.1.0",
+    "@types/bun": "^1.4.2",
+    "oxlint": "^1.86.0",
+    "typescript": "^7",
+    "vite": "^8.3.1",
+    "void": "^1.1.11"
+  }
+}

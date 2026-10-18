@@ -1,6 +1,6 @@
 import { defineMeta } from "blume";
 
 export default defineMeta({
-  pages: ["ilha", "router", "astro"],
+  pages: ["ilha", "astro", "void"],
   title: "Reference",
 });

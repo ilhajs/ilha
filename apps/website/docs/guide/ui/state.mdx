@@ -255,36 +255,7 @@ For optimistic updates, use [`Atom.optimisticFn`](https://www.effect.website/doc
 
 ## Share fetches
 
-`resource()` fetches once per key and shares the result. Concurrent mounts dedupe on one request; remounts seed from the cache:
-
-```tsx twoslash
-import { resource } from "ilha";
-
-const User = () => {
-  const user = resource("user:42", (key) =>
-    fetch(`/api/${key}`).then((r) => r.json())
-  );
-  if (user.loading()) return <p>Loading</p>;
-  return <p>{JSON.stringify(user.data())}</p>;
-};
-```
-
-| Handle      | Meaning                                 |
-| ----------- | --------------------------------------- |
-| `data`      | Last value, or `undefined`              |
-| `error`     | Last failure, or `undefined`            |
-| `loading`   | True while a request is in flight       |
-| `refetch()` | Fetch again; joins an in-flight request |
-
-`invalidate(key)` drops the cached value and refetches it in every live component:
-
-```ts twoslash
-import { invalidate } from "ilha";
-
-invalidate("user:42");
-```
-
-Call `resource()` unconditionally at the top level, before any `await`. The fetcher receives an abort signal that fires when a newer fetch starts or the component unmounts. On the server each render fetches fresh — the shared cache never crosses requests. `await renderToString(Component)` waits for the fetch; pass `{user.data}` in JSX to put the value in the HTML, since the component body renders once on the server.
+Ilha has no fetch helper. Read an Effect `Cache` through `atom()` to dedupe and refresh requests — see the [Data fetching](/guide/recipes/data-fetching) recipe.
 
 ## Lazy initialization
 
@@ -301,6 +272,27 @@ const Panel = () => {
   return <p>{JSON.stringify(settings())}</p>;
 };
 ```
+
+### Keep a slot out of the snapshot
+
+Server renders embed plain-value atoms in the HTML so hydration can restore them. Pass `{ snapshot: false }` to `atom()` or `atom.lazy()` to skip that for timers, observers, and other mutable refs. The slot starts from its initial value on the client.
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Visible = () => {
+  const observer = atom.lazy(
+    () => ({ current: undefined as IntersectionObserver | undefined }),
+    {
+      snapshot: false,
+    }
+  );
+  const now = atom(0, { snapshot: false });
+  return <p>{now()}</p>;
+};
+```
+
+Derived atoms (`atom(Atom.map(...))`) never enter the snapshot. Hydration recomputes them from their sources.
 
 ## Props vs state
 

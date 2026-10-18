@@ -1,0 +1,43 @@
+---
+title: "ILHA001: Primitive with no active component"
+description: atom(), watch(), when(), or context() ran outside a component that mount() or renderToString() started.
+---
+
+Primitives bind to the component that is rendering. Outside a render, no component is active, so Ilha throws `ILHA001`.
+
+## Why it happens
+
+- You call `atom()` at module top level.
+- You call a primitive from a timer, an event handler, or a promise callback that runs after the render.
+- You call a component function yourself instead of rendering it through `mount()` or `renderToString()`.
+
+## Bad
+
+```tsx
+import { atom } from "ilha";
+
+const count = atom(0);
+
+const Counter = () => <p>{count}</p>;
+```
+
+## Fixed
+
+Create the atom inside the component, at the top level of its body:
+
+```tsx twoslash
+import { atom, mount } from "ilha";
+
+const Counter = () => {
+  const count = atom(0);
+  return (
+    <button type="button" onclick={() => count.update((n) => n + 1)}>
+      {count}
+    </button>
+  );
+};
+
+mount(document.body, Counter);
+```
+
+Share state between components with `createContext()` rather than a module-level atom.

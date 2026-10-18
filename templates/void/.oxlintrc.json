@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "jsPlugins": ["ilha/oxlint"],
+  "ignorePatterns": ["dist", ".void", ".wrangler"],
+  "rules": {
+    "oxlint-plugin-ilha/function-in-atom": "error",
+    "oxlint-plugin-ilha/no-conditional-primitive": "error",
+    "oxlint-plugin-ilha/no-instruction-outside-generator": "error",
+    "oxlint-plugin-ilha/no-primitive-outside-component": "error",
+    "oxlint-plugin-ilha/no-react-props": "error",
+    "oxlint-plugin-ilha/require-key-in-map": "error"
+  }
+}

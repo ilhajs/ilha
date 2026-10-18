@@ -18,25 +18,19 @@ export type StyleObject = Readonly<
   Record<string, string | number | null | undefined>
 >;
 
-export type EventHandler = (event: Event) => void;
+/** Event and ref callbacks. `never` accepts handlers typed for a specific event. */
+export type EventHandler = (event: never) => void;
 
 /** Indexed bag — interface so PropValue can recurse without a circular type alias. */
 export interface PropBag {
   readonly [key: string]: PropValue | undefined;
 }
 
-export type ActionArg = JsonText | PropBag | readonly ActionArg[];
-
-export interface SsrAction {
-  readonly k: string;
-  readonly a: readonly ActionArg[];
-}
-
 export type View =
   | VNode
   | UnsafeHtml
   | JsonText
-  | AtomHandle<unknown>
+  | AtomView
   | Stream.Stream<View, unknown, unknown>
   | GeneratorFn
   | Component
@@ -96,14 +90,13 @@ export type Component =
 export interface IlhaRuntime {
   readonly registry: AtomRegistry;
   readonly scope: Closeable;
+  /** Run an effect synchronously with the mount's `AtomRegistry` provided. */
+  readonly fork: <A, E>(effect: Effect.Effect<A, E, AtomRegistry>) => A;
   readonly ssr: boolean;
   readonly ssrValues: unknown[];
-  ssrActions: Record<string, SsrAction>;
-  ssrEventI: number;
-  ssrCapture: boolean;
   hydrateValues?: unknown[];
   hydrateI: number;
-  nextHole: () => number;
+  holeSeq: number;
   begin: () => void;
   end: () => void;
   later: (fn: () => void) => void;
@@ -114,6 +107,12 @@ export interface IlhaRuntime {
    * nested component no `ErrorBoundary` caught, before the error view paints.
    */
   onError?: (error: Error) => void;
+}
+
+/** Any atom handle as a view: the painter subscribes to `atom`, whatever it holds. */
+export interface AtomView {
+  readonly $$atom: 1;
+  readonly atom: Atom.Atom<unknown>;
 }
 
 export interface AtomHandle<A> {
@@ -130,6 +129,20 @@ export type AtomEquality<A> = "structural" | ((prev: A, next: A) => boolean);
 export interface AtomOptions<A = unknown> {
   /** Skip subscriber notify when `equals(prev, next)` holds. Plain values only. */
   readonly equals?: AtomEquality<A>;
+  /**
+   * Set `false` to keep a plain-value slot out of the SSR snapshot. The slot
+   * starts from its initial value on hydration. Default `true`.
+   */
+  readonly snapshot?: boolean;
+}
+
+/** Options for `atom.lazy()`. */
+export interface AtomLazyOptions {
+  /**
+   * Set `false` to keep the slot out of the SSR snapshot, for timers,
+   * observers, and other mutable refs. Default `true`.
+   */
+  readonly snapshot?: boolean;
 }
 
 /** Optional disposer returned from `watch.once`. */
@@ -150,43 +163,17 @@ export type WatchCallback<A> = (
   ctx: WatchContext
 ) => WatchOnceCleanup | undefined | Promise<WatchOnceCleanup | undefined>;
 
-/** Options for `resource()`. */
-export interface ResourceOptions {
-  /** Serve cached data while revalidating in the background. Default `true`. */
-  readonly staleWhileRevalidate?: boolean;
-}
-
-/** Async fetch scoped to a resource key. Receives an abort signal. */
-export type ResourceFetcher<T> = (
-  key: string,
-  ctx: { signal: AbortSignal }
-) => Promise<T>;
-
-/** Handles returned by `resource()`. */
-export interface Resource<T> {
-  readonly data: AtomHandle<T | undefined>;
-  readonly error: AtomHandle<unknown>;
-  readonly loading: AtomHandle<boolean>;
-  refetch: () => Promise<T | undefined>;
-}
-
-/** Connection state of a `fromEventSource` feed. */
-export type EventSourceStatus = "connecting" | "open" | "retrying" | "closed";
-
-/** Options for `fromEventSource()`. */
-export interface EventSourceOptions<T = string> {
-  /** Named event to listen for. Default: the `message` event. */
-  readonly event?: string;
-  /** Decode (and validate) `data` into `T`. Throwing skips the message. */
-  readonly schema?: (data: string) => T;
-  /** Base backoff between reconnects. Default `1000`. Capped at 30s. */
-  readonly retryBaseMs?: number;
-}
-
-/** Live server-sent-events feed. */
-export interface EventSourceFeed<T = string> {
-  /** Paint with `yield Stream.map(feed.stream, ...)`; watch `latest` instead in sync components. */
-  readonly stream: Stream.Stream<T, never, never>;
-  readonly status: AtomHandle<EventSourceStatus>;
-  readonly latest: AtomHandle<T | undefined>;
+export interface MountOptions {
+  hydrate?: boolean;
+  /**
+   * Called with a failing root component, and with a nested component no
+   * `ErrorBoundary` caught, before the error view paints.
+   */
+  onError?: (error: Error) => void;
+  /**
+   * Called each time the mount has no pending work left: after the first
+   * paint and again after every rerender, async component, and watcher
+   * settles. Use it to learn when the DOM reflects an atom update.
+   */
+  onIdle?: () => void;
 }

@@ -2,11 +2,8 @@ import { expect, test } from "bun:test";
 
 import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
-import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 
-import { define } from "../src/define.ts";
-import { failureMessage } from "../src/errors.ts";
 import { atom, h, mount, renderToString } from "../src/index.ts";
 import { encodeSnapshot } from "../src/snapshot.ts";
 import type { PropBag } from "../src/types.ts";
@@ -62,25 +59,6 @@ test("stream view paints", async () => {
 test("renderToString waits for stream view", async () => {
   const html = await renderToString(() => Stream.fromIterable(["hello"]));
   expect(html).toContain("hello");
-});
-
-test("ilha.island brand mounts via internal hook", async () => {
-  const ISLAND = Symbol.for("ilha.island");
-  const MOUNT = Symbol.for("ilha.islandMountInternal");
-  const TAG = Symbol.for("ilha.islandSlotTag");
-  const Proxy = Object.assign(() => "", {
-    [ISLAND]: true,
-    [TAG]: "section",
-    [MOUNT]: (host: Element) => {
-      host.textContent = "framed";
-      return { unmount() {} };
-    },
-  });
-  const el = document.createElement("div");
-  // SAFETY: Proxy carries the island brand symbols for the mount hook.
-  mount(el, () => h(Proxy as never, null));
-  await Bun.sleep(5);
-  expect(el.querySelector("section")?.textContent).toBe("framed");
 });
 
 test("stream view error paints", async () => {
@@ -264,19 +242,4 @@ test("style string and empty async setup", async () => {
   mount(el2, async () => {});
   await Bun.sleep(5);
   expect(el2.innerHTML).toBe("");
-});
-
-test("asFailure Result and non-Error", () => {
-  expect(failureMessage(Result.fail("x"))).toBe("x");
-  expect(failureMessage(12)).toBe("12");
-});
-
-test("define hydrate then disconnect", async () => {
-  define("ilha-h", () => h("span", null, "h"));
-  const el = document.createElement("ilha-h");
-  el.dataset.ilha = "";
-  document.body.append(el);
-  await Bun.sleep(20);
-  expect(el.textContent).toContain("h");
-  el.remove();
 });

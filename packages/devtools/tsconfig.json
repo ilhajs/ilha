@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["dist", "node_modules"],
+  "compilerOptions": {
+    "types": ["@types/bun"],
+    "strictNullChecks": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "ilha",
+    "noUncheckedIndexedAccess": true,
+    "resolveJsonModule": true,
+    "paths": {
+      "ilha": ["../ilha/src/index.ts"],
+      "ilha/debug": ["../ilha/src/debug.ts"],
+      "ilha/jsx-runtime": ["../ilha/src/jsx-runtime.ts"],
+      "ilha/jsx-dev-runtime": ["../ilha/src/jsx-dev-runtime.ts"]
+    }
+  }
+}

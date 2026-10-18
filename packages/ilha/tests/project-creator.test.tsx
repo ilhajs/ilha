@@ -6,7 +6,7 @@ import { atom, mount } from "ilha";
 
 const ProjectCreatorLike = () => {
   const name = atom("");
-  const template = atom<"vite-spa" | "oxide-spa">("vite-spa");
+  const template = atom<"vite-spa" | "void">("vite-spa");
   const useBun = atom(false);
   const createCommand = atom(
     Atom.transform(template.atom, (get, templateAtom) => {
@@ -37,15 +37,15 @@ const ProjectCreatorLike = () => {
         />
         vite
       </label>
-      <label data-oxide-label>
+      <label data-void-label>
         <input
           type="radio"
           name="template"
-          value="oxide-spa"
-          checked={template() === "oxide-spa"}
-          onchange={() => template.set("oxide-spa")}
+          value="void"
+          checked={template() === "void"}
+          onchange={() => template.set("void")}
         />
-        oxide
+        void
       </label>
       <button data-bun type="button" onclick={() => useBun.set(true)}>
         bun
@@ -77,7 +77,7 @@ const toggleRound = async (
   if (remaining <= 0) {
     return;
   }
-  await clickLabel(el, "[data-oxide-label]", "oxide-spa");
+  await clickLabel(el, "[data-void-label]", "void");
   await clickLabel(el, "[data-vite-label]", "vite-spa");
   await toggleRound(el, remaining - 1);
 };

@@ -10,7 +10,7 @@ const mapAtom = Atom.map;
 test("atom outside island throws", () => {
   expect(() => {
     void atom(0);
-  }).toThrow(/no fiber/u);
+  }).toThrow(/\[ILHA001\]/u);
 });
 
 test("atom handle from another island throws when a different island is active", async () => {
@@ -26,7 +26,7 @@ test("atom handle from another island throws when a different island is active",
     if (!foreign) {
       throw new Error("foreign missing");
     }
-    expect(() => foreign()).toThrow(/different island/u);
+    expect(() => foreign()).toThrow(/\[ILHA003\]/u);
     return { $$ilha: 1 as const, children: ["b"], props: {}, type: "span" };
   };
 

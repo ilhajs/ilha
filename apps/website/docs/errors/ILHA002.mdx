@@ -1,0 +1,39 @@
+---
+title: "ILHA002: Atom/watch slot count changed"
+description: A component created a different number of atom and watch slots on a later render.
+---
+
+Primitives are order-based. Ilha stores each `atom()` and `watch()` in a slot and matches slots to calls by position. When a render creates a different number of slots than the last one, Ilha warns with `ILHA002`.
+
+## Why it happens
+
+You wrapped a primitive in a condition, a loop, or an early return, so the call count depends on state.
+
+## Bad
+
+```tsx
+import { atom } from "ilha";
+
+const Panel = ({ open }: { open: boolean }) => {
+  if (open) {
+    const draft = atom("");
+    return <input value={draft()} />;
+  }
+  return <p>Closed</p>;
+};
+```
+
+## Fixed
+
+Call primitives unconditionally and in the same order. Put the condition inside the view:
+
+```tsx twoslash
+import { atom } from "ilha";
+
+const Panel = ({ open }: { open: boolean }) => {
+  const draft = atom("");
+  return open ? <input value={draft()} /> : <p>Closed</p>;
+};
+```
+
+For one-time or conditional work, use `atom.lazy(() => expensive())` or `watch.once()` instead of guarding the call.

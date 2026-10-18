@@ -1,0 +1,83 @@
+---
+title: Data fetching
+description: Share, dedupe, and refresh fetches with an Effect Cache and atoms.
+---
+
+Ilha has no fetch helper. You put an Effect [`Cache`](https://www.effect.website/docs/v4/api/effect/Cache) in a module and read it through an atom. Concurrent reads of one key share one request; later reads hit the cache until the entry expires.
+
+```tsx twoslash
+import * as Cache from "effect/Cache";
+import * as Effect from "effect/Effect";
+import * as Atom from "effect/reactivity/Atom";
+import { atom } from "ilha";
+
+interface User {
+  readonly name: string;
+}
+
+// One cache per module: every component on the page shares it.
+const users = Effect.runSync(
+  Cache.make({
+    capacity: 100,
+    lookup: (id: string) =>
+      Effect.tryPromise(async (): Promise<User> => {
+        const res = await fetch(`/api/users/${id}`);
+        return res.json();
+      }),
+    timeToLive: "1 minute",
+  })
+);
+
+export const UserCard = ({ id }: { id: string }) => {
+  const user = atom(
+    Cache.get(users, id).pipe(Effect.map((u) => <p>{u.name}</p>))
+  );
+  return (
+    <section>
+      {user}
+      <button
+        type="button"
+        onclick={() =>
+          Cache.invalidate(users, id).pipe(
+            Effect.andThen(Atom.refresh(user.atom))
+          )
+        }
+      >
+        Refresh
+      </button>
+    </section>
+  );
+};
+```
+
+1. `atom(effect)` runs the lookup and holds an `AsyncResult`.
+2. `{user}` paints nothing while waiting, the view on success, and the error message on failure. A refresh keeps the previous view until the new one lands.
+3. The click handler returns an Effect. Ilha runs it with the component's atom registry, so `Atom.refresh` reruns the lookup.
+
+## Read the result in the component
+
+Read the handle to branch on the state yourself:
+
+```tsx twoslash
+import * as Effect from "effect/Effect";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { atom } from "ilha";
+
+const loadCount = Effect.tryPromise(async () => {
+  const res = await fetch("/api/count");
+  return Number(await res.text());
+});
+
+export const Count = () => {
+  const count = atom(loadCount);
+  return AsyncResult.match(count(), {
+    onFailure: () => <p>Could not load</p>,
+    onInitial: () => <p>Loading</p>,
+    onSuccess: ({ value }) => <p>{value}</p>,
+  });
+};
+```
+
+## Server rendering
+
+`renderToString` does not wait for these lookups. Load data that must be in the HTML on the server, then pass it in as props. With [Void](/guide/void), page loaders do this for you.

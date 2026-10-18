@@ -1,0 +1,37 @@
+# ilha
+
+> Tiny, isomorphic islands UI library on Effect 4. Function components, order-based `atom()` slots, JSX, SSR via `renderToString`, hydration via `mount(host, C, { hydrate: true })`. Version 0.15.2.
+
+Start with the canonical-usage table: exactly one API per task, plus a never-do list.
+
+## Docs
+
+- [Choose an API](https://ilha.build/guide/getting-started/choose-an-api): task to API table and never-do list
+- [Core concepts](https://ilha.build/guide/getting-started/core-concepts): components, atoms, mount, renderToString
+- [Full docs for LLMs](https://ilha.build/llms-full.txt): every page as one Markdown file
+- [Reference](https://ilha.build/reference/ilha): API reference for ilha
+
+## Diagnostics
+
+- [Error codes](https://ilha.build/errors): ILHA001..ILHA007: cause and fix for each IlhaError
+
+## Tooling
+
+- [Testing](https://ilha.build/guide/recipes/testing): ilha/test render harness
+- [Devtools](https://ilha.build/guide/devtools): ilha/debug inspect() and @ilha/devtools
+- [Oxlint plugin](https://ilha.build/guide/recipes/oxlint): ilha/oxlint rules
+
+## Recipes
+
+- [Data fetching](https://ilha.build/guide/recipes/data-fetching): Effect Cache + atom(Effect)
+- [Server-sent events](https://ilha.build/guide/recipes/server-sent-events): Stream.callback + retry
+- [Custom elements](https://ilha.build/guide/recipes/custom-elements): wrap a component as a custom element
+
+## Optional
+
+- [Migrations](https://github.com/ilhajs/ilha/blob/main/packages/ilha/MIGRATIONS.md): removed or changed APIs with replacements
+
+## Package files
+
+- AGENTS.md: agent guide shipped in the npm tarball (public API from source JSDoc)
+- MIGRATIONS.md, MIGRATIONS.json: removed or changed APIs with replacements

@@ -112,12 +112,11 @@ const host = document.querySelector("[data-ilha]");
 if (host) mount(host, Counter, { hydrate: true });
 ```
 
-| Option           | Default | Meaning                        |
-| ---------------- | ------- | ------------------------------ |
-| `snapshot`       | `true`  | Embed atom values              |
-| `markers`        | `true`  | Wrap in `<div data-ilha>`      |
-| `timeout`        | none    | Serialize after this many ms   |
-| `captureActions` | `false` | Probe handlers for server RPCs |
+| Option     | Default | Meaning                      |
+| ---------- | ------- | ---------------------------- |
+| `snapshot` | `true`  | Embed atom values            |
+| `markers`  | `true`  | Wrap in `<div data-ilha>`    |
+| `timeout`  | none    | Serialize after this many ms |
 
 `renderToString` builds HTML without a DOM — no polyfill in Node, Bun, or edge runtimes.
 
@@ -138,31 +137,15 @@ Event props are lowercase (`onclick`, `onchange`). Use `class`, not `className`.
 
 ---
 
-## Custom elements
+## Recipes
 
-```ts
-import { atom } from "ilha";
-import { define } from "ilha/define";
-
-define("ilha-counter", () => {
-  const count = atom(0);
-  return (
-    <button type="button" onclick={() => count.update((n: number) => n + 1)}>
-      {count}
-    </button>
-  );
-});
-```
-
-```html
-<ilha-counter data-ilha></ilha-counter>
-```
+Data fetching, server-sent events, and custom elements are short Effect recipes rather than exports: see [ilha.build/guide/recipes](https://ilha.build/guide/recipes/data-fetching).
 
 ---
 
-## Routing and Astro
+## Void and Astro
 
-- [`@ilha/router`](https://github.com/ilhajs/ilha/tree/main/packages/router) — file-system SPA routes and Oxide server islands.
+- [`@ilha/void`](https://github.com/ilhajs/ilha/tree/main/packages/void) — Void pages, layouts, forms, and islands.
 - [`@ilha/astro`](https://github.com/ilhajs/ilha/tree/main/packages/astro) — Astro renderer (`renderToString` + `mount`).
 
 Docs: [ilha.build](https://ilha.build)

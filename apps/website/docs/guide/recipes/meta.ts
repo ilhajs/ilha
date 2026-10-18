@@ -1,6 +1,14 @@
 import { defineMeta } from "blume";
 
 export default defineMeta({
-  pages: ["h", "pubsub-state", "testing", "view-transitions", "oxlint"],
+  pages: [
+    "data-fetching",
+    "server-sent-events",
+    "custom-elements",
+    "h",
+    "testing",
+    "view-transitions",
+    "oxlint",
+  ],
   title: "Recipes",
 });

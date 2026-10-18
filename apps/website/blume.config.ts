@@ -20,7 +20,7 @@ export default defineConfig({
   ],
   deployment: { site: "https://ilha.build" },
   description:
-    "Ilha is a lightweight UI framework under 2,500 lines of code. Simple enough to fit in a single AI context window, powerful enough to build modern interfaces your way.",
+    "Ilha is a tiny, Effect-based UI library for the islands architecture: function components, atoms, JSX, SSR, and hydration. One way to do each task, so people and AI agents write it the same way.",
   github: { dir: "apps/website", owner: "ilhajs", repo: "ilha" },
   integrations: [
     icon({ iconDir: path.join(HERE, "icons") }),
@@ -63,6 +63,7 @@ export default defineConfig({
               "/guide/getting-started/introduction",
               "/guide/getting-started/installation",
               "/guide/getting-started/core-concepts",
+              "/guide/getting-started/choose-an-api",
             ],
             label: "Start",
           },
@@ -74,33 +75,28 @@ export default defineConfig({
               "/guide/ui/templating",
               "/guide/ui/streams",
               "/guide/ui/render",
-              "/guide/ui/custom-elements",
             ],
             label: "Build UI",
           },
           {
-            items: [
-              "/guide/routing/overview",
-              "/guide/routing/routes-and-navigation",
-              "/guide/routing/error-boundaries",
-              "/guide/routing/file-system-routing",
-              "/guide/routing/server-islands",
-              "/guide/routing/middleware-and-security",
-              "/guide/routing/deployment",
-            ],
-            label: "Routing",
-          },
-          {
-            items: ["/guide/astro"],
+            items: ["/guide/astro", "/guide/void"],
             label: "Integrations",
           },
           {
             items: [
-              "/guide/recipes/h",
-              "/guide/recipes/pubsub-state",
               "/guide/recipes/testing",
-              "/guide/recipes/view-transitions",
               "/guide/recipes/oxlint",
+              "/guide/devtools",
+            ],
+            label: "Tooling",
+          },
+          {
+            items: [
+              "/guide/recipes/data-fetching",
+              "/guide/recipes/server-sent-events",
+              "/guide/recipes/custom-elements",
+              "/guide/recipes/h",
+              "/guide/recipes/view-transitions",
             ],
             label: "Recipes",
           },
@@ -119,7 +115,24 @@ export default defineConfig({
         root: "/guide",
       },
       {
-        items: ["/reference/ilha", "/reference/router", "/reference/astro"],
+        items: [
+          "/reference/ilha",
+          "/reference/astro",
+          "/reference/void",
+          {
+            items: [
+              "/errors",
+              "/errors/ILHA001",
+              "/errors/ILHA002",
+              "/errors/ILHA003",
+              "/errors/ILHA004",
+              "/errors/ILHA005",
+              "/errors/ILHA006",
+              "/errors/ILHA007",
+            ],
+            label: "Errors",
+          },
+        ],
         label: "Reference",
         root: "/reference",
       },

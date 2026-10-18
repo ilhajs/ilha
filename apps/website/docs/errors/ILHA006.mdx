@@ -1,0 +1,38 @@
+---
+title: "ILHA006: Hydration mismatch"
+description: Hydration found server markup that differs from the client render, so Ilha mounted from scratch.
+---
+
+`mount(host, Component, { hydrate: true })` reuses the server markup. When the first element differs from what the client renders, Ilha warns with `ILHA006` and replaces the host content with a full mount. Users see a flash and lose the server work.
+
+## Why it happens
+
+- The server and the client render different components or different props.
+- The markup in the host came from a different page or an older build.
+- Conditional primitives changed the render order. See [ILHA002](/errors/ILHA002).
+
+## Bad
+
+```tsx
+import { mount } from "ilha";
+
+const Page = () => <section>Hello</section>;
+
+// The server sent <article>…</article> into this host.
+mount(document.body, Page, { hydrate: true });
+```
+
+## Fixed
+
+Render the same component with the same props in both places:
+
+```tsx twoslash
+import { mount, renderToString } from "ilha";
+
+const Page = () => <section>Hello</section>;
+
+const html = await renderToString(Page);
+
+document.body.innerHTML = html;
+mount(document.body, Page, { hydrate: true });
+```

@@ -1,0 +1,121 @@
+---
+title: Server-sent events
+description: Turn an EventSource into an Effect Stream that reconnects with backoff.
+---
+
+Ilha paints any Effect `Stream`. You wrap `EventSource` in `Stream.callback`, and `Stream.retry` reconnects after the connection drops.
+
+```ts twoslash
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Queue from "effect/Queue";
+import * as Schedule from "effect/Schedule";
+import * as Stream from "effect/Stream";
+
+/** Messages from `url`; reconnects with backoff capped at 30 seconds. */
+export const eventSource = (url: string, event = "message") =>
+  Stream.callback<string, Event>((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const source = new EventSource(url);
+        source.addEventListener(event, (e) => {
+          if (e instanceof MessageEvent && typeof e.data === "string") {
+            Queue.offerUnsafe(queue, e.data);
+          }
+        });
+        source.addEventListener("error", (e) => {
+          if (source.readyState === EventSource.CLOSED) {
+            Queue.failCauseUnsafe(queue, Cause.fail(e));
+          }
+        });
+        return source;
+      }),
+      (source) => Effect.sync(() => source.close())
+    )
+  ).pipe(
+    Stream.retry(
+      Schedule.min([
+        Schedule.exponential("1 second"),
+        Schedule.spaced("30 seconds"),
+      ])
+    )
+  );
+```
+
+Closing the stream closes the connection. Ilha closes it when the component unmounts.
+
+## Paint each message
+
+Yield the mapped stream from a generator component:
+
+```tsx twoslash
+// @filename: sse.ts
+import * as Stream from "effect/Stream";
+export declare const eventSource: (url: string) => Stream.Stream<string, Event>;
+// @filename: ticks.tsx
+// ---cut---
+import * as Stream from "effect/Stream";
+import { eventSource } from "./sse";
+
+export function* Ticks() {
+  yield eventSource("/ticks").pipe(Stream.map((msg) => <p>{msg}</p>));
+}
+```
+
+## Read the latest value
+
+Pass the stream to `atom()` to keep the latest message in a sync component:
+
+```tsx twoslash
+// @filename: sse.ts
+import * as Stream from "effect/Stream";
+export declare const eventSource: (url: string) => Stream.Stream<string, Event>;
+// @filename: price.tsx
+// ---cut---
+import { atom } from "ilha";
+import { eventSource } from "./sse";
+
+export const Price = () => {
+  const price = atom(eventSource("/price"));
+  return <p>{price}</p>;
+};
+```
+
+## Decode messages
+
+Parse `data` with [`Schema`](https://www.effect.website/docs/v4/api/effect/Schema) and drop invalid messages:
+
+```ts twoslash
+// @filename: sse.ts
+import * as Stream from "effect/Stream";
+export declare const eventSource: (url: string) => Stream.Stream<string, Event>;
+// @filename: ticks.ts
+// ---cut---
+import * as Filter from "effect/Filter";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import { eventSource } from "./sse";
+
+const Tick = Schema.fromJsonString(Schema.Struct({ n: Schema.Number }));
+
+export const ticks = eventSource("/ticks").pipe(
+  Stream.filterMap(Filter.fromPredicateOption(Schema.decodeUnknownOption(Tick)))
+);
+```
+
+## Server rendering
+
+`EventSource` does not exist on the server. Return `Stream.empty` there, or render the component only in the browser:
+
+```ts twoslash
+// @filename: sse.ts
+import * as Stream from "effect/Stream";
+export declare const eventSource: (url: string) => Stream.Stream<string, Event>;
+// @filename: feed.ts
+// ---cut---
+import * as Stream from "effect/Stream";
+import { eventSource } from "./sse";
+
+export const feed = (url: string) =>
+  globalThis.EventSource === undefined ? Stream.empty : eventSource(url);
+```

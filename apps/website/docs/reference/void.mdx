@@ -1,0 +1,51 @@
+---
+title: "@ilha/void"
+description: Exports, plugin options, and types for the Void integration.
+---
+
+## Import paths
+
+| Import path | Use it for |
+| --- | --- |
+| `@ilha/void` | `Link`, `Form`, hooks, form helpers, and types |
+| `@ilha/void/plugin` | `voidIlha()` Vite plugin |
+| `@ilha/void/client` | `startPages()`; the generated pages client calls it |
+| `@ilha/void/islands` | `mountIsland()`; the generated islands client calls it |
+| `@ilha/void/server` | `createPageRenderer()` and friends; generated modules call them |
+
+Import `client`, `islands`, and `server` only if you write your own entries. Void's generated modules use them.
+
+## `voidIlha(options?)`
+
+Returns the Vite plugins that render and hydrate Void pages with Ilha. Add it after `voidPlugin()`.
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `viewTransitions` | `boolean` | `false` | Wrap router navigations in `document.startViewTransition()` |
+| `prefetch.hoverDelay` | `number` | `75` | Milliseconds a pointer rests on a link before hover prefetch |
+| `prefetch.cacheFor` | `number \| string \| [string, string]` | `"30s"` | How long prefetched data stays fresh |
+
+The plugin also sets Ilha's JSX import source unless your config sets one, pre-bundles the Ilha JSX runtimes, and de-duplicates `ilha` so the server and client share one instance. Dependencies that declare `ilha` as a dependency or peer get the same treatment.
+
+## Components
+
+| Export | Signature |
+| --- | --- |
+| `Link` | `(props: LinkProps) => View`; see the [guide](/guide/void#navigate-with-link) |
+| `Form` | `({ form, method?, renderError?, children }) => View` |
+
+## Hooks
+
+| Export | Returns |
+| --- | --- |
+| `useParams<T>()` | Route params; throws outside a Void page |
+| `useShared<T>()` | Middleware-shared values; throws outside a Void page |
+| `useNavigation()` | `NavigationState`; idle outside regular pages |
+| `useRouter()` | `VoidRouter`; a server-safe stub outside regular pages |
+| `usePageErrors()` | Validation errors the last action returned |
+| `useForm(url, defaults, options?)` | `PageForm<T>` |
+| `useIslandForm(defaults)` | `IslandForm<T>` |
+
+## Other exports
+
+`action()` and `setActionRouter()` are Void's action client. `VoidContext` carries route state; read it through the hooks. The `Deferred` and `InferProps` types come from `void`.

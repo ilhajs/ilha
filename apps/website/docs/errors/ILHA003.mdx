@@ -1,0 +1,53 @@
+---
+title: "ILHA003: Atom handle used from a different island"
+description: You read or wrote an atom handle while a different component was rendering.
+---
+
+An atom handle belongs to the component that created it. Calling it while another root is active throws `ILHA003`, because the value lives in a different registry.
+
+## Why it happens
+
+You stored a handle in a module variable, a global, or a closure and called it from another island.
+
+## Bad
+
+```tsx
+import { atom } from "ilha";
+
+let shared: (() => number) | undefined;
+
+const Source = () => {
+  const count = atom(0);
+  shared = count;
+  return <p>{count}</p>;
+};
+
+const Reader = () => <p>{shared?.()}</p>;
+```
+
+## Fixed
+
+Share state with `createContext()` and `context()` inside one root, or pass the value as a prop:
+
+```tsx twoslash
+import { atom, context, createContext } from "ilha";
+
+const Count = createContext(0);
+
+const Reader = () => {
+  const count = context(Count);
+  return <p>{count}</p>;
+};
+
+const App = () => {
+  const count = atom(0);
+  return (
+    <Count.Provider value={count()}>
+      <button type="button" onclick={() => count.update((n) => n + 1)}>
+        Add
+      </button>
+      <Reader />
+    </Count.Provider>
+  );
+};
+```

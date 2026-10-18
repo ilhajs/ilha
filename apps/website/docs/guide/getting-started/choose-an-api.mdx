@@ -1,0 +1,72 @@
+---
+title: Choose an API
+description: One canonical API for each task, plus the patterns you never write in Ilha.
+---
+
+Ilha gives you exactly one way to do each task. Find your task in the table and use that API.
+
+## Task to API
+
+| Task | Use | Guide |
+| --- | --- | --- |
+| Local state | `atom(0)` | [State management](/guide/ui/state) |
+| Derived value | `atom(Atom.map(source.atom, fn))` | [State management](/guide/ui/state#derived-atoms) |
+| Derived from several atoms | `atom(Atom.transform(source.atom, (get) => ...))` | [State management](/guide/ui/state#derived-atoms) |
+| One-time init | `atom.lazy(() => expensive())` | [State management](/guide/ui/state) |
+| React to a change | `watch(source, fn)` | [State management](/guide/ui/state#side-effects) |
+| Mount-only effect | `watch.once(fn)` | [State management](/guide/ui/state#side-effects) |
+| Async data | `atom(Effect)`, read as an `AsyncResult` | [Data fetching](/guide/recipes/data-fetching) |
+| Live data | `yield` a `Stream` from a generator component | [Streams](/guide/ui/streams) |
+| Per-emission interruptible flow | `yield* when(stream, body)` | [Streams](/guide/ui/streams#when) |
+| Values shared down the tree | `createContext()` and `context()` | [Context and errors](/guide/ui/context-and-errors) |
+| Failures in a subtree | `<ErrorBoundary fallback={...}>` | [Context and errors](/guide/ui/context-and-errors#error-boundaries) |
+| Server render | `await renderToString(Component)` | [Render and hydrate](/guide/ui/render) |
+| Client render | `mount(host, Component)` | [Render and hydrate](/guide/ui/render) |
+| Hydrate server HTML | `mount(host, Component, { hydrate: true })` | [Render and hydrate](/guide/ui/render) |
+| Raw, trusted HTML | `unsafe(html)` | [Templating](/guide/ui/templating#raw-html) |
+
+## Example
+
+State, a derived value, and a reaction use three different APIs. Each task has one.
+
+```tsx twoslash
+import * as Atom from "effect/reactivity/Atom";
+import { atom, watch } from "ilha";
+
+const Cart = () => {
+  const items = atom([
+    { id: "a", n: 1 },
+    { id: "b", n: 2 },
+  ]);
+  const total = atom(
+    Atom.map(items.atom, (list) => list.reduce((sum, item) => sum + item.n, 0))
+  );
+  watch(total, (value) => {
+    localStorage.setItem("cart:total", String(value));
+  });
+  return <p>{total}</p>;
+};
+```
+
+`atom()` holds state, `Atom.map` derives the total, and `watch()` reacts when it changes. Pass `items.atom` to Effect APIs, then wrap the result in `atom()`.
+
+## Never do
+
+- Never call `atom()`, `watch()`, or `when()` conditionally, in a loop, or after an early return. Slots are order-based, and a changed count triggers ILHA002.
+- Never use React hooks (`useState`, `useEffect`, `useMemo`). Ilha has no hook layer.
+- Never read an atom with `.value` or `.get()`. Call `count()`, or pass `{count}` in JSX.
+- Never use an atom handle from another island. It throws ILHA003.
+- Never wrap Effect Atom APIs (`Atom.map`, `Atom.transform`, `Atom.fn`) in your own helper. Pass `handle.atom` to them.
+- Never fetch inside `watch.once()` and copy the result into an atom. Write `atom(Effect)` instead.
+- Never pass untrusted input to `unsafe()`. It skips escaping.
+- Never import removed APIs: `resource`, `invalidate`, `fromEventSource`, `ilha/define`, or `structuralEqual`. See `MIGRATIONS.md` in the `ilha` package.
+
+## Check your work
+
+Agents get machine-readable feedback at every step:
+
+- Each misuse raises an `IlhaError` with a stable `ILHA00N` code, a `fix` line, and a link to [Errors](/errors).
+- [`ilha/test`](/guide/recipes/testing) renders a component and returns its tree and atoms.
+- [`ilha/debug`](/guide/devtools) inspects live islands as JSON.
+- The [Oxlint plugin](/guide/recipes/oxlint) catches conditional primitives before you run the code.
+- The `ilha` package ships `AGENTS.md`, `llms.txt`, and `MIGRATIONS.md`, and the site publishes `/llms.txt`.

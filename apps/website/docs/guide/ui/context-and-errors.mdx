@@ -34,7 +34,7 @@ const App = () => {
 2. Wrap a subtree in `<Theme.Provider value={…}>`.
 3. Call `context(Theme)` in a descendant to get an `AtomHandle`.
 
-Without a provider, `context()` returns a handle over the default value. Nested providers override outer ones.
+Without a provider, `context()` returns a handle over the default value. Nested providers override outer ones. A provider re-reads `value` on every render and stays out of the SSR snapshot, so it never ships its value in the HTML.
 
 Call `context()` during render under a fiber — same rule as reading an atom.
 
@@ -72,4 +72,4 @@ const App = () => (
 | `onError(error)`             | Optional side channel (logging) |
 | `children`                   | Protected subtree               |
 
-Without a boundary, a failed child hole paints the default `[data-ilha-error]` view and the parent stays up. `mount(host, Component, { onError })` receives that failure as an `Error`, so you can report it from one place. Route-level failures still use `@ilha/router` `+error` — see [Error boundaries](/guide/routing/error-boundaries).
+Without a boundary, a failed child hole paints the default `[data-ilha-error]` view and the parent stays up. `mount(host, Component, { onError })` receives that failure as an `Error`, so you can report it from one place.

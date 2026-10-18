@@ -140,20 +140,8 @@ function* Gate() {
 
 ## Server feeds
 
-Map a server stream to JSX with `Stream.fromAsyncIterable`. SSR serializes the first value; the client resumes the feed. See [Server islands](/guide/routing/server-islands) and [PubSub state](/guide/recipes/pubsub-state).
+Map a server stream to JSX with `Stream.fromAsyncIterable`. SSR serializes the first value; the client resumes the feed.
 
 ### Live events
 
-`fromEventSource()` opens one SSE connection per component, reconnects with backoff, and closes on unmount:
-
-```tsx twoslash
-import * as Stream from "effect/Stream";
-import { fromEventSource } from "ilha";
-
-function* Ticks() {
-  const feed = fromEventSource("https://example.com/ticks");
-  yield Stream.map(feed.stream, (msg) => <p>{msg}</p>);
-}
-```
-
-Read `feed.latest` in a sync component, or `feed.status` (`"connecting" | "open" | "retrying" | "closed"`) for connection UI. Pass `{ event }` for a named event and `{ schema }` to decode `data` — throwing skips the message. SSR renders an empty stream with status `"closed"`.
+Wrap `EventSource` in `Stream.callback` and reconnect with `Stream.retry` — see the [Server-sent events](/guide/recipes/server-sent-events) recipe.

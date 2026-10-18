@@ -22,7 +22,12 @@
     "url": "git+https://github.com/ilhajs/ilha.git"
   },
   "files": [
-    "dist"
+    "dist",
+    "AGENTS.md",
+    "llms.txt",
+    "MIGRATIONS.md",
+    "MIGRATIONS.json",
+    "oxlint.cjs"
   ],
   "type": "module",
   "sideEffects": false,
@@ -49,20 +54,25 @@
       "default": "./src/jsx-dev-runtime.ts"
     },
     "./jsx-dev-runtime.ts": "./src/jsx-dev-runtime.ts",
-    "./define": {
-      "types": "./dist/define.d.ts",
-      "import": "./dist/define.js"
-    },
     "./renderer": {
       "types": "./dist/renderer.d.ts",
       "import": "./dist/renderer.js"
-    }
+    },
+    "./test": {
+      "types": "./dist/test.d.ts",
+      "import": "./dist/test.js"
+    },
+    "./debug": {
+      "types": "./dist/debug.d.ts",
+      "import": "./dist/debug.js"
+    },
+    "./oxlint": "./oxlint.cjs"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "bun scripts/agent-docs.ts && tsdown",
     "cleanup": "rimraf dist node_modules",
     "test": "bun test",
     "typecheck": "tsc -p tsconfig.types.json --noEmit"

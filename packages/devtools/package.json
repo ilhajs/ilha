@@ -1,0 +1,66 @@
+{
+  "name": "@ilha/devtools",
+  "version": "0.1.0",
+  "description": "Inspect live Ilha islands from the browser, a panel, or a coding agent",
+  "keywords": [
+    "agents",
+    "devframe",
+    "devtools",
+    "ilha",
+    "island-architecture",
+    "islands",
+    "webmcp"
+  ],
+  "homepage": "https://github.com/ilhajs/ilha/tree/main/packages/devtools#readme",
+  "bugs": {
+    "url": "https://github.com/ilhajs/ilha/issues"
+  },
+  "license": "MIT",
+  "author": "Ryuz <ryuzer@proton.me>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ilhajs/ilha.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./page": {
+      "types": "./dist/page.d.ts",
+      "import": "./dist/page.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown && tsc -p tsconfig.build.json && bun run scripts/build-spa.ts",
+    "cleanup": "rimraf dist node_modules",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "devframe": "^1.2.5"
+  },
+  "devDependencies": {
+    "effect": "^4.0.0",
+    "ilha": "^0.15.2"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0",
+    "ilha": ">=0.15.2"
+  }
+}

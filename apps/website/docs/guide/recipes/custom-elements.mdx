@@ -1,0 +1,59 @@
+---
+title: Custom elements
+description: Register a component as a custom element in a few lines.
+---
+
+You register a component as a custom element with `mount()`. Copy this helper into your app:
+
+```ts twoslash
+import { mount } from "ilha";
+import type { Component } from "ilha";
+
+/** Mount `component` in every `<name>` element; hydrate when it has `data-ilha`. */
+export const define = (name: string, component: Component): void => {
+  customElements.define(
+    name,
+    class extends HTMLElement {
+      #unmount: (() => void) | undefined;
+
+      connectedCallback(): void {
+        this.#unmount = mount(this, component, {
+          hydrate: this.matches("[data-ilha]"),
+        });
+      }
+
+      disconnectedCallback(): void {
+        this.#unmount?.();
+        this.#unmount = undefined;
+      }
+    }
+  );
+};
+```
+
+Then register components with it:
+
+```tsx twoslash
+// @filename: define.ts
+import type { Component } from "ilha";
+export declare const define: (name: string, component: Component) => void;
+// @filename: counter.tsx
+// ---cut---
+import { atom } from "ilha";
+import { define } from "./define";
+
+define("ilha-counter", () => {
+  const count = atom(0);
+  return (
+    <button type="button" onclick={() => count.update((n) => n + 1)}>
+      {count}
+    </button>
+  );
+});
+```
+
+```html
+<ilha-counter></ilha-counter>
+```
+
+Connecting the element mounts the component; disconnecting unmounts it. Add `data-ilha` to a server-rendered element to hydrate its markup.

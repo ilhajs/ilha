@@ -1,87 +1,64 @@
 import { paint } from "./paint.ts";
-import { closeFiber, makeRootFiber, makeRuntime } from "./runtime.ts";
-import { defer } from "./shared.ts";
 import { decodeSnapshot, encodeSnapshot } from "./snapshot.ts";
 import type { SnapshotValue } from "./snapshot.ts";
-import { escapeAttr } from "./ssr-dom.ts";
-import { attachSsr } from "./ssr-paint.ts";
-import { runSetup } from "./start.ts";
-import type { Component, IlhaRuntime } from "./types.ts";
+import { escapeAttr, serializeNode, SsrEl } from "./ssr-dom.ts";
+import { paint as ssrPaint } from "./ssr-paint.ts";
+import { startRoot } from "./start.ts";
+import type { Component, IlhaRuntime, MountOptions } from "./types.ts";
+
+export type { MountOptions } from "./types.ts";
 
 export interface RenderToStringOptions {
+  /** Embed atom state for hydration. Default `true`. */
   snapshot?: boolean;
+  /** Wrap the output in a `<div data-ilha>` host. Default `true`. */
   markers?: boolean;
+  /** Serialize after this many ms even if work is still pending. */
   timeout?: number;
-  captureActions?: boolean;
 }
 
-export interface MountOptions {
-  hydrate?: boolean;
-  /**
-   * Called with a failing root component, and with a nested component no
-   * `ErrorBoundary` caught, before the error view paints.
-   */
-  onError?: (error: Error) => void;
-}
-
-export interface MountHandle {
-  unmount: () => void;
-  ready: Promise<null>;
-  runtime: IlhaRuntime;
-}
-
-const readHydrate = (el: Element): SnapshotValue[] | undefined => {
+const readSnapshot = (el: Element): SnapshotValue[] | undefined => {
   const host = el.matches("[data-ilha]") ? el : el.querySelector("[data-ilha]");
-  const raw = host?.dataset.ilhaState;
+  // oxlint-disable-next-line unicorn/prefer-dom-node-dataset -- hosts may be non-HTML Elements
+  const raw = host?.getAttribute("data-ilha-state");
   if (raw) {
     return decodeSnapshot(raw);
   }
   const first = el.firstElementChild;
-  if (first?.tagName === "TEMPLATE" && first.matches("[data-ilha-state]")) {
-    const tplRaw = first.dataset.ilhaState;
+  if (first?.matches("template[data-ilha-state]")) {
     first.remove();
-    return tplRaw ? decodeSnapshot(tplRaw) : undefined;
+    // oxlint-disable-next-line unicorn/prefer-dom-node-dataset -- hosts may be non-HTML Elements
+    return decodeSnapshot(first.getAttribute("data-ilha-state") ?? "");
   }
   return undefined;
 };
 
-const delay = (ms: number): Promise<null> => {
-  const { promise, resolve } = defer();
-  setTimeout(resolve, ms);
-  return promise;
-};
-
-const attach = (
+/** Mount with access to the root runtime; `ilha/test` uses it to see pending work. */
+export const mountWithRuntime = (
   el: Element,
   fn: Component,
-  opts?: MountOptions
-): MountHandle => {
-  if (!opts?.hydrate) {
+  opts?: MountOptions,
+  onRuntime?: (runtime: IlhaRuntime) => void
+): (() => void) => {
+  const hydrate = opts?.hydrate === true;
+  if (!hydrate) {
     el.innerHTML = "";
   }
-  const runtime = makeRuntime({
-    hydrate: opts?.hydrate ? readHydrate(el) : undefined,
+  const { close } = startRoot({
+    fn,
+    hydrate,
     onError: opts?.onError,
+    onIdle: opts?.onIdle,
+    onRuntime,
+    paint,
+    root: el,
+    snapshot: hydrate ? readSnapshot(el) : undefined,
   });
-  const { promise: ready, resolve } = defer();
-  const fiber = makeRootFiber({ paint, root: el, runtime, settle: resolve });
-  if (opts?.hydrate) {
-    fiber.hydrate = true;
-  }
-  runtime.begin();
-  runtime.setIdle(resolve);
-  runSetup(fiber, fn);
-  runtime.end();
-  return {
-    ready,
-    runtime,
-    unmount: () => {
-      closeFiber(fiber);
-      runtime.close();
-      if (!opts?.hydrate) {
-        el.innerHTML = "";
-      }
-    },
+  return () => {
+    close();
+    if (!hydrate) {
+      el.innerHTML = "";
+    }
   };
 };
 
@@ -89,34 +66,38 @@ export const mount = (
   el: Element,
   fn: Component,
   opts?: MountOptions
-): (() => void) => attach(el, fn, opts).unmount;
+): (() => void) => mountWithRuntime(el, fn, opts);
 
 export const renderToString = async (
   fn: Component,
   opts?: RenderToStringOptions
 ): Promise<string> => {
-  const snapshot = opts?.snapshot !== false;
-  const markers = opts?.markers !== false;
-  const { unmount, ready, runtime, root } = attachSsr(fn, {
-    ssrCapture: opts?.captureActions === true,
+  const root = new SsrEl("");
+  const { close, ready, runtime } = startRoot({
+    fn,
+    paint: ssrPaint,
+    // SAFETY: the SSR root element stands in for ParentNode on the fiber.
+    root: root as never,
+    ssr: true,
   });
-  const timeout = opts?.timeout;
-  await (timeout === undefined ? ready : Promise.race([ready, delay(timeout)]));
-  let inner = root.innerHTML;
-  const actions = runtime.ssrActions;
-  if (Object.keys(actions).length > 0) {
-    inner = `<template data-ilha-actions="${escapeAttr(JSON.stringify(actions))}"></template>${inner}`;
+  const { timeout, snapshot = true, markers = true } = opts ?? {};
+  if (timeout === undefined) {
+    await ready;
+  } else {
+    const late = Promise.withResolvers<null>();
+    const timer = setTimeout(late.resolve, timeout, null);
+    await Promise.race([ready, late.promise]);
+    clearTimeout(timer);
   }
+  // Nothing can hydrate output without markers or snapshot: drop hole hosts.
+  const inner = serializeNode(root, !markers && !snapshot);
   // SAFETY: ssrValues are JSON-serializable snapshot seeds collected during SSR.
-  const snap = snapshot
-    ? encodeSnapshot(runtime.ssrValues as SnapshotValue[])
-    : undefined;
-  unmount();
-  if (!markers) {
-    return snap
-      ? `<template data-ilha-state="${escapeAttr(snap)}"></template>${inner}`
-      : inner;
+  const state = snapshot
+    ? ` data-ilha-state="${escapeAttr(encodeSnapshot(runtime.ssrValues as SnapshotValue[]))}"`
+    : "";
+  close();
+  if (markers) {
+    return `<div data-ilha${state}>${inner}</div>`;
   }
-  const stateAttr = snap ? ` data-ilha-state="${escapeAttr(snap)}"` : "";
-  return `<div data-ilha${stateAttr}>${inner}</div>`;
+  return state ? `<template${state}></template>${inner}` : inner;
 };

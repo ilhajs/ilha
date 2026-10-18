@@ -1,16 +1,19 @@
 import { describe, expect, it } from "bun:test";
 
+import * as Effect from "effect/Effect";
+import type * as AsyncResult from "effect/reactivity/AsyncResult";
+
+import { atom } from "./atom.ts";
+import type { IlhaCode } from "./diagnostics.ts";
+import { IlhaError } from "./diagnostics.ts";
 import type { JSX } from "./jsx-types.ts";
 import { isFunction } from "./shared.ts";
 import type {
   AtomHandle,
+  AtomLazyOptions,
   AtomOptions,
-  EventSourceFeed,
-  EventSourceOptions,
   IlhaRuntime,
-  Resource,
-  ResourceFetcher,
-  ResourceOptions,
+  MountOptions,
   UnsafeHtml,
   View,
   WatchCallback,
@@ -156,8 +159,6 @@ const typecheckJsxProps = (): void => {
   void badPForm;
   void count;
 };
-declare const res: Resource<string>;
-declare const feed: EventSourceFeed<number>;
 
 const ctxFn: WatchCallback<number> = (value, ctx) => {
   ctx.signal.addEventListener("abort", () => {});
@@ -175,11 +176,6 @@ const legacy: WatchCallback<number> = (value) => {
   void value;
 };
 const useCtx = (_ctx: WatchContext): void => {};
-const fetcher: ResourceFetcher<string> = (key, { signal }) => {
-  void key;
-  void signal.aborted;
-  return Promise.resolve("v");
-};
 const typecheckAsyncApis = (): void => {
   const eqOpts: AtomOptions<{ a: number }> = { equals: "structural" };
   const fnOpts: AtomOptions<string> = {
@@ -188,36 +184,9 @@ const typecheckAsyncApis = (): void => {
   // @ts-expect-error equals must be "structural" or a comparator
   const badOpts: AtomOptions<number> = { equals: "fuzzy" };
 
-  const resOpts: ResourceOptions = { staleWhileRevalidate: false };
-  // @ts-expect-error unknown resource option
-  const badResOpts: ResourceOptions = { stale: true };
-  const data: AtomHandle<string | undefined> = res.data;
-  const loading: AtomHandle<boolean> = res.loading;
-  const refetch: () => Promise<string | undefined> = res.refetch;
-  // @ts-expect-error data is possibly undefined
-  const badData: AtomHandle<string> = res.data;
-
-  const sseOpts: EventSourceOptions<number> = {
-    event: "count",
-    retryBaseMs: 500,
-    schema: Number,
-  };
-  const latest: AtomHandle<number | undefined> = feed.latest;
-  void feed.stream;
-  void feed.status;
-
   void eqOpts;
   void fnOpts;
   void badOpts;
-  void resOpts;
-  void badResOpts;
-  void fetcher;
-  void data;
-  void loading;
-  void refetch;
-  void badData;
-  void sseOpts;
-  void latest;
   void ctxFn;
   void asyncCtxFn;
   void legacy;
@@ -244,6 +213,73 @@ const badOnErrorAnchor: RuntimeOnError = (error: string) => {
   void error;
 };
 
+const typecheckSnapshotOptions = (): void => {
+  const plain: AtomOptions<number> = { snapshot: false };
+  const lazy: AtomLazyOptions = { snapshot: false };
+  // @ts-expect-error snapshot is a boolean
+  const bad: AtomLazyOptions = { snapshot: "no" };
+  void plain;
+  void lazy;
+  void bad;
+};
+
+const typecheckMountOptions = (): void => {
+  const opts: MountOptions = { hydrate: true, onIdle: () => {} };
+  // @ts-expect-error onIdle takes no arguments
+  const bad: MountOptions = { onIdle: (_n: number) => {} };
+  void opts;
+  void bad;
+};
+
+const typecheckEffectAtom = (): void => {
+  const loaded = atom(Effect.succeed(1));
+  const result: AtomHandle<AsyncResult.AsyncResult<number, never>> = loaded;
+  // @ts-expect-error an effect atom holds an AsyncResult, not the value
+  const plain: AtomHandle<number> = loaded;
+  const view: View = loaded;
+  void result;
+  void plain;
+  void view;
+};
+
+const ilhaErrorAnchor = (e: IlhaError): void => {
+  const code: IlhaCode = e.code;
+  const fix: string = e.fix;
+  const docs: string = e.docs;
+  // @ts-expect-error codes are a closed union
+  const bad: IlhaCode = "ILHA999";
+  void code;
+  void fix;
+  void docs;
+  void bad;
+};
+
+const typecheckAtomFunctions = (): void => {
+  const count = atom(0);
+  const lazy = atom.lazy(() => () => 1);
+  const total = atom.lazy(() => 1);
+  const effect = atom(Effect.succeed(1));
+  void count;
+  void lazy;
+  void total;
+  void effect;
+};
+
+const runEffect = () => Effect.succeed(1);
+
+const typecheckEffectHandlers = (): void => {
+  const run = runEffect;
+  const button = <button onclick={() => Effect.succeed(1)}>Go</button>;
+  const named = <button onclick={run}>Go</button>;
+  const promised = <button onclick={() => Promise.resolve(1)}>Go</button>;
+  // @ts-expect-error React-style onClick is not a valid event prop
+  const camel = <button onClick={run}>Go</button>;
+  void button;
+  void named;
+  void promised;
+  void camel;
+};
+
 describe("jsx types", () => {
   it("keeps type anchors importable", () => {
     expect(isFunction(typecheckJsxProps)).toBe(true);
@@ -251,7 +287,14 @@ describe("jsx types", () => {
     expect(isFunction(typecheckUntrack)).toBe(true);
     expect(isFunction(typecheckUnsafe)).toBe(true);
     expect(isFunction(typecheckAsyncApis)).toBe(true);
+    expect(isFunction(typecheckSnapshotOptions)).toBe(true);
+    expect(isFunction(typecheckMountOptions)).toBe(true);
+    expect(isFunction(typecheckEffectAtom)).toBe(true);
+    expect(isFunction(typecheckAtomFunctions)).toBe(true);
+    expect(isFunction(typecheckEffectHandlers)).toBe(true);
     expect(isFunction(onErrorAnchor)).toBe(true);
+    expect(isFunction(ilhaErrorAnchor)).toBe(true);
+    expect(new IlhaError("ILHA001")).toBeInstanceOf(Error);
     expect(isFunction(badOnErrorAnchor)).toBe(true);
   });
 });
