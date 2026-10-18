@@ -77,6 +77,6 @@ test("re-entry while an Instruction is in flight throws", () => {
   interpret(neverGen as GeneratorFn, fiber);
   // SAFETY: neverGen is a GeneratorFn that yields Effect.never.
   expect(() => interpret(neverGen as GeneratorFn, fiber)).toThrow(
-    "ilha: re-enter while Instruction in flight"
+    /\[ILHA004\]/u
   );
 });

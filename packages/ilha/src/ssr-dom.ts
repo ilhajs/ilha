@@ -1,3 +1,4 @@
+import { ilhaError } from "./diagnostics.ts";
 import { SLOT_ATTR } from "./shared.ts";
 
 const VOID =
@@ -99,9 +100,7 @@ export const serializeNode = (node: SsrNode, bare = false): string => {
     // Raw-text tags cannot escape children; a matching closer would end the
     // element early. Fail loudly instead of shipping truncated markup.
     if (new RegExp(`</${tag}\\b`, "iu").test(raw)) {
-      throw new Error(
-        `ilha: unsafe raw text in <${tag}> (contains "</${tag}")`
-      );
+      throw ilhaError("ILHA007", `<${tag}> contains "</${tag}"`);
     }
     return `${open}${raw}</${tag}>`;
   }

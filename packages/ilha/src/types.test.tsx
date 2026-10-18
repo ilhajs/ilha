@@ -4,6 +4,8 @@ import * as Effect from "effect/Effect";
 import type * as AsyncResult from "effect/reactivity/AsyncResult";
 
 import { atom } from "./atom.ts";
+import type { IlhaCode } from "./diagnostics.ts";
+import { IlhaError } from "./diagnostics.ts";
 import type { JSX } from "./jsx-types.ts";
 import { isFunction } from "./shared.ts";
 import type {
@@ -240,6 +242,44 @@ const typecheckEffectAtom = (): void => {
   void view;
 };
 
+const ilhaErrorAnchor = (e: IlhaError): void => {
+  const code: IlhaCode = e.code;
+  const fix: string = e.fix;
+  const docs: string = e.docs;
+  // @ts-expect-error codes are a closed union
+  const bad: IlhaCode = "ILHA999";
+  void code;
+  void fix;
+  void docs;
+  void bad;
+};
+
+const typecheckAtomFunctions = (): void => {
+  const count = atom(0);
+  const lazy = atom.lazy(() => () => 1);
+  const total = atom.lazy(() => 1);
+  const effect = atom(Effect.succeed(1));
+  void count;
+  void lazy;
+  void total;
+  void effect;
+};
+
+const runEffect = () => Effect.succeed(1);
+
+const typecheckEffectHandlers = (): void => {
+  const run = runEffect;
+  const button = <button onclick={() => Effect.succeed(1)}>Go</button>;
+  const named = <button onclick={run}>Go</button>;
+  const promised = <button onclick={() => Promise.resolve(1)}>Go</button>;
+  // @ts-expect-error React-style onClick is not a valid event prop
+  const camel = <button onClick={run}>Go</button>;
+  void button;
+  void named;
+  void promised;
+  void camel;
+};
+
 describe("jsx types", () => {
   it("keeps type anchors importable", () => {
     expect(isFunction(typecheckJsxProps)).toBe(true);
@@ -250,7 +290,11 @@ describe("jsx types", () => {
     expect(isFunction(typecheckSnapshotOptions)).toBe(true);
     expect(isFunction(typecheckMountOptions)).toBe(true);
     expect(isFunction(typecheckEffectAtom)).toBe(true);
+    expect(isFunction(typecheckAtomFunctions)).toBe(true);
+    expect(isFunction(typecheckEffectHandlers)).toBe(true);
     expect(isFunction(onErrorAnchor)).toBe(true);
+    expect(isFunction(ilhaErrorAnchor)).toBe(true);
+    expect(new IlhaError("ILHA001")).toBeInstanceOf(Error);
     expect(isFunction(badOnErrorAnchor)).toBe(true);
   });
 });

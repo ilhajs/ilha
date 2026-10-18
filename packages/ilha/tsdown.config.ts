@@ -7,6 +7,8 @@ export default defineConfig({
     "src/jsx-runtime.ts",
     "src/jsx-dev-runtime.ts",
     "src/renderer.ts",
+    "src/test.ts",
+    "src/debug.ts",
   ],
   external: ["effect"],
   minify: false,

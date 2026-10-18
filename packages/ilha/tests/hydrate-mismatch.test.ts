@@ -23,7 +23,7 @@ test("hydrate mismatch warns and full mounts", async () => {
   mount(el, MismatchApp, { hydrate: true });
   await Bun.sleep(15);
   console.warn = prev;
-  expect(String(warns[0])).toContain("hydrate mismatch");
+  expect(String(warns[0])).toContain("[ILHA006]");
   expect(el.querySelector("p")?.textContent).toBe("ok");
   expect(el.querySelector("span")).toBeNull();
   el.remove();

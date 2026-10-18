@@ -1,9 +1,9 @@
 ---
 title: Oxlint plugin
-description: Lint Ilha components for primitive placement, generator instructions, and event props that TypeScript cannot check.
+description: Lint Ilha components for primitive placement, generator instructions, React-style props, and missing keys that TypeScript cannot check.
 ---
 
-TypeScript types your props and atoms. It cannot see call order, generator frames, or React-shaped event names. The Oxlint plugin flags those mistakes in the editor and in CI.
+TypeScript types your props and atoms. It cannot see call order, generator frames, React-shaped props, or missing keys. The Oxlint plugin flags those mistakes in the editor and in CI.
 
 The plugin ships as `ilha/oxlint`. It is a JavaScript Oxlint plugin — no extra compiler.
 
@@ -26,22 +26,73 @@ Point Oxlint at the export and turn on the rules you want.
     "oxlint-plugin-ilha/no-conditional-primitive": "error",
     "oxlint-plugin-ilha/no-primitive-outside-component": "error",
     "oxlint-plugin-ilha/no-instruction-outside-generator": "error",
-    "oxlint-plugin-ilha/prefer-lowercase-events": "error",
+    "oxlint-plugin-ilha/no-react-props": "error",
+    "oxlint-plugin-ilha/require-key-in-map": "error",
     "oxlint-plugin-ilha/function-in-atom": "error"
   }
 }
 ```
 
-Save this as `.oxlintrc.json` at the repo root. Run `oxlint` in your lint script.
+Save this as `.oxlintrc.json` at the repo root. Run `oxlint` in your lint script, and `oxlint --fix` to apply the autofixes.
 
-The plugin only treats `atom`, `watch`, and `when` as primitives when you import them from `"ilha"`. A local binding with the same name does not match.
+The plugin only treats `atom`, `atom.lazy`, `watch`, `watch.once`, `when`, and `context` as primitives when you import them from `"ilha"`. A local binding with the same name does not match.
+
+Every message names the problem, a `Fix:` line, and a link to the matching section below.
 
 ## Rules
 
-| Rule | Catches |
-| --- | --- |
-| `no-conditional-primitive` | `atom()` / `watch()` / `when()` inside `if` or a loop |
-| `no-primitive-outside-component` | Primitive calls at module top level — there is no fiber there |
-| `no-instruction-outside-generator` | `when` outside a generator, or without `yield*` |
-| `prefer-lowercase-events` | `onClick` instead of `onclick` |
-| `function-in-atom` | `atom(fn)` misread as a derived initializer instead of a stored function — use `atom(Atom.map(...))`, `atom(Atom.transform(...))`, or `atom.lazy(() => fn)` |
+| Rule | Catches | Autofix |
+| --- | --- | --- |
+| `no-conditional-primitive` | A primitive inside `if`, a loop, `&&`/`?:` branches, a nested callback, or after `await` | No |
+| `no-primitive-outside-component` | Primitive calls at module top level — there is no fiber there | No |
+| `no-instruction-outside-generator` | `when` outside a generator, or without `yield*` | No |
+| `no-react-props` | `className`, `htmlFor`, and `onClick`-style props on native elements | Yes |
+| `prefer-lowercase-events` | `onClick` instead of `onclick` (the event-only subset of `no-react-props`) | Yes |
+| `require-key-in-map` | A component returned from `.map()` without `key` | No |
+| `function-in-atom` | `atom(fn)` and `atom(() => …)` where `atom.lazy` was meant | No |
+
+### `no-conditional-primitive`
+
+Primitives claim slots in call order, so every render must call them in the same order. The rule flags a primitive that sits in a branch or loop, in a nested callback, or after an `await`.
+
+```tsx
+export default function Panel({ open }: { open: boolean }) {
+  const count = atom(0);
+  // Bad: if (open) { const extra = atom(1); }
+  // Bad: items.map(() => atom(0))
+  // Bad: await load(); const late = atom(1);
+  return <p>{open ? count : "closed"}</p>;
+}
+```
+
+Declare every primitive at the top level of the component, before the first `await`. Put the branch inside the primitive or the view. The test of an `if` and the left side of `??` always run, so they do not trigger the rule.
+
+### `no-primitive-outside-component`
+
+`atom()`, `watch()`, `when()`, and `context()` need a fiber. Move the call into a component function.
+
+### `no-instruction-outside-generator`
+
+`when()` returns an instruction that a generator frame runs. Make the component a `function*` and write `yield* when(...)`.
+
+### `no-react-props`
+
+Ilha renders DOM attribute names. On native elements, rename `className` to `class`, `htmlFor` to `for`, and `onClick` to `onclick`. Component elements are not checked. `oxlint --fix` renames them for you.
+
+### `prefer-lowercase-events`
+
+The event-only subset of `no-react-props`. Enable one of the two, not both.
+
+### `require-key-in-map`
+
+A component returned from `.map()` needs a stable `key` so Ilha keeps each instance attached to its item.
+
+```tsx
+{
+  items.map((item) => <Row key={item.id} item={item} />);
+}
+```
+
+### `function-in-atom`
+
+`atom()` takes a value, an Effect atom, an effect, or a stream — not a function. TypeScript reports the same mistake with a pointer to `atom.lazy`. Use `atom.lazy(() => …)` for one-time init or to store a function, and `atom(Atom.map(...))` or `atom(Atom.transform(...))` for derived values.

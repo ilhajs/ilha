@@ -1,0 +1,45 @@
+---
+title: "ILHA005: Duplicate key among sibling components"
+description: Two components in the same parent use the same key.
+---
+
+Keys identify component instances so Ilha keeps their state when a list reorders. A key used twice in one parent is ambiguous, so Ilha warns with `ILHA005`. The duplicate keeps its state by position instead.
+
+## Why it happens
+
+- You derive keys from a field that is not unique, such as a name or a category.
+- You hard-code the same key on two siblings.
+
+## Bad
+
+```tsx
+const Row = ({ label }: { label?: unknown }) => <li>{String(label)}</li>;
+
+const List = () => (
+  <ul>
+    <Row key="a" label="first" />
+    <Row key="a" label="second" />
+  </ul>
+);
+```
+
+## Fixed
+
+Give each sibling a unique key, such as a stable id:
+
+```tsx twoslash
+const Row = ({ label }: { label?: unknown }) => <li>{String(label)}</li>;
+
+const items = [
+  { id: "a", label: "first" },
+  { id: "b", label: "second" },
+];
+
+const List = () => (
+  <ul>
+    {items.map((item) => (
+      <Row key={item.id} label={item.label} />
+    ))}
+  </ul>
+);
+```

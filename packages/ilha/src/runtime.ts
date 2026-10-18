@@ -7,6 +7,7 @@ import * as Registry from "effect/reactivity/AtomRegistry";
 import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import * as Scope from "effect/Scope";
 
+import { ilhaError } from "./diagnostics.ts";
 import { errorView, noop, toError } from "./shared.ts";
 import type { SnapshotValue } from "./snapshot.ts";
 import type { IlhaRuntime, PropBag, View } from "./types.ts";
@@ -78,7 +79,7 @@ export const getActiveFiber = (): FiberLocal | undefined =>
 export const getFiber = (): FiberLocal => {
   const f = getActiveFiber();
   if (!f) {
-    throw new Error("ilha: no fiber");
+    throw ilhaError("ILHA001");
   }
   return f;
 };

@@ -57,6 +57,18 @@ export const runSetup = (fiber: FiberLocal, fn: Component): void => {
   }
 };
 
+/** Live root fibers, for `ilha/debug`. Costs one set add/delete per root. */
+export const liveRoots = new Set<FiberLocal>();
+
+/** Called after a paint, a root settling, or a root closing. `ilha/debug` fills it. */
+export const rootListeners = new Set<() => void>();
+
+export const notifyRoots = (): void => {
+  for (const listener of rootListeners) {
+    listener();
+  }
+};
+
 export interface RootHandle {
   fiber: FiberLocal;
   runtime: IlhaRuntime;
@@ -97,10 +109,13 @@ export const startRoot = ({
   const settle = () => resolve(null);
   const fiber = makeFiber(runtime, root, paint, { onFail: settle });
   fiber.hydrate = hydrate;
+  fiber.componentType = fn;
+  liveRoots.add(fiber);
   runtime.begin();
   runtime.setIdle(() => {
     settle();
     onIdle?.();
+    notifyRoots();
   });
   runSetup(fiber, fn);
   runtime.end();
@@ -108,6 +123,9 @@ export const startRoot = ({
     close: () => {
       closeFiber(fiber);
       runtime.close();
+      if (liveRoots.delete(fiber)) {
+        notifyRoots();
+      }
     },
     fiber,
     ready,

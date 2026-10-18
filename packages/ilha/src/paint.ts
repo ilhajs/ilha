@@ -1,3 +1,4 @@
+import { ilhaWarn } from "./diagnostics.ts";
 import { bindEvents } from "./events.ts";
 import {
   committedElement,
@@ -51,7 +52,11 @@ export const { paint } = createPainter<Node, Element>({
     if (hydrate) {
       const want = tmp.firstElementChild?.tagName;
       if (want && el.firstElementChild?.tagName !== want) {
-        console.warn("[ilha] hydrate mismatch, full mount");
+        const found = el.firstElementChild?.tagName.toLowerCase();
+        ilhaWarn(
+          "ILHA006",
+          `expected <${want.toLowerCase()}>, found <${found}>`
+        );
       }
     }
     (hydrate ? hydrateInner : morphInner)(el, tmp);

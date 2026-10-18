@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 
 import { isInstruction } from "./atom.ts";
+import { ilhaError } from "./diagnostics.ts";
 import type { FiberLocal } from "./runtime.ts";
 import { withFiber } from "./runtime.ts";
 import { toError } from "./shared.ts";
@@ -16,7 +17,7 @@ export const interpret = (gen: GeneratorFn, fiber: FiberLocal): void => {
     }
     withFiber(fiber, () => {
       if (fiber.inFlight) {
-        throw new Error("ilha: re-enter while Instruction in flight");
+        throw ilhaError("ILHA004");
       }
       let step: IteratorResult<Yielded, View | undefined>;
       try {

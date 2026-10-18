@@ -1,0 +1,43 @@
+---
+title: "ILHA004: Generator resumed while an instruction was in flight"
+description: Ilha tried to drive a generator component again before the instruction it yielded finished.
+---
+
+A generator component yields one instruction at a time, such as an Effect or a Stream. Ilha resumes the generator when that instruction finishes. If anything drives the same component again while an instruction is pending, Ilha throws `ILHA004`.
+
+## Why it happens
+
+- Two `mount()` calls target the same running component fiber.
+- Custom renderer code calls the runtime's generator driver twice for one fiber.
+
+You rarely see this from ordinary components. It signals that two drivers share one fiber.
+
+## Bad
+
+```tsx
+import * as Effect from "effect/Effect";
+import { mount } from "ilha";
+
+function* Status() {
+  yield Effect.never;
+}
+
+// A renderer that re-enters the same fiber while `Effect.never` is pending.
+```
+
+## Fixed
+
+Mount each generator component once per host, and let Ilha resume it:
+
+```tsx twoslash
+import * as Effect from "effect/Effect";
+import { mount } from "ilha";
+
+function* Status() {
+  yield <p>loading</p>;
+  yield Effect.sleep(100);
+  yield <p>ready</p>;
+}
+
+mount(document.body, Status);
+```

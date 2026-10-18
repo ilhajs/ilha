@@ -2,6 +2,8 @@ import "./jsx-types.ts";
 
 export { createContext, context } from "./context.ts";
 export type { ContextProviderProps, IlhaContext } from "./context.ts";
+export { IlhaError } from "./diagnostics.ts";
+export type { IlhaCode } from "./diagnostics.ts";
 export { ErrorBoundary } from "./error-boundary.ts";
 export type {
   ErrorBoundaryProps,

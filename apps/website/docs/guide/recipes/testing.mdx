@@ -1,16 +1,13 @@
 ---
 title: Test components
-description: Render components in tests with renderToString, mount them with happy-dom, and assert updates.
+description: Test components with the ilha/test harness. Render, drive events, wait for idle, and assert on HTML or live state.
 ---
 
-Test components with Bun's runner. Use `renderToString` for HTML assertions. Add happy-dom only when you mount into real nodes.
-
-## Render to HTML
-
-`renderToString` builds HTML without a DOM. It is async — it waits until in-flight work is idle:
+`ilha/test` mounts a component, drives it with events, and waits until it is idle. It has no timers and no test-runner imports, so it works under `bun:test`, Vitest, and `node:test`.
 
 ```tsx twoslash
-import { atom, renderToString } from "ilha";
+import { atom } from "ilha";
+import { render } from "ilha/test";
 import { expect, test } from "bun:test";
 
 const Counter = () => {
@@ -22,15 +19,19 @@ const Counter = () => {
   );
 };
 
-test("renders the count", async () => {
-  const html = await renderToString(Counter);
-  expect(html).toContain(">0<");
+test("clicking increments", async () => {
+  const ui = render(Counter);
+  await ui.click("button");
+  expect(ui.text()).toBe("1");
+  ui.unmount();
 });
 ```
 
-## Mount and simulate events
+`render()` mounts into a new `<div>` on `document.body`. Each action awaits `ui.settled()` before and after it runs, so you assert on the final DOM without sleeping.
 
-Mount and event tests need a DOM. Install happy-dom's global registrator and preload it when you mount into real nodes or touch browser-only APIs at import time:
+## Set up a DOM
+
+`render()` needs DOM globals. It throws a clear error if `document` is missing. Preload happy-dom:
 
 ```package-install
 bun add -d @happy-dom/global-registrator
@@ -49,10 +50,90 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 GlobalRegistrator.register();
 ```
 
-For behavior, mount into a detached element and dispatch events:
+For DOM-free HTML assertions, use `renderHtml()` instead.
+
+## Drive events
+
+Every action takes a CSS selector and resolves after the mount is idle again. A selector that matches nothing throws an error that includes the current HTML.
+
+| Method | What it does |
+| --- | --- |
+| `await ui.click(selector)` | Fires a bubbling `click`. |
+| `await ui.input(selector, v)` | Sets `value`, then fires `input`. |
+| `await ui.change(selector, v)` | Sets `value` (or `checked` for a boolean), fires `change`. |
+| `await ui.submit(selector)` | Fires a cancelable `submit`. |
+| `await ui.dispatch(selector, e)` | Dispatches any `Event` you build. |
 
 ```tsx twoslash
-import { atom, mount } from "ilha";
+import { atom } from "ilha";
+import { render } from "ilha/test";
+import { expect, test } from "bun:test";
+
+const Search = () => {
+  const query = atom("");
+  return (
+    <form onsubmit={(event: Event) => event.preventDefault()}>
+      <input
+        value={query()}
+        oninput={(event: Event) => {
+          if (event.target instanceof HTMLInputElement) {
+            query.set(event.target.value);
+          }
+        }}
+      />
+      <output>{query()}</output>
+    </form>
+  );
+};
+
+test("typing updates the output", async () => {
+  const ui = render(Search);
+  await ui.input("input", "ilha");
+  expect(ui.query("output")?.textContent).toBe("ilha");
+  ui.unmount();
+});
+```
+
+## Wait for idle
+
+`await ui.settled()` resolves once the mount has no pending work: the first paint, rerenders, async components, and watchers. It resolves immediately if the mount is already idle.
+
+```tsx twoslash
+import { render } from "ilha/test";
+import { expect, test } from "bun:test";
+
+const Greeting = async () => {
+  await Promise.resolve();
+  return <p>hello</p>;
+};
+
+test("async components settle", async () => {
+  const ui = render(Greeting);
+  await ui.settled();
+  expect(ui.text()).toBe("hello");
+  ui.unmount();
+});
+```
+
+## Read the DOM
+
+| Method                  | Returns                                 |
+| ----------------------- | --------------------------------------- |
+| `ui.html()`             | The container's `innerHTML`.            |
+| `ui.text()`             | The container's `textContent`.          |
+| `ui.query(selector)`    | The first matching element or `null`.   |
+| `ui.queryAll(selector)` | An array of matching elements.          |
+| `ui.errors`             | Errors the mount reported to `onError`. |
+
+`query()` and `queryAll()` accept an element type: `ui.query<HTMLInputElement>("input")`.
+
+## Inspect live state
+
+`ui.tree()` returns the JSON tree that `ilha/debug` produces for this mount. `ui.atoms()` flattens it to every atom, in render order.
+
+```tsx twoslash
+import { atom } from "ilha";
+import { render } from "ilha/test";
 import { expect, test } from "bun:test";
 
 const Counter = () => {
@@ -64,49 +145,98 @@ const Counter = () => {
   );
 };
 
-test("clicking increments", async () => {
-  const el = document.createElement("div");
-  document.body.append(el);
-  const unmount = mount(el, Counter);
-  await new Promise((r) => setTimeout(r, 5));
-
-  const button = el.querySelector("button")!;
-  button.click();
-  await new Promise((r) => setTimeout(r, 5));
-
-  expect(button.textContent).toContain("1");
-  unmount();
-  el.remove();
+test("state is observable", async () => {
+  const ui = render(Counter);
+  await ui.click("button");
+  expect(ui.atoms()).toEqual([{ component: "Counter", index: 0, value: 1 }]);
+  ui.unmount();
 });
 ```
 
-The short sleeps let microtasks paint. `unmount()` stops streams and listeners — call it before removing the host so a late event cannot paint into a detached tree.
+Assert on atom values when the DOM hides the state you care about.
 
-## Hydration round-trip
+## Test server rendering
 
-Render, inject, then hydrate to verify a snapshot restores. This path also needs the happy-dom preload above:
+`renderHtml()` wraps `renderToString` and returns the server HTML. Two renders of the same component must match byte for byte:
 
 ```tsx twoslash
-import { atom, mount, renderToString } from "ilha";
+import { atom } from "ilha";
+import { renderHtml } from "ilha/test";
 import { expect, test } from "bun:test";
 
-const App = () => <p>hello</p>;
+const Counter = () => {
+  const count = atom(0);
+  return <p>{count}</p>;
+};
 
-test("hydrates SSR markup", async () => {
-  const html = await renderToString(App);
-  const el = document.createElement("div");
-  el.innerHTML = html; // test host; markup is your own render output
-  document.body.append(el);
-
-  const unmount = mount(el, App, { hydrate: true });
-  await new Promise((r) => setTimeout(r, 5));
-  expect(el.textContent).toContain("hello");
-  unmount();
-  el.remove();
+test("server output is stable", async () => {
+  expect(await renderHtml(Counter)).toBe(await renderHtml(Counter));
 });
 ```
 
-A snapshot-order bug logs a `hydrate mismatch` warning and falls back to a full mount — assert on the warning in CI if hydration is load-bearing for you.
+## Test hydration
+
+Pass `ssr: true` to render on the server, inject the HTML into the container, and hydrate it. Await `ui.settled()` before you read the DOM, because the server render is async.
+
+```tsx twoslash
+import { atom } from "ilha";
+import { render } from "ilha/test";
+import { expect, test } from "bun:test";
+
+const Counter = () => {
+  const count = atom(0);
+  return (
+    <button type="button" onclick={() => count.update((n) => n + 1)}>
+      {count}
+    </button>
+  );
+};
+
+test("hydrated markup stays interactive", async () => {
+  const ui = render(Counter, { ssr: true });
+  await ui.settled();
+  await ui.click("button");
+  expect(ui.text()).toBe("1");
+  ui.unmount();
+});
+```
+
+To check that hydration keeps the server nodes, fill the container yourself and pass `hydrate: true`:
+
+```tsx twoslash
+import { atom } from "ilha";
+import { render, renderHtml } from "ilha/test";
+import { expect, test } from "bun:test";
+
+const Counter = () => {
+  const count = atom(0);
+  return <p>{count}</p>;
+};
+
+test("hydration reuses server nodes", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  container.innerHTML = await renderHtml(Counter);
+  const serverNode = container.querySelector("p");
+
+  const ui = render(Counter, { container, hydrate: true });
+  await ui.settled();
+  expect(ui.query("p")).toBe(serverNode);
+  ui.unmount();
+  container.remove();
+});
+```
+
+## Options
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `ssr` | `false` | Render on the server first and inject the HTML. |
+| `hydrate` | same as `ssr` | Hydrate the container. With `ssr: true, hydrate: false` the HTML stays static. |
+| `container` | new `<div>` | Mount into your element. `unmount()` leaves it in the document. |
+| `onError` | none | Called for uncaught component failures. They also land in `ui.errors`. |
+
+Call `ui.unmount()` at the end of each test. It stops listeners and removes a container the harness created.
 
 ## Related
 
@@ -114,3 +244,4 @@ A snapshot-order bug logs a `hydrate mismatch` warning and falls back to a full 
 | ------------------ | ---------------------------- |
 | Render and hydrate | [Render](/guide/ui/render)   |
 | Streams in tests   | [Streams](/guide/ui/streams) |
+| Inspect live state | [Devtools](/guide/devtools)  |

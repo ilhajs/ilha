@@ -1,0 +1,37 @@
+---
+title: "ILHA007: Unsafe raw text in script or style"
+description: renderToString refused to emit a script or style element whose text contains its own closing tag.
+---
+
+`<script>` and `<style>` hold raw text, so Ilha cannot escape their children. If the text contains `</script` or `</style`, the browser would end the element early and parse the rest as markup. `renderToString()` throws `ILHA007` instead of shipping that HTML.
+
+## Why it happens
+
+You interpolated untrusted or unescaped text into a `<script>` or `<style>` element.
+
+## Bad
+
+```tsx
+import { renderToString } from "ilha";
+
+const userText = "</script><img src=x onerror=alert(1)>";
+
+const Page = () => <script>{`window.note = "${userText}"`}</script>;
+
+await renderToString(Page);
+```
+
+## Fixed
+
+Serialize data as JSON and escape the `<` character, so the closing tag can never appear:
+
+```tsx twoslash
+import { renderToString } from "ilha";
+
+const userText = "</script><img src=x onerror=alert(1)>";
+const json = JSON.stringify({ note: userText }).replaceAll("<", "\\u003c");
+
+const Page = () => <script type="application/json">{json}</script>;
+
+const html = await renderToString(Page);
+```

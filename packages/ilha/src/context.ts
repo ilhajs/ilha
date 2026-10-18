@@ -23,7 +23,7 @@ export const createContext = <A>(defaultValue: A): IlhaContext<A> => {
   const ctx: IlhaContext<A> = {
     Provider: ({ value, children }) => {
       const fiber = getFiber();
-      const handle = atom(value, { snapshot: false });
+      const handle = atom.lazy(() => value, { snapshot: false });
       if (!Object.is(untrack(handle), value)) {
         handle.set(value);
       }

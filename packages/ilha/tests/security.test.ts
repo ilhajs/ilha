@@ -161,7 +161,7 @@ test("script and style SSR keep raw text and reject closing-tag breakouts", asyn
         snapshot: false,
       }
     )
-  ).rejects.toThrow(/unsafe raw text in <script>/u);
+  ).rejects.toThrow(/\[ILHA007\]/u);
 });
 
 test("never serializes function handlers as attributes", async () => {

@@ -5,6 +5,7 @@ import * as Atom from "effect/reactivity/Atom";
 import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import * as Stream from "effect/Stream";
 
+import { ilhaError, ilhaWarn } from "./diagnostics.ts";
 import type { FiberLocal } from "./runtime.ts";
 import { getActiveFiber, getFiber, withFiber } from "./runtime.ts";
 import { hasBrand, toError } from "./shared.ts";
@@ -108,9 +109,7 @@ export const beginPrimitiveFrame = (fiber: FiberLocal): void => {
   const used = fiber.primitiveI ?? 0;
   const slots = fiber.primitives?.length ?? 0;
   if (used > 0 && used !== slots) {
-    console.warn(
-      `ilha: atom/watch slot count changed between renders (${slots} → ${used}); keep primitive order stable`
-    );
+    ilhaWarn("ILHA002", `${slots} → ${used}`);
   }
   fiber.primitiveI = 0;
   fiber.watchI = 0;
@@ -220,7 +219,7 @@ export const wrapHandle = <A>(
   const guard = (): void => {
     const active = getActiveFiber();
     if (active && active.registry !== registry) {
-      throw new Error("ilha: atom handle used from a different island");
+      throw ilhaError("ILHA003");
     }
   };
   return Object.assign(
@@ -305,7 +304,11 @@ export interface AtomFn {
     init: Effect.Effect<A, E, AtomRegistry> | Stream.Stream<A, E, AtomRegistry>,
     options?: AtomOptions<AsyncResult.AsyncResult<A, E>>
   ): AtomHandle<AsyncResult.AsyncResult<A, E>>;
-  /** An existing Effect atom, or a plain value. */
+  /**
+   * An existing Effect atom, or a plain value. Store a function with
+   * `atom.lazy(() => fn)`; the `ilha/oxlint` rule `function-in-atom` flags
+   * `atom(fn)`.
+   */
   <A>(init: Atom.Atom<A> | A, options?: AtomOptions<A>): AtomHandle<A>;
   lazy: <A>(init: () => A, options?: AtomLazyOptions) => AtomHandle<A>;
 }

@@ -1,6 +1,11 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["src/types.test.tsx", "src/jsx-types.ts", "src/types.ts"],
+  "include": [
+    "src/types.test.tsx",
+    "src/jsx-types.ts",
+    "src/types.ts",
+    "src/debug.ts"
+  ],
   "exclude": ["node_modules", "dist"],
   "compilerOptions": {
     "strictNullChecks": true

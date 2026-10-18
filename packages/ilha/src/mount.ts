@@ -4,7 +4,7 @@ import type { SnapshotValue } from "./snapshot.ts";
 import { escapeAttr, serializeNode, SsrEl } from "./ssr-dom.ts";
 import { paint as ssrPaint } from "./ssr-paint.ts";
 import { startRoot } from "./start.ts";
-import type { Component, MountOptions } from "./types.ts";
+import type { Component, IlhaRuntime, MountOptions } from "./types.ts";
 
 export type { MountOptions } from "./types.ts";
 
@@ -33,10 +33,12 @@ const readSnapshot = (el: Element): SnapshotValue[] | undefined => {
   return undefined;
 };
 
-export const mount = (
+/** Mount with access to the root runtime; `ilha/test` uses it to see pending work. */
+export const mountWithRuntime = (
   el: Element,
   fn: Component,
-  opts?: MountOptions
+  opts?: MountOptions,
+  onRuntime?: (runtime: IlhaRuntime) => void
 ): (() => void) => {
   const hydrate = opts?.hydrate === true;
   if (!hydrate) {
@@ -47,6 +49,7 @@ export const mount = (
     hydrate,
     onError: opts?.onError,
     onIdle: opts?.onIdle,
+    onRuntime,
     paint,
     root: el,
     snapshot: hydrate ? readSnapshot(el) : undefined,
@@ -58,6 +61,12 @@ export const mount = (
     }
   };
 };
+
+export const mount = (
+  el: Element,
+  fn: Component,
+  opts?: MountOptions
+): (() => void) => mountWithRuntime(el, fn, opts);
 
 export const renderToString = async (
   fn: Component,

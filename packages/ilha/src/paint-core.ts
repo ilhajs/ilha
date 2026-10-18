@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
 import { isAtomHandle } from "./atom.ts";
+import { ilhaWarn } from "./diagnostics.ts";
 import { eventTypeFromProp } from "./events.ts";
 import { closeFiber, makeFiber } from "./runtime.ts";
 import type { FiberLocal, Hole } from "./runtime.ts";
@@ -22,7 +23,7 @@ import {
   skip,
   unwrap,
 } from "./shared.ts";
-import { runSetup } from "./start.ts";
+import { notifyRoots, rootListeners, runSetup } from "./start.ts";
 import { Fragment } from "./types.ts";
 import type {
   AtomHandle,
@@ -137,8 +138,6 @@ const rerunHole = (
   box.current = props;
   runSetup(hole, () => run(box.current));
 };
-
-const warnedKeys = new Set<string>();
 
 // SAFETY: a hole fiber's root is the host element `openHole` created.
 const hostOf = <El>(fiber: FiberLocal): El => fiber.root as never;
@@ -387,12 +386,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     let prev = hasKey(view) ? keyed?.get(key) : undefined;
     if (prev && prev.seen === fiber.gen && !prev.closed) {
       // This paint already placed the hole: a second use would move its host.
-      if (!warnedKeys.has(key)) {
-        warnedKeys.add(key);
-        console.warn(
-          `ilha: key "${key}" is used by more than one component in the same parent component; keys must be unique there. The duplicate keeps its state by position instead.`
-        );
-      }
+      ilhaWarn("ILHA005", `key "${key}"`);
       prev = undefined;
     } else if (hasKey(view)) {
       // A different component under the key mounts fresh.
@@ -531,6 +525,9 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       if (depth === 0) {
         for (const run of pendingRefs.splice(0)) {
           run();
+        }
+        if (rootListeners.size > 0) {
+          notifyRoots();
         }
       }
     }

@@ -1,0 +1,182 @@
+---
+title: Devtools
+description: Inspect live islands from tests, a panel, or a coding agent with ilha/debug and @ilha/devtools.
+---
+
+`ilha/debug` returns a JSON tree of every live island: component names, atom values, and child components. `@ilha/devtools` puts that tree in a panel and exposes it to browser agents.
+
+Both are for development. Your production bundle never includes them unless you import them.
+
+## Inspect islands in code
+
+Call `inspect()` to read the live roots. It works in tests, in the browser console, and in scripts an agent runs.
+
+```tsx
+import { atom, mount } from "ilha";
+import { inspect } from "ilha/debug";
+
+const Counter = () => {
+  const count = atom(1);
+  const label = atom("hello");
+  return (
+    <button type="button" onclick={() => count.update((n: number) => n + 1)}>
+      {label()} {count()}
+    </button>
+  );
+};
+
+const host = document.querySelector("#app")!;
+mount(host, Counter);
+
+console.log(JSON.stringify(inspect(host), null, 2));
+```
+
+```json
+[
+  {
+    "id": "i1",
+    "component": "Counter",
+    "host": "div#app",
+    "atoms": [
+      { "index": 0, "value": 1 },
+      { "index": 1, "value": "hello" }
+    ],
+    "children": []
+  }
+]
+```
+
+Pass a host element to inspect one root or one child component. Omit it to get every live root.
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable while the component lives. Use it with `setAtom()` and `element()`. |
+| `component` | The function name. Roots without a name show `Root`, others `Anonymous`. |
+| `host` | A selector for the element the component paints into. Absent for SSR roots. |
+| `atoms` | The component's `atom()` slots by declaration order. |
+| `children` | Child components, not the elements between them. |
+
+### Atom values are always JSON
+
+`inspect()` never throws on a value it cannot serialize. It names the value instead.
+
+| Value | Shown as |
+| --- | --- |
+| Function | `"<function name>"` |
+| Effect, Stream, Atom | `"<Effect>"`, `"<Stream>"`, `"<Atom>"` |
+| `AsyncResult` success | The unwrapped value |
+| `AsyncResult` failure | `"<AsyncResult failure: reason>"` |
+| `AsyncResult` pending | `"<AsyncResult initial>"` or `"<AsyncResult waiting>"` |
+| `undefined`, `bigint` | `"<undefined>"`, `"<bigint 3>"` |
+| Date | An ISO string |
+| Map, Set, class instance | `"<Map(2)>"`, `"<ClassName>"` |
+| Circular or deeper than 6 | `"<circular>"`, `"<Object>"` |
+| Atom nothing has read yet | `"<unread>"` |
+
+`inspect()` reads atoms without starting work, so an Effect atom stays idle until a component reads it.
+
+### Change atoms and watch for updates
+
+```ts
+import { element, onChange, roots, setAtom } from "ilha/debug";
+
+const stop = onChange(() => {
+  console.log("an island settled, mounted, or unmounted");
+});
+
+const [tree] = inspect(host);
+setAtom(tree.id, 1, "changed"); // { ok: true }
+element(tree.id); // the element to highlight or measure
+roots(); // host elements of the live DOM roots
+
+stop();
+```
+
+`setAtom()` accepts a JSON value. It returns `{ ok: false, reason }` for an unknown id, a missing index, or a read-only atom, so an agent can correct the call.
+
+`onChange()` runs synchronously after a paint, after a root settles, and when a root unmounts. Coalesce inside the listener if you re-read the whole tree. Apps that never import `ilha/debug` pay one set insert per root and nothing else.
+
+## Open the panel
+
+Install `@ilha/devtools`.
+
+```package-install
+@ilha/devtools
+```
+
+Start the page script in your client entry. It answers the panel and agents for this page.
+
+```ts
+// entry.client.ts
+import { installIlhaDevtools } from "@ilha/devtools/page";
+
+if (import.meta.env.DEV) {
+  const devtools = installIlhaDevtools();
+  // devtools.openPanel();
+}
+```
+
+Serve the panel with the Devframe Vite plugin.
+
+```ts
+// vite.config.ts
+import { devframeVitePlugin } from "@devframes/vite/single";
+import { ilhaDevtools } from "@ilha/devtools";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [devframeVitePlugin(ilhaDevtools)],
+});
+```
+
+Call `devtools.openPanel()` from the console or a button. The panel opens at `/__ilha-devtools/` in a popup, which lets it find the page that opened it.
+
+The panel shows the component tree. Hover a component to outline it on the page, select one to see its atoms, and edit a JSON value to write it back.
+
+`ilhaDevtools` is a plain Devframe definition, so any [Devframe adapter](https://devfra.me/adapters) can mount it.
+
+## Let an agent drive the page
+
+`installIlhaDevtools()` registers three tools on the browser's WebMCP model context when the browser provides one.
+
+| Tool | Use it to |
+| --- | --- |
+| `ilha_inspect` | Read every live island. Call it first to learn the ids. |
+| `ilha_highlight` | Outline a component for the user. Pass `null` to clear it. |
+| `ilha_set_atom` | Write a JSON value to one atom and let the island rerender. |
+
+The same three functions carry Devframe `agent` metadata on the in-page channel, so a Devframe MCP bridge can list them. Pass `{ webmcp: false }` to skip the WebMCP registration.
+
+Without a browser agent, call the functions through a panel endpoint. The channel is `devframes:plugin:ilha-devtools`, and `@ilha/devtools/protocol` exports its types.
+
+```ts
+import { connectPanelChannel } from "devframe/in-page-channel";
+import { ILHA_DEVTOOLS_CHANNEL } from "@ilha/devtools/protocol";
+import type { IlhaDevtoolsProtocol } from "@ilha/devtools/protocol";
+
+const panel = connectPanelChannel<IlhaDevtoolsProtocol>({
+  functions: {},
+  name: ILHA_DEVTOOLS_CHANNEL,
+});
+
+const islands = await panel.call("inspect");
+await panel.call("setAtom", islands[0].id, 0, 2);
+```
+
+The `tree` shared state mirrors `inspect()` as islands change. Read it with `parseTree(state.value())`.
+
+## Test with the same tree
+
+`inspect()` runs under happy-dom, so a test can assert on state and not only on markup.
+
+```tsx
+import { expect, test } from "bun:test";
+import { mount } from "ilha";
+import { inspect } from "ilha/debug";
+
+test("starts at one", () => {
+  const host = document.createElement("div");
+  mount(host, Counter);
+  expect(inspect(host)[0]?.atoms[0]?.value).toBe(1);
+});
+```

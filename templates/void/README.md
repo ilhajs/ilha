@@ -22,6 +22,7 @@ Open [http://localhost:5173](http://localhost:5173).
 | `bun run dev`     | Start the Vite dev server    |
 | `bun run build`   | Build for production         |
 | `bun run preview` | Preview the production build |
+| `bun run check`   | Typecheck, lint, and test    |
 
 ## Project layout
 
@@ -32,6 +33,9 @@ pages/
   index.server.ts     # Loader and action for the todos page
   about.island.tsx    # Island page: static HTML plus the counter island
   _counter.tsx        # Imported `with { island: "load" }` on the about page
+  _counter.test.tsx   # Server-render test with `renderHtml` from `ilha/test`
+AGENTS.md             # Commands and canonical APIs for AI coding agents
+.oxlintrc.json        # Enables the Ilha Oxlint plugin
 ```
 
 Read the [Ilha Void guide](https://ilha.build/guide/void) and the [Void docs](https://void.cloud) to go further.
