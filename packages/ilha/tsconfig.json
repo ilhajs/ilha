@@ -12,9 +12,7 @@
     "paths": {
       "ilha": ["./src/index.ts"],
       "ilha/jsx-runtime": ["./src/jsx-runtime.ts"],
-      "ilha/jsx-runtime.ts": ["./src/jsx-runtime.ts"],
-      "ilha/jsx-dev-runtime": ["./src/jsx-dev-runtime.ts"],
-      "ilha/jsx-dev-runtime.ts": ["./src/jsx-dev-runtime.ts"]
+      "ilha/jsx-dev-runtime": ["./src/jsx-dev-runtime.ts"]
     },
     "strictNullChecks": true
   },

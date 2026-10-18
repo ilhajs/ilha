@@ -44,16 +44,12 @@
     },
     "./jsx-runtime": {
       "types": "./dist/jsx-runtime.d.ts",
-      "import": "./dist/jsx-runtime.js",
-      "default": "./src/jsx-runtime.ts"
+      "import": "./dist/jsx-runtime.js"
     },
-    "./jsx-runtime.ts": "./src/jsx-runtime.ts",
     "./jsx-dev-runtime": {
       "types": "./dist/jsx-dev-runtime.d.ts",
-      "import": "./dist/jsx-dev-runtime.js",
-      "default": "./src/jsx-dev-runtime.ts"
+      "import": "./dist/jsx-dev-runtime.js"
     },
-    "./jsx-dev-runtime.ts": "./src/jsx-dev-runtime.ts",
     "./renderer": {
       "types": "./dist/renderer.d.ts",
       "import": "./dist/renderer.js"
