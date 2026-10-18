@@ -39,7 +39,7 @@ const stagePackageCopy = (name: string, sourceDir: string): void => {
   const dist = path.join(sourceDir, "dist");
   if (!existsSync(dist)) {
     throw new Error(
-      `ssr-single-ilha fixture needs a build first: missing ${dist}`
+      `ssr-single-ilha fixture needs a build first: missing ${dist} (run \`bun run build\` from the repo root)`
     );
   }
   const target = path.join(fixtureModulesDir, name);
