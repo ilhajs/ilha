@@ -57,10 +57,10 @@
   },
   "devDependencies": {
     "effect": "^4.0.0",
-    "ilha": "^0.15.2"
+    "ilha": "^0.16.0"
   },
   "peerDependencies": {
     "effect": "^4.0.0",
-    "ilha": ">=0.15.2"
+    "ilha": ">=0.16.0"
   }
 }
