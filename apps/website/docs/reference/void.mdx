@@ -42,6 +42,7 @@ The plugin also sets Ilha's JSX import source unless your config sets one, pre-b
 | `useShared<T>()` | Middleware-shared values; throws outside a Void page |
 | `useNavigation()` | `NavigationState`; idle outside regular pages |
 | `useRouter()` | `VoidRouter`; a server-safe stub outside regular pages |
+| `useLink()` | `(href, options?) => { href, onclick }` for a native `<a>`; see the [guide](/guide/void#uselink-for-child-combinator-css) |
 | `usePageErrors()` | Validation errors the last action returned |
 | `useForm(url, defaults, options?)` | `PageForm<T>` |
 | `useIslandForm(defaults)` | `IslandForm<T>` |

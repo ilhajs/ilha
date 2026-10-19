@@ -18,6 +18,8 @@ export {
   useRouter,
   useShared,
 } from "./hooks";
+export { useLink } from "./use-link";
+export type { UseLink, UseLinkOptions, UseLinkProps } from "./use-link";
 export { Link } from "./link";
 export type { LinkMethod, LinkProps, PrefetchStrategy } from "./link";
 export { useForm } from "./use-form";

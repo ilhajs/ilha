@@ -98,6 +98,27 @@ export default function Nav() {
 
 Other attributes pass through to the element. Modified clicks, `download` links, and cross-origin links fall back to the browser.
 
+### `useLink()` for child-combinator CSS
+
+Every component, `<Link>` included, paints into a `<span data-ilha-slot style="display:contents">` host. That wrapper breaks CSS that uses child combinators: daisyUI's menu styles `ul.menu > li > a`, but a `<Link>` renders `li > span > a`, so the link loses its styling. `useLink()` binds the same router navigation to a native `<a>`, which stays a direct child of its parent:
+
+```tsx
+import { useLink } from "@ilha/void";
+
+export default function Menu() {
+  const link = useLink();
+  return (
+    <ul class="menu">
+      <li>
+        <a {...link("/")}>Home</a>
+      </li>
+    </ul>
+  );
+}
+```
+
+Call it once at the top level of a component, then spread the result onto a plain anchor. It is GET-only: it takes `replace`, `preserveScroll`, `preserveState`, `viewTransition`, `onNavigate`, and `onclick`, but no `data` and no prefetch. For those, use `<Link>`.
+
 ## Read route state
 
 These hooks read from the current page and rerun your component when the value changes. Call them at the top level, like `atom()`.
