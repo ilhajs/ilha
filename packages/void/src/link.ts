@@ -176,7 +176,7 @@ export const Link = (props: LinkProps): View => {
 
   const handleClick = (event: MouseEvent): void => {
     onclick?.(event);
-    // SAFETY: the gate already rejects a missing router; rechecking narrows it.
+    // Rechecked only to narrow `router` for TS; the gate already rejects null.
     if (
       !router ||
       !shouldInterceptClick(event, { reloadDocument, router, target })
