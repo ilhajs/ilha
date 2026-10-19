@@ -2,7 +2,7 @@ import { atom, context, h, watch } from "ilha";
 import type { View } from "ilha";
 import type { JSX } from "ilha/jsx-runtime";
 import { isModifiedEvent, mergeDataIntoHref } from "void/pages-client";
-import type { PrefetchOptions } from "void/pages-client";
+import type { PrefetchOptions, VoidRouter } from "void/pages-client";
 
 import { VoidContext } from "./context";
 import type { FormValues } from "./types";
@@ -66,6 +66,40 @@ const strategiesOf = ({
 
 const isSameOrigin = (href: string): boolean =>
   new URL(href, window.location.origin).origin === window.location.origin;
+
+export interface RouterClickGate {
+  /** The Void Router; `null` on island pages, which navigate with full loads. */
+  router: VoidRouter | null;
+  /** The resolved href the click would navigate to. */
+  target: string;
+  /** Skip the Void Router and load the document. */
+  reloadDocument?: boolean;
+}
+
+/**
+ * Whether a click should navigate through the Void Router. Call it after the
+ * caller's own `onclick`, since a prevented event falls back to the browser.
+ * Modifier keys, non-left buttons, non-`_self` targets, `download` links,
+ * cross-origin hrefs, and a missing router all fall back to the browser.
+ * Shared by `Link` and `useLink` so both apply exactly the same rules.
+ */
+export const shouldInterceptClick = (
+  event: MouseEvent,
+  { reloadDocument, router, target }: RouterClickGate
+): boolean => {
+  if (
+    reloadDocument ||
+    !router ||
+    event.defaultPrevented ||
+    isModifiedEvent(event) ||
+    (event.currentTarget instanceof Element &&
+      event.currentTarget.hasAttribute("download")) ||
+    !isSameOrigin(target)
+  ) {
+    return false;
+  }
+  return true;
+};
 
 const unlessPrevented =
   <E extends Event>(handler: Handler<E> | undefined, then: () => void) =>
@@ -142,14 +176,10 @@ export const Link = (props: LinkProps): View => {
 
   const handleClick = (event: MouseEvent): void => {
     onclick?.(event);
+    // Rechecked only to narrow `router` for TS; the gate already rejects null.
     if (
-      reloadDocument ||
       !router ||
-      event.defaultPrevented ||
-      isModifiedEvent(event) ||
-      (event.currentTarget instanceof Element &&
-        event.currentTarget.hasAttribute("download")) ||
-      !isSameOrigin(target)
+      !shouldInterceptClick(event, { reloadDocument, router, target })
     ) {
       return;
     }

@@ -57,7 +57,7 @@ Scaffold an app with `npx giget@latest gh:ilhajs/ilha/templates/void`.
 
 | Import path | Exports |
 | --- | --- |
-| `@ilha/void` | `Link`, `Form`, `useForm`, `useIslandForm`, `useParams`, `useShared`, `useNavigation`, `useRouter`, `action` |
+| `@ilha/void` | `Link`, `useLink`, `Form`, `useForm`, `useIslandForm`, `useParams`, `useShared`, `useNavigation`, `useRouter`, `action` |
 | `@ilha/void/plugin` | `voidIlha()` |
 
 Docs: [ilha.build/guide/void](https://ilha.build/guide/void)
