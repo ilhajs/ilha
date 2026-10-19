@@ -6,6 +6,7 @@ import path from "node:path";
 import type { ConfigEnv, Plugin, UserConfig } from "vite";
 import { scanPages } from "void/pages";
 import type { PageScanResult } from "void/pages";
+import { ISLANDS_CLIENT_ENTRY_ID } from "void/pages-islands-plugin";
 
 import { voidIlha } from "./plugin";
 import {
@@ -153,6 +154,56 @@ export default () => <Counter start={1} />;`,
     const wrapperId = WRAPPER_IMPORT.exec(result?.code ?? "")?.groups?.id;
     const wrapper = wrapperId ? runLoad(plugin, wrapperId) : undefined;
     expect(wrapper).toContain('hydrate: "visible", id: "pages/_Counter"');
+  });
+});
+
+const runIslandsConfig = (
+  dir: string,
+  rootDir: string,
+  command: "build" | "serve"
+): Promise<UserConfig | undefined> => {
+  const plugin = islandsPlugin(dir, { root: rootDir });
+  // SAFETY: the islands plugin declares `config` as an async function hook.
+  const hook = plugin.config as (
+    config: UserConfig,
+    env: ConfigEnv
+  ) => Promise<UserConfig | undefined>;
+  return hook(
+    {},
+    { command, mode: command === "build" ? "production" : "development" }
+  );
+};
+
+describe("islands client input", () => {
+  it("adds the islands-client input when island pages exist", async () => {
+    const result = await runIslandsConfig(pagesDir, root, "build");
+    expect(result?.build?.rollupOptions?.input).toMatchObject({
+      "islands-client": ISLANDS_CLIENT_ENTRY_ID,
+    });
+    expect(result?.build?.manifest).toBe(true);
+  });
+
+  it("omits the islands-client input when no island pages exist", async () => {
+    const plainRoot = mkdtempSync(path.join(tmpdir(), "ilha-void-plain-"));
+    try {
+      const plainPagesDir = path.join(plainRoot, "pages");
+      mkdirSync(plainPagesDir, { recursive: true });
+      writeFileSync(
+        path.join(plainPagesDir, "index.tsx"),
+        "export default () => <p>home</p>;"
+      );
+      await expect(
+        runIslandsConfig(plainPagesDir, plainRoot, "build")
+      ).resolves.toBeUndefined();
+    } finally {
+      rmSync(plainRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("omits the islands-client input in dev", async () => {
+    await expect(
+      runIslandsConfig(pagesDir, root, "serve")
+    ).resolves.toBeUndefined();
   });
 });
 

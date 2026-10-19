@@ -10,7 +10,7 @@ Render [Void](https://void.cloud) pages, layouts, forms, and islands with [Ilha]
 bun add @ilha/void
 ```
 
-`ilha`, `vite`, and `void` are peer dependencies. Void needs Node.js 24.21 or newer.
+`ilha`, `vite`, and `void` are peer dependencies. Void needs Node.js 24.21 or newer. Requires `void ^1.1.12`: upgrade with `bun add void@^1.1.12` — older Void releases lack the islands API this package builds on.
 
 ---
 

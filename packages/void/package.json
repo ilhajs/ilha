@@ -62,11 +62,11 @@
   "devDependencies": {
     "ilha": "^0.16.0",
     "vite": "^8.3.1",
-    "void": "^1.1.11"
+    "void": "^1.1.12"
   },
   "peerDependencies": {
     "ilha": ">=0.16.0",
     "vite": "^8.0.0",
-    "void": "^1.1.0"
+    "void": "^1.1.12"
   }
 }

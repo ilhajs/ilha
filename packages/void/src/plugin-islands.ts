@@ -14,9 +14,9 @@ import {
   editIslandSource,
   findIslandImports,
   findStaticCssImports,
+  hasIslandPages,
   ISLANDS_CLIENT_ENTRY_ID,
   ISLANDS_RENDERER_ID,
-  needsIslandClientBundle,
   resolveSpecifier,
   rewriteCssImportForVirtualModule,
   watchPagesForRescan,
@@ -226,11 +226,11 @@ export const islandsPlugin = (
       prescan(scan);
     },
 
-    config(_, env) {
+    async config(_, env) {
       if (
         env.command === "serve" ||
         !existsSync(pagesDir) ||
-        !needsIslandClientBundle(pagesDir, ISLAND_PAGE_RE, false)
+        !(await hasIslandPages(root, pagesDir))
       ) {
         return;
       }
