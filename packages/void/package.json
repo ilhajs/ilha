@@ -1,6 +1,6 @@
 {
   "name": "@ilha/void",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Ilha pages, server rendering, islands, forms, and navigation for Void",
   "keywords": [
     "frontend",
