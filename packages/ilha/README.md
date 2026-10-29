@@ -73,8 +73,8 @@ Atoms hold data. Do not store JSX in an atom.
 Paint [Effect `Stream`](https://www.effect.website/docs/v4/api/effect/Stream) values. Yield a stream of views from a generator, or return one from an async component:
 
 ```tsx
-import * as Stream from "effect/Stream";
 import * as Atom from "effect/reactivity/Atom";
+import * as Stream from "effect/Stream";
 import { atom } from "ilha";
 
 function* List() {

@@ -62,7 +62,7 @@ const clickLabel = async (
 ) => {
   const label = el.querySelector(selector);
   if (!(label instanceof HTMLElement)) {
-    throw new Error(`${selector} missing`);
+    throw new TypeError(`${selector} missing`);
   }
   label.click();
   await Bun.sleep(5);
@@ -96,7 +96,7 @@ test("derived command survives repeated template toggles", async () => {
 
   const bunBtn = el.querySelector("[data-bun]");
   if (!(bunBtn instanceof HTMLButtonElement)) {
-    throw new Error("[data-bun] missing");
+    throw new TypeError("[data-bun] missing");
   }
   bunBtn.click();
   await Bun.sleep(5);
@@ -104,7 +104,7 @@ test("derived command survives repeated template toggles", async () => {
 
   const nameInput = el.querySelector("[data-name]");
   if (!(nameInput instanceof HTMLInputElement)) {
-    throw new Error("[data-name] missing");
+    throw new TypeError("[data-name] missing");
   }
   nameInput.value = "my-app";
   nameInput.dispatchEvent(new Event("input", { bubbles: true }));

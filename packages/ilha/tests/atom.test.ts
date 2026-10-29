@@ -187,7 +187,7 @@ test("value={atom} tracks the atom", async () => {
   await Bun.sleep(5);
   const input = el.querySelector("input");
   if (!(input instanceof HTMLInputElement)) {
-    throw new Error("input missing");
+    throw new TypeError("input missing");
   }
   expect(input.value).toBe("x");
   input.value = "yz";
@@ -440,7 +440,7 @@ test("sync reads while async setups are suspended do not leak trackGet", async (
 
   const cBtn = cEl.querySelector("#c");
   if (!(cBtn instanceof HTMLButtonElement)) {
-    throw new Error("#c missing");
+    throw new TypeError("#c missing");
   }
   cBtn.click();
   await Bun.sleep(10);

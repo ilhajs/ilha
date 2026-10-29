@@ -26,7 +26,7 @@ const Row = ({ id }: { id?: unknown }) => {
 const button = (el: Element, selector: string): HTMLButtonElement => {
   const found = el.querySelector(selector);
   if (!(found instanceof HTMLButtonElement)) {
-    throw new Error(`${selector} missing`);
+    throw new TypeError(`${selector} missing`);
   }
   return found;
 };

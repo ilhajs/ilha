@@ -179,7 +179,7 @@ describe("useIslandForm", () => {
       thrown = error;
     }
     if (!(thrown instanceof VoidActionError)) {
-      throw new Error("expected a VoidActionError");
+      throw new TypeError("expected a VoidActionError");
     }
     expect(thrown.body).toBe("boom");
     expect(form.error).toBeNull();
@@ -197,7 +197,7 @@ describe("useIslandForm", () => {
       thrown = error;
     }
     if (!(thrown instanceof VoidActionError)) {
-      throw new Error("expected a VoidActionError");
+      throw new TypeError("expected a VoidActionError");
     }
     expect(thrown.body).toBeNull();
   });
@@ -219,7 +219,7 @@ describe("useIslandForm", () => {
       thrown = error;
     }
     if (!(thrown instanceof VoidActionError)) {
-      throw new Error("expected a VoidActionError");
+      throw new TypeError("expected a VoidActionError");
     }
     expect(thrown.body).toBeNull();
   });

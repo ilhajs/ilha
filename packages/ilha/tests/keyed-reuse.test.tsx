@@ -34,7 +34,7 @@ const rowsText = (el: Element): string =>
 const click = async (el: Element, selector: string): Promise<void> => {
   const found = el.querySelector(selector);
   if (!(found instanceof HTMLButtonElement)) {
-    throw new Error(`${selector} missing`);
+    throw new TypeError(`${selector} missing`);
   }
   found.click();
   await Bun.sleep(8);
@@ -343,7 +343,7 @@ test("an async keyed row's self-render uses the props of the newest parent rende
   // that render is still awaiting.
   const bump = el.querySelector(".bump");
   if (!(bump instanceof HTMLButtonElement)) {
-    throw new Error(".bump missing");
+    throw new TypeError(".bump missing");
   }
   bump.click();
   await Bun.sleep(3);

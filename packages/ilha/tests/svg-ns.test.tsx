@@ -22,7 +22,7 @@ test("svg elements materialize in the SVG namespace", async () => {
   const svg = el.querySelector("svg");
   const circle = el.querySelector("circle");
   if (!(svg instanceof SVGElement) || !(circle instanceof Element)) {
-    throw new Error("svg tree missing");
+    throw new TypeError("svg tree missing");
   }
   expect(svg.namespaceURI).toBe(SVG_NS);
   expect(circle.namespaceURI).toBe(SVG_NS);
@@ -48,7 +48,7 @@ test("foreignObject children return to the HTML namespace", async () => {
 
   const div = el.querySelector("#fo-div");
   if (!(div instanceof Element)) {
-    throw new Error("foreignObject div missing");
+    throw new TypeError("foreignObject div missing");
   }
   expect(div.namespaceURI).toBe(HTML_NS);
   unmount();
@@ -81,7 +81,7 @@ test("hydrated svg keeps its namespace", async () => {
   const svg = el.querySelector("svg");
   const circle = el.querySelector("circle");
   if (!(svg instanceof Element) || !(circle instanceof Element)) {
-    throw new Error("hydrated svg tree missing");
+    throw new TypeError("hydrated svg tree missing");
   }
   expect(svg.namespaceURI).toBe(SVG_NS);
   expect(circle.namespaceURI).toBe(SVG_NS);

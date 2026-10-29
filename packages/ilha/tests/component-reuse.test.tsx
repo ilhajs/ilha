@@ -32,7 +32,7 @@ test("unkeyed child keeps state when the parent rerenders", async () => {
 
   const childBefore = el.querySelector("#child-btn");
   if (!(childBefore instanceof HTMLButtonElement)) {
-    throw new Error("child missing");
+    throw new TypeError("child missing");
   }
   childBefore.click();
   await Bun.sleep(10);
@@ -40,7 +40,7 @@ test("unkeyed child keeps state when the parent rerenders", async () => {
 
   const parentBtn = el.querySelector("#parent-btn");
   if (!(parentBtn instanceof HTMLButtonElement)) {
-    throw new Error("parent button missing");
+    throw new TypeError("parent button missing");
   }
   parentBtn.click();
   await Bun.sleep(10);

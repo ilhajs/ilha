@@ -32,7 +32,7 @@ test("async child inside generator parent", async () => {
   expect(el.textContent).toContain("n=0");
   const badge = el.querySelector("#badge");
   if (!(badge instanceof HTMLButtonElement)) {
-    throw new Error("#badge missing");
+    throw new TypeError("#badge missing");
   }
   badge.click();
   await Bun.sleep(10);
@@ -68,7 +68,7 @@ test("generator child inside async parent", async () => {
   expect(el.textContent).toContain("gen 0");
   const tick = el.querySelector("#tick");
   if (!(tick instanceof HTMLButtonElement)) {
-    throw new Error("#tick missing");
+    throw new TypeError("#tick missing");
   }
   tick.click();
   await Bun.sleep(10);
