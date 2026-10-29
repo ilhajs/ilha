@@ -161,6 +161,13 @@ export default defineConfig({
       { href: "/tutorial/counter/atom", label: "Tutorial", path: "/tutorial" },
     ],
   },
+  // Blume enables @astrojs/react for any `.tsx` in the project, and its React
+  // Compiler pass (`oxc-transform-react`) recompiles every `.tsx` — including
+  // ilha components — with `react/jsx-runtime`, ignoring tsconfig
+  // `jsxImportSource: ilha`. Hydrated islands then render `[object Object]`.
+  // The site ships no React islands, so skip the compiler pass; without it the
+  // transform falls through to Vite core, which honors the tsconfig.
+  react: { compiler: false },
   seo: {
     og: {
       enabled: true,
