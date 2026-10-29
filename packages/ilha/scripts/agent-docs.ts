@@ -173,7 +173,7 @@ const cleanDoc = (body: string): string => {
     .join("\n")
     .trim();
   const [paragraph = ""] = text.split(JSDOC_BREAK);
-  const flat = paragraph.replace(WHITESPACE, " ").trim();
+  const flat = paragraph.replaceAll(WHITESPACE, " ").trim();
   return SENTENCE_END.exec(flat)?.groups?.sentence ?? flat;
 };
 

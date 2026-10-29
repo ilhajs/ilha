@@ -84,7 +84,7 @@ test("drops style expression()", () => {
 test("filters string style values through the allowlist", () => {
   const div = paint(h("div", { style: jsStyleUrl })).querySelector("div");
   if (!(div instanceof HTMLDivElement)) {
-    throw new Error("div missing");
+    throw new TypeError("div missing");
   }
   expect(div.style.color).toBe("red");
   expect(div.style.background).toBe("");
@@ -116,7 +116,7 @@ test("rejects css url escapes and data urls in string styles", () => {
     h("div", { style: "background:url(\\6a avascript:alert(1))" })
   ).querySelector("div");
   if (!(escaped instanceof HTMLDivElement)) {
-    throw new Error("escaped div missing");
+    throw new TypeError("escaped div missing");
   }
   expect(escaped.style.background).toBe("");
 
@@ -124,7 +124,7 @@ test("rejects css url escapes and data urls in string styles", () => {
     h("div", { style: "background:url(data:image/svg+xml,<svg></svg>)" })
   ).querySelector("div");
   if (!(dataUrl instanceof HTMLDivElement)) {
-    throw new Error("dataUrl div missing");
+    throw new TypeError("dataUrl div missing");
   }
   expect(dataUrl.style.background).toBe("");
 });

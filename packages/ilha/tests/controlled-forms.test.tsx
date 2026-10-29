@@ -23,7 +23,7 @@ test("controlled input resets to the rendered value", async () => {
 
   const input = el.querySelector("#controlled");
   if (!(input instanceof HTMLInputElement)) {
-    throw new Error("input missing");
+    throw new TypeError("input missing");
   }
   expect(input.value).toBe("hello");
   // User edit lands in the live property only.
@@ -61,7 +61,7 @@ test("conditional above an input does not shift the morph", async () => {
 
   const input = el.querySelector("#below");
   if (!(input instanceof HTMLInputElement)) {
-    throw new Error("input missing");
+    throw new TypeError("input missing");
   }
   input.value = "typed";
   el.querySelector("#toggle")?.click();
@@ -105,7 +105,7 @@ test("controlled reset works after hydration", async () => {
 
   const input = el.querySelector("#hyd-controlled");
   if (!(input instanceof HTMLInputElement)) {
-    throw new Error("input missing");
+    throw new TypeError("input missing");
   }
   input.value = "user edit";
   el.querySelector("#hyd-reset")?.click();

@@ -1,4 +1,4 @@
-# ilha 0.16.0 — agent guide
+# ilha 0.16.1 — agent guide
 
 Generated from `src/index.ts` by `scripts/agent-docs.ts`. Do not edit by hand.
 

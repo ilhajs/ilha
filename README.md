@@ -85,6 +85,7 @@ export const Counter = ({ start = 0 }: { start?: number }) => {
 
 ```ts
 import { mount } from "ilha";
+
 import { Counter } from "./counter";
 
 mount(document.getElementById("app")!, () => Counter({ start: 0 }));
@@ -94,6 +95,7 @@ mount(document.getElementById("app")!, () => Counter({ start: 0 }));
 
 ```ts
 import { renderToString } from "ilha";
+
 import { Counter } from "./counter";
 
 const html = await renderToString(() => Counter({ start: 10 }));
@@ -103,6 +105,7 @@ const html = await renderToString(() => Counter({ start: 10 }));
 
 ```ts
 import { mount, renderToString } from "ilha";
+
 import { Counter } from "./counter";
 
 const html = await renderToString(() => Counter({ start: 10 }));

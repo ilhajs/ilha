@@ -15,9 +15,9 @@ bun add @ilha/astro
 ## Usage
 
 ```ts
+import ilha from "@ilha/astro";
 // astro.config.mjs
 import { defineConfig } from "astro/config";
-import ilha from "@ilha/astro";
 
 export default defineConfig({
   integrations: [ilha()],

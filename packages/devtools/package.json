@@ -1,6 +1,6 @@
 {
   "name": "@ilha/devtools",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Inspect live Ilha islands from the browser, a panel, or a coding agent",
   "keywords": [
     "agents",
@@ -53,14 +53,14 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "devframe": "^1.2.5"
+    "devframe": "^1.2.6"
   },
   "devDependencies": {
-    "effect": "^4.0.0",
-    "ilha": "^0.16.0"
+    "effect": "^4.1.0",
+    "ilha": "^0.16.1"
   },
   "peerDependencies": {
-    "effect": "^4.0.0",
-    "ilha": ">=0.16.0"
+    "effect": "^4.1.0",
+    "ilha": ">=0.16.1"
   }
 }

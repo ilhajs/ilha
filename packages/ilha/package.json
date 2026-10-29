@@ -1,6 +1,6 @@
 {
   "name": "ilha",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "Generator-first island UI on Effect",
   "keywords": [
     "effect",
@@ -74,10 +74,9 @@
     "typecheck": "tsc -p tsconfig.types.json --noEmit"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "^20.14.5",
-    "effect": "^4.0.0"
+    "effect": "^4.1.0"
   },
   "peerDependencies": {
-    "effect": "^4.0.0"
+    "effect": "^4.1.0"
   }
 }

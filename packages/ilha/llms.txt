@@ -1,6 +1,6 @@
 # ilha
 
-> Tiny, isomorphic islands UI library on Effect 4. Function components, order-based `atom()` slots, JSX, SSR via `renderToString`, hydration via `mount(host, C, { hydrate: true })`. Version 0.16.0.
+> Tiny, isomorphic islands UI library on Effect 4. Function components, order-based `atom()` slots, JSX, SSR via `renderToString`, hydration via `mount(host, C, { hydrate: true })`. Version 0.16.1.
 
 Start with the canonical-usage table: exactly one API per task, plus a never-do list.
 

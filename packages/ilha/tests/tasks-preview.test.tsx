@@ -97,7 +97,7 @@ test("tasks preview: toggle, delete, and add", async () => {
 
   const firstCheckbox = el.querySelector("input[type=checkbox]");
   if (!(firstCheckbox instanceof HTMLInputElement)) {
-    throw new Error("checkbox missing");
+    throw new TypeError("checkbox missing");
   }
   firstCheckbox.checked = false;
   firstCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
@@ -106,7 +106,7 @@ test("tasks preview: toggle, delete, and add", async () => {
 
   const deleteBtn = el.querySelector("[data-delete='3']");
   if (!(deleteBtn instanceof HTMLButtonElement)) {
-    throw new Error("delete button missing");
+    throw new TypeError("delete button missing");
   }
   deleteBtn.click();
   await Bun.sleep(10);
@@ -114,7 +114,7 @@ test("tasks preview: toggle, delete, and add", async () => {
 
   const input = el.querySelector("input[name=text]");
   if (!(input instanceof HTMLInputElement)) {
-    throw new Error("text input missing");
+    throw new TypeError("text input missing");
   }
   input.value = "New task";
   const form = el.querySelector("form");

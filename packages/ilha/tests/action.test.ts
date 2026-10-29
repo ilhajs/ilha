@@ -32,7 +32,7 @@ test("Atom.fn pending then success", async () => {
   await Bun.sleep(10);
   const btn = el.querySelector("#save");
   if (!(btn instanceof HTMLButtonElement)) {
-    throw new Error("#save missing");
+    throw new TypeError("#save missing");
   }
   btn.click();
   await Bun.sleep(50);
