@@ -22,6 +22,7 @@
         "@fontsource-variable/geist": "^5.3.0",
         "@fontsource-variable/geist-mono": "^5.3.0",
         "@ilha/astro": "workspace:*",
+        "@ilha/model": "workspace:*",
         "astro": "^7.4.4",
         "astro-icon": "^1.2.0",
         "ilha": "workspace:*",
@@ -75,6 +76,19 @@
       },
       "peerDependencies": {
         "effect": "^4.1.0",
+      },
+    },
+    "packages/model": {
+      "name": "@ilha/model",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "^1.4.4",
+        "effect": "^4.1.0",
+        "ilha": "^0.16.1",
+      },
+      "peerDependencies": {
+        "effect": "^4.1.0",
+        "ilha": ">=0.16.1",
       },
     },
     "packages/void": {
@@ -365,6 +379,8 @@
     "@ilha/astro": ["@ilha/astro@workspace:packages/astro"],
 
     "@ilha/devtools": ["@ilha/devtools@workspace:packages/devtools"],
+
+    "@ilha/model": ["@ilha/model@workspace:packages/model"],
 
     "@ilha/template-void": ["@ilha/template-void@workspace:templates/void"],
 
