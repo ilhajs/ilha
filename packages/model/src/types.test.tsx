@@ -127,6 +127,25 @@ const typecheckCommands = (): void => {
   };
   void badCmd;
 
+  // The same checks through `defineApp`, where `Message` is inferred.
+  const badUpdateCmd = defineApp({
+    init: () => ({ model: { count: 0 } }),
+    // @ts-expect-error -- an update command must resolve to the app's messages.
+    update: (model: Model, _message: Message) => ({
+      cmd: Effect.succeed({ count: 1 }),
+      model,
+    }),
+    view: (model: Model) => <p>{model.count}</p>,
+  });
+  void badUpdateCmd;
+  const badInitCmd = defineApp({
+    // @ts-expect-error -- an init command must resolve to the app's messages.
+    init: () => ({ cmd: Effect.succeed(42), model: { count: 0 } }),
+    update: (model: Model, _message: Message) => ({ model }),
+    view: (model: Model) => <p>{model.count}</p>,
+  });
+  void badInitCmd;
+
   const failCmd: AppOptions<{ count: number }, Message> = {
     init: () => ({ model: { count: 0 } }),
     // @ts-expect-error -- commands cannot fail; map failures into messages.
