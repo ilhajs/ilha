@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 
 import type { Cmd, UpdateResult } from "./app";
-import { eachCmd } from "./app";
+import { eachCmd } from "./internal";
 
 /**
  * One transform over a model, used with {@link combine}. A child fold

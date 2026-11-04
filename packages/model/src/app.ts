@@ -1,5 +1,4 @@
 import * as Cause from "effect/Cause";
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
@@ -14,6 +13,8 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { atom, untrack, watch } from "ilha";
 import type { Component, View } from "ilha";
+
+import { eachCmd, KeyedScope, reportCause, runCommand } from "./internal";
 
 /** Send a message into the app loop. */
 export type Dispatch<Message> = (message: Message) => void;
@@ -61,7 +62,12 @@ export const subscription = <Model, Message, Deps, R = never>(
   sub: Subscription<Model, Message, Deps, R>
 ): Subscription<Model, Message, Deps, R> => sub;
 
-/** Options for {@link defineApp}. */
+/**
+ * Options for {@link defineApp}. `Message` is inferred from `update`'s
+ * message parameter only; every other position checks against it, so a
+ * command that resolves to one variant never narrows the app's message
+ * type.
+ */
 export interface AppOptions<Model, Message, R = never, E = never> {
   /** Component name shown in `ilha/debug` trees. Default `"ModelApp"`. */
   readonly name?: string | undefined;
@@ -70,18 +76,18 @@ export interface AppOptions<Model, Message, R = never, E = never> {
    * Runs once per instance; the command runs once per client mount, never
    * during server rendering.
    */
-  readonly init: () => UpdateResult<Model, Message, R>;
+  readonly init: () => UpdateResult<Model, NoInfer<Message>, R>;
   /** The only place state changes. Must be pure. */
   readonly update: (
     model: Model,
     message: Message
-  ) => UpdateResult<Model, Message, R>;
+  ) => UpdateResult<Model, NoInfer<Message>, R>;
   /** Render the model. Must be pure; report facts with `dispatch`. */
-  readonly view: (model: Model, dispatch: Dispatch<Message>) => View;
+  readonly view: (model: Model, dispatch: Dispatch<NoInfer<Message>>) => View;
   /** Ongoing work gated by slices of the model. */
   readonly subscriptions?:
     // oxlint-disable-next-line typescript/no-explicit-any -- each entry keeps its own Deps via `subscription()`; the array only checks Model, Message, and R.
-    readonly Subscription<Model, Message, any, R>[] | undefined;
+    readonly Subscription<Model, NoInfer<Message>, any, R>[] | undefined;
   /** Services available to commands and subscriptions. */
   readonly layer?: Layer.Layer<R, E> | undefined;
   /**
@@ -96,23 +102,6 @@ export interface ModelApp<Model, Message, R = never, E = never> {
   readonly component: Component;
   readonly options: AppOptions<Model, Message, R, E>;
 }
-
-/**
- * Split one or many commands. Internal: shared with `submodel`, not part of
- * the package surface. `Effect.isEffect` narrows the union where
- * `Array.isArray` cannot, so no assertion is needed.
- */
-export const eachCmd = <Message, R>(
-  cmd: Cmd<Message, R> | readonly Cmd<Message, R>[]
-): readonly Cmd<Message, R>[] => (Effect.isEffect(cmd) ? [cmd] : cmd);
-
-/**
- * Per-instance keyed-command scope. The runner provides it around every
- * command; `keyed` reads it back without adding a service requirement.
- */
-const KeyedScope = Context.Service<FiberMap.FiberMap<string, unknown, unknown>>(
-  "ilha/model/KeyedScope"
-);
 
 /**
  * Latest-wins command: starting one interrupts the running command with the
@@ -131,16 +120,6 @@ export const keyed = <Message, R>(
           Fiber.join(fiber)
         )
   );
-
-/**
- * Report an unexpected cause through the Effect logger. Interruption
- * (unmount, keyed supersede, subscription restart) is silent; anything else
- * is a defect worth logging.
- */
-const reportCause = (cause: Cause.Cause<never>): Effect.Effect<void> =>
-  Cause.hasInterruptsOnly(cause)
-    ? Effect.void
-    : Effect.logError(Cause.pretty(cause));
 
 /** Per-instance command machinery, created once in a lazy slot. */
 interface InstanceCells<Message, R> {
@@ -358,16 +337,9 @@ export const defineApp = <
     const runOne = (
       cmd: Cmd<Message, R>
     ): Effect.Effect<void, never, R | AtomRegistry> =>
-      Effect.provideService(
-        Effect.catchCause(
-          cmd.pipe(
-            Effect.flatMap((out) =>
-              out === undefined ? Effect.void : Effect.sync(() => dispatch(out))
-            )
-          ),
-          reportCause
-        ),
-        KeyedScope,
+      runCommand(
+        cmd,
+        (message) => Effect.sync(() => dispatch(message)),
         keyedMap
       );
 
@@ -446,9 +418,10 @@ export const defineApp = <
   Object.defineProperty(component, "name", {
     value: options.name ?? "ModelApp",
   });
-  // SAFETY: `options` satisfies `AppOptions` with the computed R and E by
-  // construction (CheckServices validated coverage at the call site); only
-  // the generic `L` cannot be related back to `Layer<R, E>` here.
+  // SAFETY: `options` satisfies `AppOptions` with the computed Message, R,
+  // and E by construction (CheckServices validated coverage at the call
+  // site); only the generic `L` cannot be related back to `Layer<R, E>`
+  // here.
   return {
     component,
     options: options as AppOptions<
