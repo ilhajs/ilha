@@ -6,11 +6,12 @@ import { createPageScriptChannel } from "devframe/in-page-channel";
 import type { PageScriptChannel } from "devframe/in-page-channel";
 import { atomsOf, element, inspect, onChange, setAtom } from "ilha/debug";
 
+import { createModelLog } from "./model-log";
+import type { DispatchRecord } from "./model-log";
 import { ILHA_DEVTOOLS_CHANNEL, ILHA_DEVTOOLS_PANEL_PATH } from "./protocol";
 import type {
   AtomJson,
   IlhaDevtoolsProtocol,
-  ModelLogEntry,
   ModelLogResult,
 } from "./protocol";
 import { registerWebMcpTools } from "./webmcp";
@@ -105,19 +106,20 @@ const createHighlighter = () => {
 let current: IlhaDevtoolsHandle | undefined;
 
 /**
- * The `@ilha/model` log API, restated structurally so these types stand
- * alone when the optional peer is missing.
+ * The one `@ilha/model` function the page script needs, restated
+ * structurally so these types stand alone when the optional peer is missing.
  */
 interface ModelBridge {
-  readonly attachModelRecorder: () => () => void;
-  readonly readModelLog: (
-    atoms: readonly unknown[]
-  ) => readonly ModelLogEntry[] | undefined;
+  readonly attachModelRecorder: (
+    recorder: (dispatch: DispatchRecord) => void
+  ) => () => void;
 }
 
 /**
  * One shared load: every install attaches to the same module instance, and a
- * missing `@ilha/model` settles to `undefined` instead of throwing.
+ * missing `@ilha/model` settles to `undefined` instead of throwing. Dynamic
+ * because `@ilha/model` is an optional peer: a static import would fail to
+ * resolve on pages that do not install it.
  */
 let bridgePromise: Promise<ModelBridge | undefined> | undefined;
 
@@ -153,12 +155,13 @@ export const installIlhaDevtools = (
     return el === undefined ? false : highlighter.show(el);
   };
 
-  let bridge: ModelBridge | undefined;
+  const log = createModelLog();
+  let recording = false;
   let bridgeMissing = false;
   let detachRecorder: (() => void) | undefined;
 
   const modelLog = (id: string): ModelLogResult => {
-    if (bridge === undefined) {
+    if (!recording) {
       return {
         ok: false,
         reason: bridgeMissing
@@ -173,7 +176,7 @@ export const installIlhaDevtools = (
         reason: `No live component has id "${id}". Call inspect() again.`,
       };
     }
-    const entries = bridge.readModelLog(atoms);
+    const entries = log.read(atoms);
     if (entries === undefined) {
       return {
         ok: false,
@@ -250,8 +253,8 @@ export const installIlhaDevtools = (
       bridgeMissing = true;
       return;
     }
-    bridge = loaded;
-    detachRecorder = loaded.attachModelRecorder();
+    recording = true;
+    detachRecorder = loaded.attachModelRecorder(log.record);
   })();
 
   const mirror = async (): Promise<void> => {

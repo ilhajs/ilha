@@ -5,19 +5,12 @@ import type { Option } from "effect";
 import { Context, Data, Effect, Layer } from "effect";
 import * as Stream from "effect/Stream";
 
-import type {
-  AppOptions,
-  Dispatch,
-  ModelLogDiff,
-  ModelLogEntry,
-} from "./index";
+import type { AppOptions, Dispatch, DispatchRecord } from "./index";
 import {
   attachModelRecorder,
   combine,
   defineApp,
   foldChild,
-  MODEL_LOG_CAP,
-  readModelLog,
   subscription,
 } from "./index";
 import type { SimulateResult } from "./test";
@@ -346,26 +339,17 @@ const typecheckTestHelpers = (): void => {
 };
 
 const typecheckLog = (): void => {
-  const detach: () => void = attachModelRecorder();
+  const detach: () => void = attachModelRecorder((record: DispatchRecord) => {
+    const commands: number = record.commands;
+    const instance: object = record.instance;
+    void commands;
+    void instance;
+  });
   detach();
-  // @ts-expect-error -- attach takes no options.
-  const extra = attachModelRecorder({});
-  extra();
-  const entries: readonly ModelLogEntry[] | undefined = readModelLog([]);
-  void entries;
-  const cap: number = MODEL_LOG_CAP;
-  void cap;
-  const fields: ModelLogDiff = { _tag: "fields", changed: {} };
-  void fields;
-  const snapshot: ModelLogDiff = {
-    _tag: "snapshot",
-    after: 1,
-    before: 0,
-  };
-  void snapshot;
-  // @ts-expect-error -- diff tags are fields or snapshot.
-  const badDiff: ModelLogDiff = { _tag: "rows", changed: {} };
-  void badDiff;
+  // @ts-expect-error -- a recorder is required.
+  attachModelRecorder();
+  // @ts-expect-error -- raw values stay unknown; narrow them before use.
+  attachModelRecorder((record) => record.message.toUpperCase());
 };
 
 describe("types", () => {

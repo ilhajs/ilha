@@ -15,7 +15,7 @@ import { atom, untrack, watch } from "ilha";
 import type { Component, View } from "ilha";
 
 import { eachCmd, KeyedScope, reportCause, runCommand } from "./internal";
-import { dropLog, isLogRecording, recordDispatch } from "./log";
+import { isRecording, recordDispatch } from "./log";
 
 /** Send a message into the app loop. */
 export type Dispatch<Message> = (message: Message) => void;
@@ -331,10 +331,16 @@ export const defineApp = <
         }
         started = cmds.length;
       }
-      // One flag check when detached: no buffer, no summary work, nothing
-      // allocated. The message and both models stay untouched.
-      if (isLogRecording()) {
-        recordDispatch(state.atom, message, before, result.model, started);
+      // One size check when no recorder is attached: no record, nothing
+      // allocated, the message and both models untouched.
+      if (isRecording()) {
+        recordDispatch({
+          after: result.model,
+          before,
+          commands: started,
+          instance: state.atom,
+          message,
+        });
       }
     };
 
@@ -417,7 +423,6 @@ export const defineApp = <
       }
       return () => {
         helpers.alive = false;
-        dropLog(state.atom);
         Effect.runFork(Scope.close(helpers.keyedScope, Exit.void));
       };
     });

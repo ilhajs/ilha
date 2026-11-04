@@ -35,10 +35,7 @@ export interface IlhaTreeState {
 export const parseTree = ({ json }: IlhaTreeState): IlhaInspectNode[] =>
   JSON.parse(json);
 
-/**
- * One changed top-level model field, summarized before and after. Mirrors
- * `@ilha/model`, restated here so this package loads without it.
- */
+/** One changed top-level model field, summarized before and after. */
 export interface ModelLogFieldChange {
   readonly before: InspectValue;
   readonly after: InspectValue;
@@ -46,8 +43,7 @@ export interface ModelLogFieldChange {
 
 /**
  * How one message changed the model: changed top-level fields for record
- * models, summarized before/after snapshots for anything else. Mirrors
- * `ModelLogDiff` in `@ilha/model`.
+ * models, summarized before/after snapshots for anything else.
  */
 export type ModelLogDiff =
   | {
@@ -60,7 +56,7 @@ export type ModelLogDiff =
       readonly after: InspectValue;
     };
 
-/** One recorded dispatch. Mirrors `ModelLogEntry` in `@ilha/model`. */
+/** One recorded dispatch of a `@ilha/model` island. */
 export interface ModelLogEntry {
   /** `Date.now()` when the message dispatched. */
   readonly at: number;

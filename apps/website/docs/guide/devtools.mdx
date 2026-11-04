@@ -192,7 +192,7 @@ Select a model island in the panel to read its messages below the atoms. From an
 
 Islands that are not model apps, or model islands with nothing recorded, return `{ "ok": false, "reason": "..." }` so you can correct the call. The same function is available over the in-page channel as `modelLog`.
 
-Messages summarize with the same rules as atom values, so an `Error`, an `Option`, or a cycle never breaks the log. In tests without a page, attach the recorder yourself with `attachModelRecorder()` from `@ilha/model` and read it back with `readModelLog(atomsOf(id))`.
+Messages summarize with the same rules as atom values, so an `Error`, an `Option`, or a cycle never breaks the log. The summarizing, diffing, and buffering live in `@ilha/devtools`; `@ilha/model` only hands each dispatch to an attached recorder, so apps ship none of it. In tests without a page, attach your own recorder with `attachModelRecorder((record) => …)` from `@ilha/model`: each record carries the raw `message`, the model `before` and `after`, the number of `commands` started, and the island's model atom as `instance`, which you can match against `atomsOf(id)` from `ilha/debug`.
 
 ## Test with the same tree
 
