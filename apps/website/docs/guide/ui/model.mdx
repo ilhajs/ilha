@@ -317,9 +317,13 @@ interface Model {
 const loadUser = (id: string): Effect.Effect<User, LoadError> =>
   Effect.succeed({ id, name: "Ada" });
 
+// Keyed, so a refetch supersedes the initial load as well as older refetches.
 const load = (id: string) =>
-  Effect.map(Effect.exit(loadUser(id)), (exit) =>
-    Message.GotUser({ result: AsyncResult.fromExit(exit) })
+  keyed(
+    "user",
+    Effect.map(Effect.exit(loadUser(id)), (exit) =>
+      Message.GotUser({ result: AsyncResult.fromExit(exit) })
+    )
   );
 
 const update = (model: Model, message: Message) =>
@@ -330,7 +334,7 @@ const update = (model: Model, message: Message) =>
       },
     }),
     Refresh: () => ({
-      cmd: keyed("user", load("1")),
+      cmd: load("1"),
       model: { user: AsyncResult.waiting(model.user) },
     }),
   });
@@ -372,7 +376,7 @@ export const app = defineApp({
 });
 ```
 
-On `Refresh`, `update` marks the current result waiting and issues a `keyed` command, so the view keeps the last value with a refreshing note until the new one lands, and an older refetch never overwrites a newer one. `replacePrevious` carries the last success into a `Failure`, so a failed refetch keeps its previous value.
+On `Refresh`, `update` marks the current result waiting and starts the `keyed` load again, so the view keeps the last value with a refreshing note until the new one lands. Because the init load uses the same key, no older load, initial or refetch, overwrites a newer one. `replacePrevious` carries the last success into a `Failure`, so a failed refetch keeps its previous value.
 
 The `schema` entry round-trips `Initial`, `Success`, and `Failure` across SSR into hydration. Typed `Fail` errors arrive intact when their schema is JSON-safe; `Die` defects arrive as descriptions only — functions become `null` and class instances lose their prototype — so model typed errors as data and read them with `AsyncResult.error`.
 
