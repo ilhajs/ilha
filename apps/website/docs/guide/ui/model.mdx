@@ -284,6 +284,98 @@ export const app = defineApp({
 
 Without `schema` the model must be JSON-safe: no `Date`, `Map`, class instances, or functions. Messages carry no such constraint; they are never snapshotted.
 
+## Load data
+
+Hold each remote value in an [`AsyncResult`](https://www.effect.website/docs/v4/api/effect/reactivity/AsyncResult) field: `Initial` before the first load, `Success` with the value, `Failure` with the cause. Start the field at `initial()`, load it from an init command, and match on it in the view. `Effect.exit` captures the loader's typed failures as `Failure` data, which is what keeps the command's error channel at `never`; interruption still propagates, so a `keyed` refetch supersedes silently.
+
+```tsx twoslash
+import { Data, Effect, Option, Schema } from "effect";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import { defineApp, keyed } from "@ilha/model";
+import type { Dispatch } from "@ilha/model";
+
+const User = Schema.Struct({ id: Schema.String, name: Schema.String });
+type User = typeof User.Type;
+
+const LoadError = Schema.Struct({
+  _tag: Schema.Literal("LoadError"),
+  reason: Schema.String,
+});
+type LoadError = typeof LoadError.Type;
+
+type Message = Data.TaggedEnum<{
+  GotUser: { readonly result: AsyncResult.AsyncResult<User, LoadError> };
+  Refresh: {};
+}>;
+const Message = Data.taggedEnum<Message>();
+
+interface Model {
+  readonly user: AsyncResult.AsyncResult<User, LoadError>;
+}
+
+// Replace with your fetch: any `Effect<User, LoadError>` works here.
+const loadUser = (id: string): Effect.Effect<User, LoadError> =>
+  Effect.succeed({ id, name: "Ada" });
+
+const load = (id: string) =>
+  Effect.map(Effect.exit(loadUser(id)), (exit) =>
+    Message.GotUser({ result: AsyncResult.fromExit(exit) })
+  );
+
+const update = (model: Model, message: Message) =>
+  Message.$match(message, {
+    GotUser: ({ result }) => ({
+      model: {
+        user: AsyncResult.replacePrevious(result, Option.some(model.user)),
+      },
+    }),
+    Refresh: () => ({
+      cmd: keyed("user", load("1")),
+      model: { user: AsyncResult.waiting(model.user) },
+    }),
+  });
+
+const view = (model: Model, dispatch: Dispatch<Message>) =>
+  AsyncResult.match(model.user, {
+    onFailure: (failure) => {
+      const error = Option.getOrUndefined(AsyncResult.error(failure));
+      return (
+        <div>
+          <p>{error === undefined ? "Could not load." : error.reason}</p>
+          <button type="button" onclick={() => dispatch(Message.Refresh())}>
+            Try again
+          </button>
+        </div>
+      );
+    },
+    onInitial: () => <p>Loading…</p>,
+    onSuccess: ({ value, waiting }) => (
+      <div>
+        <p>{waiting ? `${value.name} (refreshing…)` : value.name}</p>
+        <button type="button" onclick={() => dispatch(Message.Refresh())}>
+          Refresh
+        </button>
+      </div>
+    ),
+  });
+
+export const app = defineApp({
+  init: () => ({
+    cmd: load("1"),
+    model: { user: AsyncResult.initial() },
+  }),
+  schema: Schema.Struct({
+    user: AsyncResult.Schema({ error: LoadError, success: User }),
+  }),
+  update,
+  view,
+});
+```
+
+On `Refresh`, `update` marks the current result waiting and issues a `keyed` command, so the view keeps the last value with a refreshing note until the new one lands, and an older refetch never overwrites a newer one. `replacePrevious` carries the last success into a `Failure`, so a failed refetch keeps its previous value.
+
+The `schema` entry round-trips `Initial`, `Success`, and `Failure` across SSR into hydration. Typed `Fail` errors arrive intact when their schema is JSON-safe; `Die` defects arrive as descriptions only — functions become `null` and class instances lose their prototype — so model typed errors as data and read them with `AsyncResult.error`.
+
 ## Split a child out
 
 A child owns its model and messages; the parent stores the child model, wraps child messages, and delegates with `foldChild`. The parent never edits the child slice directly.
@@ -452,4 +544,4 @@ Subscriptions never run in `simulate`; feed `update` the messages their streams 
 
 ## Know the limits
 
-`@ilha/model` covers the core loop: model, messages, commands, subscriptions, and submodels. It deliberately leaves out a DevTools overlay (use [`ilha/debug`](/guide/devtools) plus the message flow), route biparsers (routes stay in your router; the route is just a model field), and async-data, field, machine, and query values. Those arrive as later value helpers; nothing here needs to change to adopt them.
+`@ilha/model` covers the core loop: model, messages, commands, subscriptions, and submodels. It deliberately leaves out a DevTools overlay (use [`ilha/debug`](/guide/devtools) plus the message flow), route biparsers (routes stay in your router; the route is just a model field), and field, machine, and query values. Those arrive as later value helpers; nothing here needs to change to adopt them. For async data, hold an `AsyncResult` in the model ([Load data](#load-data)); there is no separate async-data type.
