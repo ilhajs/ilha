@@ -241,7 +241,7 @@ const Form = () => {
       onsubmit={(e) => {
         e.preventDefault();
         const email = String(new FormData(e.currentTarget).get("email") ?? "");
-        if (Atom.isWritable(save.atom)) save.set(email as never);
+        if (Atom.isWritable(save.atom)) save.set(email);
       }}
     >
       <input name="email" type="email" placeholder="you@company.com" />
@@ -293,6 +293,24 @@ const Visible = () => {
 ```
 
 Derived atoms (`atom(Atom.map(...))`) never enter the snapshot. Hydration recomputes them from their sources.
+
+### Encode rich values with a schema
+
+JSON cannot round-trip every value: a `Date` hydrates as a string. Pass a `schema` to encode the snapshot entry on the server and decode it back on hydration:
+
+```tsx twoslash
+import * as Schema from "effect/Schema";
+import { atom } from "ilha";
+
+const Meeting = () => {
+  const starts = atom(new Date("2024-01-02T03:04:05.000Z"), {
+    schema: Schema.Date,
+  });
+  return <p>{starts().toISOString()}</p>;
+};
+```
+
+The schema must match the atom value type, and the option works the same on `atom.lazy()`. A seed that fails to decode — tampered HTML, an older deploy — falls back to the initial value.
 
 ## Props vs state
 

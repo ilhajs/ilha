@@ -28,7 +28,7 @@ test("hydrate restores atom snapshot from host attr", async () => {
     ...new DOMParser().parseFromString(html, "text/html").body.childNodes
   );
   document.body.append(el);
-  const host = el.querySelector("[data-ilha]");
+  const host = el.querySelector<HTMLElement>("[data-ilha]");
   if (!host) {
     throw new Error("host missing");
   }
@@ -52,5 +52,5 @@ test("prototype keys are stripped", () => {
   const v = decodeSnapshot('{"v":[{"__proto__":{"x":1},"n":2}]}');
   const first = v?.[0];
   expect(first !== undefined && isObject(first) && "n" in first).toBe(true);
-  expect(Object.hasOwn(first ?? {}, "__proto__")).toBe(false);
+  expect(Object.hasOwn(isObject(first) ? first : {}, "__proto__")).toBe(false);
 });

@@ -48,8 +48,7 @@ const FnApp = () => {
     children: [total],
     props: {
       onclick: () => {
-        // SAFETY: Atom.fn with no args uses never-like void seed for set().
-        bump.set(undefined as never);
+        bump.set(undefined);
       },
     },
     type: "button",

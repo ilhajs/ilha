@@ -2,6 +2,7 @@
 import { expect, test } from "bun:test";
 
 import { atom, mount, renderToString } from "../src/index.ts";
+import type { JSX } from "../src/jsx-types.ts";
 
 const ResetApp = () => {
   const text = atom("hello");
@@ -28,7 +29,7 @@ test("controlled input resets to the rendered value", async () => {
   expect(input.value).toBe("hello");
   // User edit lands in the live property only.
   input.value = "user edit";
-  el.querySelector("#reset")?.click();
+  el.querySelector<HTMLButtonElement>("#reset")?.click();
   await Bun.sleep(10);
 
   expect(input.value).toBe("reset!");
@@ -64,7 +65,7 @@ test("conditional above an input does not shift the morph", async () => {
     throw new TypeError("input missing");
   }
   input.value = "typed";
-  el.querySelector("#toggle")?.click();
+  el.querySelector<HTMLButtonElement>("#toggle")?.click();
   await Bun.sleep(10);
 
   expect(el.querySelector("#extra")?.textContent).toBe("extra");
@@ -72,7 +73,7 @@ test("conditional above an input does not shift the morph", async () => {
   expect(el.querySelector("#below")).toBe(input);
   expect(input.value).toBe("typed");
 
-  el.querySelector("#toggle")?.click();
+  el.querySelector<HTMLButtonElement>("#toggle")?.click();
   await Bun.sleep(10);
   expect(el.querySelector("#extra")).toBeNull();
   expect(el.querySelector("#below")).toBe(input);
@@ -108,7 +109,7 @@ test("controlled reset works after hydration", async () => {
     throw new TypeError("input missing");
   }
   input.value = "user edit";
-  el.querySelector("#hyd-reset")?.click();
+  el.querySelector<HTMLButtonElement>("#hyd-reset")?.click();
   await Bun.sleep(10);
 
   expect(input.value).toBe("reset!");
@@ -180,7 +181,11 @@ test("controlled option selected={false} undoes a user pick", async () => {
   const single = field<HTMLSelectElement>(el, "#single");
   const multi = field<HTMLSelectElement>(el, "#multi");
   single.value = "b";
-  multi.options[1].selected = true;
+  const second = multi.options.item(1);
+  if (!second) {
+    throw new Error("option missing");
+  }
+  second.selected = true;
   await click("tick");
 
   expect(single.value).toBe("a");

@@ -1,10 +1,12 @@
 // @jsxImportSource ilha
 import { describe, expect, it } from "bun:test";
 
-import { Data, Effect } from "effect";
+import type { Option } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
+import * as Stream from "effect/Stream";
 
-import type { AppOptions, Dispatch, Slice } from "./index";
-import { combine, defineApp, foldChild } from "./index";
+import type { AppOptions, Dispatch } from "./index";
+import { combine, defineApp, foldChild, subscription } from "./index";
 
 // oxlint-disable-next-line typescript/no-empty-object-type, typescript/ban-types, typescript/consistent-type-definitions -- Data.taggedEnum spells payload-free variants as `{}`.
 type NoArgs = {};
@@ -20,7 +22,7 @@ interface Model {
 
 const typecheckApp = (): void => {
   const app = defineApp({
-    init: () => ({ count: 0 }),
+    init: () => ({ model: { count: 0 } }),
     update: (model: Model, message: Message) =>
       message._tag === "Ping"
         ? { model: { count: model.count + 1 } }
@@ -30,19 +32,11 @@ const typecheckApp = (): void => {
       return <p>{model.count}</p>;
     },
   });
-  const count: number = app.options.init().count;
+  const count: number = app.options.init().model.count;
   void count;
 
-  // @ts-expect-error -- messages must be serializable data, not callbacks.
-  const badMsg: AppOptions<{ count: number }, { run: () => void }> = {
-    init: () => ({ count: 0 }),
-    update: (model) => ({ model }),
-    view: () => <p>no</p>,
-  };
-  void badMsg;
-
   const badModel: AppOptions<{ count: number }, Message> = {
-    init: () => ({ count: 0 }),
+    init: () => ({ model: { count: 0 } }),
     // @ts-expect-error -- update must return the declared model shape.
     update: () => ({ model: { missing: true } }),
     view: () => <p>no</p>,
@@ -50,30 +44,36 @@ const typecheckApp = (): void => {
   void badModel;
 };
 
-const typecheckFlags = (): void => {
-  const app = defineApp<Model, Message, { readonly start: number }>({
-    flags: { start: 3 },
-    init: (flags) => ({ count: flags.start }),
-    update: (model) => ({ model }),
-    view: (model) => <p>{model.count}</p>,
+const typecheckMessages = (): void => {
+  interface Payload {
+    readonly x: number;
+  }
+  // oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
+  type Rich = Data.TaggedEnum<{
+    Got: { readonly payload: Payload };
+    Maybe: { readonly value: Option.Option<number> };
+  }>;
+  // oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
+  const Rich = Data.taggedEnum<Rich>();
+  const richApp = defineApp({
+    init: () => ({ model: { count: 0 } }),
+    update: (model: Model, message: Rich) =>
+      Rich.$match(message, {
+        Got: ({ payload }) => ({ model: { count: model.count + payload.x } }),
+        Maybe: ({ value }) => ({
+          model: {
+            count: value._tag === "Some" ? value.value : model.count,
+          },
+        }),
+      }),
+    view: (model: Model) => <p>{model.count}</p>,
   });
-  const start: number = app.options.flags?.start ?? 0;
-  void start;
-
-  const badOpts: AppOptions<Model, Message, { readonly start: number }> = {
-    init: (flags) => ({
-      // @ts-expect-error -- only declared flag fields are visible.
-      count: flags.missing,
-    }),
-    update: (model) => ({ model }),
-    view: () => <p>no</p>,
-  };
-  void badOpts;
+  void richApp;
 };
 
 const typecheckCommands = (): void => {
   const single = defineApp({
-    init: () => ({ count: 0 }),
+    init: () => ({ model: { count: 0 } }),
     update: (model: { count: number }) => ({
       cmd: Effect.succeed(Message.Pong()),
       model,
@@ -83,7 +83,7 @@ const typecheckCommands = (): void => {
   void single;
 
   const many = defineApp({
-    init: () => ({ count: 0 }),
+    init: () => ({ model: { count: 0 } }),
     update: (model: { count: number }) => ({
       cmd: [Effect.succeed(Message.Pong()), Effect.void],
       model,
@@ -93,20 +93,137 @@ const typecheckCommands = (): void => {
   void many;
 
   const badCmd: AppOptions<{ count: number }, Message> = {
-    init: () => ({ count: 0 }),
+    init: () => ({ model: { count: 0 } }),
     // @ts-expect-error -- commands resolve to messages, not models.
     update: (model) => ({ cmd: Effect.succeed({ count: 1 }), model }),
     view: () => <p>no</p>,
   };
   void badCmd;
+
+  const failCmd: AppOptions<{ count: number }, Message> = {
+    init: () => ({ model: { count: 0 } }),
+    // @ts-expect-error -- commands cannot fail; map failures into messages.
+    update: (model) => ({ cmd: Effect.fail(new Error("nope")), model }),
+    view: () => <p>no</p>,
+  };
+  void failCmd;
 };
 
-const typecheckSlices = (): void => {
-  const data: Slice = { nested: [1, "two", null, undefined, true] };
-  void data;
-  // @ts-expect-error -- slices cannot hold functions.
-  const fns: Slice = { run: () => 1 };
-  void fns;
+const typecheckSubscriptions = (): void => {
+  interface SearchModel {
+    readonly term: string;
+  }
+  const sub = subscription({
+    deps: (model: SearchModel) => model.term,
+    stream: (term) => {
+      const checked: string = term;
+      void checked;
+      return Stream.make(Message.Ping());
+    },
+  });
+  void sub;
+
+  const badDeps = subscription({
+    // @ts-expect-error -- the stream receives the deps type, not another one.
+    deps: (model: SearchModel) => model.term,
+    stream: (_term: number) => Stream.make(Message.Ping()),
+  });
+  void badDeps;
+};
+
+const Greeter = Context.Service<{ readonly greet: (name: string) => string }>(
+  "TypeGreeter"
+);
+const Other = Context.Service<{ readonly other: number }>("TypeOther");
+
+const typecheckServices = (): void => {
+  const svcApp = defineApp({
+    init: () => ({ model: { count: 0 } }),
+    layer: Layer.succeed(Greeter, { greet: (name) => `hi ${name}` }),
+    update: (model: { count: number }, message: Message) =>
+      message._tag === "Ping"
+        ? {
+            cmd: Effect.map(Effect.service(Greeter), (service) =>
+              service.greet("x") === "hi x" ? Message.Pong() : Message.Ping()
+            ),
+            model: { count: model.count + 1 },
+          }
+        : { model },
+    view: () => <p>ok</p>,
+  });
+  void svcApp;
+
+  const missing: AppOptions<Model, Message> = {
+    init: () => ({ model: { count: 0 } }),
+    update: (model) => ({
+      // @ts-expect-error -- the service is not in the layer.
+      cmd: Effect.map(Effect.service(Greeter), () => Message.Pong()),
+      model,
+    }),
+    view: () => <p>no</p>,
+  };
+  void missing;
+
+  const wrongLayer: AppOptions<Model, Message, { readonly other: number }> = {
+    init: () => ({ model: { count: 0 } }),
+    layer: Layer.succeed(Other, { other: 1 }),
+    update: (model) => ({
+      // @ts-expect-error -- Greeter is not the provided service.
+      cmd: Effect.as(Effect.service(Greeter), Message.Pong()),
+      model,
+    }),
+    view: () => <p>no</p>,
+  };
+  void wrongLayer;
+
+  // @ts-expect-error -- the layer does not provide Greeter.
+  const shortLayer = defineApp({
+    init: () => ({ model: { count: 0 } }),
+    layer: Layer.succeed(Other, { other: 1 }),
+    update: (model: Model, message: Message) =>
+      message._tag === "Ping"
+        ? {
+            cmd: Effect.as(Effect.service(Greeter), Message.Pong()),
+            model: { count: model.count + 1 },
+          }
+        : { model },
+    view: () => <p>no</p>,
+  });
+  void shortLayer;
+
+  // @ts-expect-error -- no layer provides Greeter.
+  const noLayer = defineApp({
+    init: () => ({ model: { count: 0 } }),
+    update: (model: Model, message: Message) =>
+      message._tag === "Ping"
+        ? {
+            cmd: Effect.as(Effect.service(Greeter), Message.Pong()),
+            model: { count: model.count + 1 },
+          }
+        : { model },
+    view: () => <p>no</p>,
+  });
+  void noLayer;
+
+  const bothApp = defineApp({
+    init: () => ({ model: { count: 0 } }),
+    layer: Layer.merge(
+      Layer.succeed(Greeter, { greet: (name) => `hi ${name}` }),
+      Layer.succeed(Other, { other: 1 })
+    ),
+    update: (model: { count: number }, message: Message) =>
+      message._tag === "Ping"
+        ? {
+            cmd: [
+              Effect.as(Effect.service(Greeter), Message.Pong()),
+              Effect.as(Effect.service(Other), Message.Pong()),
+            ],
+            model: { count: model.count + 1 },
+          }
+        : { model },
+    view: () => <p>ok</p>,
+  });
+  void bothApp;
 };
 
 const typecheckComposition = (): void => {
@@ -133,7 +250,7 @@ describe("types", () => {
   it("renders a typed app", async () => {
     const { render } = await import("ilha/test");
     const app = defineApp({
-      init: () => ({ count: 0 }),
+      init: () => ({ model: { count: 0 } }),
       update: (model: Model, message: Message) =>
         message._tag === "Ping"
           ? { model: { count: model.count + 1 } }
@@ -145,9 +262,10 @@ describe("types", () => {
       ),
     });
     typecheckApp();
-    typecheckFlags();
+    typecheckMessages();
     typecheckCommands();
-    typecheckSlices();
+    typecheckSubscriptions();
+    typecheckServices();
     typecheckComposition();
     const ui = render(app.component);
     await ui.click("button");

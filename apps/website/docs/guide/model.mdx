@@ -20,7 +20,7 @@ It is a separate package from `ilha`. Add it when one island owns enough message
 You define the initial model, one pure `update`, and a pure `view`. Event handlers report facts with `dispatch`, and `update` decides what each fact means.
 
 ```tsx twoslash
-import { Data, Match } from "effect";
+import { Data } from "effect";
 import { defineApp } from "@ilha/model";
 import type { Dispatch } from "@ilha/model";
 
@@ -35,11 +35,10 @@ interface Model {
 }
 
 const update = (model: Model, message: Message) =>
-  Match.value(message).pipe(
-    Match.tag("Decrement", () => ({ model: { count: model.count - 1 } })),
-    Match.tag("Increment", () => ({ model: { count: model.count + 1 } })),
-    Match.exhaustive
-  );
+  Message.$match(message, {
+    Decrement: () => ({ model: { count: model.count - 1 } }),
+    Increment: () => ({ model: { count: model.count + 1 } }),
+  });
 
 const view = (model: Model, dispatch: Dispatch<Message>) => (
   <div>
@@ -53,21 +52,21 @@ const view = (model: Model, dispatch: Dispatch<Message>) => (
   </div>
 );
 
-const app = defineApp({ init: () => ({ count: 0 }), update, view });
+const app = defineApp({ init: () => ({ model: { count: 0 } }), update, view });
 
 export const Counter = app.component;
 ```
 
 Mount `Counter` like any component: `mount(host, Counter)` or `await renderToString(Counter)`. The model atom snapshots like any other atom, so SSR and hydration work unchanged.
 
-Keep messages serializable data: records of what happened, never callbacks or class instances. Name them for their cause (`ClickedSave`, `SucceededFetchUser`), and keep `update` pure so every transition stays testable.
+Name messages for their cause (`ClickedSave`, `GotUser`), and keep `update` pure so every transition stays testable. Messages are plain data describing what happened, never callbacks or class instances.
 
 ## Send one-shot work
 
-`update` returns the next model plus optional commands. A command is an `Effect` that resolves to a follow-up message or nothing. The runtime runs commands independently of each other.
+`update` returns the next model plus optional commands. A command is an `Effect` that resolves to a follow-up message or nothing. The runtime runs commands concurrently with each other.
 
 ```tsx twoslash
-import { Data, Effect, Match } from "effect";
+import { Data, Effect } from "effect";
 import { defineApp } from "@ilha/model";
 
 type Message = Data.TaggedEnum<{
@@ -81,37 +80,132 @@ interface Model {
 }
 
 const update = (model: Model, message: Message) =>
-  Match.value(message).pipe(
-    Match.tag("FetchBonus", () => ({
+  Message.$match(message, {
+    FetchBonus: () => ({
       cmd: Effect.succeed(Message.AddBonus({ amount: 10 })),
       model,
-    })),
-    Match.tag("AddBonus", ({ amount }) => ({
+    }),
+    AddBonus: ({ amount }) => ({
       model: { count: model.count + amount },
-    })),
-    Match.exhaustive
-  );
+    }),
+  });
 
 const view = (model: Model) => <p>{model.count}</p>;
 
 export const app = defineApp({
-  init: () => ({ count: 0 }),
+  init: () => ({ model: { count: 0 } }),
   update,
   view,
 });
 ```
 
-Provide extra services inside the command with `Effect.provide`. Map every failure into a message with `Effect.catch`; anything that escapes is logged and the island keeps running.
+A command's error channel is `never`: the compiler rejects `Effect.fail`, so you map every expected failure into a message. A defect — a throw, a `die`, a missing service — is logged through the Effect logger and the island keeps running.
 
-Start-up work belongs in a subscription with constant dependencies that emits once, rather than in `init`.
+## Reach services through a layer
+
+Commands and subscriptions read services from one app-level layer. Name the layer in `defineApp`; commands use its services with no extra wiring.
+
+```tsx twoslash
+import { Context, Data, Effect, Layer } from "effect";
+import { defineApp } from "@ilha/model";
+
+type Message = Data.TaggedEnum<{
+  Greet: {};
+  Greeted: { readonly text: string };
+}>;
+const Message = Data.taggedEnum<Message>();
+
+const Greeter = Context.Service<{ readonly greet: (name: string) => string }>(
+  "Greeter"
+);
+
+export const app = defineApp({
+  init: () => ({ model: { greeting: "" } }),
+  layer: Layer.succeed(Greeter, { greet: (name) => `Hello, ${name}!` }),
+  update: (model: { greeting: string }, message: Message) =>
+    Message.$match(message, {
+      Greet: () => ({
+        cmd: Effect.map(Effect.service(Greeter), (greeter) =>
+          Message.Greeted({ text: greeter.greet("you") })
+        ),
+        model,
+      }),
+      Greeted: ({ text }) => ({ model: { greeting: text } }),
+    }),
+  view: (model: { greeting: string }) => <p>{model.greeting}</p>,
+});
+```
+
+A command that needs a service outside the layer does not compile. The same services are available inside subscription streams.
+
+## Keep only the latest of a kind
+
+Wrap a command in `keyed` when a new request makes the old one obsolete: every start interrupts the running command with the same key, so only the latest result dispatches. Different keys run independently, and keys are per app instance.
+
+```tsx twoslash
+import { Data, Effect } from "effect";
+import { defineApp, keyed } from "@ilha/model";
+import type { Dispatch } from "@ilha/model";
+
+type Message = Data.TaggedEnum<{
+  GotResults: { readonly results: string };
+  Typed: { readonly query: string };
+}>;
+const Message = Data.taggedEnum<Message>();
+
+interface Model {
+  readonly query: string;
+  readonly results: string;
+}
+
+const search = (query: string) =>
+  Effect.succeed(Message.GotResults({ results: `hits for ${query}` }));
+
+const update = (model: Model, message: Message) =>
+  Message.$match(message, {
+    GotResults: ({ results }) => ({ model: { ...model, results } }),
+    Typed: ({ query }) => ({
+      cmd: keyed("search", search(query)),
+      model: { ...model, query },
+    }),
+  });
+
+const view = (model: Model, dispatch: Dispatch<Message>) => (
+  <div>
+    <p>{model.results}</p>
+    <button
+      type="button"
+      onclick={() => dispatch(Message.Typed({ query: "a" }))}
+    >
+      a
+    </button>
+    <button
+      type="button"
+      onclick={() => dispatch(Message.Typed({ query: "ab" }))}
+    >
+      ab
+    </button>
+  </div>
+);
+
+export const app = defineApp({
+  init: () => ({ model: { query: "", results: "" } }),
+  update,
+  view,
+});
+```
+
+Typing `ab` after `a` interrupts the first search; only the second result lands.
 
 ## Listen to ongoing work
 
-A subscription is a stream whose lifetime follows a slice of the model. When the dependencies change, the old stream stops and a new one starts. When the island unmounts, the stream stops too.
+A subscription is a stream whose lifetime follows a slice of the model. When the dependencies change, the old stream stops and a new one starts; the other subscriptions keep running. When the island unmounts, every stream stops.
+
+Name each entry with `subscription()` so its stream receives the exact type its `deps` returns:
 
 ```tsx twoslash
-import { Stream } from "effect";
-import { defineApp } from "@ilha/model";
+import { Data, Stream } from "effect";
+import { defineApp, subscription } from "@ilha/model";
 
 type Message = Data.TaggedEnum<{ Tick: {} }>;
 const Message = Data.taggedEnum<Message>();
@@ -124,30 +218,78 @@ interface Model {
 const view = (model: Model) => <p>{model.count}</p>;
 
 export const app = defineApp({
-  init: () => ({ count: 0, on: true }),
+  init: () => ({ model: { count: 0, on: true } }),
   subscriptions: [
-    {
+    subscription({
       deps: (model: Model) => model.on,
       stream: (on) =>
-        on === true
-          ? Stream.tick("1 second").pipe(Stream.map(Message.Tick))
+        on
+          ? Stream.tick("1 second").pipe(Stream.map(() => Message.Tick()))
           : Stream.empty,
-    },
+    }),
   ],
   update: (model: Model, message: Message) =>
-    message._tag === "Tick" ? { model: { count: model.count + 1 } } : { model },
+    message._tag === "Tick"
+      ? { model: { ...model, count: model.count + 1 } }
+      : { model },
   view,
 });
 ```
 
-Keep dependencies small JSON-shaped values so equivalent slices keep the stream alive. A subscription never runs on the server; server output reflects the `init` model only. Streams that fail stop quietly, so convert errors into messages inside the stream.
+Dependencies can be any value; equal deps keep the stream alive, compared structurally. A subscription never runs on the server; server output reflects the `init` model only. A stream's error channel is `never`, so convert errors into messages inside the stream; a defect is logged and that subscription goes quiet until its deps change again.
+
+## Run start-up work from init
+
+`init` returns the first model plus an optional command. The command runs once per client mount — including after hydration — and never during server rendering.
+
+```tsx twoslash
+import { Data, Effect } from "effect";
+import { defineApp } from "@ilha/model";
+
+type Message = Data.TaggedEnum<{ Loaded: { readonly items: number } }>;
+const Message = Data.taggedEnum<Message>();
+
+interface Model {
+  readonly items: number;
+}
+
+export const app = defineApp({
+  init: () => ({
+    cmd: Effect.succeed(Message.Loaded({ items: 3 })),
+    model: { items: 0 },
+  }),
+  update: (model: Model, message: Message) =>
+    message._tag === "Loaded" ? { model: { items: message.items } } : { model },
+  view: (model: Model) => <p>{model.items}</p>,
+});
+```
+
+Fetch the first page, read stored settings, open a socket: if it happens once at start-up, it belongs here rather than in a subscription.
+
+## Hydrate with a schema
+
+The model snapshots to JSON for hydration. Keep it JSON-safe, or pass a `Schema` codec so richer values round-trip:
+
+```tsx twoslash
+import { Schema } from "effect";
+import { defineApp } from "@ilha/model";
+
+export const app = defineApp({
+  init: () => ({ model: { at: new Date("2024-05-06T00:00:00.000Z") } }),
+  schema: Schema.Struct({ at: Schema.Date }),
+  update: (model: { at: Date }) => ({ model }),
+  view: (model: { at: Date }) => <p>{model.at.getUTCFullYear()}</p>,
+});
+```
+
+Without `schema` the model must be JSON-safe: no `Date`, `Map`, class instances, or functions. Messages carry no such constraint; they are never snapshotted.
 
 ## Split a child out
 
 A child owns its model and messages; the parent stores the child model, wraps child messages, and delegates with `foldChild`. The parent never edits the child slice directly.
 
 ```tsx twoslash
-import { Data, Match } from "effect";
+import { Data } from "effect";
 import { defineApp, foldChild } from "@ilha/model";
 import type { Dispatch } from "@ilha/model";
 
@@ -159,10 +301,9 @@ interface Child {
 }
 
 const childUpdate = (model: Child, message: ChildMessage) =>
-  Match.value(message).pipe(
-    Match.tag("Bump", () => ({ model: { n: model.n + 1 } })),
-    Match.exhaustive
-  );
+  ChildMessage.$match(message, {
+    Bump: () => ({ model: { n: model.n + 1 } }),
+  });
 
 type ParentMessage = Data.TaggedEnum<{
   Child: { readonly message: ChildMessage };
@@ -181,7 +322,7 @@ const foldChildState = foldChild<Parent, ParentMessage, Child, ChildMessage>({
 });
 
 export const app = defineApp({
-  init: () => ({ child: { n: 0 } }),
+  init: () => ({ model: { child: { n: 0 } } }),
   update: (model: Parent, message: ParentMessage) =>
     message._tag === "Child"
       ? foldChildState(model, message.message)
@@ -199,7 +340,7 @@ export const app = defineApp({
 });
 ```
 
-Name each wrapper `Got*`, such as `GotSettingsMessage`. Combine sequential steps on one model with `combine`.
+Name each wrapper `Got*`, such as `GotSettingsMessage`. Combine sequential steps on one model with `combine`: the steps run in order, and their commands run concurrently like any command list.
 
 ## Test the loop
 
@@ -207,16 +348,20 @@ Name each wrapper `Got*`, such as `GotSettingsMessage`. Combine sequential steps
 
 ```tsx twoslash
 import { expect, test } from "bun:test";
-import { Data, Match } from "effect";
+import type { UpdateResult } from "@ilha/model";
+import { Data } from "effect";
 
 type Message = Data.TaggedEnum<{ Increment: {} }>;
 const Message = Data.taggedEnum<Message>();
 
-const update = (model: { count: number }, message: Message) =>
-  Match.value(message).pipe(
-    Match.tag("Increment", () => ({ model: { count: model.count + 1 } })),
-    Match.exhaustive
-  );
+interface Model {
+  readonly count: number;
+}
+
+const update = (model: Model, message: Message): UpdateResult<Model, Message> =>
+  Message.$match(message, {
+    Increment: () => ({ model: { count: model.count + 1 } }),
+  });
 
 test("increment adds one", () => {
   const next = update({ count: 0 }, Message.Increment());

@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 
 import * as Effect from "effect/Effect";
 import type * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
+import * as Schema from "effect/Schema";
 
 import { atom } from "./atom.ts";
 import type { IlhaCode } from "./diagnostics.ts";
@@ -223,6 +225,36 @@ const typecheckSnapshotOptions = (): void => {
   void bad;
 };
 
+const typecheckWritableHandle = (): void => {
+  const save = atom(Atom.fn((n: number) => Effect.succeed(n)));
+  save.set(1);
+  save.update(() => 2);
+  // @ts-expect-error set takes the fn argument, not the read value
+  save.set(save());
+  // @ts-expect-error update returns the fn argument, not the read value
+  save.update((current) => current);
+};
+
+const typecheckSnapshotSchema = (): void => {
+  const when = atom(new Date("2024-01-02T03:04:05.000Z"), {
+    schema: Schema.Date,
+  });
+  const lazy = atom.lazy(() => new Date(), { schema: Schema.Date });
+  const opts: AtomOptions<Date> = { schema: Schema.Date };
+  const lazyOpts: AtomLazyOptions<Date> = { schema: Schema.Date };
+  // @ts-expect-error schema must match the atom value type
+  atom(0, { schema: Schema.Date });
+  // @ts-expect-error schema must match the lazy value type
+  atom.lazy(() => 0, { schema: Schema.Date });
+  // @ts-expect-error schema must match the option value type
+  const bad: AtomOptions<number> = { schema: Schema.Date };
+  void when;
+  void lazy;
+  void opts;
+  void lazyOpts;
+  void bad;
+};
+
 const typecheckMountOptions = (): void => {
   const opts: MountOptions = { hydrate: true, onIdle: () => {} };
   // @ts-expect-error onIdle takes no arguments
@@ -288,6 +320,8 @@ describe("jsx types", () => {
     expect(isFunction(typecheckUnsafe)).toBe(true);
     expect(isFunction(typecheckAsyncApis)).toBe(true);
     expect(isFunction(typecheckSnapshotOptions)).toBe(true);
+    expect(isFunction(typecheckWritableHandle)).toBe(true);
+    expect(isFunction(typecheckSnapshotSchema)).toBe(true);
     expect(isFunction(typecheckMountOptions)).toBe(true);
     expect(isFunction(typecheckEffectAtom)).toBe(true);
     expect(isFunction(typecheckAtomFunctions)).toBe(true);

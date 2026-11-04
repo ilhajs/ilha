@@ -16,7 +16,8 @@ bun add @ilha/model
 
 ```tsx
 import { defineApp } from "@ilha/model";
-import { Data, Match } from "effect";
+import type { Dispatch } from "@ilha/model";
+import { Data } from "effect";
 
 type Message = Data.TaggedEnum<{
   Decrement: {};
@@ -24,15 +25,18 @@ type Message = Data.TaggedEnum<{
 }>;
 const Message = Data.taggedEnum<Message>();
 
+interface Model {
+  readonly count: number;
+}
+
 const app = defineApp({
-  init: () => ({ count: 0 }),
-  update: (model, message) =>
-    Match.value(message).pipe(
-      Match.tag("Decrement", ({ count }) => ({ model: { count: count - 1 } })),
-      Match.tag("Increment", ({ count }) => ({ model: { count: count + 1 } })),
-      Match.exhaustive
-    ),
-  view: (model, dispatch) => (
+  init: () => ({ model: { count: 0 } }),
+  update: (model: Model, message: Message) =>
+    Message.$match(message, {
+      Decrement: () => ({ model: { count: model.count - 1 } }),
+      Increment: () => ({ model: { count: model.count + 1 } }),
+    }),
+  view: (model: Model, dispatch: Dispatch<Message>) => (
     <div>
       <p>{model.count}</p>
       <button type="button" onclick={() => dispatch(Message.Decrement())}>

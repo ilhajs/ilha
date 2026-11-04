@@ -1,36 +1,27 @@
 import * as Effect from "effect/Effect";
 
-import type { Cmd, Slice, UpdateResult } from "./app";
-
-/**
- * Split one or many commands. `Array.isArray` cannot narrow a generic
- * union, so the assertion lives here instead of at every call site.
- */
-const eachCmd = <Message extends Slice>(
-  cmd: Cmd<Message> | readonly Cmd<Message>[]
-): readonly Cmd<Message>[] =>
-  // SAFETY: `Array.isArray` already split the union at runtime; the
-  // assertion only recovers what generic narrowing cannot express.
-  (Array.isArray(cmd) ? cmd : [cmd]) as readonly Cmd<Message>[];
+import type { Cmd, UpdateResult } from "./app";
+import { eachCmd } from "./app";
 
 /**
  * One transform over a model, used with {@link combine}. A child fold
  * returns a step; inline lambdas receive the model the previous step wrote.
  */
-export type Step<Model, Message extends Slice> = (
+export type Step<Model, Message, R = never> = (
   model: Model
-) => UpdateResult<Model, Message>;
+) => UpdateResult<Model, Message, R>;
 
 /**
- * Run steps in order, threading each model into the next. Commands run
- * sequentially in step order and their messages concatenate.
+ * Run steps in order, threading each model into the next. The steps run in
+ * order, but the commands from all steps run concurrently, like any command
+ * list.
  */
-export const combine = <Model, Message extends Slice>(
+export const combine = <Model, Message, R = never>(
   model: Model,
-  steps: readonly Step<Model, Message>[]
-): UpdateResult<Model, Message> => {
+  steps: readonly Step<Model, Message, R>[]
+): UpdateResult<Model, Message, R> => {
   let current = model;
-  const cmds: Cmd<Message>[] = [];
+  const cmds: Cmd<Message, R>[] = [];
   for (const step of steps) {
     const result = step(current);
     current = result.model;
@@ -47,15 +38,16 @@ export const combine = <Model, Message extends Slice>(
 /** Options for {@link foldChild}. */
 export interface FoldChildOptions<
   ParentModel,
-  ParentMessage extends Slice,
+  ParentMessage,
   ChildModel,
-  ChildMessage extends Slice,
+  ChildMessage,
+  R = never,
 > {
   /** The child's own update. The parent never touches the child model. */
   readonly update: (
     model: ChildModel,
     message: ChildMessage
-  ) => UpdateResult<ChildModel, ChildMessage>;
+  ) => UpdateResult<ChildModel, ChildMessage, R>;
   /** Read the child slice. `undefined` leaves the parent unchanged. */
   readonly read: (model: ParentModel) => ChildModel | undefined;
   /** Write the child slice back. */
@@ -70,20 +62,22 @@ export interface FoldChildOptions<
  */
 export const foldChild = <
   ParentModel,
-  ParentMessage extends Slice,
+  ParentMessage,
   ChildModel,
-  ChildMessage extends Slice,
+  ChildMessage,
+  R = never,
 >(
   options: FoldChildOptions<
     ParentModel,
     ParentMessage,
     ChildModel,
-    ChildMessage
+    ChildMessage,
+    R
   >
 ): ((
   model: ParentModel,
   message: ChildMessage
-) => UpdateResult<ParentModel, ParentMessage>) => {
+) => UpdateResult<ParentModel, ParentMessage, R>) => {
   const { read, toParentMessage, update, write } = options;
   return (model, message) => {
     const child = read(model);

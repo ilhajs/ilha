@@ -64,7 +64,7 @@ const Cart = () => {
 - Never fetch inside `watch.once()` and copy the result into an atom. Write `atom(Effect)` instead.
 - Never pass untrusted input to `unsafe()`. It skips escaping.
 - Never import removed APIs: `resource`, `invalidate`, `fromEventSource`, `ilha/define`, or `structuralEqual`. See `MIGRATIONS.md` in the `ilha` package.
-- Never store callbacks or class instances in `@ilha/model` messages. Messages are serializable facts; keep functions in refs and effects in commands.
+- Never store callbacks in an `@ilha/model` model, or class instances such as `Date` without a `schema` option. The model snapshots to JSON; keep functions in refs and effects in commands.
 
 ## Check your work
 

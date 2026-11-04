@@ -2,12 +2,12 @@
 import { expect, spyOn, test } from "bun:test";
 
 import * as Atom from "effect/reactivity/Atom";
+import * as Schema from "effect/Schema";
 
 import {
   atom,
   context,
   createContext,
-  Fragment,
   mount,
   renderToString,
 } from "../src/index.ts";
@@ -24,7 +24,7 @@ const serverHost = (html: string) => {
     ...new DOMParser().parseFromString(html, "text/html").body.childNodes
   );
   document.body.append(wrapper);
-  const host = wrapper.querySelector("[data-ilha]");
+  const host = wrapper.querySelector<HTMLElement>("[data-ilha]");
   if (!host) {
     throw new Error("host missing");
   }
@@ -138,6 +138,87 @@ test("snapshot: false slots restart on hydration and keep later slots aligned", 
   wrapper.remove();
 });
 
+const ISO = "2024-01-02T03:04:05.000Z";
+
+const Dated = () => {
+  const when = atom(new Date(ISO), { schema: Schema.Date });
+  const value = when();
+  return <p>{value instanceof Date ? value.toISOString() : "not-a-date"}</p>;
+};
+
+test("schema restores a real Date instance on hydration", async () => {
+  let probe: (() => Date) | undefined;
+  const Probed = () => {
+    const when = atom(new Date(ISO), { schema: Schema.Date });
+    probe = when;
+    const value = when();
+    return <p>{value instanceof Date ? value.toISOString() : "not-a-date"}</p>;
+  };
+  const { host, wrapper } = await hydrated(Probed);
+  expect(host.textContent).toBe(ISO);
+  expect(probe?.()).toBeInstanceOf(Date);
+  wrapper.remove();
+});
+
+test("schema decodes the snapshot seed instead of reusing the initial value", async () => {
+  const other = "2025-06-07T08:09:10.000Z";
+  const { host, wrapper } = serverHost(await renderToString(Dated));
+  // oxlint-disable-next-line unicorn/prefer-dom-node-dataset -- host is a generic Element
+  host.setAttribute("data-ilha-state", JSON.stringify({ v: [other] }));
+  mount(host, Dated, { hydrate: true });
+  await settle();
+  expect(host.textContent).toBe(other);
+  wrapper.remove();
+});
+
+test("a seed that fails to decode falls back to the initial value", async () => {
+  const { host, wrapper } = serverHost(await renderToString(Dated));
+  // oxlint-disable-next-line unicorn/prefer-dom-node-dataset -- host is a generic Element
+  host.setAttribute("data-ilha-state", JSON.stringify({ v: [42] }));
+  mount(host, Dated, { hydrate: true });
+  await settle();
+  expect(host.textContent).toBe(ISO);
+  wrapper.remove();
+});
+
+const LazyDated = () => {
+  const state = atom.lazy(() => ({ at: new Date(ISO) }), {
+    schema: Schema.Struct({ at: Schema.Date }),
+  });
+  const value = state();
+  return (
+    <p>{value.at instanceof Date ? value.at.toISOString() : "not-a-date"}</p>
+  );
+};
+
+test("schema restores a lazy slot holding a Date on hydration", async () => {
+  let probe: (() => Date) | undefined;
+  const Probed = () => {
+    const state = atom.lazy(() => ({ at: new Date(ISO) }), {
+      schema: Schema.Struct({ at: Schema.Date }),
+    });
+    probe = () => state().at;
+    const value = state();
+    return (
+      <p>{value.at instanceof Date ? value.at.toISOString() : "not-a-date"}</p>
+    );
+  };
+  const { host, wrapper } = await hydrated(Probed);
+  expect(host.textContent).toBe(ISO);
+  expect(probe?.()).toBeInstanceOf(Date);
+  wrapper.remove();
+});
+
+test("a lazy seed that fails to decode falls back to the initial value", async () => {
+  const { host, wrapper } = serverHost(await renderToString(LazyDated));
+  // oxlint-disable-next-line unicorn/prefer-dom-node-dataset -- host is a generic Element
+  host.setAttribute("data-ilha-state", JSON.stringify({ v: [42] }));
+  mount(host, LazyDated, { hydrate: true });
+  await settle();
+  expect(host.textContent).toBe(ISO);
+  wrapper.remove();
+});
+
 const Counter = () => {
   const n = atom(1);
   return <button onclick={() => n.update((x: number) => x + 1)}>{n()}</button>;
@@ -155,10 +236,10 @@ test("component roots hydrate without a mismatch warning", async () => {
 });
 
 const FragmentRoot = () => (
-  <Fragment>
+  <>
     <h2>title</h2>
     <Counter />
-  </Fragment>
+  </>
 );
 
 test("fragment roots hydrate and keep the server nodes", async () => {

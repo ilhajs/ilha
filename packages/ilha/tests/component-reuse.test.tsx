@@ -80,12 +80,12 @@ test("unkeyed child receives new props without remounting", async () => {
   const unmount = mount(el, PropsParent);
   await Bun.sleep(10);
 
-  const childBefore = el.querySelector("#props-child");
+  const childBefore = el.querySelector<HTMLButtonElement>("#props-child");
   childBefore?.click();
   await Bun.sleep(10);
   expect(el.textContent).toContain("a:1");
 
-  el.querySelector("#label-btn")?.click();
+  el.querySelector<HTMLButtonElement>("#label-btn")?.click();
   await Bun.sleep(10);
 
   expect(el.textContent).toContain("b:1");
@@ -125,7 +125,7 @@ test("unkeyed child survives hydration and later rerenders", async () => {
   if (!childBefore) {
     throw new Error("hydrated child missing");
   }
-  el.querySelector("#hyd-btn")?.click();
+  el.querySelector<HTMLButtonElement>("#hyd-btn")?.click();
   await Bun.sleep(10);
 
   expect(el.textContent).toContain("child:0");

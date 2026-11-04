@@ -1,7 +1,7 @@
 // @jsxImportSource ../src
 import { afterEach, expect, test } from "bun:test";
 
-import { atom, mount } from "../src/index.ts";
+import { atom, h, mount } from "../src/index.ts";
 
 // Counts every time a live node leaves the document. Reused component
 // and atom hosts must stay in place across rerenders: detaching them blurs
@@ -30,7 +30,7 @@ const host = (): HTMLDivElement => {
 
 const Probe = ({ id }: { id: string }) => (
   <p>
-    <reuse-probe id={`probe-${id}`} />
+    {h("reuse-probe", { id: `probe-${id}` })}
     <input id={`in-${id}`} />
   </p>
 );
@@ -162,7 +162,7 @@ test("keyed plain elements stay attached when the head is removed", async () => 
       <ul>
         {items().map((id) => (
           <li key={id}>
-            <reuse-probe />
+            {h("reuse-probe", null)}
             <input id={`in-${id}`} />
           </li>
         ))}
@@ -212,7 +212,7 @@ test("keyed element list returned from a component keeps live rows", async () =>
     setItems = (ids) => items.set(ids);
     return items().map((id) => (
       <li key={id}>
-        <reuse-probe />
+        {h("reuse-probe", null)}
         <input id={`in-${id}`} />
       </li>
     ));
