@@ -47,12 +47,17 @@ export const createApp = (connect: () => PanelConnection) => {
         log.set([]);
         return;
       }
+      let entries: readonly ModelLogEntry[] = [];
       try {
         const result = await channel().call("modelLog", id);
-        log.set(result.ok ? result.entries : []);
+        entries = result.ok ? result.entries : [];
       } catch {
         // An older page script has no modelLog; the tree still works.
-        log.set([]);
+      }
+      // A slow response for an earlier selection must not overwrite the log
+      // of the island selected now.
+      if (selected() === id) {
+        log.set(entries);
       }
     };
 
