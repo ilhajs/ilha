@@ -56,6 +56,6 @@
   },
   "peerDependencies": {
     "effect": "^4.1.0",
-    "ilha": ">=0.16.2"
+    "ilha": ">=0.16.3"
   }
 }
