@@ -43,34 +43,34 @@
     },
     "packages/astro": {
       "name": "@ilha/astro",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "devDependencies": {
         "astro": "^7.4.4",
-        "ilha": "0.16.1",
+        "ilha": "0.16.2",
       },
       "peerDependencies": {
         "astro": "^7.3.5",
-        "ilha": "^0.16.1",
+        "ilha": "^0.16.2",
       },
     },
     "packages/devtools": {
       "name": "@ilha/devtools",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "devframe": "^1.2.6",
       },
       "devDependencies": {
         "effect": "^4.1.0",
-        "ilha": "^0.16.1",
+        "ilha": "^0.16.2",
       },
       "peerDependencies": {
         "effect": "^4.1.0",
-        "ilha": ">=0.16.1",
+        "ilha": ">=0.16.2",
       },
     },
     "packages/ilha": {
       "name": "ilha",
-      "version": "0.16.1",
+      "version": "0.16.2",
       "devDependencies": {
         "effect": "^4.1.0",
       },
@@ -84,23 +84,23 @@
       "devDependencies": {
         "@types/bun": "^1.4.4",
         "effect": "^4.1.0",
-        "ilha": "^0.16.1",
+        "ilha": "^0.16.2",
       },
       "peerDependencies": {
         "effect": "^4.1.0",
-        "ilha": ">=0.16.1",
+        "ilha": ">=0.16.2",
       },
     },
     "packages/void": {
       "name": "@ilha/void",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "devDependencies": {
-        "ilha": "^0.16.1",
+        "ilha": "^0.16.2",
         "vite": "^8.3.5",
         "void": "^1.3.0",
       },
       "peerDependencies": {
-        "ilha": ">=0.16.1",
+        "ilha": ">=0.16.2",
         "vite": "^8.0.0",
         "void": "^1.1.12",
       },
@@ -111,10 +111,10 @@
       "dependencies": {
         "effect": "^4.1.0",
         "hono": "^4.13.14",
-        "ilha": "^0.16.1",
+        "ilha": "^0.16.2",
       },
       "devDependencies": {
-        "@ilha/void": "^0.1.5",
+        "@ilha/void": "^0.1.6",
         "@types/bun": "^1.4.4",
         "oxlint": "^1.90.0",
         "vite": "^8.3.5",

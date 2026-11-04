@@ -15,10 +15,10 @@
   "dependencies": {
     "effect": "^4.1.0",
     "hono": "^4.13.14",
-    "ilha": "^0.16.1"
+    "ilha": "^0.16.2"
   },
   "devDependencies": {
-    "@ilha/void": "^0.1.5",
+    "@ilha/void": "^0.1.6",
     "@types/bun": "^1.4.4",
     "oxlint": "^1.90.0",
     "vite": "^8.3.5",

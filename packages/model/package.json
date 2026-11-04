@@ -48,10 +48,10 @@
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "effect": "^4.1.0",
-    "ilha": "^0.16.1"
+    "ilha": "^0.16.2"
   },
   "peerDependencies": {
     "effect": "^4.1.0",
-    "ilha": ">=0.16.1"
+    "ilha": ">=0.16.2"
   }
 }
