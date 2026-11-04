@@ -44,6 +44,31 @@ const typecheckApp = (): void => {
     view: () => <p>no</p>,
   };
   void badModel;
+
+  // Message comes from `update` alone: a command resolving to one variant
+  // keeps the full union.
+  const narrowCmd = defineApp({
+    init: () => ({ model: { count: 0 } }),
+    update: (model: Model, _message: Message) => ({
+      cmd: Effect.succeed(Message.Pong()),
+      model,
+    }),
+    view: (model: Model) => <p>{model.count}</p>,
+  });
+  const ping: Parameters<typeof narrowCmd.options.update>[1] = Message.Ping();
+  void ping;
+
+  const unannotatedView = defineApp({
+    init: () => ({ model: { count: 0 } }),
+    update: (model: Model, _message: Message) => ({ model }),
+    view: (model, dispatch) => (
+      // @ts-expect-error -- an unannotated view's dispatch takes the app's messages only.
+      <button type="button" onclick={() => dispatch({ _tag: "Nope" })}>
+        {model.count}
+      </button>
+    ),
+  });
+  void unannotatedView;
 };
 
 const typecheckMessages = (): void => {

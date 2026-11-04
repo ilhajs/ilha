@@ -62,7 +62,12 @@ export const subscription = <Model, Message, Deps, R = never>(
   sub: Subscription<Model, Message, Deps, R>
 ): Subscription<Model, Message, Deps, R> => sub;
 
-/** Options for {@link defineApp}. */
+/**
+ * Options for {@link defineApp}. `Message` is inferred from `update`'s
+ * message parameter only; every other position checks against it, so a
+ * command that resolves to one variant never narrows the app's message
+ * type.
+ */
 export interface AppOptions<Model, Message, R = never, E = never> {
   /** Component name shown in `ilha/debug` trees. Default `"ModelApp"`. */
   readonly name?: string | undefined;
@@ -71,18 +76,18 @@ export interface AppOptions<Model, Message, R = never, E = never> {
    * Runs once per instance; the command runs once per client mount, never
    * during server rendering.
    */
-  readonly init: () => UpdateResult<Model, Message, R>;
+  readonly init: () => UpdateResult<Model, NoInfer<Message>, R>;
   /** The only place state changes. Must be pure. */
   readonly update: (
     model: Model,
     message: Message
-  ) => UpdateResult<Model, Message, R>;
+  ) => UpdateResult<Model, NoInfer<Message>, R>;
   /** Render the model. Must be pure; report facts with `dispatch`. */
-  readonly view: (model: Model, dispatch: Dispatch<Message>) => View;
+  readonly view: (model: Model, dispatch: Dispatch<NoInfer<Message>>) => View;
   /** Ongoing work gated by slices of the model. */
   readonly subscriptions?:
     // oxlint-disable-next-line typescript/no-explicit-any -- each entry keeps its own Deps via `subscription()`; the array only checks Model, Message, and R.
-    readonly Subscription<Model, Message, any, R>[] | undefined;
+    readonly Subscription<Model, NoInfer<Message>, any, R>[] | undefined;
   /** Services available to commands and subscriptions. */
   readonly layer?: Layer.Layer<R, E> | undefined;
   /**
@@ -246,30 +251,16 @@ type CheckServices<O, L extends Layer.Any> =
     : never;
 
 /**
- * What `defineApp` infers `Model` from. Command and stream requirements
- * stay permissive here so inference never forces the layer type early;
- * `CheckServices` validates coverage after, and the layer itself is
- * captured by `{ layer?: L }`. `Message` stays `any`: it is read from
- * `update` instead (see `UpdateMessage`), so one command's message can
- * never narrow the whole app.
+ * What `defineApp` infers `Model` and `Message` from. Command and stream
+ * requirements stay permissive here so inference never forces the layer
+ * type early; `CheckServices` validates coverage after, and the layer
+ * itself is captured by `{ layer?: L }`.
  */
 type LooseOptions<Model, Message> = Omit<
   // oxlint-disable-next-line typescript/no-explicit-any -- permissive requirements; CheckServices validates coverage after inference.
   AppOptions<Model, Message, any, any>,
   "layer"
 >;
-
-/**
- * The app's message type, read from `update`'s annotation. Deriving it
- * here keeps the full union the loop handles; inferring it from the
- * options would let one command's message narrow the whole app.
- */
-type UpdateMessage<O> = O extends {
-  // oxlint-disable-next-line typescript/no-explicit-any -- the return shape is irrelevant; only the message parameter is inferred.
-  update: (model: never, message: infer M) => any;
-}
-  ? M
-  : unknown;
 
 /**
  * Define an Elm-style app. One atom holds the whole model; `dispatch` runs
@@ -279,15 +270,13 @@ type UpdateMessage<O> = O extends {
  */
 export const defineApp = <
   Model,
+  Message,
   L extends Layer.Any = Layer.Layer<never, never>,
-  // oxlint-disable-next-line typescript/no-explicit-any -- Message is derived from O after inference, never inferred here.
-  O extends LooseOptions<Model, any> = LooseOptions<Model, any>,
+  O extends LooseOptions<Model, Message> = LooseOptions<Model, Message>,
 >(
-  // oxlint-disable-next-line typescript/no-explicit-any -- Message is derived from O after inference, never inferred here.
-  options: LooseOptions<Model, any> &
+  options: LooseOptions<Model, Message> &
     O & { layer?: L | undefined } & CheckServices<O, L>
-): ModelApp<Model, UpdateMessage<O>, Layer.Success<L>, Layer.Error<L>> => {
-  type Message = UpdateMessage<O>;
+): ModelApp<Model, Message, Layer.Success<L>, Layer.Error<L>> => {
   type R = Layer.Success<L>;
   const { init, update, view } = options;
   const subscriptions = options.subscriptions ?? [];
