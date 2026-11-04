@@ -6,6 +6,13 @@
     "types": ["@types/bun"],
     "strictNullChecks": true,
     "jsx": "react-jsx",
-    "jsxImportSource": "ilha"
+    "jsxImportSource": "ilha",
+    "paths": {
+      "ilha": ["../ilha/src/index.ts"],
+      "ilha/debug": ["../ilha/src/debug.ts"],
+      "ilha/jsx-runtime": ["../ilha/src/jsx-runtime.ts"],
+      "ilha/jsx-dev-runtime": ["../ilha/src/jsx-dev-runtime.ts"],
+      "ilha/test": ["../ilha/src/test.ts"]
+    }
   }
 }

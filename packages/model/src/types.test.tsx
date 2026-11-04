@@ -5,8 +5,21 @@ import type { Option } from "effect";
 import { Context, Data, Effect, Layer } from "effect";
 import * as Stream from "effect/Stream";
 
-import type { AppOptions, Dispatch } from "./index";
-import { combine, defineApp, foldChild, subscription } from "./index";
+import type {
+  AppOptions,
+  Dispatch,
+  ModelLogDiff,
+  ModelLogEntry,
+} from "./index";
+import {
+  attachModelRecorder,
+  combine,
+  defineApp,
+  foldChild,
+  MODEL_LOG_CAP,
+  readModelLog,
+  subscription,
+} from "./index";
 import type { SimulateResult } from "./test";
 import { runCommands, simulate } from "./test";
 
@@ -332,6 +345,29 @@ const typecheckTestHelpers = (): void => {
   void missingMany;
 };
 
+const typecheckLog = (): void => {
+  const detach: () => void = attachModelRecorder();
+  detach();
+  // @ts-expect-error -- attach takes no options.
+  const extra = attachModelRecorder({});
+  extra();
+  const entries: readonly ModelLogEntry[] | undefined = readModelLog([]);
+  void entries;
+  const cap: number = MODEL_LOG_CAP;
+  void cap;
+  const fields: ModelLogDiff = { _tag: "fields", changed: {} };
+  void fields;
+  const snapshot: ModelLogDiff = {
+    _tag: "snapshot",
+    after: 1,
+    before: 0,
+  };
+  void snapshot;
+  // @ts-expect-error -- diff tags are fields or snapshot.
+  const badDiff: ModelLogDiff = { _tag: "rows", changed: {} };
+  void badDiff;
+};
+
 describe("types", () => {
   it("renders a typed app", async () => {
     const { render } = await import("ilha/test");
@@ -354,6 +390,7 @@ describe("types", () => {
     typecheckServices();
     typecheckComposition();
     typecheckTestHelpers();
+    typecheckLog();
     const ui = render(app.component);
     await ui.click("button");
     expect(ui.text()).toBe("1");

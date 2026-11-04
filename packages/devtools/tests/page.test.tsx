@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import { parseTree } from "../src/protocol.ts";
+import type { ModelLogEntry } from "../src/protocol.ts";
 import {
   Counter,
   connectPair,
+  modelApp,
   mountHost,
   selectorOf,
   settle,
@@ -73,6 +75,37 @@ describe("page script", () => {
     host.querySelector("button")?.click();
     await settle();
     expect(badge()).toBe(6);
+  });
+
+  it("answers modelLog with the island's recorded messages", async () => {
+    const mounted = await mountHost(modelApp.component);
+    const pair = connectPair();
+    cleanups.push(pair.panel.close, pair.handle.dispose, mounted.unmount);
+    await pair.panel.whenConnected(1000);
+    // The page script attaches asynchronously; retry clicks until one lands.
+    const readEntries = async (
+      deadline = Date.now() + 2000
+    ): Promise<readonly ModelLogEntry[]> => {
+      mounted.host.querySelector("button")?.click();
+      await settle(10);
+      const nodes = await pair.panel.call("inspect");
+      const id =
+        nodes.find((node) => node.host === selectorOf(mounted.host))?.id ?? "";
+      const result = await pair.panel.call("modelLog", id);
+      if (result.ok) {
+        return result.entries;
+      }
+      if (Date.now() > deadline) {
+        throw new Error("message log never started recording");
+      }
+      return readEntries(deadline);
+    };
+    const entries = await readEntries();
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries[0]?.message).toEqual({ _tag: "Increment" });
+    expect(await pair.panel.call("modelLog", "missing")).toMatchObject({
+      ok: false,
+    });
   });
 
   it("replaces an earlier install", async () => {

@@ -4,13 +4,22 @@
  */
 import { createPageScriptChannel } from "devframe/in-page-channel";
 import type { PageScriptChannel } from "devframe/in-page-channel";
-import { element, inspect, onChange, setAtom } from "ilha/debug";
+import { atomsOf, element, inspect, onChange, setAtom } from "ilha/debug";
 
 import { ILHA_DEVTOOLS_CHANNEL, ILHA_DEVTOOLS_PANEL_PATH } from "./protocol";
-import type { AtomJson, IlhaDevtoolsProtocol } from "./protocol";
+import type {
+  AtomJson,
+  IlhaDevtoolsProtocol,
+  ModelLogEntry,
+  ModelLogResult,
+} from "./protocol";
 import { registerWebMcpTools } from "./webmcp";
 
-export type { AtomJson, IlhaDevtoolsProtocol } from "./protocol";
+export type {
+  AtomJson,
+  IlhaDevtoolsProtocol,
+  ModelLogResult,
+} from "./protocol";
 
 export interface InstallOptions {
   /**
@@ -96,6 +105,34 @@ const createHighlighter = () => {
 let current: IlhaDevtoolsHandle | undefined;
 
 /**
+ * The `@ilha/model` log API, restated structurally so these types stand
+ * alone when the optional peer is missing.
+ */
+interface ModelBridge {
+  readonly attachModelRecorder: () => () => void;
+  readonly readModelLog: (
+    atoms: readonly unknown[]
+  ) => readonly ModelLogEntry[] | undefined;
+}
+
+/**
+ * One shared load: every install attaches to the same module instance, and a
+ * missing `@ilha/model` settles to `undefined` instead of throwing.
+ */
+let bridgePromise: Promise<ModelBridge | undefined> | undefined;
+
+const loadOnce = async (): Promise<ModelBridge | undefined> => {
+  try {
+    return await import("@ilha/model");
+  } catch {
+    return undefined;
+  }
+};
+
+const loadModelBridge = (): Promise<ModelBridge | undefined> =>
+  (bridgePromise ??= loadOnce());
+
+/**
  * Start answering `inspect`, `highlight`, and `setAtom` for this page, and
  * mirror the island tree into the channel's shared state. Calling it again
  * replaces the previous install.
@@ -114,6 +151,36 @@ export const installIlhaDevtools = (
     }
     const el = element(id);
     return el === undefined ? false : highlighter.show(el);
+  };
+
+  let bridge: ModelBridge | undefined;
+  let bridgeMissing = false;
+  let detachRecorder: (() => void) | undefined;
+
+  const modelLog = (id: string): ModelLogResult => {
+    if (bridge === undefined) {
+      return {
+        ok: false,
+        reason: bridgeMissing
+          ? "@ilha/model is not installed, so nothing records messages."
+          : "The message log is still loading; call modelLog again in a moment.",
+      };
+    }
+    const atoms = atomsOf(id);
+    if (atoms === undefined) {
+      return {
+        ok: false,
+        reason: `No live component has id "${id}". Call inspect() again.`,
+      };
+    }
+    const entries = bridge.readModelLog(atoms);
+    if (entries === undefined) {
+      return {
+        ok: false,
+        reason: `Component "${id}" has no recorded messages. It is not a model island, or nothing dispatched yet.`,
+      };
+    }
+    return { entries, ok: true };
   };
 
   const channel = createPageScriptChannel<IlhaDevtoolsProtocol>({
@@ -139,6 +206,16 @@ export const installIlhaDevtools = (
         handler: () => inspect(),
         jsonSerializable: true,
       },
+      modelLog: {
+        agent: {
+          description:
+            "Read one model island's recorded messages: each message, the model fields it changed, and how many commands it started. Pass an id from inspect. Islands that are not model apps, or have nothing recorded, return ok:false with a reason.",
+          safety: "read",
+          title: "Read an island's message log",
+        },
+        handler: modelLog,
+        jsonSerializable: true,
+      },
       setAtom: {
         agent: {
           description:
@@ -158,6 +235,24 @@ export const installIlhaDevtools = (
 
   const disposers: (() => void)[] = [highlighter.clear];
   let active = true;
+
+  // Recording starts once `@ilha/model` loads; dispatches before that are
+  // simply not recorded. Without the package the tools stay, answering why.
+  disposers.push(() => {
+    detachRecorder?.();
+  });
+  void (async () => {
+    const loaded = await loadModelBridge();
+    if (!active) {
+      return;
+    }
+    if (loaded === undefined) {
+      bridgeMissing = true;
+      return;
+    }
+    bridge = loaded;
+    detachRecorder = loaded.attachModelRecorder();
+  })();
 
   const mirror = async (): Promise<void> => {
     let last = JSON.stringify(inspect());
@@ -190,7 +285,9 @@ export const installIlhaDevtools = (
   void mirror();
 
   if (options.webmcp !== false) {
-    disposers.push(registerWebMcpTools({ highlight, inspect, setAtom }));
+    disposers.push(
+      registerWebMcpTools({ highlight, inspect, modelLog, setAtom })
+    );
   }
 
   const handle: IlhaDevtoolsHandle = {

@@ -1,4 +1,7 @@
+import { defineApp } from "@ilha/model";
+import type { Dispatch } from "@ilha/model";
 import { connectPanelChannel } from "devframe/in-page-channel";
+import { Data } from "effect";
 import { atom, mount } from "ilha";
 import type { Component } from "ilha";
 
@@ -29,6 +32,50 @@ export const Counter = () => {
 };
 
 export const settle = (ms = 20) => Bun.sleep(ms);
+
+// oxlint-disable-next-line typescript/no-empty-object-type, typescript/ban-types, typescript/consistent-type-definitions -- Data.taggedEnum spells payload-free variants as `{}`.
+type NoArgs = {};
+
+// oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
+type ModelMsg = Data.TaggedEnum<{
+  Bang: { readonly err: Error; readonly loop: unknown };
+  Increment: NoArgs;
+}>;
+// oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
+const ModelMsg = Data.taggedEnum<ModelMsg>();
+
+/** Cyclic payload for the `Bang` log probe. */
+interface BangLoop {
+  self?: unknown;
+}
+
+/** A model island for log tests: `inc` counts, `bang` logs a rich message. */
+export const modelApp = defineApp({
+  init: () => ({ model: { count: 0 } }),
+  name: "ModelCounter",
+  update: (model: { count: number }, message: ModelMsg) =>
+    message._tag === "Increment"
+      ? { model: { count: model.count + 1 } }
+      : { model },
+  view: (model: { count: number }, dispatch: Dispatch<ModelMsg>) => (
+    <div>
+      <p>{model.count}</p>
+      <button type="button" onclick={() => dispatch(ModelMsg.Increment())}>
+        inc
+      </button>
+      <button
+        type="button"
+        onclick={() => {
+          const loop: BangLoop = {};
+          loop.self = loop;
+          dispatch(ModelMsg.Bang({ err: new Error("boom"), loop }));
+        }}
+      >
+        bang
+      </button>
+    </div>
+  ),
+});
 
 let hostCount = 0;
 

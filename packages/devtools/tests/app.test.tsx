@@ -2,12 +2,19 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import { connectPanelChannel } from "devframe/in-page-channel";
 import { mount } from "ilha";
+import type { Component } from "ilha";
 
 import { installIlhaDevtools } from "../src/page.ts";
 import { ILHA_DEVTOOLS_CHANNEL } from "../src/protocol.ts";
 import type { IlhaDevtoolsProtocol } from "../src/protocol.ts";
 import { createApp } from "../src/spa/app.tsx";
-import { Counter, mountHost, selectorOf, settle } from "./helpers.tsx";
+import {
+  Counter,
+  modelApp,
+  mountHost,
+  selectorOf,
+  settle,
+} from "./helpers.tsx";
 
 const cleanups: (() => void)[] = [];
 
@@ -18,8 +25,8 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-const openPanel = async () => {
-  const mounted = await mountHost(Counter);
+const openPanel = async (component: Component = Counter) => {
+  const mounted = await mountHost(component);
   const handle = installIlhaDevtools({ webmcp: false, window: false });
   const panelHost = document.createElement("div");
   document.body.append(panelHost);
@@ -90,6 +97,27 @@ describe("panel", () => {
     expect(panelHost.querySelector(".error")?.textContent).toContain(
       "not valid JSON"
     );
+  });
+
+  it("shows the message log of the selected model island", async () => {
+    const { panelHost, host } = await openPanel(modelApp.component);
+    rowFor(panelHost, "ModelCounter")?.click();
+    await settle();
+    // The page script attaches asynchronously; retry clicks until one lands.
+    const waitForLog = async (deadline = Date.now() + 2000): Promise<void> => {
+      if (panelHost.textContent?.includes("Increment")) {
+        return;
+      }
+      if (Date.now() > deadline) {
+        throw new Error("panel never showed the message log");
+      }
+      host.querySelector("button")?.click();
+      await settle(50);
+      return waitForLog(deadline);
+    };
+    await waitForLog();
+    expect(panelHost.textContent).toContain("messages");
+    expect(panelHost.textContent).toContain("count");
   });
 
   it("says when no page script answers", async () => {

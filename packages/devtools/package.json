@@ -56,11 +56,18 @@
     "devframe": "^1.2.6"
   },
   "devDependencies": {
+    "@ilha/model": "^0.1.0",
     "effect": "^4.1.0",
     "ilha": "^0.16.2"
   },
   "peerDependencies": {
+    "@ilha/model": ">=0.1.0",
     "effect": "^4.1.0",
     "ilha": ">=0.16.2"
+  },
+  "peerDependenciesMeta": {
+    "@ilha/model": {
+      "optional": true
+    }
   }
 }

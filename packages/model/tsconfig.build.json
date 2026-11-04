@@ -7,7 +7,8 @@
     "outDir": "dist",
     "rootDir": "src",
     "types": ["@types/bun"],
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "paths": {}
   },
   "include": ["src/index.ts", "src/test.ts"]
 }
