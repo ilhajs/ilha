@@ -1,0 +1,375 @@
+---
+title: Model
+description: Elm-style Model, update, commands, and subscriptions for one island.
+---
+
+`@ilha/model` holds one island's state in a single model. You describe transitions in `update`, side effects as return values, and rendering in `view`.
+
+It is a separate package from `ilha`. Add it when one island owns enough messages to deserve a single loop. Plain `atom()` keeps working for everything else.
+
+## Install
+
+```package-install
+@ilha/model
+```
+
+`ilha` and `effect` are peer dependencies.
+
+## Define the loop
+
+You define the initial model, one pure `update`, and a pure `view`. Event handlers report facts with `dispatch`, and `update` decides what each fact means.
+
+```tsx twoslash
+import { Data } from "effect";
+import { defineApp } from "@ilha/model";
+import type { Dispatch } from "@ilha/model";
+
+type Message = Data.TaggedEnum<{
+  Decrement: {};
+  Increment: {};
+}>;
+const Message = Data.taggedEnum<Message>();
+
+interface Model {
+  readonly count: number;
+}
+
+const update = (model: Model, message: Message) =>
+  Message.$match(message, {
+    Decrement: () => ({ model: { count: model.count - 1 } }),
+    Increment: () => ({ model: { count: model.count + 1 } }),
+  });
+
+const view = (model: Model, dispatch: Dispatch<Message>) => (
+  <div>
+    <p>{model.count}</p>
+    <button type="button" onclick={() => dispatch(Message.Decrement())}>
+      -
+    </button>
+    <button type="button" onclick={() => dispatch(Message.Increment())}>
+      +
+    </button>
+  </div>
+);
+
+const app = defineApp({ init: () => ({ model: { count: 0 } }), update, view });
+
+export const Counter = app.component;
+```
+
+Mount `Counter` like any component: `mount(host, Counter)` or `await renderToString(Counter)`. The model atom snapshots like any other atom, so SSR and hydration work unchanged.
+
+Name messages for their cause (`ClickedSave`, `GotUser`), and keep `update` pure so every transition stays testable. Messages are plain data describing what happened, never callbacks or class instances.
+
+## Send one-shot work
+
+`update` returns the next model plus optional commands. A command is an `Effect` that resolves to a follow-up message or nothing. The runtime runs commands concurrently with each other.
+
+```tsx twoslash
+import { Data, Effect } from "effect";
+import { defineApp } from "@ilha/model";
+
+type Message = Data.TaggedEnum<{
+  AddBonus: { readonly amount: number };
+  FetchBonus: {};
+}>;
+const Message = Data.taggedEnum<Message>();
+
+interface Model {
+  readonly count: number;
+}
+
+const update = (model: Model, message: Message) =>
+  Message.$match(message, {
+    FetchBonus: () => ({
+      cmd: Effect.succeed(Message.AddBonus({ amount: 10 })),
+      model,
+    }),
+    AddBonus: ({ amount }) => ({
+      model: { count: model.count + amount },
+    }),
+  });
+
+const view = (model: Model) => <p>{model.count}</p>;
+
+export const app = defineApp({
+  init: () => ({ model: { count: 0 } }),
+  update,
+  view,
+});
+```
+
+A command's error channel is `never`: the compiler rejects `Effect.fail`, so you map every expected failure into a message. A defect — a throw, a `die`, a missing service — is logged through the Effect logger and the island keeps running.
+
+## Reach services through a layer
+
+Commands and subscriptions read services from one app-level layer. Name the layer in `defineApp`; commands use its services with no extra wiring.
+
+```tsx twoslash
+import { Context, Data, Effect, Layer } from "effect";
+import { defineApp } from "@ilha/model";
+
+type Message = Data.TaggedEnum<{
+  Greet: {};
+  Greeted: { readonly text: string };
+}>;
+const Message = Data.taggedEnum<Message>();
+
+const Greeter = Context.Service<{ readonly greet: (name: string) => string }>(
+  "Greeter"
+);
+
+export const app = defineApp({
+  init: () => ({ model: { greeting: "" } }),
+  layer: Layer.succeed(Greeter, { greet: (name) => `Hello, ${name}!` }),
+  update: (model: { greeting: string }, message: Message) =>
+    Message.$match(message, {
+      Greet: () => ({
+        cmd: Effect.map(Effect.service(Greeter), (greeter) =>
+          Message.Greeted({ text: greeter.greet("you") })
+        ),
+        model,
+      }),
+      Greeted: ({ text }) => ({ model: { greeting: text } }),
+    }),
+  view: (model: { greeting: string }) => <p>{model.greeting}</p>,
+});
+```
+
+A command that needs a service outside the layer does not compile. The same services are available inside subscription streams.
+
+## Keep only the latest of a kind
+
+Wrap a command in `keyed` when a new request makes the old one obsolete: every start interrupts the running command with the same key, so only the latest result dispatches. Different keys run independently, and keys are per app instance.
+
+```tsx twoslash
+import { Data, Effect } from "effect";
+import { defineApp, keyed } from "@ilha/model";
+import type { Dispatch } from "@ilha/model";
+
+type Message = Data.TaggedEnum<{
+  GotResults: { readonly results: string };
+  Typed: { readonly query: string };
+}>;
+const Message = Data.taggedEnum<Message>();
+
+interface Model {
+  readonly query: string;
+  readonly results: string;
+}
+
+const search = (query: string) =>
+  Effect.succeed(Message.GotResults({ results: `hits for ${query}` }));
+
+const update = (model: Model, message: Message) =>
+  Message.$match(message, {
+    GotResults: ({ results }) => ({ model: { ...model, results } }),
+    Typed: ({ query }) => ({
+      cmd: keyed("search", search(query)),
+      model: { ...model, query },
+    }),
+  });
+
+const view = (model: Model, dispatch: Dispatch<Message>) => (
+  <div>
+    <p>{model.results}</p>
+    <button
+      type="button"
+      onclick={() => dispatch(Message.Typed({ query: "a" }))}
+    >
+      a
+    </button>
+    <button
+      type="button"
+      onclick={() => dispatch(Message.Typed({ query: "ab" }))}
+    >
+      ab
+    </button>
+  </div>
+);
+
+export const app = defineApp({
+  init: () => ({ model: { query: "", results: "" } }),
+  update,
+  view,
+});
+```
+
+Typing `ab` after `a` interrupts the first search; only the second result lands.
+
+## Listen to ongoing work
+
+A subscription is a stream whose lifetime follows a slice of the model. When the dependencies change, the old stream stops and a new one starts; the other subscriptions keep running. When the island unmounts, every stream stops.
+
+Name each entry with `subscription()` so its stream receives the exact type its `deps` returns:
+
+```tsx twoslash
+import { Data, Stream } from "effect";
+import { defineApp, subscription } from "@ilha/model";
+
+type Message = Data.TaggedEnum<{ Tick: {} }>;
+const Message = Data.taggedEnum<Message>();
+
+interface Model {
+  readonly count: number;
+  readonly on: boolean;
+}
+
+const view = (model: Model) => <p>{model.count}</p>;
+
+export const app = defineApp({
+  init: () => ({ model: { count: 0, on: true } }),
+  subscriptions: [
+    subscription({
+      deps: (model: Model) => model.on,
+      stream: (on) =>
+        on
+          ? Stream.tick("1 second").pipe(Stream.map(() => Message.Tick()))
+          : Stream.empty,
+    }),
+  ],
+  update: (model: Model, message: Message) =>
+    message._tag === "Tick"
+      ? { model: { ...model, count: model.count + 1 } }
+      : { model },
+  view,
+});
+```
+
+Dependencies can be any value; equal deps keep the stream alive, compared structurally. A subscription never runs on the server; server output reflects the `init` model only. A stream's error channel is `never`, so convert errors into messages inside the stream; a defect is logged and that subscription goes quiet until its deps change again.
+
+## Run start-up work from init
+
+`init` returns the first model plus an optional command. The command runs once per client mount — including after hydration — and never during server rendering.
+
+```tsx twoslash
+import { Data, Effect } from "effect";
+import { defineApp } from "@ilha/model";
+
+type Message = Data.TaggedEnum<{ Loaded: { readonly items: number } }>;
+const Message = Data.taggedEnum<Message>();
+
+interface Model {
+  readonly items: number;
+}
+
+export const app = defineApp({
+  init: () => ({
+    cmd: Effect.succeed(Message.Loaded({ items: 3 })),
+    model: { items: 0 },
+  }),
+  update: (model: Model, message: Message) =>
+    message._tag === "Loaded" ? { model: { items: message.items } } : { model },
+  view: (model: Model) => <p>{model.items}</p>,
+});
+```
+
+Fetch the first page, read stored settings, open a socket: if it happens once at start-up, it belongs here rather than in a subscription.
+
+## Hydrate with a schema
+
+The model snapshots to JSON for hydration. Keep it JSON-safe, or pass a `Schema` codec so richer values round-trip:
+
+```tsx twoslash
+import { Schema } from "effect";
+import { defineApp } from "@ilha/model";
+
+export const app = defineApp({
+  init: () => ({ model: { at: new Date("2024-05-06T00:00:00.000Z") } }),
+  schema: Schema.Struct({ at: Schema.Date }),
+  update: (model: { at: Date }) => ({ model }),
+  view: (model: { at: Date }) => <p>{model.at.getUTCFullYear()}</p>,
+});
+```
+
+Without `schema` the model must be JSON-safe: no `Date`, `Map`, class instances, or functions. Messages carry no such constraint; they are never snapshotted.
+
+## Split a child out
+
+A child owns its model and messages; the parent stores the child model, wraps child messages, and delegates with `foldChild`. The parent never edits the child slice directly.
+
+```tsx twoslash
+import { Data } from "effect";
+import { defineApp, foldChild } from "@ilha/model";
+import type { Dispatch } from "@ilha/model";
+
+type ChildMessage = Data.TaggedEnum<{ Bump: {} }>;
+const ChildMessage = Data.taggedEnum<ChildMessage>();
+
+interface Child {
+  readonly n: number;
+}
+
+const childUpdate = (model: Child, message: ChildMessage) =>
+  ChildMessage.$match(message, {
+    Bump: () => ({ model: { n: model.n + 1 } }),
+  });
+
+type ParentMessage = Data.TaggedEnum<{
+  Child: { readonly message: ChildMessage };
+}>;
+const ParentMessage = Data.taggedEnum<ParentMessage>();
+
+interface Parent {
+  readonly child: Child;
+}
+
+const foldChildState = foldChild<Parent, ParentMessage, Child, ChildMessage>({
+  read: (model) => model.child,
+  toParentMessage: (message) => ParentMessage.Child({ message }),
+  update: childUpdate,
+  write: (model, child) => ({ ...model, child }),
+});
+
+export const app = defineApp({
+  init: () => ({ model: { child: { n: 0 } } }),
+  update: (model: Parent, message: ParentMessage) =>
+    message._tag === "Child"
+      ? foldChildState(model, message.message)
+      : { model },
+  view: (model: Parent, dispatch: Dispatch<ParentMessage>) => (
+    <button
+      type="button"
+      onclick={() =>
+        dispatch(ParentMessage.Child({ message: ChildMessage.Bump() }))
+      }
+    >
+      {model.child.n}
+    </button>
+  ),
+});
+```
+
+Name each wrapper `Got*`, such as `GotSettingsMessage`. Combine sequential steps on one model with `combine`: the steps run in order, and their commands run concurrently like any command list.
+
+## Test the loop
+
+`update` is a plain function, so test transitions without rendering. Drive the view with [`ilha/test`](/guide/recipes/testing) when people must reach the behavior through clicks.
+
+```tsx twoslash
+import { expect, test } from "bun:test";
+import type { UpdateResult } from "@ilha/model";
+import { Data } from "effect";
+
+type Message = Data.TaggedEnum<{ Increment: {} }>;
+const Message = Data.taggedEnum<Message>();
+
+interface Model {
+  readonly count: number;
+}
+
+const update = (model: Model, message: Message): UpdateResult<Model, Message> =>
+  Message.$match(message, {
+    Increment: () => ({ model: { count: model.count + 1 } }),
+  });
+
+test("increment adds one", () => {
+  const next = update({ count: 0 }, Message.Increment());
+  expect(next.model).toEqual({ count: 1 });
+  expect(next.cmd).toBeUndefined();
+});
+```
+
+## Know the limits
+
+`@ilha/model` covers the core loop: model, messages, commands, subscriptions, and submodels. It deliberately leaves out a DevTools overlay (use [`ilha/debug`](/guide/devtools) plus the message flow), route biparsers (routes stay in your router; the route is just a model field), and async-data, field, machine, and query values. Those arrive as later value helpers; nothing here needs to change to adopt them.

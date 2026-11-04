@@ -3,14 +3,9 @@ import { expect, test } from "bun:test";
 import { atom, mount, renderToString } from "../src/index.ts";
 import { isObject } from "../src/shared.ts";
 import { decodeSnapshot, encodeSnapshot } from "../src/snapshot.ts";
+import type { SnapshotObject, SnapshotValue } from "../src/snapshot.ts";
 
 type NestedNode = string | { readonly nested: NestedNode };
-
-interface SafeEntry {
-  readonly safe: number;
-  readonly constructor?: string;
-  readonly prototype?: string;
-}
 
 test("decodeSnapshot rejects oversized payloads", () => {
   const big = JSON.stringify({ v: ["x".repeat(256 * 1024)] });
@@ -45,7 +40,7 @@ test("decodeSnapshot strips prototype-polluting keys", () => {
     throw new Error("expected object entry");
   }
   // SAFETY: decodeSnapshot returns a plain JSON object entry for this fixture.
-  const entry = first as SafeEntry;
+  const entry = first as SnapshotObject;
   expect(entry.safe).toBe(1);
   expect(entry).not.toHaveProperty("constructor", "bad");
   expect(entry).not.toHaveProperty("prototype", "bad");
@@ -55,7 +50,7 @@ test("decodeSnapshot strips prototype-polluting keys", () => {
 test("encode/decode round-trips atom snapshots", () => {
   const encoded = encodeSnapshot([0, "two", { three: 3 }]);
   // SAFETY: encodeSnapshot emits {"v":...} JSON for the snapshot wire format.
-  const snap = JSON.parse(encoded) as { v: unknown[] };
+  const snap = JSON.parse(encoded) as { v: SnapshotValue[] };
   expect(decodeSnapshot(encodeSnapshot([0, "two", { three: 3 }]))).toEqual(
     snap.v
   );

@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 
 import * as Effect from "effect/Effect";
 import type * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
+import * as Schema from "effect/Schema";
 
 import { atom } from "./atom.ts";
 import type { IlhaCode } from "./diagnostics.ts";
@@ -175,7 +177,12 @@ const asyncCtxFn: WatchCallback<string> = (value, ctx) => {
 const legacy: WatchCallback<number> = (value) => {
   void value;
 };
-const useCtx = (_ctx: WatchContext): void => {};
+const useCtx = (ctx: WatchContext): void => {
+  const server: boolean = ctx.ssr;
+  void server;
+  // @ts-expect-error -- `ssr` reports the render; callbacks cannot change it.
+  ctx.ssr = true;
+};
 const typecheckAsyncApis = (): void => {
   const eqOpts: AtomOptions<{ a: number }> = { equals: "structural" };
   const fnOpts: AtomOptions<string> = {
@@ -220,6 +227,36 @@ const typecheckSnapshotOptions = (): void => {
   const bad: AtomLazyOptions = { snapshot: "no" };
   void plain;
   void lazy;
+  void bad;
+};
+
+const typecheckWritableHandle = (): void => {
+  const save = atom(Atom.fn((n: number) => Effect.succeed(n)));
+  save.set(1);
+  save.update(() => 2);
+  // @ts-expect-error set takes the fn argument, not the read value
+  save.set(save());
+  // @ts-expect-error update returns the fn argument, not the read value
+  save.update((current) => current);
+};
+
+const typecheckSnapshotSchema = (): void => {
+  const when = atom(new Date("2024-01-02T03:04:05.000Z"), {
+    schema: Schema.Date,
+  });
+  const lazy = atom.lazy(() => new Date(), { schema: Schema.Date });
+  const opts: AtomOptions<Date> = { schema: Schema.Date };
+  const lazyOpts: AtomLazyOptions<Date> = { schema: Schema.Date };
+  // @ts-expect-error schema must match the atom value type
+  atom(0, { schema: Schema.Date });
+  // @ts-expect-error schema must match the lazy value type
+  atom.lazy(() => 0, { schema: Schema.Date });
+  // @ts-expect-error schema must match the option value type
+  const bad: AtomOptions<number> = { schema: Schema.Date };
+  void when;
+  void lazy;
+  void opts;
+  void lazyOpts;
   void bad;
 };
 
@@ -288,6 +325,8 @@ describe("jsx types", () => {
     expect(isFunction(typecheckUnsafe)).toBe(true);
     expect(isFunction(typecheckAsyncApis)).toBe(true);
     expect(isFunction(typecheckSnapshotOptions)).toBe(true);
+    expect(isFunction(typecheckWritableHandle)).toBe(true);
+    expect(isFunction(typecheckSnapshotSchema)).toBe(true);
     expect(isFunction(typecheckMountOptions)).toBe(true);
     expect(isFunction(typecheckEffectAtom)).toBe(true);
     expect(isFunction(typecheckAtomFunctions)).toBe(true);

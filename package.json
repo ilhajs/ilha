@@ -13,7 +13,7 @@
     "lint:docs": "bun run --filter website lint:docs",
     "prepare": "husky",
     "test": "bun run --parallel --filter './packages/*' test",
-    "typecheck": "bun run --filter ilha typecheck",
+    "typecheck": "bun run --filter ilha --filter @ilha/model typecheck",
     "typecheck:website": "bun run --filter website typecheck",
     "check": "ultracite check",
     "fix": "ultracite fix"

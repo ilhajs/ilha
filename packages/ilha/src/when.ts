@@ -6,12 +6,16 @@ import { instr } from "./atom.ts";
 import { interpret } from "./interpret.ts";
 import { closeFiber, getFiber, makeFiber } from "./runtime.ts";
 import type { FiberLocal } from "./runtime.ts";
-import type { Instruction, View, Yielded } from "./types.ts";
+import type { GeneratorFn, Instruction, View, Yielded } from "./types.ts";
 
 /** Rerun `body` for every value of `stream`, replacing the previous run. */
 export const when = <A, E = never, R = never>(
   stream: Stream.Stream<A, E, R>,
-  body: (value: A) => Generator<Yielded, View | undefined, View>
+  body: (
+    value: A
+  ) =>
+    | Generator<Yielded, View | undefined, View>
+    | Generator<Yielded, void, View>
 ): Instruction<void, E> =>
   instr(
     Effect.suspend(() => {
@@ -35,7 +39,8 @@ export const when = <A, E = never, R = never>(
             child = makeFiber(parent.runtime, parent.root, parent.paintFn, {
               parent,
             });
-            interpret(() => body(value), child);
+            // SAFETY: interpret skips painting when a body returns nothing.
+            interpret((() => body(value)) as GeneratorFn, child);
           })
       ).pipe(Effect.asVoid);
     })

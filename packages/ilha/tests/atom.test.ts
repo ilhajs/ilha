@@ -26,7 +26,8 @@ test("atom handle from another island throws when a different island is active",
     if (!foreign) {
       throw new Error("foreign missing");
     }
-    expect(() => foreign()).toThrow(/\[ILHA003\]/u);
+    const mine = foreign;
+    expect(() => mine()).toThrow(/\[ILHA003\]/u);
     return { $$ilha: 1 as const, children: ["b"], props: {}, type: "span" };
   };
 
@@ -278,8 +279,12 @@ test("primitive slots persist across render reruns", async () => {
   await Bun.sleep(5);
   el.querySelector("button")?.click();
   await Bun.sleep(5);
-  expect(el.querySelector("[data-total]")?.dataset.total).toBe("1");
-  expect(el.querySelector("[data-count]")?.dataset.count).toBe("1");
+  expect(el.querySelector<HTMLElement>("[data-total]")?.dataset.total).toBe(
+    "1"
+  );
+  expect(el.querySelector<HTMLElement>("[data-count]")?.dataset.count).toBe(
+    "1"
+  );
   unmount();
   el.remove();
 });

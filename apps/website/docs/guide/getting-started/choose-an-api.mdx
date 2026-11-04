@@ -23,6 +23,10 @@ Ilha gives you exactly one way to do each task. Find your task in the table and 
 | Server render | `await renderToString(Component)` | [Render and hydrate](/guide/ui/render) |
 | Client render | `mount(host, Component)` | [Render and hydrate](/guide/ui/render) |
 | Hydrate server HTML | `mount(host, Component, { hydrate: true })` | [Render and hydrate](/guide/ui/render) |
+| Elm-style app state | `defineApp({ init, update, view })` | [Model](/guide/model) |
+| One-shot work from `update` | `cmd` in the update result | [Model](/guide/model#send-one-shot-work) |
+| Ongoing work gated by the model | `subscriptions` in `defineApp` | [Model](/guide/model#listen-to-ongoing-work) |
+| Child state machine | `foldChild` and `combine` | [Model](/guide/model#split-a-child-out) |
 | Raw, trusted HTML | `unsafe(html)` | [Templating](/guide/ui/templating#raw-html) |
 
 ## Example
@@ -60,6 +64,7 @@ const Cart = () => {
 - Never fetch inside `watch.once()` and copy the result into an atom. Write `atom(Effect)` instead.
 - Never pass untrusted input to `unsafe()`. It skips escaping.
 - Never import removed APIs: `resource`, `invalidate`, `fromEventSource`, `ilha/define`, or `structuralEqual`. See `MIGRATIONS.md` in the `ilha` package.
+- Never store callbacks in an `@ilha/model` model, or class instances such as `Date` without a `schema` option. The model snapshots to JSON; keep functions in refs and effects in commands.
 
 ## Check your work
 

@@ -6,7 +6,7 @@ import * as Stream from "effect/Stream";
 import type { AtomHandle } from "ilha";
 
 import { atom, mount } from "../src/index.ts";
-import type { PropBag } from "../src/types.ts";
+import type { PropBag, PropValue } from "../src/types.ts";
 
 const LEVELS = 10;
 
@@ -14,6 +14,7 @@ type DeepProps = PropBag & { readonly depth: number };
 interface Task {
   id: number;
   label: string;
+  readonly [key: string]: PropValue | undefined;
 }
 type RowProps = PropBag & { readonly task: Task };
 type LevelProps = PropBag & { readonly depth: number };

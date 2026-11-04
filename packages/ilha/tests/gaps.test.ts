@@ -112,7 +112,7 @@ test("keyed function children reuse holes", async () => {
 });
 
 interface SaveBox {
-  set?: (n: never) => void;
+  set?: (n: undefined) => void;
 }
 
 test("Atom.fn waiting keeps previous view", async () => {
@@ -124,12 +124,10 @@ test("Atom.fn waiting keeps previous view", async () => {
     return h("p", null, save);
   });
   await Bun.sleep(5);
-  // SAFETY: Atom.fn with no args uses a void-like seed for set().
-  box.set?.(undefined as never);
+  box.set?.(undefined);
   await Bun.sleep(40);
   expect(el.textContent).toContain("done");
-  // SAFETY: Atom.fn with no args uses a void-like seed for set().
-  box.set?.(undefined as never);
+  box.set?.(undefined);
   await Bun.sleep(5);
   expect(el.textContent).toContain("done");
 });

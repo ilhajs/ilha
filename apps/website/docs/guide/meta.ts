@@ -7,6 +7,7 @@ export default defineMeta({
     "recipes",
     "astro",
     "void",
+    "model",
     "devtools",
     "resources",
   ],

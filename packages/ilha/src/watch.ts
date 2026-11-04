@@ -59,9 +59,10 @@ interface Runner {
 
 /**
  * Serial runs of one watch slot. Each run gets a fresh signal; starting the
- * next run or cancelling aborts it, which also runs its cleanups.
+ * next run or cancelling aborts it, which also runs its cleanups. `ssr`
+ * reports whether the slot's fiber renders on the server.
  */
-const makeRunner = (): Runner => {
+const makeRunner = (ssr: boolean): Runner => {
   let ctrl: AbortController | undefined;
   const cancel = (): void => ctrl?.abort();
   return {
@@ -89,7 +90,7 @@ const makeRunner = (): Runner => {
           console.error(error);
         }
       };
-      const out = fn({ onCleanup, signal });
+      const out = fn({ onCleanup, signal, ssr });
       if (out instanceof Promise) {
         void settle(out);
       } else {
@@ -141,7 +142,7 @@ export const watch: WatchFn = Object.assign(
     const ref = { fn };
     const key = isFunction(source) ? source.atom : source;
     return useWatchSlot(key, ref, (fiber) => {
-      const runner = makeRunner();
+      const runner = makeRunner(fiber.runtime.ssr);
       const emit = (value: A): void => runner.run((ctx) => ref.fn(value, ctx));
       const stop = Stream.isStream(source)
         ? fiber.run(
@@ -163,8 +164,8 @@ export const watch: WatchFn = Object.assign(
   },
   {
     once: (fn: WatchRun): Instruction<void> =>
-      useWatchSlot(ONCE, {}, () => {
-        const runner = makeRunner();
+      useWatchSlot(ONCE, {}, (fiber) => {
+        const runner = makeRunner(fiber.runtime.ssr);
         runner.run(fn);
         return runner.cancel;
       }),

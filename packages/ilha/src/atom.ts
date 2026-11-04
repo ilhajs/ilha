@@ -1,8 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
+import * as Option from "effect/Option";
 import type * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import { ilhaError, ilhaWarn } from "./diagnostics.ts";
@@ -211,10 +213,10 @@ export const subscribeRenderDeps = (
 };
 
 /** Callable handle over `atom` that reads through the active render's tracking. */
-export const wrapHandle = <A>(
-  atom: Atom.Atom<A>,
+export const wrapHandle = <A, W = A>(
+  atom: Atom.Writable<A, W> | Atom.Atom<A>,
   fiber: FiberLocal
-): AtomHandle<A> => {
+): AtomHandle<A, W> => {
   const { registry } = fiber;
   const guard = (): void => {
     const active = getActiveFiber();
@@ -230,13 +232,13 @@ export const wrapHandle = <A>(
     {
       $$atom: 1 as const,
       atom,
-      set: (next: A) => {
+      set: (next: W) => {
         guard();
         if (Atom.isWritable(atom)) {
           registry.set(atom, next);
         }
       },
-      update: (f: (current: A) => A) => {
+      update: (f: (current: A) => W) => {
         guard();
         if (Atom.isWritable(atom)) {
           registry.update(atom, f);
@@ -249,11 +251,14 @@ export const wrapHandle = <A>(
 /**
  * Claim the fiber's next primitive slot. A fresh slot is built by `make`,
  * seeded from the hydration snapshot when `snapshotted`; SSR records its
- * value so hydration can restore it in the same order.
+ * value so hydration can restore it in the same order. `schema` encodes the
+ * recorded value and decodes the seed; an undecodable seed falls back to
+ * the initial value.
  */
 const useSlot = <A>(
   snapshotted: boolean,
-  make: (fiber: FiberLocal, hydrated: A | undefined) => Atom.Atom<A>
+  make: (fiber: FiberLocal, hydrated: A | undefined) => Atom.Atom<A>,
+  schema?: Schema.ConstraintCodec<A, unknown> | undefined
 ): AtomHandle<A> => {
   const fiber = getFiber();
   const { runtime } = fiber;
@@ -264,16 +269,28 @@ const useSlot = <A>(
   // by the same primitive call site with the same A.
   let a = fiber.primitives[i] as Atom.Atom<A> | undefined;
   if (!a) {
+    // The JSON codec is built once per slot creation, not per render.
+    const codec =
+      snapshotted && schema ? Schema.toCodecJson(schema) : undefined;
     let hydrated: A | undefined;
     if (snapshotted && runtime.hydrateValues) {
-      // SAFETY: snapshots are recorded in primitive declaration order by SSR.
-      hydrated = runtime.hydrateValues[runtime.hydrateI] as A | undefined;
+      const seed = runtime.hydrateValues[runtime.hydrateI];
       runtime.hydrateI += 1;
+      if (codec === undefined) {
+        // SAFETY: snapshots are recorded in primitive declaration order by
+        // SSR; without a schema the seed is the raw value SSR recorded.
+        hydrated = seed as A | undefined;
+      } else if (seed !== undefined) {
+        hydrated = Option.getOrUndefined(
+          Schema.decodeUnknownOption(codec)(seed)
+        );
+      }
     }
     a = make(fiber, hydrated);
     fiber.primitives[i] = a;
     if (snapshotted && runtime.ssr) {
-      runtime.ssrValues.push(fiber.registry.get(a));
+      const value = fiber.registry.get(a);
+      runtime.ssrValues.push(codec ? Schema.encodeSync(codec)(value) : value);
     }
   }
   return wrapHandle(a, fiber);
@@ -305,12 +322,17 @@ export interface AtomFn {
     options?: AtomOptions<AsyncResult.AsyncResult<A, E>>
   ): AtomHandle<AsyncResult.AsyncResult<A, E>>;
   /**
+   * A writable Effect atom (`Atom.fn`, `Atom.make`, …). `.set` and `.update`
+   * take the atom's write type — the `Atom.fn` argument — not the read type.
+   */
+  <R, W>(init: Atom.Writable<R, W>, options?: AtomOptions<R>): AtomHandle<R, W>;
+  /**
    * An existing Effect atom, or a plain value. Store a function with
    * `atom.lazy(() => fn)`; the `ilha/oxlint` rule `function-in-atom` flags
    * `atom(fn)`.
    */
   <A>(init: Atom.Atom<A> | A, options?: AtomOptions<A>): AtomHandle<A>;
-  lazy: <A>(init: () => A, options?: AtomLazyOptions) => AtomHandle<A>;
+  lazy: <A>(init: () => A, options?: AtomLazyOptions<A>) => AtomHandle<A>;
 }
 
 // SAFETY: the overloads in AtomFn describe the runtime shapes below; an
@@ -320,30 +342,37 @@ export const atom = Object.assign(
     // Only plain-value slots occupy a snapshot entry, on SSR and hydration alike.
     const plain =
       !Atom.isAtom(init) && !Effect.isEffect(init) && !Stream.isStream(init);
-    return useSlot<A>(plain && options?.snapshot !== false, (fiber, seed) => {
-      if (Atom.isAtom(init)) {
-        return init;
-      }
-      if (!plain) {
-        // SAFETY: an effect/stream atom holds AsyncResult<A>; AtomFn types
-        // the handle accordingly, and the painter unwraps it.
-        return Atom.make(init as Effect.Effect<A>) as Atom.Atom<A>;
-      }
-      // SAFETY: the remaining union member is the plain seed value A.
-      const made = Atom.make(seed === undefined ? (init as A) : seed);
-      const eq = options?.equals;
-      return holdState(
-        fiber,
-        eq
-          ? Atom.withEquality(made, eq === "structural" ? Equal.equals : eq)
-          : made
-      );
-    });
+    return useSlot<A>(
+      plain && options?.snapshot !== false,
+      (fiber, seed) => {
+        if (Atom.isAtom(init)) {
+          return init;
+        }
+        if (!plain) {
+          // SAFETY: an effect/stream atom holds AsyncResult<A>; AtomFn types
+          // the handle accordingly, and the painter unwraps it.
+          return Atom.make(init as Effect.Effect<A>) as Atom.Atom<A>;
+        }
+        // SAFETY: the remaining union member is the plain seed value A.
+        const made = Atom.make(seed === undefined ? (init as A) : seed);
+        const eq = options?.equals;
+        return holdState(
+          fiber,
+          eq
+            ? Atom.withEquality(made, eq === "structural" ? Equal.equals : eq)
+            : made
+        );
+      },
+      options?.schema
+    );
   },
   {
-    lazy: <A>(init: () => A, options?: AtomLazyOptions): AtomHandle<A> =>
-      useSlot<A>(options?.snapshot !== false, (fiber, seed) =>
-        holdState(fiber, Atom.make(seed === undefined ? init() : seed))
+    lazy: <A>(init: () => A, options?: AtomLazyOptions<A>): AtomHandle<A> =>
+      useSlot<A>(
+        options?.snapshot !== false,
+        (fiber, seed) =>
+          holdState(fiber, Atom.make(seed === undefined ? init() : seed)),
+        options?.schema
       ),
   }
 ) as AtomFn;

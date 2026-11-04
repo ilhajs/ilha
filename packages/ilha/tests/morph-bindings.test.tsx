@@ -305,7 +305,7 @@ test("data-morph-preserve children composes with attribute names", async () => {
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
-  const widget = byId(el, "w");
+  const widget = byId<HTMLElement>(el, "w");
   widget.title = "live";
   widget.append("owned by a widget");
   bump?.();

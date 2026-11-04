@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { atom, mount } from "../src/index.ts";
+import type { PropValue } from "../src/types.ts";
 
 // Module-level component: exercises fresh atom state per mount.
 const CheckboxApp = () => {
@@ -55,9 +56,10 @@ interface CheckboxProps {
   checked?: boolean;
   onclick: () => void;
   type: "checkbox";
+  readonly [key: string]: PropValue | undefined;
 }
 
-const rejectingCheckbox = (initial: boolean | undefined) => () => {
+const rejectingCheckbox = (initial?: boolean | undefined) => () => {
   const tick = atom(0);
   const inputProps: CheckboxProps = {
     onclick: () => tick.update((n: number) => n + 1),

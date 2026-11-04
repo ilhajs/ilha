@@ -11,7 +11,7 @@ const shell = (): HTMLElement => {
 test("watch.once runs async cleanup on unmount", async () => {
   const order: string[] = [];
   const gate = Promise.withResolvers<() => void>();
-  const App = () => {
+  const App = (): undefined => {
     watch.once(() => {
       order.push("setup");
       return gate.promise;

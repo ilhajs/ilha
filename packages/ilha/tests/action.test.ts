@@ -16,8 +16,7 @@ const App = () => {
       id: "save",
       onclick: () => {
         if (Atom.isWritable(save.atom)) {
-          // SAFETY: Atom.fn setter expects the effect argument type; 1 is that seed.
-          save.set(1 as never);
+          save.set(1);
         }
       },
     },

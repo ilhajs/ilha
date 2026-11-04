@@ -1,0 +1,57 @@
+{
+  "name": "@ilha/model",
+  "version": "0.1.0",
+  "description": "Elm-style Model, update, commands, and subscriptions for Ilha islands",
+  "keywords": [
+    "effect",
+    "elm-architecture",
+    "frontend",
+    "hydration",
+    "ilha",
+    "island-architecture",
+    "islands",
+    "ssr"
+  ],
+  "homepage": "https://github.com/ilhajs/ilha/tree/main/packages/model#readme",
+  "bugs": {
+    "url": "https://github.com/ilhajs/ilha/issues"
+  },
+  "license": "MIT",
+  "author": "Ryuz <ryuzer@proton.me>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ilhajs/ilha.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown && tsc -p tsconfig.build.json",
+    "cleanup": "rimraf dist node_modules",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "effect": "^4.1.0",
+    "ilha": "^0.16.2"
+  },
+  "peerDependencies": {
+    "effect": "^4.1.0",
+    "ilha": ">=0.16.2"
+  }
+}

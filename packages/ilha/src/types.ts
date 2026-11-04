@@ -1,6 +1,7 @@
 import type { Effect, Stream } from "effect";
 import type { Atom } from "effect/reactivity";
 import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
+import type * as Schema from "effect/Schema";
 import type { Closeable } from "effect/Scope";
 
 export type JsonText = string | number | bigint | boolean | null | undefined;
@@ -115,12 +116,12 @@ export interface AtomView {
   readonly atom: Atom.Atom<unknown>;
 }
 
-export interface AtomHandle<A> {
+export interface AtomHandle<A, W = A> {
   readonly $$atom: 1;
   readonly atom: Atom.Atom<A>;
   (): A;
-  set: (next: A) => void;
-  update: (f: (current: A) => A) => void;
+  set: (next: W) => void;
+  update: (f: (current: A) => W) => void;
 }
 
 /** Equality for plain-value atoms. `"structural"` deep-compares JSON-shaped values. */
@@ -134,15 +135,29 @@ export interface AtomOptions<A = unknown> {
    * starts from its initial value on hydration. Default `true`.
    */
   readonly snapshot?: boolean;
+  /**
+   * Codec for the SSR snapshot entry, for values plain JSON cannot
+   * round-trip (dates, maps, branded types). SSR encodes the snapshot value
+   * and hydration decodes the seed; a seed that fails to decode falls back
+   * to the initial value. Plain values only.
+   */
+  readonly schema?: Schema.ConstraintCodec<NoInfer<A>, unknown>;
 }
 
 /** Options for `atom.lazy()`. */
-export interface AtomLazyOptions {
+export interface AtomLazyOptions<A = unknown> {
   /**
    * Set `false` to keep the slot out of the SSR snapshot, for timers,
    * observers, and other mutable refs. Default `true`.
    */
   readonly snapshot?: boolean;
+  /**
+   * Codec for the SSR snapshot entry, for values plain JSON cannot
+   * round-trip (dates, maps, branded types). SSR encodes the snapshot value
+   * and hydration decodes the seed; a seed that fails to decode falls back
+   * to the initial value.
+   */
+  readonly schema?: Schema.ConstraintCodec<NoInfer<A>, unknown>;
 }
 
 /** Optional disposer returned from `watch.once`. */
@@ -151,10 +166,12 @@ export type WatchOnceCleanup = () => void;
 /**
  * Cancellation context handed to watch callbacks. `signal` aborts when the
  * run goes stale (a newer value arrives), on unmount, or on slot disposal.
- * Register extra teardowns with `onCleanup`.
+ * Register extra teardowns with `onCleanup`. `ssr` is `true` while
+ * `renderToString` runs the callback; skip browser-only work then.
  */
 export interface WatchContext {
   readonly signal: AbortSignal;
+  readonly ssr: boolean;
   onCleanup: (fn: () => void) => void;
 }
 

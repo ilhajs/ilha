@@ -96,7 +96,7 @@ const assign = (el: Element, value: string | boolean): boolean => {
   return true;
 };
 
-const flatten = (nodes: IlhaInspectNode[]): AtomEntry[] =>
+const flatten = (nodes: readonly IlhaInspectNode[]): AtomEntry[] =>
   nodes.flatMap((node) => [
     ...node.atoms.map(({ index, value }) => ({
       component: node.component,

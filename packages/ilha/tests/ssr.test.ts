@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import * as Effect from "effect/Effect";
 
-import { atom, h, renderToString } from "../src/index.ts";
+import { atom, h, mount, renderToString, watch } from "../src/index.ts";
 
 test("renderToString works without document", async () => {
   const doc = globalThis.document;
@@ -15,6 +15,27 @@ test("renderToString works without document", async () => {
   } finally {
     g.document = doc;
   }
+});
+
+test("watch callbacks see ssr: true on the server and false on mount, with a DOM global either way", async () => {
+  const seen: string[] = [];
+  const Probe = () => {
+    const n = atom(0);
+    watch.once(({ ssr }) => {
+      seen.push(`once:${ssr}`);
+    });
+    watch(n, (_value, { ssr }) => {
+      seen.push(`watch:${ssr}`);
+    });
+    return h("p", null, n);
+  };
+  await renderToString(Probe);
+  expect(seen).toEqual(["once:true", "watch:true"]);
+  seen.length = 0;
+  const el = document.createElement("div");
+  const unmount = mount(el, Probe);
+  expect(seen).toEqual(["once:false", "watch:false"]);
+  unmount();
 });
 
 const CounterApp = () => {

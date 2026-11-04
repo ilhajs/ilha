@@ -6,7 +6,9 @@ import { interpret } from "../src/interpret.ts";
 import { makeFiber, makeRuntime } from "../src/runtime.ts";
 import type { GeneratorFn, View, Yielded } from "../src/types.ts";
 
-type TestGen = () => Generator<Yielded, View | undefined, View>;
+type TestGen = () =>
+  | Generator<Yielded, View | undefined, View>
+  | Generator<Yielded, void, View>;
 
 const run = (gen: TestGen) => {
   const frames: View[] = [];
@@ -62,11 +64,7 @@ test("interrupt during sleep skips b", async () => {
   expect(frames).toEqual(["a"]);
 });
 
-const neverGen = function* neverGen(): Generator<
-  Yielded,
-  View | undefined,
-  View
-> {
+const neverGen = function* neverGen(): Generator<Yielded, void, View> {
   yield Effect.never;
 };
 
