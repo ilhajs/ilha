@@ -166,10 +166,12 @@ export type WatchOnceCleanup = () => void;
 /**
  * Cancellation context handed to watch callbacks. `signal` aborts when the
  * run goes stale (a newer value arrives), on unmount, or on slot disposal.
- * Register extra teardowns with `onCleanup`.
+ * Register extra teardowns with `onCleanup`. `ssr` is `true` while
+ * `renderToString` runs the callback; skip browser-only work then.
  */
 export interface WatchContext {
   readonly signal: AbortSignal;
+  readonly ssr: boolean;
   onCleanup: (fn: () => void) => void;
 }
 

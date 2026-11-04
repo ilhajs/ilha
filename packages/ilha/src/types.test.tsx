@@ -177,7 +177,12 @@ const asyncCtxFn: WatchCallback<string> = (value, ctx) => {
 const legacy: WatchCallback<number> = (value) => {
   void value;
 };
-const useCtx = (_ctx: WatchContext): void => {};
+const useCtx = (ctx: WatchContext): void => {
+  const server: boolean = ctx.ssr;
+  void server;
+  // @ts-expect-error -- `ssr` reports the render; callbacks cannot change it.
+  ctx.ssr = true;
+};
 const typecheckAsyncApis = (): void => {
   const eqOpts: AtomOptions<{ a: number }> = { equals: "structural" };
   const fnOpts: AtomOptions<string> = {

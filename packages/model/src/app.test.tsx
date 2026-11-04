@@ -85,23 +85,6 @@ const poll = async (
 const pollText = (ui: TestUi, expected: string): Promise<void> =>
   poll(() => ui.text() === expected);
 
-/**
- * Server-render without the happy-dom `document`, as on a real server, so
- * the client-only start path stays off.
- */
-const serverRender = async (
-  component: Parameters<typeof renderToString>[0]
-): Promise<string> => {
-  const { document: dom } = globalThis;
-  // SAFETY: removed for the render only and restored right after.
-  Reflect.deleteProperty(globalThis, "document");
-  try {
-    return await renderToString(component);
-  } finally {
-    globalThis.document = dom;
-  }
-};
-
 describe("defineApp", () => {
   it("renders the model and dispatches messages", async () => {
     const ui = render(counter.component);
@@ -539,7 +522,7 @@ describe("defineApp", () => {
         </div>
       ),
     });
-    const html = await serverRender(app.component);
+    const html = await renderToString(app.component);
     expect(html).toContain("0:false");
     expect(inits).toBe(1);
     expect(cmdRuns).toBe(0);
@@ -577,7 +560,7 @@ describe("defineApp", () => {
         message._tag === "Fetched" ? { model: { fetched: true } } : { model },
       view: (model: { fetched: boolean }) => <p>{`${model.fetched}`}</p>,
     });
-    const html = await serverRender(app.component);
+    const html = await renderToString(app.component);
     expect(cmdRuns).toBe(0);
     const host = document.createElement("div");
     host.innerHTML = html;
@@ -589,6 +572,42 @@ describe("defineApp", () => {
     ui.unmount();
   });
 
+  it("never builds the layer or starts subscriptions during server rendering", async () => {
+    const Clock = Context.Service<{ readonly now: number }>("Clock");
+    let builds = 0;
+    let starts = 0;
+    const app = defineApp({
+      init: () => ({ model: { n: 0 } }),
+      layer: Layer.effect(
+        Clock,
+        Effect.sync(() => {
+          builds += 1;
+          return { now: 1 };
+        })
+      ),
+      subscriptions: [
+        subscription({
+          deps: () => 0,
+          stream: () => {
+            starts += 1;
+            return Stream.never;
+          },
+        }),
+      ],
+      update: (model: { n: number }, _message: "tick") => ({ model }),
+      view: (model: { n: number }) => <p>{model.n}</p>,
+    });
+    // happy-dom's `document` is present here, as in test setups that render
+    // on the server; only the render's own SSR flag keeps client work off.
+    const html = await renderToString(app.component);
+    expect(html).toContain("0");
+    expect(builds).toBe(0);
+    expect(starts).toBe(0);
+    const ui = render(app.component);
+    await poll(() => builds === 1 && starts === 1);
+    ui.unmount();
+  });
+
   it("round-trips the model through a schema across SSR and hydration", async () => {
     const ModelSchema = Schema.Struct({ at: Schema.Date });
     const app = defineApp({
@@ -597,7 +616,7 @@ describe("defineApp", () => {
       update: (model: { at: Date }) => ({ model }),
       view: (model: { at: Date }) => <p>{model.at.getUTCFullYear()}</p>,
     });
-    const html = await serverRender(app.component);
+    const html = await renderToString(app.component);
     expect(html).toContain("2024");
     const host = document.createElement("div");
     host.innerHTML = html;
@@ -648,12 +667,12 @@ describe("defineApp", () => {
   });
 
   it("server-renders the init model", async () => {
-    const html = await serverRender(counter.component);
+    const html = await renderToString(counter.component);
     expect(html).toContain("0");
   });
 
   it("hydrates server markup and stays interactive", async () => {
-    const html = await serverRender(counter.component);
+    const html = await renderToString(counter.component);
     const host = document.createElement("div");
     host.innerHTML = html;
     const ui = render(counter.component, { container: host, hydrate: true });

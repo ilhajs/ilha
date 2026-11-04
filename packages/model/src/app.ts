@@ -371,22 +371,27 @@ export const defineApp = <
         keyedMap
       );
 
-    // One drain runs every queued command in its own fiber. A single start
-    // write keeps the runtime's single argument cell from dropping commands
-    // while the layer still builds; the queue holds them until the drain
-    // runs.
+    // One drain runs every queued command in its own fiber. It is a plain
+    // `Atom.fn` that reads the app runtime only once it runs: `runtime.fn`
+    // would read the runtime atom on every render, building the layer during
+    // server rendering too. The client starts the drain with one write; the
+    // queue holds commands until the layer is ready.
     const runner = atom(
-      runtime.fn((queue: Queue.Queue<Cmd<Message, R>>) =>
-        Effect.forever(
-          Effect.flatMap(Queue.take(queue), (cmd) =>
-            Effect.forkChild(runOne(cmd))
+      Atom.fn((queue: Queue.Queue<Cmd<Message, R>>, get) =>
+        Effect.flatMap(get.result(runtime), (services) =>
+          Effect.provideContext(
+            Effect.forever(
+              Effect.flatMap(Queue.take(queue), (cmd) =>
+                Effect.forkChild(runOne(cmd))
+              )
+            ),
+            services
           )
         )
       )
     );
-    // Built from the runner, not the runtime atom, so the server never
-    // builds the layer: the runner only runs once the client starts it. It
-    // loops forever, so it only settles on a layer failure or a defect.
+    // The drain loops forever, so it only settles on a layer failure or a
+    // defect.
     const runnerFailure = atom(
       runner.atom.pipe(
         Atom.map((result) =>
@@ -406,11 +411,11 @@ export const defineApp = <
         Effect.runSync(Effect.logError(failure));
       }
     });
-    watch.once(() => {
+    watch.once(({ ssr }) => {
       const helpers = untrack(() => cells());
-      // `watch.once` also runs during server rendering; commands and
-      // subscriptions are client work.
-      if (typeof document !== "undefined" && !helpers.started) {
+      // `watch.once` also runs during server rendering; commands,
+      // subscriptions, and the layer are client work.
+      if (!ssr && !helpers.started) {
         helpers.started = true;
         const begin = untrack(() => initResult()).cmd;
         if (begin !== undefined) {

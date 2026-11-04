@@ -160,7 +160,24 @@ const Search = () => {
 };
 ```
 
-Call `watch()` / `watch.once()` before any `await` in async components. Guard DOM access on the server. For streams and `when`, see [Streams](/guide/ui/streams).
+Call `watch()` / `watch.once()` before any `await` in async components. Both run during `renderToString` too: check `ssr` on the context and skip browser-only work there. `ssr` comes from the render itself, so it stays correct where a DOM global exists on the server, such as tests under happy-dom:
+
+```tsx twoslash
+import { watch } from "ilha";
+
+const Clock = () => {
+  watch.once(({ ssr }) => {
+    if (ssr) {
+      return undefined;
+    }
+    const timer = setInterval(() => console.log("tick"), 1000);
+    return () => clearInterval(timer);
+  });
+  return <p>clock</p>;
+};
+```
+
+For streams and `when`, see [Streams](/guide/ui/streams).
 
 ## Batching writes
 
