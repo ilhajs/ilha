@@ -344,7 +344,7 @@ Name each wrapper `Got*`, such as `GotSettingsMessage`. Combine sequential steps
 
 ## Test the loop
 
-`update` is a plain function, so test transitions without rendering. Drive the view with [`ilha/test`](/guide/recipes/testing) when people must reach the behavior through clicks.
+`update` is a plain function, so test transitions without rendering:
 
 ```tsx twoslash
 import { expect, test } from "bun:test";
@@ -369,6 +369,86 @@ test("increment adds one", () => {
   expect(next.cmd).toBeUndefined();
 });
 ```
+
+Test commands without rendering with `runCommands` from `@ilha/model/test`. Pass it an update result or a command; it runs commands with the runtime's semantics — concurrently, `keyed` latest-wins, defects logged — and collects the messages they resolve to:
+
+```tsx twoslash
+import { expect, test } from "bun:test";
+import type { UpdateResult } from "@ilha/model";
+import { runCommands } from "@ilha/model/test";
+import { Data, Effect } from "effect";
+
+type Message = Data.TaggedEnum<{
+  AddBonus: { readonly amount: number };
+  FetchBonus: {};
+}>;
+const Message = Data.taggedEnum<Message>();
+
+interface Model {
+  readonly count: number;
+}
+
+const update = (model: Model, message: Message): UpdateResult<Model, Message> =>
+  Message.$match(message, {
+    AddBonus: ({ amount }) => ({ model: { count: model.count + amount } }),
+    FetchBonus: () => ({
+      cmd: Effect.succeed(Message.AddBonus({ amount: 10 })),
+      model,
+    }),
+  });
+
+test("fetch resolves a bonus message", async () => {
+  const next = update({ count: 0 }, Message.FetchBonus());
+  const messages = await Effect.runPromise(runCommands(next));
+  expect(messages).toEqual([Message.AddBonus({ amount: 10 })]);
+});
+```
+
+Test a whole flow with `simulate`: pass the app itself so its layer travels along, plus the input messages. It runs init and its command first, then each message through `update`, feeding command results back until quiet, and returns the final model with the full message trace. Override the layer with test doubles through `{ layer }`:
+
+```tsx twoslash
+import { expect, test } from "bun:test";
+import { defineApp } from "@ilha/model";
+import { simulate } from "@ilha/model/test";
+import { Context, Data, Effect, Layer } from "effect";
+
+type Message = Data.TaggedEnum<{
+  Greet: {};
+  Greeted: { readonly text: string };
+}>;
+const Message = Data.taggedEnum<Message>();
+
+const Greeter = Context.Service<{ readonly greet: (name: string) => string }>(
+  "Greeter"
+);
+
+const app = defineApp({
+  init: () => ({ model: { greeting: "" } }),
+  layer: Layer.succeed(Greeter, { greet: (name) => `Hello, ${name}!` }),
+  update: (model: { greeting: string }, message: Message) =>
+    Message.$match(message, {
+      Greet: () => ({
+        cmd: Effect.map(Effect.service(Greeter), (greeter) =>
+          Message.Greeted({ text: greeter.greet("you") })
+        ),
+        model,
+      }),
+      Greeted: ({ text }) => ({ model: { greeting: text } }),
+    }),
+  view: (model: { greeting: string }) => <p>{model.greeting}</p>,
+});
+
+test("greeting lands in the model", async () => {
+  const testLayer = Layer.succeed(Greeter, { greet: () => "hi" });
+  const { model, messages } = await Effect.runPromise(
+    simulate(app, [Message.Greet()], { layer: testLayer })
+  );
+  expect(model).toEqual({ greeting: "hi" });
+  expect(messages).toEqual([Message.Greet(), Message.Greeted({ text: "hi" })]);
+});
+```
+
+Subscriptions never run in `simulate`; feed `update` the messages their streams would emit instead. Commands that sleep run on the ambient clock, so provide `TestClock.layer()` from `effect/testing` and advance it with `TestClock.adjust` to test them without waiting. Drive the view with [`ilha/test`](/guide/recipes/testing) when people must reach the behavior through clicks.
 
 ## Know the limits
 

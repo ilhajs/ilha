@@ -1,5 +1,4 @@
 import * as Cause from "effect/Cause";
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
@@ -14,6 +13,8 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { atom, untrack, watch } from "ilha";
 import type { Component, View } from "ilha";
+
+import { eachCmd, KeyedScope, reportCause, runCommand } from "./internal";
 
 /** Send a message into the app loop. */
 export type Dispatch<Message> = (message: Message) => void;
@@ -98,23 +99,6 @@ export interface ModelApp<Model, Message, R = never, E = never> {
 }
 
 /**
- * Split one or many commands. Internal: shared with `submodel`, not part of
- * the package surface. `Effect.isEffect` narrows the union where
- * `Array.isArray` cannot, so no assertion is needed.
- */
-export const eachCmd = <Message, R>(
-  cmd: Cmd<Message, R> | readonly Cmd<Message, R>[]
-): readonly Cmd<Message, R>[] => (Effect.isEffect(cmd) ? [cmd] : cmd);
-
-/**
- * Per-instance keyed-command scope. The runner provides it around every
- * command; `keyed` reads it back without adding a service requirement.
- */
-const KeyedScope = Context.Service<FiberMap.FiberMap<string, unknown, unknown>>(
-  "ilha/model/KeyedScope"
-);
-
-/**
  * Latest-wins command: starting one interrupts the running command with the
  * same key, so only the latest result dispatches. Different keys run
  * independently. Keys are per app instance: two mounted instances never
@@ -131,16 +115,6 @@ export const keyed = <Message, R>(
           Fiber.join(fiber)
         )
   );
-
-/**
- * Report an unexpected cause through the Effect logger. Interruption
- * (unmount, keyed supersede, subscription restart) is silent; anything else
- * is a defect worth logging.
- */
-const reportCause = (cause: Cause.Cause<never>): Effect.Effect<void> =>
-  Cause.hasInterruptsOnly(cause)
-    ? Effect.void
-    : Effect.logError(Cause.pretty(cause));
 
 /** Per-instance command machinery, created once in a lazy slot. */
 interface InstanceCells<Message, R> {
@@ -272,16 +246,30 @@ type CheckServices<O, L extends Layer.Any> =
     : never;
 
 /**
- * What `defineApp` infers `Model` and `Message` from. Command and stream
- * requirements stay permissive here so inference never forces the layer
- * type early; `CheckServices` validates coverage after, and the layer
- * itself is captured by `{ layer?: L }`.
+ * What `defineApp` infers `Model` from. Command and stream requirements
+ * stay permissive here so inference never forces the layer type early;
+ * `CheckServices` validates coverage after, and the layer itself is
+ * captured by `{ layer?: L }`. `Message` stays `any`: it is read from
+ * `update` instead (see `UpdateMessage`), so one command's message can
+ * never narrow the whole app.
  */
 type LooseOptions<Model, Message> = Omit<
   // oxlint-disable-next-line typescript/no-explicit-any -- permissive requirements; CheckServices validates coverage after inference.
   AppOptions<Model, Message, any, any>,
   "layer"
 >;
+
+/**
+ * The app's message type, read from `update`'s annotation. Deriving it
+ * here keeps the full union the loop handles; inferring it from the
+ * options would let one command's message narrow the whole app.
+ */
+type UpdateMessage<O> = O extends {
+  // oxlint-disable-next-line typescript/no-explicit-any -- the return shape is irrelevant; only the message parameter is inferred.
+  update: (model: never, message: infer M) => any;
+}
+  ? M
+  : unknown;
 
 /**
  * Define an Elm-style app. One atom holds the whole model; `dispatch` runs
@@ -291,13 +279,15 @@ type LooseOptions<Model, Message> = Omit<
  */
 export const defineApp = <
   Model,
-  Message,
   L extends Layer.Any = Layer.Layer<never, never>,
-  O extends LooseOptions<Model, Message> = LooseOptions<Model, Message>,
+  // oxlint-disable-next-line typescript/no-explicit-any -- Message is derived from O after inference, never inferred here.
+  O extends LooseOptions<Model, any> = LooseOptions<Model, any>,
 >(
-  options: LooseOptions<Model, Message> &
+  // oxlint-disable-next-line typescript/no-explicit-any -- Message is derived from O after inference, never inferred here.
+  options: LooseOptions<Model, any> &
     O & { layer?: L | undefined } & CheckServices<O, L>
-): ModelApp<Model, Message, Layer.Success<L>, Layer.Error<L>> => {
+): ModelApp<Model, UpdateMessage<O>, Layer.Success<L>, Layer.Error<L>> => {
+  type Message = UpdateMessage<O>;
   type R = Layer.Success<L>;
   const { init, update, view } = options;
   const subscriptions = options.subscriptions ?? [];
@@ -358,16 +348,9 @@ export const defineApp = <
     const runOne = (
       cmd: Cmd<Message, R>
     ): Effect.Effect<void, never, R | AtomRegistry> =>
-      Effect.provideService(
-        Effect.catchCause(
-          cmd.pipe(
-            Effect.flatMap((out) =>
-              out === undefined ? Effect.void : Effect.sync(() => dispatch(out))
-            )
-          ),
-          reportCause
-        ),
-        KeyedScope,
+      runCommand(
+        cmd,
+        (message) => Effect.sync(() => dispatch(message)),
         keyedMap
       );
 
@@ -446,9 +429,10 @@ export const defineApp = <
   Object.defineProperty(component, "name", {
     value: options.name ?? "ModelApp",
   });
-  // SAFETY: `options` satisfies `AppOptions` with the computed R and E by
-  // construction (CheckServices validated coverage at the call site); only
-  // the generic `L` cannot be related back to `Layer<R, E>` here.
+  // SAFETY: `options` satisfies `AppOptions` with the computed Message, R,
+  // and E by construction (CheckServices validated coverage at the call
+  // site); only the generic `L` cannot be related back to `Layer<R, E>`
+  // here.
   return {
     component,
     options: options as AppOptions<

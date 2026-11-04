@@ -7,6 +7,8 @@ import * as Stream from "effect/Stream";
 
 import type { AppOptions, Dispatch } from "./index";
 import { combine, defineApp, foldChild, subscription } from "./index";
+import type { SimulateResult } from "./test";
+import { runCommands, simulate } from "./test";
 
 // oxlint-disable-next-line typescript/no-empty-object-type, typescript/ban-types, typescript/consistent-type-definitions -- Data.taggedEnum spells payload-free variants as `{}`.
 type NoArgs = {};
@@ -246,6 +248,46 @@ const typecheckComposition = (): void => {
   void total;
 };
 
+const typecheckTestHelpers = (): void => {
+  const app = defineApp({
+    init: () => ({ model: { count: 0 } }),
+    update: (model: Model, message: Message) =>
+      message._tag === "Ping"
+        ? { cmd: Effect.succeed(Message.Pong()), model }
+        : { model },
+    view: (model: Model) => <p>{model.count}</p>,
+  });
+
+  const run = runCommands(Effect.succeed(Message.Ping()));
+  const collected: Effect.Effect<readonly Message[], never, never> = run;
+  void collected;
+  // @ts-expect-error -- collected messages are Message, not Model.
+  const wrongMessages: Effect.Effect<readonly Model[], never, never> = run;
+  void wrongMessages;
+
+  const sim = simulate(app, [Message.Ping()]);
+  const outcome: Effect.Effect<SimulateResult<Model, Message>, never> = sim;
+  void outcome;
+  // @ts-expect-error -- simulate takes the app's messages.
+  const badInput = simulate(app, [{ count: 1 }]);
+  void badInput;
+
+  const unprovided = runCommands(
+    Effect.as(Effect.service(Greeter), Message.Pong())
+  );
+  // @ts-expect-error -- Greeter is not provided.
+  const missing: Effect.Effect<readonly Message[], never, never> = unprovided;
+  void missing;
+
+  const unprovidedMany = runCommands([
+    Effect.as(Effect.service(Greeter), Message.Pong()),
+  ]);
+  // @ts-expect-error -- Greeter is not provided.
+  const missingMany: Effect.Effect<readonly Message[], never, never> =
+    unprovidedMany;
+  void missingMany;
+};
+
 describe("types", () => {
   it("renders a typed app", async () => {
     const { render } = await import("ilha/test");
@@ -267,6 +309,7 @@ describe("types", () => {
     typecheckSubscriptions();
     typecheckServices();
     typecheckComposition();
+    typecheckTestHelpers();
     const ui = render(app.component);
     await ui.click("button");
     expect(ui.text()).toBe("1");

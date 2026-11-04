@@ -9,5 +9,5 @@
     "types": ["@types/bun"],
     "strictNullChecks": true
   },
-  "include": ["src/index.ts"]
+  "include": ["src/index.ts", "src/test.ts"]
 }

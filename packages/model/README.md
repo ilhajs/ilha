@@ -54,4 +54,6 @@ export const Counter = app.component;
 
 Mount it like any Ilha component: `mount(host, Counter)` or `await renderToString(Counter)`.
 
+Test commands without rendering with `@ilha/model/test`: `runCommands` collects what commands resolve to, and `simulate` runs the loop on input messages.
+
 See [Elm architecture](https://ilha.build/guide/ui/model) for commands, subscriptions, submodels, and testing.
