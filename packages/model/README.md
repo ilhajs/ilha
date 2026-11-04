@@ -54,4 +54,4 @@ export const Counter = app.component;
 
 Mount it like any Ilha component: `mount(host, Counter)` or `await renderToString(Counter)`.
 
-See [Model](https://ilha.build/guide/model) for commands, subscriptions, submodels, and testing.
+See [Elm architecture](https://ilha.build/guide/ui/model) for commands, subscriptions, submodels, and testing.

@@ -75,6 +75,7 @@ export default defineConfig({
               "/guide/ui/templating",
               "/guide/ui/streams",
               "/guide/ui/render",
+              "/guide/ui/model",
             ],
             label: "Build UI",
           },

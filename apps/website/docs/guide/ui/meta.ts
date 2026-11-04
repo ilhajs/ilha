@@ -8,6 +8,7 @@ export default defineMeta({
     "templating",
     "streams",
     "render",
+    "model",
   ],
   title: "Build UI",
 });
