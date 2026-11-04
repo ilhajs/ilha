@@ -548,4 +548,4 @@ Subscriptions never run in `simulate`; feed `update` the messages their streams 
 
 ## Know the limits
 
-`@ilha/model` covers the core loop: model, messages, commands, subscriptions, and submodels. It deliberately leaves out a DevTools overlay (use [`ilha/debug`](/guide/devtools) plus the message flow), route biparsers (routes stay in your router; the route is just a model field), and field, machine, and query values. Those arrive as later value helpers; nothing here needs to change to adopt them. For async data, hold an `AsyncResult` in the model ([Load data](#load-data)); there is no separate async-data type.
+`@ilha/model` covers the core loop: model, messages, commands, subscriptions, and submodels. It deliberately leaves out a DevTools overlay — follow the message flow in the [message log](/guide/devtools#read-the-message-log) instead — route biparsers (routes stay in your router; the route is just a model field), and field, machine, and query values. Those arrive as later value helpers; nothing here needs to change to adopt them. For async data, hold an `AsyncResult` in the model ([Load data](#load-data)); there is no separate async-data type.

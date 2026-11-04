@@ -5,8 +5,14 @@ import type { Option } from "effect";
 import { Context, Data, Effect, Layer } from "effect";
 import * as Stream from "effect/Stream";
 
-import type { AppOptions, Dispatch } from "./index";
-import { combine, defineApp, foldChild, subscription } from "./index";
+import type { AppOptions, Dispatch, DispatchRecord } from "./index";
+import {
+  attachModelRecorder,
+  combine,
+  defineApp,
+  foldChild,
+  subscription,
+} from "./index";
 import type { SimulateResult } from "./test";
 import { runCommands, simulate } from "./test";
 
@@ -332,6 +338,20 @@ const typecheckTestHelpers = (): void => {
   void missingMany;
 };
 
+const typecheckLog = (): void => {
+  const detach: () => void = attachModelRecorder((record: DispatchRecord) => {
+    const commands: number = record.commands;
+    const instance: object = record.instance;
+    void commands;
+    void instance;
+  });
+  detach();
+  // @ts-expect-error -- a recorder is required.
+  attachModelRecorder();
+  // @ts-expect-error -- raw values stay unknown; narrow them before use.
+  attachModelRecorder((record) => record.message.toUpperCase());
+};
+
 describe("types", () => {
   it("renders a typed app", async () => {
     const { render } = await import("ilha/test");
@@ -354,6 +374,7 @@ describe("types", () => {
     typecheckServices();
     typecheckComposition();
     typecheckTestHelpers();
+    typecheckLog();
     const ui = render(app.component);
     await ui.click("button");
     expect(ui.text()).toBe("1");

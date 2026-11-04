@@ -6,6 +6,8 @@ import * as Atom from "effect/reactivity/Atom";
 import * as Schema from "effect/Schema";
 
 import { atom } from "./atom.ts";
+import type { InspectValue } from "./debug.ts";
+import { atomsOf, summarizeValue } from "./debug.ts";
 import type { IlhaCode } from "./diagnostics.ts";
 import { IlhaError } from "./diagnostics.ts";
 import type { JSX } from "./jsx-types.ts";
@@ -317,6 +319,17 @@ const typecheckEffectHandlers = (): void => {
   void camel;
 };
 
+const typecheckDebug = (): void => {
+  const atoms: readonly Atom.Atom<unknown>[] | undefined = atomsOf("i1");
+  void atoms;
+  // @ts-expect-error atomsOf takes an id string
+  atomsOf(42);
+  const summary: InspectValue = summarizeValue({ n: 1 });
+  void summary;
+  // @ts-expect-error summarizeValue takes one value
+  summarizeValue({ n: 1 }, 2);
+};
+
 describe("jsx types", () => {
   it("keeps type anchors importable", () => {
     expect(isFunction(typecheckJsxProps)).toBe(true);
@@ -331,6 +344,7 @@ describe("jsx types", () => {
     expect(isFunction(typecheckEffectAtom)).toBe(true);
     expect(isFunction(typecheckAtomFunctions)).toBe(true);
     expect(isFunction(typecheckEffectHandlers)).toBe(true);
+    expect(isFunction(typecheckDebug)).toBe(true);
     expect(isFunction(onErrorAnchor)).toBe(true);
     expect(isFunction(ilhaErrorAnchor)).toBe(true);
     expect(new IlhaError("ILHA001")).toBeInstanceOf(Error);

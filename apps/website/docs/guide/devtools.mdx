@@ -67,6 +67,7 @@ Pass a host element to inspect one root or one child component. Omit it to get e
 | `AsyncResult` success | The unwrapped value |
 | `AsyncResult` failure | `"<AsyncResult failure: reason>"` |
 | `AsyncResult` pending | `"<AsyncResult initial>"` or `"<AsyncResult waiting>"` |
+| `Option` | `` `{ _tag: "Some", value }` `` or `` `{ _tag: "None" }` `` |
 | `undefined`, `bigint` | `"<undefined>"`, `"<bigint 3>"` |
 | Date | An ISO string |
 | Map, Set, class instance | `"<Map(2)>"`, `"<ClassName>"` |
@@ -131,21 +132,22 @@ export default defineConfig({
 
 Call `devtools.openPanel()` from the console or a button. The panel opens at `/__ilha-devtools/` in a popup, which lets it find the page that opened it.
 
-The panel shows the component tree. Hover a component to outline it on the page, select one to see its atoms, and edit a JSON value to write it back.
+The panel shows the component tree. Hover a component to outline it on the page, select one to see its atoms, and edit a JSON value to write it back. Model islands built with `@ilha/model` also list their recorded messages below the atoms: each message, the fields it changed, and how many commands it started.
 
 `ilhaDevtools` is a plain Devframe definition, so any [Devframe adapter](https://devfra.me/adapters) can mount it.
 
 ## Let an agent drive the page
 
-`installIlhaDevtools()` registers three tools on the browser's WebMCP model context when the browser provides one.
+`installIlhaDevtools()` registers four tools on the browser's WebMCP model context when the browser provides one.
 
 | Tool | Use it to |
 | --- | --- |
 | `ilha_inspect` | Read every live island. Call it first to learn the ids. |
 | `ilha_highlight` | Outline a component for the user. Pass `null` to clear it. |
 | `ilha_set_atom` | Write a JSON value to one atom and let the island rerender. |
+| `ilha_model_log` | Read one model island's recorded messages. Pass an id from `ilha_inspect`. |
 
-The same three functions carry Devframe `agent` metadata on the in-page channel, so a Devframe MCP bridge can list them. Pass `{ webmcp: false }` to skip the WebMCP registration.
+The same four functions carry Devframe `agent` metadata on the in-page channel, so a Devframe MCP bridge can list them. Pass `{ webmcp: false }` to skip the WebMCP registration.
 
 Without a browser agent, call the functions through a panel endpoint. The channel is `devframes:plugin:ilha-devtools`, and `@ilha/devtools/protocol` exports its types.
 
@@ -164,6 +166,33 @@ await panel.call("setAtom", islands[0].id, 0, 2);
 ```
 
 The `tree` shared state mirrors `inspect()` as islands change. Read it with `parseTree(state.value())`.
+
+## Read the message log
+
+Model islands built with `@ilha/model` record every message they dispatch once the page script loads: the message, the model fields it changed, and how many commands it started. Each island keeps the newest 100 entries. Recording costs nothing when the page script is absent, and dispatches before the script loads are simply not recorded.
+
+Select a model island in the panel to read its messages below the atoms. From an agent, pass the island's id to `ilha_model_log`:
+
+```json
+{
+  "ok": true,
+  "entries": [
+    {
+      "at": 1720000000000,
+      "commands": 1,
+      "diff": {
+        "_tag": "fields",
+        "changed": { "count": { "before": 0, "after": 1 } }
+      },
+      "message": { "_tag": "Increment" }
+    }
+  ]
+}
+```
+
+Islands that are not model apps, or model islands with nothing recorded, return `{ "ok": false, "reason": "..." }` so you can correct the call. The same function is available over the in-page channel as `modelLog`.
+
+Messages summarize with the same rules as atom values, so an `Error`, an `Option`, or a cycle never breaks the log. The summarizing, diffing, and buffering live in `@ilha/devtools`; `@ilha/model` only hands each dispatch to an attached recorder, so apps ship none of it. In tests without a page, attach your own recorder with `attachModelRecorder((record) => …)` from `@ilha/model`: each record carries the raw `message`, the model `before` and `after`, the number of `commands` started, and the island's model atom as `instance`, which you can match against `atomsOf(id)` from `ilha/debug`.
 
 ## Test with the same tree
 

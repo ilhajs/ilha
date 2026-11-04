@@ -5,12 +5,13 @@
  */
 import type { IlhaInspectNode, SetAtomResult } from "ilha/debug";
 
-import type { AtomJson } from "./protocol";
+import type { AtomJson, ModelLogResult } from "./protocol";
 
 export interface PageTools {
   inspect: () => IlhaInspectNode[];
   highlight: (id: string | null) => boolean;
   setAtom: (id: string, index: number, value: AtomJson) => SetAtomResult;
+  modelLog: (id: string) => ModelLogResult;
 }
 
 interface FoundResult {
@@ -81,7 +82,7 @@ const resolveModelContext = (): ModelContextLike | undefined => {
 };
 
 const text = (
-  value: IlhaInspectNode[] | SetAtomResult | FoundResult
+  value: IlhaInspectNode[] | SetAtomResult | FoundResult | ModelLogResult
 ): WebMcpResult => ({
   content: [{ text: JSON.stringify(value, null, 2), type: "text" }],
 });
@@ -101,6 +102,7 @@ const buildTools = ({
   inspect,
   highlight,
   setAtom,
+  modelLog,
 }: PageTools): WebMcpTool[] => [
   {
     annotations: { readOnlyHint: true, title: "Inspect Ilha islands" },
@@ -143,6 +145,21 @@ const buildTools = ({
       type: "object",
     },
     name: "ilha_set_atom",
+  },
+  {
+    annotations: { readOnlyHint: true, title: "Read an island's message log" },
+    description:
+      "Read one model island's recorded messages: each message, the model fields it changed, and how many commands it started. Pass an id from ilha_inspect. Islands that are not model apps, or have nothing recorded, return ok:false with a reason.",
+    execute: ({ id }) =>
+      isString(id)
+        ? text(modelLog(id))
+        : fail("Pass id (a string from ilha_inspect)."),
+    inputSchema: {
+      properties: { id: { type: "string" } },
+      required: ["id"],
+      type: "object",
+    },
+    name: "ilha_model_log",
   },
 ];
 

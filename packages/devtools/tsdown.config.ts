@@ -8,6 +8,7 @@ export default defineConfig({
     /^devframe\//u,
     "ilha",
     /^ilha\//u,
+    "@ilha/model",
     "effect",
     /^node:/u,
   ],

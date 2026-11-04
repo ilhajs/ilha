@@ -13,7 +13,8 @@
       "ilha": ["../ilha/src/index.ts"],
       "ilha/debug": ["../ilha/src/debug.ts"],
       "ilha/jsx-runtime": ["../ilha/src/jsx-runtime.ts"],
-      "ilha/jsx-dev-runtime": ["../ilha/src/jsx-dev-runtime.ts"]
+      "ilha/jsx-dev-runtime": ["../ilha/src/jsx-dev-runtime.ts"],
+      "@ilha/model": ["../model/src/index.ts"]
     }
   }
 }

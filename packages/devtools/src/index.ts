@@ -21,6 +21,10 @@ export type {
   IlhaDevtoolsProtocol,
   IlhaInspectNode,
   IlhaTreeState,
+  ModelLogDiff,
+  ModelLogEntry,
+  ModelLogFieldChange,
+  ModelLogResult,
   SetAtomResult,
 } from "./protocol";
 
@@ -43,7 +47,7 @@ export const ilhaDevtools = defineDevframe({
         "Locate how to inspect live Ilha islands. Call it before debugging component state: it names the page tools and the Node-free fallback.",
       handler: () => ({
         channel: ILHA_DEVTOOLS_CHANNEL,
-        hint: "Call the page tools ilha_inspect, ilha_highlight, and ilha_set_atom over WebMCP, or ilha-devtools inspect over the in-page channel. In tests, import inspect from ilha/debug.",
+        hint: "Call the page tools ilha_inspect, ilha_highlight, ilha_set_atom, and ilha_model_log over WebMCP, or ilha-devtools inspect and modelLog over the in-page channel. In tests, import inspect from ilha/debug.",
         panel: ILHA_DEVTOOLS_PANEL_PATH,
       }),
       id: "ilha-devtools:docs",

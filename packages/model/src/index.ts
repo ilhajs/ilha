@@ -7,5 +7,7 @@ export type {
   UpdateResult,
 } from "./app";
 export { defineApp, keyed, subscription } from "./app";
+export type { DispatchRecord, ModelRecorder } from "./log";
+export { attachModelRecorder } from "./log";
 export type { FoldChildOptions, Step } from "./submodel";
 export { combine, foldChild } from "./submodel";

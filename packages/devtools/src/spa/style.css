@@ -49,6 +49,18 @@ input {
     monospace;
   width: 100%;
 }
+ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+code,
+li div {
+  font:
+    12px ui-monospace,
+    monospace;
+}
 .muted {
   opacity: 0.65;
 }

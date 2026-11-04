@@ -6,6 +6,7 @@ import type {
   AtomJson,
   IlhaDevtoolsProtocol,
   IlhaInspectNode,
+  ModelLogEntry,
 } from "../protocol";
 
 export type PanelConnection = PanelChannel<IlhaDevtoolsProtocol>;
@@ -37,8 +38,32 @@ export const createApp = (connect: () => PanelConnection) => {
     const selected = atom<string | null>(null);
     const status = atom<Status>("connecting");
     const problem = atom("");
+    const log = atom<readonly ModelLogEntry[]>([]);
 
     const channel = atom.lazy(connect, { snapshot: false });
+
+    const refreshLog = async (id: string | null): Promise<void> => {
+      if (id === null) {
+        log.set([]);
+        return;
+      }
+      let entries: readonly ModelLogEntry[] = [];
+      try {
+        const result = await channel().call("modelLog", id);
+        entries = result.ok ? result.entries : [];
+      } catch {
+        // An older page script has no modelLog; the tree still works.
+      }
+      // A slow response for an earlier selection must not overwrite the log
+      // of the island selected now.
+      if (selected() === id) {
+        log.set(entries);
+      }
+    };
+
+    watch(selected, (id) => {
+      void refreshLog(id);
+    });
 
     watch.once(() => {
       const connection = channel();
@@ -58,7 +83,10 @@ export const createApp = (connect: () => PanelConnection) => {
         }
         status.set("connected");
         nodes.set(parseTree(tree.value()));
-        tree.on("updated", (full) => nodes.set(parseTree(full)));
+        tree.on("updated", (full) => {
+          nodes.set(parseTree(full));
+          void refreshLog(selected());
+        });
       };
       void sync();
       const stop = (): void => {
@@ -114,26 +142,52 @@ export const createApp = (connect: () => PanelConnection) => {
         )}
         <ul>{nodes().map(row)}</ul>
         {current && (
-          <section>
-            <h1>{current.component} atoms</h1>
-            <dl>
-              {current.atoms.map(({ index, value }) => (
-                <>
-                  <dt>#{index}</dt>
-                  <dd>
-                    <input
-                      aria-label={`${current.component} atom ${index}`}
-                      value={JSON.stringify(value)}
-                      onchange={(event) =>
-                        edit(current.id, index, event.currentTarget.value)
-                      }
-                    />
-                  </dd>
-                </>
-              ))}
-            </dl>
-            {problem() && <p class="error">{problem()}</p>}
-          </section>
+          <>
+            <section>
+              <h1>{current.component} atoms</h1>
+              <dl>
+                {current.atoms.map(({ index, value }) => (
+                  <>
+                    <dt>#{index}</dt>
+                    <dd>
+                      <input
+                        aria-label={`${current.component} atom ${index}`}
+                        value={JSON.stringify(value)}
+                        onchange={(event) =>
+                          edit(current.id, index, event.currentTarget.value)
+                        }
+                      />
+                    </dd>
+                  </>
+                ))}
+              </dl>
+              {problem() && <p class="error">{problem()}</p>}
+            </section>
+            {log().length > 0 && (
+              <section>
+                <h1>{current.component} messages</h1>
+                <ol>
+                  {log().map((entry) => (
+                    <li>
+                      <code>{JSON.stringify(entry.message)}</code>
+                      <span class="muted">
+                        {` ${entry.commands} ${entry.commands === 1 ? "command" : "commands"} · ${new Date(entry.at).toLocaleTimeString()}`}
+                      </span>
+                      {entry.diff._tag === "fields"
+                        ? Object.entries(entry.diff.changed).map(
+                            ([field, change]) => (
+                              <div>
+                                {`${field}: ${JSON.stringify(change.before)} → ${JSON.stringify(change.after)}`}
+                              </div>
+                            )
+                          )
+                        : `${JSON.stringify(entry.diff.before)} → ${JSON.stringify(entry.diff.after)}`}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+          </>
         )}
       </main>
     );

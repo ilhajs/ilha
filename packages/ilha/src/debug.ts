@@ -6,6 +6,7 @@
  * import it: the core keeps only a set of live root fibers.
  */
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import * as Stream from "effect/Stream";
@@ -106,6 +107,19 @@ const summarizeAsync = <A, E>(
   return AsyncResult.isWaiting(value)
     ? "<AsyncResult waiting>"
     : "<AsyncResult initial>";
+};
+
+const summarizeOption = <A>(
+  value: Option.Option<A>,
+  depth: number,
+  seen: WeakSet<object>
+): InspectValue => {
+  if (depth >= MAX_DEPTH) {
+    return "<Option>";
+  }
+  return Option.isSome(value)
+    ? { _tag: "Some", value: walk.summarize(value.value, depth + 1, seen) }
+    : { _tag: "None" };
 };
 
 const summarizeList = <T>(
@@ -219,6 +233,9 @@ const summarizeContainer = <T extends object>(
   }
   seen.add(value);
   try {
+    if (Option.isOption(value)) {
+      return summarizeOption(value, depth, seen);
+    }
     if (Array.isArray(value)) {
       return summarizeList(value, depth, seen);
     }
@@ -237,6 +254,15 @@ const summarize: Summarize = (value, depth, seen) =>
     : summarizeLeaf(value);
 
 walk.summarize = summarize;
+
+/**
+ * Reduce any value to JSON, naming what JSON cannot carry. Powers
+ * `inspect()` and the `@ilha/model` message log: functions, Effects, and
+ * class instances become `<…>` strings, `Option` becomes a tagged record,
+ * cycles become `"<circular>"`, and containers deeper than 6 stay folded.
+ */
+export const summarizeValue = <T>(value: T): InspectValue =>
+  summarize(value, 0, new WeakSet());
 
 const ids = new WeakMap<FiberLocal, string>();
 let lastId = 0;
@@ -355,6 +381,23 @@ export const roots = (): Element[] =>
 export const element = (id: string): Element | undefined => {
   const root = findFiber(id)?.root;
   return isDomElement(root) ? root : undefined;
+};
+
+/**
+ * Live primitive atoms of component `id`, in declaration order, or
+ * `undefined` for an unknown id. Devtools bridges join these against their
+ * own registries — `@ilha/model` keys its message log by the state atom —
+ * because summarized JSON cannot carry object identity. `inspect()` itself
+ * is unchanged: no new fields, no new cost.
+ */
+export const atomsOf = (
+  id: string
+): readonly Atom.Atom<unknown>[] | undefined => {
+  const fiber = findFiber(id);
+  if (fiber === undefined) {
+    return undefined;
+  }
+  return [...(fiber.primitives ?? [])];
 };
 
 /**

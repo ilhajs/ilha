@@ -10,7 +10,7 @@ Inspect live [Ilha](https://github.com/ilhajs/ilha) islands from a panel, a brow
 bun add -d @ilha/devtools
 ```
 
-`ilha` and `effect` are peer dependencies.
+`ilha` and `effect` are peer dependencies. `@ilha/model` is an optional peer; install it to record model islands' messages.
 
 ---
 
@@ -53,8 +53,9 @@ The panel lives at `/__ilha-devtools/`.
 | `inspect` | none | Trees of every live island (JSON) |
 | `highlight` | `id` or `null` | Whether the component has a box to outline |
 | `setAtom` | `id`, `index`, JSON `value` | `{ ok: true }` or `{ ok: false, reason }` |
+| `modelLog` | `id` | A model island's recorded messages, or `{ ok: false, reason }` |
 
-Each function carries Devframe `agent` metadata. When the browser provides WebMCP, `installIlhaDevtools()` also registers them as `ilha_inspect`, `ilha_highlight`, and `ilha_set_atom`. Pass `{ webmcp: false }` to skip that.
+Each function carries Devframe `agent` metadata. When the browser provides WebMCP, `installIlhaDevtools()` also registers them as `ilha_inspect`, `ilha_highlight`, `ilha_set_atom`, and `ilha_model_log`. Pass `{ webmcp: false }` to skip that. `modelLog` needs `@ilha/model` as an optional peer; without it the function answers why nothing is recorded.
 
 The `tree` shared state mirrors `inspect()` as panels connect and as islands change.
 

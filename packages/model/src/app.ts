@@ -15,6 +15,7 @@ import { atom, untrack, watch } from "ilha";
 import type { Component, View } from "ilha";
 
 import { eachCmd, KeyedScope, reportCause, runCommand } from "./internal";
+import { isRecording, recordDispatch } from "./log";
 
 /** Send a message into the app loop. */
 export type Dispatch<Message> = (message: Message) => void;
@@ -318,16 +319,28 @@ export const defineApp = <
       if (!isAlive()) {
         return;
       }
-      const result = update(
-        untrack(() => state()),
-        message
-      );
+      const before = untrack(() => state());
+      const result = update(before, message);
       state.set(result.model);
+      let started = 0;
       if (result.cmd !== undefined) {
         const { queue } = untrack(() => cells());
-        for (const cmd of eachCmd(result.cmd)) {
+        const cmds = eachCmd(result.cmd);
+        for (const cmd of cmds) {
           Queue.offerUnsafe(queue, cmd);
         }
+        started = cmds.length;
+      }
+      // One size check when no recorder is attached: no record, nothing
+      // allocated, the message and both models untouched.
+      if (isRecording()) {
+        recordDispatch({
+          after: result.model,
+          before,
+          commands: started,
+          instance: state.atom,
+          message,
+        });
       }
     };
 

@@ -1,6 +1,6 @@
 {
   "name": "@ilha/model",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Elm-style Model, update, commands, and subscriptions for Ilha islands",
   "keywords": [
     "effect",
@@ -52,7 +52,7 @@
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "effect": "^4.1.0",
-    "ilha": "^0.16.2"
+    "ilha": "^0.16.3"
   },
   "peerDependencies": {
     "effect": "^4.1.0",
