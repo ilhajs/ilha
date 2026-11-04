@@ -168,10 +168,24 @@ const makeInstanceCells = <Message, R>(): InstanceCells<Message, R> => {
 };
 
 /**
+ * Log a defect and end the stream quietly. Interruption passes through so
+ * restarts and unmount stay silent.
+ */
+const quietOnDefect = <Message>(
+  cause: Cause.Cause<never>
+): Stream.Stream<Message> =>
+  Cause.hasInterruptsOnly(cause)
+    ? Stream.failCause(cause)
+    : Stream.unwrap(
+        Effect.as(Effect.logError(Cause.pretty(cause)), Stream.empty)
+      );
+
+/**
  * One subscription's restartable stream: the model feeds `deps`, equal deps
- * keep the stream alive, changed deps restart it. A defect is logged and the
- * subscription goes quiet until deps change again; interruption passes
- * through so restarts and unmount stay silent.
+ * keep the stream alive, changed deps restart it. A defect in the stream for
+ * the current deps is logged and silences only that stream, so the next
+ * deps change starts a fresh one. A defect in `deps` itself is logged and
+ * ends the subscription.
  */
 const watchOne = <Model, Message, R>(
   stateAtom: Atom.Atom<Model>,
@@ -181,14 +195,12 @@ const watchOne = <Model, Message, R>(
   Atom.toStream(stateAtom).pipe(
     Stream.map((model) => sub.deps(model)),
     Stream.changesWith(Equal.equals),
-    Stream.switchMap((deps) => sub.stream(deps)),
-    Stream.catchCause((cause) =>
-      Cause.hasInterruptsOnly(cause)
-        ? Stream.failCause(cause)
-        : Stream.unwrap(
-            Effect.as(Effect.logError(Cause.pretty(cause)), Stream.empty)
-          )
-    )
+    Stream.switchMap((deps) =>
+      Stream.suspend(() => sub.stream(deps)).pipe(
+        Stream.catchCause(quietOnDefect<Message>)
+      )
+    ),
+    Stream.catchCause(quietOnDefect<Message>)
   );
 
 /**
@@ -206,12 +218,6 @@ const mergeSubscriptions = <Model, Message, R>(
     { concurrency: "unbounded" }
   );
 
-/**
- * Define an Elm-style app. One atom holds the whole model; `dispatch` runs
- * `update` and rerenders; commands run concurrently inside the app runtime;
- * each subscription restarts only when its own deps change and stops on
- * unmount.
- */
 /** Services an effect still requires. */
 type EffectNeeds<T> =
   T extends Effect.Effect<unknown, unknown, infer R> ? R : never;
@@ -277,6 +283,12 @@ type LooseOptions<Model, Message> = Omit<
   "layer"
 >;
 
+/**
+ * Define an Elm-style app. One atom holds the whole model; `dispatch` runs
+ * `update` and rerenders; commands run concurrently inside the app runtime;
+ * each subscription restarts only when its own deps change and stops on
+ * unmount.
+ */
 export const defineApp = <
   Model,
   Message,

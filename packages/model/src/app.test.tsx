@@ -178,6 +178,49 @@ describe("defineApp", () => {
     ui.unmount();
   });
 
+  it("restarts a subscription after a defect once its deps change", async () => {
+    // oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
+    type Msg = Data.TaggedEnum<{ Bump: NoArgs; Got: NoArgs }>;
+    // oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
+    const Msg = Data.taggedEnum<Msg>();
+    interface Model {
+      readonly got: number;
+      readonly n: number;
+    }
+    const logged: unknown[] = [];
+    const app = defineApp({
+      init: () => ({ model: { got: 0, n: 0 } }),
+      layer: Logger.layer([
+        Logger.make((options) => {
+          logged.push(options.message);
+        }),
+      ]),
+      subscriptions: [
+        subscription({
+          deps: (model: Model) => model.n,
+          stream: (n) =>
+            n === 0 ? Stream.die(new Error("boom")) : Stream.make(Msg.Got()),
+        }),
+      ],
+      update: (model: Model, message: Msg) =>
+        Msg.$match(message, {
+          Bump: () => ({ model: { ...model, n: model.n + 1 } }),
+          Got: () => ({ model: { ...model, got: model.got + 1 } }),
+        }),
+      view: (model: Model, dispatch: Dispatch<Msg>) => (
+        <button type="button" onclick={() => dispatch(Msg.Bump())}>
+          {`${model.n}:${model.got}`}
+        </button>
+      ),
+    });
+    const ui = render(app.component);
+    await poll(() => logged.length === 1);
+    await ui.click("button");
+    await pollText(ui, "1:1");
+    expect(ui.errors).toEqual([]);
+    ui.unmount();
+  });
+
   it("restarts a subscription when its deps change", async () => {
     // oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
     type Tick = Data.TaggedEnum<{ Tick: NoArgs; Toggle: NoArgs }>;

@@ -196,3 +196,24 @@ const ops: PaintOps<Node, El> = {
   morph /* optional: reuseNode, committed, setStyle, setFormControl, bindEvents */,
 };
 ```
+
+## AtomHandle, atom
+
+- Status: changed
+- Import: `ilha`
+- Replacement: AtomHandle<A, W = A> types .set and .update with the atom's write type. atom(Atom.fn(...)) returns AtomHandle<AsyncResult<A, E>, Arg>, so .set takes the fn argument; drop casts like `as never`. Annotations written as AtomHandle<AsyncResult<...>> for a writable atom need the second parameter.
+- Docs: https://ilha.build/guide/ui/state
+
+Before:
+
+```ts
+const save = atom(Atom.fn((draft: Draft) => saveDraft(draft)));
+save.set(draft as never);
+```
+
+After:
+
+```ts
+const save = atom(Atom.fn((draft: Draft) => saveDraft(draft)));
+save.set(draft);
+```

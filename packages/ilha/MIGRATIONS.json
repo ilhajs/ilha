@@ -91,6 +91,16 @@
       "docs": "https://ilha.build/reference/ilha",
       "before": "const ops: PaintOps<Node, El> = { createElement, createText, createRaw, placeChildren, appendRoot, asRoot, asNode, asElement, createSlotHost, disconnect, /* ... */ };",
       "after": "const ops: PaintOps<Node, El> = { createElement, createText, createRaw, placeChildren, morph /* optional: reuseNode, committed, setStyle, setFormControl, bindEvents */ };"
+    },
+    {
+      "id": "atom-writable-handle",
+      "kind": "changed",
+      "api": "AtomHandle, atom",
+      "import": "ilha",
+      "replacement": "AtomHandle<A, W = A> types .set and .update with the atom's write type. atom(Atom.fn(...)) returns AtomHandle<AsyncResult<A, E>, Arg>, so .set takes the fn argument; drop casts like `as never`. Annotations written as AtomHandle<AsyncResult<...>> for a writable atom need the second parameter.",
+      "docs": "https://ilha.build/guide/ui/state",
+      "before": "const save = atom(Atom.fn((draft: Draft) => saveDraft(draft)));\nsave.set(draft as never);",
+      "after": "const save = atom(Atom.fn((draft: Draft) => saveDraft(draft)));\nsave.set(draft);"
     }
   ]
 }

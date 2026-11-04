@@ -42,7 +42,8 @@
   "scripts": {
     "build": "tsdown && tsc -p tsconfig.build.json",
     "cleanup": "rimraf dist node_modules",
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
