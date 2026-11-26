@@ -24,7 +24,7 @@ Most UI frameworks hydrate an application. Ilha hydrates **only the components t
 - **One component, every environment** — the same function renders on the server, mounts in the browser, and hydrates in place.
 - **A consistent SSR story** — `renderToString()` waits until idle, then serializes HTML and an optional atom snapshot.
 - **Progressive by default** — add one component to server-rendered HTML or compose a complete SPA. You choose the boundary.
-- **Small API, strong TypeScript** — function components, `atom()`, `watch()`, `when`, and JSX.
+- **Small API, strong TypeScript** — function components, `atom()`, `watch()`, `when`, and JSX. `h()` is type-checked exactly like JSX.
 - **Backend and runtime agnostic** — web platform primitives and ESM, so it fits existing servers, edge runtimes, static sites, and browsers.
 
 Because Ilha sends only the interactive parts of a page, real applications can ship **around 5× less client JavaScript than whole-page hydration**. The exact result depends on your component boundaries and dependencies—measure your production bundle, not the slogan.
@@ -119,18 +119,34 @@ No duplicate template. No separate client component. No hydration flicker.
 ## A small reactive toolbox
 
 ```tsx
-import { atom, batch, watch, when, mount, renderToString, h } from "ilha";
+import {
+  atom,
+  batch,
+  untrack,
+  watch,
+  when,
+  mount,
+  renderToString,
+  h,
+  createContext,
+  context,
+  ErrorBoundary,
+  unsafe,
+} from "ilha";
 ```
 
-| Export             | Use it for                                          |
-| ------------------ | --------------------------------------------------- |
-| `atom()`           | Component-local reactive slots                      |
-| `batch()`          | Coalesce multiple atom writes                       |
-| `watch()`          | Side effects on atom or stream changes              |
-| `when()`           | Per-emission generator body (interrupts stale work) |
-| `mount()`          | Activate a component in the DOM                     |
-| `renderToString()` | Serialize a component to HTML                       |
-| `h` / `Fragment`   | JSX factory                                         |
+| Export | Use it for |
+| --- | --- |
+| `atom()` | Component-local reactive slots |
+| `batch()` / `untrack()` | Coalesce atom writes / read without subscribing |
+| `watch()` | Side effects on atom or stream changes |
+| `when()` | Per-emission generator body (interrupts stale work) |
+| `mount()` | Activate or hydrate a component in the DOM |
+| `renderToString()` | Serialize a component to HTML |
+| `h` / `Fragment` | JSX factory, type-checked like JSX |
+| `createContext()` / `context()` | Values shared down the tree |
+| `ErrorBoundary` | Contain failures in a subtree |
+| `unsafe()` | Raw, trusted HTML |
 
 Ordinary event handlers stay ordinary functions (`onclick={handler}`). Lists are Streams of data, not atoms of JSX.
 
@@ -148,6 +164,14 @@ Emit a `data-ilha` host, load your client module, and call `mount()`. Ilha does 
 
 [`@ilha/astro`](https://ilha.build/guide/astro) turns Ilha components into first-class Astro islands with `client:load`, `client:idle`, `client:visible`, `client:media`, and `client:only`.
 
+### Model bigger islands as Elm-style components
+
+[`@ilha/model`](https://ilha.build/guide/ui/model) gives one island a Schema-typed model and messages, an exhaustive `update`, named Commands, Subscriptions, and per-component services, all built on Effect. `@ilha/model/test` runs `update` without a DOM.
+
+### Inspect live islands
+
+[`@ilha/devtools`](https://ilha.build/guide/devtools) shows the component tree, atoms, and model message logs in the browser, in a panel, or to a coding agent through WebMCP tools.
+
 ## Start from a template
 
 | Template | Create |
@@ -156,11 +180,22 @@ Emit a `data-ilha` host, load your client module, and call `mount()`. Ilha does 
 
 ## Packages
 
-| Package | What it does |
+| Package | Version | What it does |
+| --- | --- | --- |
+| [`ilha`](./packages/ilha) | [![npm](https://img.shields.io/npm/v/ilha)](https://www.npmjs.com/package/ilha) | Components, atoms, JSX runtime, SSR, hydration, and DOM morphing |
+| [`@ilha/model`](./packages/model) | [![npm](https://img.shields.io/npm/v/@ilha/model)](https://www.npmjs.com/package/@ilha/model) | Elm-style components: Schema model and messages, Commands, Subscriptions, `Story` tests |
+| [`@ilha/void`](./packages/void) | [![npm](https://img.shields.io/npm/v/@ilha/void)](https://www.npmjs.com/package/@ilha/void) | Void integration: pages, layouts, forms, navigation, and islands |
+| [`@ilha/astro`](./packages/astro) | [![npm](https://img.shields.io/npm/v/@ilha/astro)](https://www.npmjs.com/package/@ilha/astro) | Astro renderer (`renderToString` + `mount`) |
+| [`@ilha/devtools`](./packages/devtools) | [![npm](https://img.shields.io/npm/v/@ilha/devtools)](https://www.npmjs.com/package/@ilha/devtools) | Inspect live islands from the browser, a panel, or a coding agent |
+
+`ilha` also ships subpath entries:
+
+| Entry | What it does |
 | --- | --- |
-| [`ilha`](./packages/ilha) | Components, atoms, JSX runtime, SSR, hydration, and DOM morphing |
-| [`@ilha/void`](./packages/void) | Void integration: pages, layouts, forms, navigation, and islands |
-| [`@ilha/astro`](./packages/astro) | Astro renderer (`renderToString` + `mount`) |
+| [`ilha/test`](https://ilha.build/guide/recipes/testing) | Render harness that settles on idle |
+| [`ilha/debug`](https://ilha.build/guide/devtools) | `inspect()` and `onChange()` over live roots |
+| [`ilha/oxlint`](https://ilha.build/guide/recipes/oxlint) | Lint rules for Ilha's primitives |
+| `ilha/renderer` | Paint to custom hosts with your own `PaintOps` |
 
 ## Documentation for humans and agents
 

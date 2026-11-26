@@ -1,6 +1,6 @@
 {
   "name": "@ilha/void",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Ilha pages, server rendering, islands, forms, and navigation for Void",
   "keywords": [
     "frontend",
@@ -60,7 +60,7 @@
     "test": "bun test"
   },
   "devDependencies": {
-    "ilha": "^0.17.0",
+    "ilha": "^0.17.1",
     "vite": "^8.4.0",
     "void": "^1.12.0"
   },
