@@ -56,9 +56,9 @@
     "devframe": "^1.2.6"
   },
   "devDependencies": {
-    "@ilha/model": "^0.1.1",
+    "@ilha/model": "^0.2.0",
     "effect": "^4.1.0",
-    "ilha": "^0.16.3"
+    "ilha": "^0.17.0"
   },
   "peerDependencies": {
     "@ilha/model": ">=0.1.1",
