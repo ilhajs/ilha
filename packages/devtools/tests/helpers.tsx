@@ -1,7 +1,6 @@
-import { defineApp } from "@ilha/model";
-import type { Dispatch } from "@ilha/model";
+import { defineComponent } from "@ilha/model";
 import { connectPanelChannel } from "devframe/in-page-channel";
-import { Data } from "effect";
+import { Schema } from "effect";
 import { atom, mount } from "ilha";
 import type { Component } from "ilha";
 
@@ -33,16 +32,10 @@ export const Counter = () => {
 
 export const settle = (ms = 20) => Bun.sleep(ms);
 
-// oxlint-disable-next-line typescript/no-empty-object-type, typescript/ban-types, typescript/consistent-type-definitions -- Data.taggedEnum spells payload-free variants as `{}`.
-type NoArgs = {};
-
-// oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
-type ModelMsg = Data.TaggedEnum<{
-  Bang: { readonly err: Error; readonly loop: unknown };
-  Increment: NoArgs;
-}>;
-// oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
-const ModelMsg = Data.taggedEnum<ModelMsg>();
+const ModelMsg = Schema.TaggedUnion({
+  Bang: { err: Schema.Unknown, loop: Schema.Unknown },
+  Increment: {},
+});
 
 /** Cyclic payload for the `Bang` log probe. */
 interface BangLoop {
@@ -50,17 +43,20 @@ interface BangLoop {
 }
 
 /** A model island for log tests: `inc` counts, `bang` logs a rich message. */
-export const modelApp = defineApp({
-  init: () => ({ model: { count: 0 } }),
+export const modelApp = defineComponent({
+  message: ModelMsg,
+  model: Schema.Struct({ count: Schema.Number }),
   name: "ModelCounter",
-  update: (model: { count: number }, message: ModelMsg) =>
-    message._tag === "Increment"
-      ? { model: { count: model.count + 1 } }
-      : { model },
-  view: (model: { count: number }, dispatch: Dispatch<ModelMsg>) => (
+}).make({
+  init: () => ({ count: 0 }),
+  update: {
+    Bang: ($) => $.model,
+    Increment: ($) => $.evolve({ count: (n) => n + 1 }),
+  },
+  view: (h, model) => (
     <div>
       <p>{model.count}</p>
-      <button type="button" onclick={() => dispatch(ModelMsg.Increment())}>
+      <button type="button" onclick={h.send(ModelMsg.cases.Increment.make({}))}>
         inc
       </button>
       <button
@@ -68,7 +64,7 @@ export const modelApp = defineApp({
         onclick={() => {
           const loop: BangLoop = {};
           loop.self = loop;
-          dispatch(ModelMsg.Bang({ err: new Error("boom"), loop }));
+          h.send(ModelMsg.cases.Bang.make({ err: new Error("boom"), loop }))();
         }}
       >
         bang

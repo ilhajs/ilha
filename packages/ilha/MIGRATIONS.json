@@ -101,6 +101,16 @@
       "docs": "https://ilha.build/guide/ui/state",
       "before": "const save = atom(Atom.fn((draft: Draft) => saveDraft(draft)));\nsave.set(draft as never);",
       "after": "const save = atom(Atom.fn((draft: Draft) => saveDraft(draft)));\nsave.set(draft);"
+    },
+    {
+      "id": "h-typed-props",
+      "kind": "changed",
+      "api": "h",
+      "import": "ilha",
+      "replacement": "h() is type-checked like JSX. Intrinsic tags take exactly their JSX props; unknown tags, misspelt attributes, and wrongly typed handlers are compile errors. Custom elements (`my-widget`) still take any props. A tag typed as plain `string` (or props typed as `Record<string, unknown>`) no longer type-checks: narrow the tag to `keyof JSX.IntrinsicElements` and type the props as `JSX.IntrinsicElements[tag]`.",
+      "docs": "https://ilha.build/guide/recipes/h",
+      "before": "h(\"button\", { onClick: \"alert(1)\" }, \"x\");",
+      "after": "h(\"button\", { type: \"button\", onclick: () => go() }, \"x\");"
     }
   ]
 }

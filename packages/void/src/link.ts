@@ -253,9 +253,17 @@ export const Link = (props: LinkProps): View => {
   if (isGet) {
     return h("a", { ...attributes, href: target, ref, ...handlers }, children);
   }
-  return h(
-    "button",
-    { type: "button", ...attributes, ref, ...handlers },
-    children
-  );
+  // The button keeps every extra attribute, including user `on*` handlers:
+  // at runtime ilha passes the DOM event through, so anchor-typed handlers
+  // work unchanged. The cast only bridges the anchor/button
+  // `currentTarget` narrowing in the JSX types.
+  // SAFETY: buttonProps carries exactly `attributes` plus Link's own handlers; only the static currentTarget types differ.
+  // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- anchor-typed extra props have no single-step assertion to button props.
+  const buttonProps = {
+    ...attributes,
+    ref,
+    type: "button",
+    ...handlers,
+  } as unknown as JSX.IntrinsicElements["button"];
+  return h("button", buttonProps, children);
 };

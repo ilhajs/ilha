@@ -100,7 +100,7 @@ describe("panel", () => {
   });
 
   it("shows the message log of the selected model island", async () => {
-    const { panelHost, host } = await openPanel(modelApp.component);
+    const { panelHost, host } = await openPanel(modelApp);
     rowFor(panelHost, "ModelCounter")?.click();
     await settle();
     // The page script attaches asynchronously; retry clicks until one lands.

@@ -1,7 +1,7 @@
 {
   "name": "@ilha/model",
-  "version": "0.1.1",
-  "description": "Elm-style Model, update, commands, and subscriptions for Ilha islands",
+  "version": "0.2.0",
+  "description": "Elm-style model components for Ilha islands: one atom per instance, commands, and subscriptions",
   "keywords": [
     "effect",
     "elm-architecture",
@@ -44,18 +44,18 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsdown && tsc -p tsconfig.build.json",
+    "build": "tsdown",
     "cleanup": "rimraf dist node_modules",
     "test": "bun test",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
-    "effect": "^4.1.0",
-    "ilha": "^0.16.3"
+    "effect": "^4.1.4",
+    "ilha": "^0.17.0"
   },
   "peerDependencies": {
-    "effect": "^4.1.0",
+    "effect": "^4.1.4",
     "ilha": ">=0.16.3"
   }
 }

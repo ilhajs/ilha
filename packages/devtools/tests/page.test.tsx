@@ -78,7 +78,7 @@ describe("page script", () => {
   });
 
   it("answers modelLog with the island's recorded messages", async () => {
-    const mounted = await mountHost(modelApp.component);
+    const mounted = await mountHost(modelApp);
     const pair = connectPair();
     cleanups.push(pair.panel.close, pair.handle.dispose, mounted.unmount);
     await pair.panel.whenConnected(1000);

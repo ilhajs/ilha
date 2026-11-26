@@ -115,7 +115,7 @@ describe("WebMCP tools", () => {
 
   it("returns a model island's message log", async () => {
     const { tools } = fakeModelContext();
-    const mounted = await mountHost(modelApp.component);
+    const mounted = await mountHost(modelApp);
     const handle = installIlhaDevtools({ window: false });
     cleanups.push(mounted.unmount, handle.dispose);
     const id = await waitForRecording(tools, mounted.host);
@@ -134,7 +134,7 @@ describe("WebMCP tools", () => {
 
   it("summarizes errors and cycles in logged messages", async () => {
     const { tools } = fakeModelContext();
-    const mounted = await mountHost(modelApp.component);
+    const mounted = await mountHost(modelApp);
     const handle = installIlhaDevtools({ window: false });
     cleanups.push(mounted.unmount, handle.dispose);
     const id = await waitForRecording(tools, mounted.host);
@@ -154,7 +154,7 @@ describe("WebMCP tools", () => {
 
   it("explains islands without a log", async () => {
     const { tools } = fakeModelContext();
-    const model = await mountHost(modelApp.component);
+    const model = await mountHost(modelApp);
     const plain = await mountHost(Counter);
     const handle = installIlhaDevtools({ window: false });
     cleanups.push(model.unmount, plain.unmount, handle.dispose);

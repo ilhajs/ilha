@@ -1,169 +1,127 @@
-import * as Effect from "effect/Effect";
-import * as FiberMap from "effect/FiberMap";
-import * as Layer from "effect/Layer";
-import * as AtomRegistry from "effect/reactivity/AtomRegistry";
+import * as Schema from "effect/Schema";
 
-import type { Cmd, ModelApp, UpdateResult } from "./app";
-import { drainCommands, eachCmd } from "./internal";
+import type { ModelComponent } from "./component";
+import type { InitDollar, Step, UpdateDollar } from "./internal";
+import { createStep, initDollar, isStepValue, updateDollar } from "./internal";
 
 /**
- * Normalize the `runCommands` input to a command list. Update results
- * without a command run nothing.
+ * Synchronous, pure component tests: no Effect, no DOM. Runs `init`
+ * (commands are recorded, never executed), then `send` feeds messages
+ * through `update`. Step commands accumulate as pending issues;
+ * `resolve` drops one and optionally feeds a message back.
  */
-const toCmds = <Message, R>(
-  input:
-    | Cmd<Message, R>
-    | readonly Cmd<Message, R>[]
-    | UpdateResult<unknown, Message, R>
-): readonly Cmd<Message, R>[] => {
-  if (Effect.isEffect(input)) {
-    return [input];
-  }
-  if ("model" in input) {
-    return input.cmd === undefined ? [] : eachCmd(input.cmd);
-  }
-  return input;
-};
-
-/**
- * Message a command resolves to, excluding `void` results that deliver
- * nothing.
- */
-type CommandMessage<T> =
-  T extends Effect.Effect<infer M, never, unknown> ? Exclude<M, void> : never;
-
-/**
- * Services a command still requires, excluding the `AtomRegistry` the
- * helpers provide themselves.
- */
-type CommandServices<T> =
-  T extends Effect.Effect<unknown, never, infer R>
-    ? Exclude<R, AtomRegistry.AtomRegistry>
-    : never;
-
-/**
- * Run one command without rendering and collect the message it resolves
- * to. Commands run with the app runtime's semantics: `keyed` supersedes
- * per key with the latest winning, defects are logged and dropped, and
- * `void` results produce no message. Provide services with
- * `Effect.provide` and time with `TestClock` from `effect/testing`.
- */
-export function runCommands<Message, R>(
-  input: Cmd<Message, R>
-): Effect.Effect<
-  readonly Exclude<Message, void>[],
-  never,
-  Exclude<R, AtomRegistry.AtomRegistry>
->;
-/**
- * Run several commands concurrently, collecting their messages in
- * completion order.
- */
-export function runCommands<
-  const Cmds extends readonly Cmd<unknown, unknown>[],
->(
-  input: Cmds
-): Effect.Effect<
-  readonly CommandMessage<Cmds[number]>[],
-  never,
-  CommandServices<Cmds[number]>
->;
-/** Run the command of an update result, collecting its messages. */
-export function runCommands<Model, Message, R>(
-  input: UpdateResult<Model, Message, R>
-): Effect.Effect<
-  readonly Exclude<Message, void>[],
-  never,
-  Exclude<R, AtomRegistry.AtomRegistry>
->;
-export function runCommands(
-  input:
-    | Cmd<unknown, unknown>
-    | readonly Cmd<unknown, unknown>[]
-    | UpdateResult<unknown, unknown, unknown>
-): Effect.Effect<readonly unknown[], never, unknown> {
-  return Effect.scoped(
-    Effect.flatMap(FiberMap.make<string>(), (keyedMap) =>
-      Effect.provide(drainCommands(toCmds(input), keyedMap), AtomRegistry.layer)
-    )
-  );
-}
-
-/** Result of {@link simulate}: the final model and every message seen. */
-export interface SimulateResult<Model, Message> {
-  /** Model after init and every message ran to quiet. */
+export interface StoryHandle<Model, Msg, Events> {
+  /** The current model. */
   readonly model: Model;
-  /** Every message `update` saw, in the order it saw them. */
-  readonly messages: readonly Message[];
-}
-
-/** Options for {@link simulate}. */
-export interface SimulateOptions<R, E2 = never> {
+  /** Emitted events, in order. */
+  readonly emitted: readonly Events[];
+  /** Pending command issues, in order, as `{ name, args }`. */
+  readonly commands: readonly {
+    readonly name: string;
+    readonly args: unknown;
+  }[];
+  /** Run one message through `update`. Throws on an unknown tag. */
+  readonly send: (message: Msg) => void;
   /**
-   * Replace the app's layer for this run, for example with test doubles.
-   * Must provide the same services the app needs. Defaults to the app's
-   * own layer.
+   * Drop the oldest pending issue of `command`, then send `message` when
+   * given (as if that issue resolved with it).
    */
-  readonly layer?: Layer.Layer<R, E2> | undefined;
+  readonly resolve: (command: { readonly name: string }, message?: Msg) => void;
 }
 
-/**
- * Run an app's loop without rendering: init and its command first, then
- * each input message through `update`, running every resulting command and
- * feeding produced messages back through `update` until quiet. Takes the
- * `ModelApp` from `defineApp` so the layer travels with `init` and
- * `update`. Subscriptions never run here; test them through `update` with
- * the messages their streams would emit. Commands that sleep run on the
- * ambient clock, so `TestClock` from `effect/testing` controls them.
- */
-export const simulate = <Model, Message, R, E, E2 = never>(
-  app: ModelApp<Model, Message, R, E>,
-  inputs: readonly NoInfer<Message>[],
-  options?: SimulateOptions<NoInfer<R>, E2> | undefined
-): Effect.Effect<SimulateResult<Model, Message>, E | E2> =>
-  Effect.scoped(
-    Effect.flatMap(FiberMap.make<string>(), (keyedMap) => {
-      // SAFETY: a missing layer means the app was defined without one, so R
-      // is `never` and `Layer.empty` provides exactly it; a present layer
-      // already provides R. The assertion bridges only the optionality,
-      // which the type cannot relate back to R.
-      const provided = (options?.layer ??
-        app.options.layer ??
-        Layer.empty) as Layer.Layer<R, E | E2>;
-      const drain = (
-        cmd: Cmd<Message, R> | readonly Cmd<Message, R>[] | undefined
-      ): Effect.Effect<
-        readonly Message[],
-        never,
-        R | AtomRegistry.AtomRegistry
-      > =>
-        cmd === undefined
-          ? Effect.succeed([])
-          : drainCommands(eachCmd(cmd), keyedMap);
-      return Effect.provide(
-        Effect.gen(function* runLoop() {
-          const begun = app.options.init();
-          const first = yield* drain(begun.cmd);
-          let { model } = begun;
-          const queue: Message[] = [...first, ...inputs];
-          const seen: Message[] = [];
-          while (true) {
-            const message = queue.shift();
-            if (message === undefined) {
-              break;
-            }
-            seen.push(message);
-            const { cmd: command, model: next } = app.options.update(
-              model,
-              message
-            );
-            model = next;
-            const produced = yield* drain(command);
-            queue.push(...produced);
-          }
-          return { messages: seen, model };
-        }),
-        Layer.merge(provided, AtomRegistry.layer)
+interface StoryImpl<
+  Model,
+  Msg extends { readonly _tag: string },
+  Props,
+  Events,
+> {
+  readonly init: (
+    dollar: InitDollar<Model, Msg, Props, Events>,
+    props: Props
+  ) => Model | Step<Model, Msg, never, Events>;
+  readonly update: Record<
+    string,
+    (
+      dollar: UpdateDollar<Model, Msg, Props, Events>,
+      message: Msg
+    ) => Model | Step<Model, Msg, never, Events>
+  >;
+}
+
+export const Story = {
+  make<Props, Events, Model, Msg extends { readonly _tag: string }>(
+    component: ModelComponent<Props, Events, Model, Msg>,
+    ...args: Record<never, never> extends Props
+      ? [props?: Props]
+      : [props: Props]
+  ): StoryHandle<Model, Msg, Events> {
+    const { definition } = component;
+    // SAFETY: Story drives the exact impl the component was built with.
+    const impl = component.impl as StoryImpl<Model, Msg, Props, Events>;
+    const decoded = Schema.decodeSync(definition.props)(args[0] ?? {});
+    let pending: { readonly name: string; readonly args: unknown }[] = [];
+    const emitted: unknown[] = [];
+    const commitInit = (): Model => {
+      const out: unknown = impl.init(
+        initDollar<Model, Msg, Props, Events>(decoded),
+        decoded
       );
-    })
-  );
+      const step = isStepValue(out) ? out : createStep(out);
+      pending = step.commands.map(({ args: commandArgs, name }) => ({
+        args: commandArgs,
+        name,
+      }));
+      for (const event of step.events) {
+        emitted.push(event);
+      }
+      // SAFETY: the step carries this component's own model type through.
+      return step.model as Model;
+    };
+    let model: Model = commitInit();
+
+    const send = (message: Msg): void => {
+      const { _tag: tag } = message;
+      const handler = impl.update[tag];
+      if (handler === undefined) {
+        throw new Error(`${definition.name}: no update for "${tag}"`);
+      }
+      const out: unknown = handler(
+        updateDollar<Model, Msg, Props, Events>(model, decoded),
+        message
+      );
+      const step = isStepValue(out) ? out : createStep(out);
+      const { model: next } = step;
+      // SAFETY: the step carries this component's own model type through.
+      model = next as Model;
+      for (const { args: commandArgs, name } of step.commands) {
+        pending.push({ args: commandArgs, name });
+      }
+      for (const event of step.events) {
+        emitted.push(event);
+      }
+    };
+
+    return {
+      get commands() {
+        return [...pending];
+      },
+      get emitted() {
+        // SAFETY: only this component's events are ever pushed above.
+        return [...(emitted as Events[])];
+      },
+      get model() {
+        return model;
+      },
+      resolve(command: { readonly name: string }, message?: Msg): void {
+        const at = pending.findIndex((issue) => issue.name === command.name);
+        if (at !== -1) {
+          pending.splice(at, 1);
+        }
+        if (message !== undefined) {
+          send(message);
+        }
+      },
+      send,
+    };
+  },
+};

@@ -1,49 +1,48 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { attachModelRecorder, defineApp } from "@ilha/model";
-import type { Dispatch } from "@ilha/model";
-import { Data, Effect, Option } from "effect";
+import { attachModelRecorder, Command, defineComponent } from "@ilha/model";
+import { Effect, Option, Schema } from "effect";
 import type { Component } from "ilha";
 import { atomsOf, inspect } from "ilha/debug";
 
 import { createModelLog, MODEL_LOG_CAP } from "../src/model-log.ts";
 import { mountHost, settle } from "./helpers.tsx";
 
-// oxlint-disable-next-line typescript/no-empty-object-type, typescript/ban-types, typescript/consistent-type-definitions -- Data.taggedEnum spells payload-free variants as `{}`.
-type NoArgs = {};
+const Msg = Schema.TaggedUnion({
+  AddBonus: { amount: Schema.Number },
+  FetchBonus: {},
+  Increment: {},
+});
 
-// oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
-type Msg = Data.TaggedEnum<{
-  AddBonus: { readonly amount: number };
-  FetchBonus: NoArgs;
-  Increment: NoArgs;
-}>;
-// oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
-const Msg = Data.taggedEnum<Msg>();
+const FetchBonus = Command.make("FetchBonus", () =>
+  Effect.succeed(Msg.cases.AddBonus.make({ amount: 10 }))
+);
 
-const counter = defineApp({
-  init: () => ({ model: { count: 0 } }),
-  update: (model: { count: number }, message: Msg) =>
-    Msg.$match(message, {
-      AddBonus: ({ amount }) => ({ model: { count: model.count + amount } }),
-      FetchBonus: () => ({
-        cmd: Effect.succeed(Msg.AddBonus({ amount: 10 })),
-        model,
-      }),
-      Increment: () => ({ model: { count: model.count + 1 } }),
-    }),
-  view: (model: { count: number }, dispatch: Dispatch<Msg>) => (
+const counter = defineComponent({
+  message: Msg,
+  model: Schema.Struct({ count: Schema.Number }),
+  name: "Counter",
+}).make({
+  init: () => ({ count: 0 }),
+  update: {
+    AddBonus: ($, { amount }) => $.evolve({ count: (n) => n + amount }),
+    FetchBonus: ($) => $.run(FetchBonus()),
+    Increment: ($) => $.evolve({ count: (n) => n + 1 }),
+  },
+  view: (h, model) => (
     <div>
       <p>{model.count}</p>
-      <button type="button" onclick={() => dispatch(Msg.Increment())}>
+      <button type="button" onclick={h.send(Msg.cases.Increment.make({}))}>
         inc
       </button>
-      <button type="button" onclick={() => dispatch(Msg.FetchBonus())}>
+      <button type="button" onclick={h.send(Msg.cases.FetchBonus.make({}))}>
         bonus
       </button>
     </div>
   ),
 });
+
+const TickMsg = Schema.TaggedUnion({ Tick: {} });
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -89,7 +88,7 @@ const poll = async (
 
 describe("model message log", () => {
   it("records ordered entries with field diffs and command counts", async () => {
-    const { click, host, read } = await mountLogged(counter.component);
+    const { click, host, read } = await mountLogged(counter);
     await click();
     await click(1);
     await poll(() => host.textContent === "11incbonus");
@@ -108,17 +107,22 @@ describe("model message log", () => {
   });
 
   it("keeps only the newest entries past the cap", async () => {
-    const flood = defineApp({
-      init: () => ({ model: { n: 0 } }),
-      update: (model: { n: number }, _message: "tick") => ({
-        model: { n: model.n + 1 },
-      }),
-      view: (model: { n: number }, dispatch: Dispatch<"tick">) => (
+    const flood = defineComponent({
+      message: TickMsg,
+      model: Schema.Struct({ n: Schema.Number }),
+      name: "Flood",
+    }).make({
+      init: () => ({ n: 0 }),
+      update: {
+        Tick: ($) => $.evolve({ n: (n) => n + 1 }),
+      },
+      view: (h, model) => (
         <button
           type="button"
           onclick={() => {
+            const send = h.send(TickMsg.cases.Tick.make({}));
             for (let i = 0; i < MODEL_LOG_CAP + 5; i += 1) {
-              dispatch("tick");
+              send();
             }
           }}
         >
@@ -126,7 +130,7 @@ describe("model message log", () => {
         </button>
       ),
     });
-    const { click, read } = await mountLogged(flood.component);
+    const { click, read } = await mountLogged(flood);
     await click();
     const entries = read();
     expect(entries?.length).toBe(MODEL_LOG_CAP);
@@ -141,16 +145,22 @@ describe("model message log", () => {
   });
 
   it("snapshots non-record models whole", async () => {
-    const scalar = defineApp({
-      init: () => ({ model: 0 }),
-      update: (model: number, _message: "tick") => ({ model: model + 1 }),
-      view: (model: number, dispatch: Dispatch<"tick">) => (
-        <button type="button" onclick={() => dispatch("tick")}>
+    const scalar = defineComponent({
+      message: TickMsg,
+      model: Schema.Number,
+      name: "Scalar",
+    }).make({
+      init: () => 0,
+      update: {
+        Tick: ($) => $.set($.model + 1),
+      },
+      view: (h, model) => (
+        <button type="button" onclick={h.send(TickMsg.cases.Tick.make({}))}>
           {model}
         </button>
       ),
     });
-    const { click, read } = await mountLogged(scalar.component);
+    const { click, read } = await mountLogged(scalar);
     await click();
     expect(read()?.[0]?.diff).toEqual({
       _tag: "snapshot",
@@ -160,53 +170,70 @@ describe("model message log", () => {
   });
 
   it("summarizes errors, options, and cycles, and survives unserializable messages", async () => {
-    interface Rich {
-      readonly err?: Error;
-      readonly opt?: Option.Option<number>;
-      self?: unknown;
-      readonly tag?: string;
+    interface Cyclic {
+      readonly err: Error;
+      readonly opt: Option.Option<number>;
+      self?: Cyclic;
     }
-    const cyclic: Rich = { err: new Error("boom"), opt: Option.some(3) };
+    const cyclic: Cyclic = { err: new Error("boom"), opt: Option.some(3) };
     cyclic.self = cyclic;
-    const poison: Rich = {
+    const poison = {
       get tag(): string {
         throw new Error("touched");
       },
     };
-    const rich = defineApp({
-      init: () => ({ model: { n: 0 } }),
-      update: (model: { n: number }, _message: Rich) => ({
-        model: { n: model.n + 1 },
-      }),
-      view: (model: { n: number }, dispatch: Dispatch<Rich>) => (
+    const RichMsg = Schema.TaggedUnion({
+      Poison: { value: Schema.Unknown },
+      Rich: { value: Schema.Unknown },
+    });
+    const rich = defineComponent({
+      message: RichMsg,
+      model: Schema.Struct({ n: Schema.Number }),
+      name: "Rich",
+    }).make({
+      init: () => ({ n: 0 }),
+      update: {
+        Poison: ($) => $.evolve({ n: (n) => n + 1 }),
+        Rich: ($) => $.evolve({ n: (n) => n + 1 }),
+      },
+      view: (h, model) => (
         <div>
           <p>{model.n}</p>
-          <button type="button" onclick={() => dispatch(cyclic)}>
+          <button
+            type="button"
+            onclick={h.send(RichMsg.cases.Rich.make({ value: cyclic }))}
+          >
             rich
           </button>
-          <button type="button" onclick={() => dispatch(poison)}>
+          <button
+            type="button"
+            onclick={h.send(RichMsg.cases.Poison.make({ value: poison }))}
+          >
             bad
           </button>
         </div>
       ),
     });
-    const { click, host, read } = await mountLogged(rich.component);
+    const { click, host, read } = await mountLogged(rich);
     await click();
     await click(1);
     expect(host.textContent).toBe("2richbad");
     expect(read()?.map((entry) => entry.message)).toEqual([
       {
-        err: "<Error: boom>",
-        opt: { _tag: "Some", value: 3 },
-        self: "<circular>",
+        _tag: "Rich",
+        value: {
+          err: "<Error: boom>",
+          opt: { _tag: "Some", value: 3 },
+          self: "<circular>",
+        },
       },
       "<unserializable>",
     ]);
   });
 
   it("keeps islands apart and reads nothing for islands that never dispatched", async () => {
-    const first = await mountLogged(counter.component);
-    const second = await mountLogged(counter.component);
+    const first = await mountLogged(counter);
+    const second = await mountLogged(counter);
     await first.click();
     expect(first.read()?.length).toBe(1);
     expect(second.read()).toBeUndefined();

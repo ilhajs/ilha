@@ -23,12 +23,12 @@ Ilha gives you exactly one way to do each task. Find your task in the table and 
 | Server render | `await renderToString(Component)` | [Render and hydrate](/guide/ui/render) |
 | Client render | `mount(host, Component)` | [Render and hydrate](/guide/ui/render) |
 | Hydrate server HTML | `mount(host, Component, { hydrate: true })` | [Render and hydrate](/guide/ui/render) |
-| Elm-style app state | `defineApp({ init, update, view })` | [Elm architecture](/guide/ui/model) |
-| One-shot work from `update` | `cmd` in the update result | [Elm architecture](/guide/ui/model#send-one-shot-work) |
-| Ongoing work gated by the model | `subscriptions` in `defineApp` | [Elm architecture](/guide/ui/model#listen-to-ongoing-work) |
-| Child state machine | `foldChild` and `combine` | [Elm architecture](/guide/ui/model#split-a-child-out) |
-| Test commands without a DOM | `runCommands(cmd)` and `simulate(app, messages)` | [Elm architecture](/guide/ui/model#test-the-loop) |
-| Async data in a model | `AsyncResult` field, `Effect.exit` loader, `keyed` refetch | [Elm architecture](/guide/ui/model#load-data) |
+| Elm-style app state | `defineComponent({ name, model, message }).make({ init, update, view })` | [Elm architecture](/guide/ui/model) |
+| One-shot work from `update` | `$.run(...)` with `Command.make` | [Elm architecture](/guide/ui/model#commands) |
+| Ongoing work gated by the model | `subscriptions` in `make` | [Elm architecture](/guide/ui/model#subscriptions) |
+| Child component | `props` and `onEmit` | [Elm architecture](/guide/ui/model#children) |
+| Test a component without a DOM | `Story.make(Component, props?)` | [Elm architecture](/guide/ui/model#test-with-story) |
+| Async data in a model | `AsyncResult` field loaded by a `Command` | [Elm architecture](/guide/ui/model#commands) |
 | Debug a model's messages | Message log in the devtools panel and `ilha_model_log` | [Devtools](/guide/devtools#read-the-message-log) |
 | Raw, trusted HTML | `unsafe(html)` | [Templating](/guide/ui/templating#raw-html) |
 
@@ -67,7 +67,7 @@ const Cart = () => {
 - Never fetch inside `watch.once()` and copy the result into an atom. Write `atom(Effect)` instead.
 - Never pass untrusted input to `unsafe()`. It skips escaping.
 - Never import removed APIs: `resource`, `invalidate`, `fromEventSource`, `ilha/define`, or `structuralEqual`. See `MIGRATIONS.md` in the `ilha` package.
-- Never store callbacks in an `@ilha/model` model, or class instances such as `Date` without a `schema` option. The model snapshots to JSON; keep functions in refs and effects in commands.
+- Never store callbacks in an `@ilha/model` model, or class instances such as `Date` the `model` Schema cannot round-trip. The `model` Schema is the snapshot codec; keep functions in refs and effects in commands.
 
 ## Check your work
 
