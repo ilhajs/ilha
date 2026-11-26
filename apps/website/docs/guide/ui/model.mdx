@@ -119,7 +119,7 @@ export const Page = defineComponent({
       <p>{model.total}</p>
       <Child
         key="likes"
-        onEmit={h.send((e) => PageMsg.cases.ChildReached.make(e))}
+        onEmit={h.send((e) => PageMsg.cases.ChildReached.make({ n: e.n }))}
       />
     </div>
   ),
@@ -192,12 +192,15 @@ export const Clock = defineComponent({
   },
   view: (h, model) => <p>{model.count}</p>,
   subscriptions: (_model, props) => [
-    Subscription.make("ticks", props.on, (on) =>
-      on
-        ? Stream.tick("1 second").pipe(
-            Stream.map(() => Msg.cases.Tick.make({}))
-          )
-        : Stream.empty
+    Subscription.make(
+      "ticks",
+      (_model: unknown, p: { readonly on: boolean }) => p.on,
+      (on) =>
+        on
+          ? Stream.tick("1 second").pipe(
+              Stream.map(() => Msg.cases.Tick.make({}))
+            )
+          : Stream.empty
     ),
   ],
 });
