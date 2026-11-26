@@ -74,7 +74,7 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deploy_1.outputs.page_url || steps.deploy_2.outputs.page_url || steps.deploy_3.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -106,6 +106,30 @@ jobs:
         with:
           path: apps/website/dist/
 
+      # deploy-pages looks the artifact up right after upload, and the
+      # artifacts API can lag by seconds (actions/deploy-pages#451): the
+      # first lookup then finds nothing. Rerunning the job can't help (it
+      # finds two artifacts), so retry the deploy in-job after a wait.
       - name: Deploy to GitHub Pages
-        id: deployment
+        id: deploy_1
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+
+      - name: Wait for the Pages artifact
+        if: steps.deploy_1.outcome == 'failure'
+        run: sleep 10
+
+      - name: Deploy to GitHub Pages (retry)
+        id: deploy_2
+        if: steps.deploy_1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+
+      - name: Wait longer for the Pages artifact
+        if: steps.deploy_1.outcome == 'failure' && steps.deploy_2.outcome == 'failure'
+        run: sleep 45
+
+      - name: Deploy to GitHub Pages (last retry)
+        id: deploy_3
+        if: steps.deploy_1.outcome == 'failure' && steps.deploy_2.outcome == 'failure'
         uses: actions/deploy-pages@v5
