@@ -207,7 +207,7 @@ Like commands, subscriptions never run on the server; a stream's error channel i
 
 ## Services
 
-Commands and subscriptions read services from one layer per instance, built once on the client. Name it in `make`; command bodies use its services with no extra wiring. A command that needs a service outside the layer does not compile.
+Commands and subscriptions read services from one layer per component per mounted root; instances of that component share its services. Name it in `make`; command bodies use its services with no extra wiring. A command that needs a service outside the layer does not compile.
 
 ```tsx twoslash
 import { Context, Effect, Layer, Schema } from "effect";
@@ -249,7 +249,7 @@ The `model` Schema is also the snapshot codec: the model encodes into the island
 
 ## Errors
 
-Throws in `init`, `update`, and `view` travel Ilha's normal error path: the nearest [`<ErrorBoundary>`](/guide/ui/context-and-errors#error-boundaries) renders its fallback, or `mount`'s `onError` sees them. There is no failure API on top.
+Throws in `init` and `view` travel Ilha's normal error path: the nearest [`<ErrorBoundary>`](/guide/ui/context-and-errors#error-boundaries) renders its fallback, or `mount`'s `onError` sees them. An `update` throw and Command/Subscription defects are logged instead, and the instance keeps its last model. There is no failure API on top.
 
 ## Test with Story
 

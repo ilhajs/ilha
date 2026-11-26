@@ -138,4 +138,48 @@ describe("parent and child", () => {
     expect(ui.errors).toEqual([]);
     ui.unmount();
   });
+
+  it("logs an update throw and keeps the last model", async () => {
+    const ThrowMsg = Schema.TaggedUnion({ Hit: {}, Safe: {} });
+    const Thrower = defineComponent({
+      message: ThrowMsg,
+      model: Schema.Struct({ count: Schema.Number }),
+      name: "Thrower",
+    }).make({
+      init: () => ({ count: 1 }),
+      update: {
+        Hit: () => {
+          throw new Error("update boom");
+        },
+        Safe: ($) => $.evolve({ count: (c) => c + 1 }),
+      },
+      view: (h, model) => (
+        <div>
+          <output>{model.count}</output>
+          <button
+            data-testid="hit"
+            onclick={h.send(ThrowMsg.cases.Hit.make({}))}
+          >
+            hit
+          </button>
+          <button
+            data-testid="safe"
+            onclick={h.send(ThrowMsg.cases.Safe.make({}))}
+          >
+            safe
+          </button>
+        </div>
+      ),
+    });
+    const ui = render(() => <Thrower />);
+    await ui.settled();
+    await ui.click('[data-testid="hit"]');
+    await ui.settled();
+    expect(ui.query("output")?.textContent).toBe("1");
+    expect(ui.errors).toEqual([]);
+    await ui.click('[data-testid="safe"]');
+    expect(ui.query("output")?.textContent).toBe("2");
+    expect(ui.errors).toEqual([]);
+    ui.unmount();
+  });
 });

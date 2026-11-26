@@ -84,8 +84,8 @@ Notes:
 - `h` in `view` is Ilha's `h` plus `props`, `send(message | (arg) => message | undefined)`, and reactive `isRunning(command)`.
 - `Command.make(name, body)` issues concurrently; `{ mode: "switch" }` interrupts the instance's running issue of the same command. Nothing runs during SSR; init commands run on the client after mount/hydration.
 - `Subscription.make(name, stream)` or `make(name, deps, (deps) => stream)`; deps compared with `Equal.equals`, restarted on change, stopped when removed.
-- `layer` is built once per instance on the client and provides commands and subscriptions.
-- Throws in `init`/`update`/`view` go through Ilha's normal error path (`ErrorBoundary` / mount `onError`).
+- `layer` is built once per component per mounted root; instances of that component share its services.
+- Throws in `init`/`view` go through Ilha's normal error path (`ErrorBoundary` / mount `onError`); `update` throws and Command/Subscription defects are logged and the instance keeps its last model.
 
 ## Testing with Story
 

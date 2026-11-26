@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { Context, Effect, Layer, Logger, Schema } from "effect";
+import { Context, Deferred, Effect, Layer, Logger, Schema } from "effect";
 import { render } from "ilha/test";
 
 import { attachModelRecorder, Command, defineComponent } from "./index";
@@ -242,6 +242,114 @@ describe("commands", () => {
     await ui.click('[data-testid="fetch"]');
     await poll(() => ui.query("output")?.textContent === "5");
     expect(ui.errors).toEqual([]);
+    ui.unmount();
+  });
+
+  it("paints the post-command model when an init command resolves synchronously", async () => {
+    const GotMsg = Schema.TaggedUnion({ Got: { id: Schema.Number } });
+    const Get = Command.make("Get", () =>
+      Effect.succeed(GotMsg.cases.Got.make({ id: 42 }))
+    );
+    const Quick = defineComponent({
+      message: GotMsg,
+      model: Schema.Struct({ id: Schema.Number }),
+      name: "Quick",
+    }).make({
+      init: ($) => $.set({ id: 0 }).run(Get()),
+      update: { Got: ($, { id }) => $.set({ id }) },
+      view: (_h, model) => <output>{model.id}</output>,
+    });
+    const ui = render(() => <Quick />);
+    await ui.settled();
+    expect(ui.query("output")?.textContent).toBe("42");
+    expect(ui.errors).toEqual([]);
+    ui.unmount();
+  });
+
+  it("drops a superseded switch issue that resolves after a newer issue", async () => {
+    // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
+    const RaceMsg = Schema.TaggedUnion({
+      Go1: {},
+      Go2: {},
+      SetVal: { v: Schema.Number },
+    });
+    // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
+    type RaceMsg = typeof RaceMsg.Type;
+    const gate1 = Effect.runSync(Deferred.make<number>());
+    const gate2 = Effect.runSync(Deferred.make<number>());
+    const started: number[] = [];
+    const Sw = Command.make("Sw", { mode: "switch" }, (v: number) =>
+      Effect.andThen(
+        Effect.sync(() => {
+          started.push(v);
+        }),
+        Effect.map(Deferred.await(v === 1 ? gate1 : gate2), (x) =>
+          RaceMsg.cases.SetVal.make({ v: x })
+        )
+      )
+    );
+    const delivered: number[] = [];
+    const detach = attachModelRecorder((record) => {
+      // SAFETY: the recorder hands over raw dispatches; the component only sends RaceMsg.
+      const message = record.message as RaceMsg;
+      if (message._tag === "SetVal") {
+        delivered.push(message.v);
+      }
+    });
+    const Racer = defineComponent({
+      message: RaceMsg,
+      model: Schema.Struct({ v: Schema.Number }),
+      name: "Racer",
+    }).make({
+      init: () => ({ v: 0 }),
+      update: {
+        Go1: ($) => $.run(Sw(1)),
+        Go2: ($) => $.run(Sw(2)),
+        SetVal: ($, { v }) => $.set({ v }),
+      },
+      view: (h, model) => (
+        <div>
+          <output>{model.v}</output>
+          <button
+            data-testid="sw1"
+            onclick={h.send(RaceMsg.cases.Go1.make({}))}
+          >
+            sw1
+          </button>
+          <button
+            data-testid="sw2"
+            onclick={h.send(RaceMsg.cases.Go2.make({}))}
+          >
+            sw2
+          </button>
+        </div>
+      ),
+    });
+    const ui = render(() => <Racer />);
+    await ui.settled();
+    const fire = (testid: string): void => {
+      const el = ui.query(`[data-testid="${testid}"]`);
+      if (el === null) {
+        throw new Error(`missing button ${testid}`);
+      }
+      el.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+    };
+    fire("sw1");
+    await poll(() => started.length === 1);
+    // Resolve Sw(1) from a microtask: it lands after Sw(2)'s synchronous
+    // dispatch below but before the drain dequeues Sw(2).
+    queueMicrotask(() => {
+      Effect.runFork(Deferred.succeed(gate1, 1));
+    });
+    fire("sw2");
+    await poll(() => started.length === 2);
+    Effect.runFork(Deferred.succeed(gate2, 2));
+    await poll(() => ui.query("output")?.textContent === "2");
+    expect(delivered).toEqual([2]);
+    expect(ui.errors).toEqual([]);
+    detach();
     ui.unmount();
   });
 });

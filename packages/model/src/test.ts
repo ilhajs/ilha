@@ -51,12 +51,14 @@ interface StoryImpl<
 export const Story = {
   make<Props, Events, Model, Msg extends { readonly _tag: string }>(
     component: ModelComponent<Props, Events, Model, Msg>,
-    props?: Props
+    ...args: Record<never, never> extends Props
+      ? [props?: Props]
+      : [props: Props]
   ): StoryHandle<Model, Msg, Events> {
     const { definition } = component;
     // SAFETY: Story drives the exact impl the component was built with.
     const impl = component.impl as StoryImpl<Model, Msg, Props, Events>;
-    const decoded = Schema.decodeSync(definition.props)(props ?? {});
+    const decoded = Schema.decodeSync(definition.props)(args[0] ?? {});
     let pending: { readonly name: string; readonly args: unknown }[] = [];
     const emitted: unknown[] = [];
     const commitInit = (): Model => {
@@ -65,7 +67,10 @@ export const Story = {
         decoded
       );
       const step = isStepValue(out) ? out : createStep(out);
-      pending = step.commands.map(({ args, name }) => ({ args, name }));
+      pending = step.commands.map(({ args: commandArgs, name }) => ({
+        args: commandArgs,
+        name,
+      }));
       for (const event of step.events) {
         emitted.push(event);
       }
@@ -88,8 +93,8 @@ export const Story = {
       const { model: next } = step;
       // SAFETY: the step carries this component's own model type through.
       model = next as Model;
-      for (const { args, name } of step.commands) {
-        pending.push({ args, name });
+      for (const { args: commandArgs, name } of step.commands) {
+        pending.push({ args: commandArgs, name });
       }
       for (const event of step.events) {
         emitted.push(event);

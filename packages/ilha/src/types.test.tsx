@@ -174,6 +174,10 @@ const typecheckH = (): void => {
   );
   const widget = h("my-widget", { anything: "goes" }, "slot");
   const item = h(KeyedItem, { id: "a" });
+  const bare = h("div", undefined, "x");
+  const bareWidget = h("my-widget", undefined, "slot");
+  void bare;
+  void bareWidget;
   // @ts-expect-error unknown tags are compile errors, exactly as in JSX.
   const bogus = h("bogus", null, "x");
   // @ts-expect-error misspelt attributes are compile errors, exactly as in JSX.

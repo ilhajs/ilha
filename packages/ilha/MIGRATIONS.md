@@ -222,7 +222,7 @@ save.set(draft);
 
 - Status: changed
 - Import: `ilha`
-- Replacement: h() is type-checked like JSX. Intrinsic tags take exactly their JSX props; unknown tags, misspelt attributes, and wrongly typed handlers are compile errors. Custom elements (`my-widget`) still take any props.
+- Replacement: h() is type-checked like JSX. Intrinsic tags take exactly their JSX props; unknown tags, misspelt attributes, and wrongly typed handlers are compile errors. Custom elements (`my-widget`) still take any props. A tag typed as plain `string` (or props typed as `Record<string, unknown>`) no longer type-checks: narrow the tag to `keyof JSX.IntrinsicElements` and type the props as `JSX.IntrinsicElements[tag]`.
 - Docs: https://ilha.build/guide/recipes/h
 
 Before:

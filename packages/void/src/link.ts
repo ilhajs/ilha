@@ -257,7 +257,7 @@ export const Link = (props: LinkProps): View => {
   // at runtime ilha passes the DOM event through, so anchor-typed handlers
   // work unchanged. The cast only bridges the anchor/button
   // `currentTarget` narrowing in the JSX types.
-  // SAFETY: ButtonProps below carries exactly `attributes` plus Link's own handlers; only the static currentTarget types differ.
+  // SAFETY: buttonProps carries exactly `attributes` plus Link's own handlers; only the static currentTarget types differ.
   // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- anchor-typed extra props have no single-step assertion to button props.
   const buttonProps = {
     ...attributes,

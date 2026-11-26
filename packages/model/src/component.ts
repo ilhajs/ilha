@@ -193,6 +193,7 @@ interface Cells<R> {
   started: boolean;
   queue: Queue.Queue<Job<R>>;
   switches: Map<string, Fiber.Fiber<void, never>>;
+  generations: Map<string, number>;
 }
 
 interface SwitchCell {
@@ -299,7 +300,9 @@ export const defineComponent = <
         { snapshot: false }
       );
       const known = untrack(() => propsState());
-      if (!Object.is(known.raw, rawProps) || known.onEmit !== onEmit) {
+      // The spread above is always a fresh object; skip decoding when the
+      // parent passed an equal props bag.
+      if (known.onEmit !== onEmit || !Equal.equals(known.raw, rawProps)) {
         propsState.set({
           onEmit,
           props: Schema.decodeSync(propsSchema)(rawProps),
@@ -327,6 +330,7 @@ export const defineComponent = <
       const cells = atom.lazy<Cells<Layer.Success<L>>>(
         () => ({
           alive: true,
+          generations: new Map<string, number>(),
           queue: Effect.runSync(Queue.unbounded<Job<Layer.Success<L>>>()),
           started: false,
           switches: new Map<string, Fiber.Fiber<void, never>>(),
@@ -338,70 +342,71 @@ export const defineComponent = <
         snapshot: false,
       });
 
-      const model = state();
-      const { props } = untrack(() => propsState());
-      const subs = impl.subscriptions?.(model, props) ?? [];
-      const seen = new Set<string>();
-      for (const sub of subs) {
-        if (seen.has(sub.name)) {
-          throw new Error(
-            `${definition.name}: duplicate subscription "${sub.name}"`
-          );
-        }
-        seen.add(sub.name);
-      }
-
-      const combo = atom.lazy(() => ({ model, props, subs }), {
-        snapshot: false,
-      });
-      combo.set({ model, props, subs });
-
-      // One watcher per subscription name seen in the latest list. Names
-      // are stable in practice; a changed name set rebuilds the merge, and
-      // each entry restarts only when its own deps change.
-      const merged = atom.lazy(
-        () => ({
-          stream: Atom.toStream(combo.atom).pipe(
-            Stream.map((s) => s.subs.map((x) => x.name).toSorted()),
-            Stream.changesWith((a: string[], b: string[]) =>
-              Equal.equals(a, b)
-            ),
-            Stream.switchMap((names) =>
-              Stream.mergeAll(
-                names.map((name) =>
-                  Atom.toStream(combo.atom).pipe(
-                    Stream.map((s) => {
-                      const entry = s.subs.find((x) => x.name === name);
-                      return entry === undefined
-                        ? { tag: "none" as const }
-                        : {
-                            deps: entry.depsOf(s.model, s.props),
-                            run: entry.run,
-                            tag: "some" as const,
-                          };
-                    }),
-                    Stream.changesWith((a, b) =>
-                      a.tag === "none" || b.tag === "none"
-                        ? a.tag === b.tag
-                        : Equal.equals(a.deps, b.deps)
-                    ),
-                    Stream.switchMap((v) =>
-                      v.tag === "none"
-                        ? Stream.empty
-                        : Stream.suspend(() => v.run(v.deps)).pipe(
-                            Stream.catchCause(quietStream<Msg>)
-                          )
-                    ),
-                    Stream.catchCause(quietStream<Msg>)
-                  )
-                ),
-                { concurrency: "unbounded" }
-              )
-            )
-          ),
-        }),
+      // The combo's lazy init re-reads the current model and props, so a
+      // drain that starts before the first `combo.set` below still sees a
+      // consistent value; every render refreshes it after client start-up.
+      const combo = atom.lazy(
+        () => {
+          const live = untrack(() => state());
+          const { props: liveProps } = untrack(() => propsState());
+          return {
+            model: live,
+            props: liveProps,
+            subs: impl.subscriptions?.(live, liveProps) ?? [],
+          };
+        },
         { snapshot: false }
       );
+
+      // Subscription fibers by name. `manageEntries` keeps them matching
+      // the latest list, so an entry restarts only when its own deps change
+      // (compared with `Equal.equals`) and stops only when removed.
+      const activeSubs = new Map<
+        string,
+        { readonly deps: unknown; readonly fiber: Fiber.Fiber<void, never> }
+      >();
+      const manageEntries = (
+        latest: {
+          readonly model: Model;
+          readonly props: Props;
+          // oxlint-disable-next-line typescript/no-explicit-any -- each entry keeps its own Deps via Subscription.make; the manager only feeds deps back into the same entry (mirrors main).
+          readonly subs: readonly Subscription<Model, Props, Msg, any, any>[];
+        },
+        outbox: Queue.Queue<Msg>
+      ): Effect.Effect<
+        void,
+        never,
+        Layer.Success<L> | AtomRegistry | Scope.Scope
+      > =>
+        Effect.gen(function* manage() {
+          const seen = new Set<string>();
+          for (const entry of latest.subs) {
+            seen.add(entry.name);
+            const deps = entry.depsOf(latest.model, latest.props);
+            const current = activeSubs.get(entry.name);
+            if (current !== undefined && Equal.equals(current.deps, deps)) {
+              continue;
+            }
+            if (current !== undefined) {
+              yield* Fiber.interrupt(current.fiber);
+            }
+            const fiber = yield* Effect.forkScoped(
+              Stream.runForEach(
+                Stream.suspend(() => entry.run(deps)).pipe(
+                  Stream.catchCause(quietStream<Msg>)
+                ),
+                (message) => Queue.offer(outbox, message)
+              )
+            );
+            activeSubs.set(entry.name, { deps, fiber });
+          }
+          for (const [name, current] of activeSubs) {
+            if (!seen.has(name)) {
+              yield* Fiber.interrupt(current.fiber);
+              activeSubs.delete(name);
+            }
+          }
+        });
 
       // The registry is disposed on unmount, so a command that finishes in
       // the gap reads a dead registry; that means unmounted, not broken.
@@ -417,13 +422,29 @@ export const defineComponent = <
         issued: Issued<Msg, R2>,
         deliver: (message: Msg) => void
       ): Job<Layer.Success<L>> => {
+        // A switch issue supersedes synchronously at dispatch: bump the
+        // command's generation now, so an older issue resolving later finds
+        // a stale generation and its message is dropped.
+        let guarded = deliver;
+        if (issued.mode === "switch") {
+          const { generations } = untrack(() => cells());
+          const generation = (generations.get(issued.name) ?? 0) + 1;
+          generations.set(issued.name, generation);
+          guarded = (message) => {
+            if (
+              untrack(() => cells()).generations.get(issued.name) === generation
+            ) {
+              deliver(message);
+            }
+          };
+        }
         // SAFETY: CheckServices proved every command's requirements are in
         // the layer; the runner provides them plus the AtomRegistry.
         const run = Effect.catchCause(
           Effect.flatMap(issued.body(), (outcome) =>
             outcome === undefined
               ? Effect.void
-              : Effect.sync(() => deliver(outcome))
+              : Effect.sync(() => guarded(outcome))
           ),
           reportCause
         ) as Effect.Effect<void, never, Layer.Success<L> | AtomRegistry>;
@@ -455,8 +476,16 @@ export const defineComponent = <
           before,
           liveProps
         );
-        // SAFETY: the tag-selected handler receives exactly its variant message.
-        const out = handler(dollar as never, message as never);
+        let out: Model | Step<Model, Msg, unknown, Events>;
+        try {
+          // SAFETY: the tag-selected handler receives exactly its variant message.
+          out = handler(dollar as never, message as never);
+        } catch (error) {
+          // An update throw is a defect like a command failure: log it and
+          // keep the last model, so the instance stays interactive.
+          Effect.runSync(Effect.logError(Cause.pretty(Cause.die(error))));
+          return;
+        }
         // SAFETY: a non-step return is the bare model; the handler type guarantees it.
         const step = isStepValue(out)
           ? out
@@ -546,11 +575,24 @@ export const defineComponent = <
       const subEffect: Effect.Effect<
         void,
         never,
-        Layer.Success<L> | AtomRegistry
-      > = Stream.runForEach(untrack(() => merged()).stream, (message) =>
-        Effect.catchCause(
-          Effect.sync(() => dispatch(message)),
-          reportCause
+        Layer.Success<L> | AtomRegistry | Scope.Scope
+      > = Effect.flatMap(Queue.unbounded<Msg>(), (outbox) =>
+        Stream.runForEach(
+          Stream.mergeAll(
+            [
+              Stream.fromQueue(outbox),
+              Atom.toStream(combo.atom).pipe(
+                Stream.tap((latest) => manageEntries(latest, outbox)),
+                Stream.flatMap(() => Stream.empty)
+              ),
+            ],
+            { concurrency: "unbounded" }
+          ),
+          (message) =>
+            Effect.catchCause(
+              Effect.sync(() => dispatch(message)),
+              reportCause
+            )
         )
       );
 
@@ -618,6 +660,24 @@ export const defineComponent = <
           helpers.alive = false;
         };
       });
+
+      // Read the model after client start-up: a synchronously resolving
+      // init command dispatches before render deps subscribe, so reading
+      // here paints the post-command model (mirrors main's
+      // `view(state(), dispatch)` after `watch.once`).
+      const model = state();
+      const { props } = untrack(() => propsState());
+      const subs = impl.subscriptions?.(model, props) ?? [];
+      const seen = new Set<string>();
+      for (const sub of subs) {
+        if (seen.has(sub.name)) {
+          throw new Error(
+            `${definition.name}: duplicate subscription "${sub.name}"`
+          );
+        }
+        seen.add(sub.name);
+      }
+      combo.set({ model, props, subs });
 
       // SAFETY: the implementation covers both `send` overloads; the cast restores them for views.
       const send = ((input: Msg | SendMapper<Msg>): ((arg?: never) => void) => {

@@ -44,17 +44,16 @@ export const createVNode = (
 export interface HFn {
   <K extends keyof JSX.IntrinsicElements>(
     type: K,
-    props: JSX.IntrinsicElements[K] | null,
+    props: JSX.IntrinsicElements[K] | null | undefined,
     ...rest: View[]
   ): VNode;
-  (type: `${string}-${string}`, props: PropBag | null, ...rest: View[]): VNode;
   <P>(
     type: (props: P) => ReturnType<JsxComponent>,
     props: P | null | undefined,
     ...rest: View[]
   ): VNode;
   (
-    type: Fragment | ComponentFn | JsxComponent,
+    type: `${string}-${string}` | Fragment | ComponentFn | JsxComponent,
     props: PropBag | null | undefined,
     ...rest: View[]
   ): VNode;

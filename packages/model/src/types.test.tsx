@@ -5,6 +5,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { render } from "ilha/test";
 
 import { Command, defineComponent } from "./index";
+import { Story } from "./test";
 
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 const Msg = Schema.TaggedUnion({
@@ -133,6 +134,14 @@ describe("types", () => {
     // @ts-expect-error -- props are required when a props schema is given
     render(() => <Counter />);
     render(() => <Bare />);
+    const withProps = Story.make(Counter, { label: "x" });
+    expect(withProps.model).toEqual({ count: 0 });
+    expect(() =>
+      // @ts-expect-error -- props are required when a props schema is given
+      Story.make(Counter)
+    ).toThrow();
+    const bare = Story.make(Bare);
+    expect(bare.model).toEqual({ count: 0 });
     ui.unmount();
   });
 });

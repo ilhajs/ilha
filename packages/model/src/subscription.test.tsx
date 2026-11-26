@@ -182,4 +182,55 @@ describe("subscriptions", () => {
     expect(String(ui.errors[0]?.message)).toMatch(/duplicate subscription/u);
     ui.unmount();
   });
+
+  it("keeps an entry running when the name set changes around it", async () => {
+    const FlipMsg = Schema.TaggedUnion({ Flip: {} });
+    let runsA = 0;
+    const A = Subscription.make(
+      "a",
+      Stream.unwrap(
+        Effect.as(
+          Effect.sync(() => {
+            runsA += 1;
+          }),
+          Stream.never
+        )
+      )
+    );
+    const B = Subscription.make("b", Stream.empty);
+    const Flipper = defineComponent({
+      message: FlipMsg,
+      model: Schema.Struct({ extra: Schema.Boolean }),
+      name: "Flipper",
+    }).make({
+      init: () => ({ extra: false }),
+      subscriptions: (model) => (model.extra ? [A, B] : [A]),
+      update: {
+        Flip: ($) => $.evolve({ extra: (extra) => !extra }),
+      },
+      view: (h, model) => (
+        <div>
+          <output>{model.extra ? "on" : "off"}</output>
+          <button
+            data-testid="flip"
+            onclick={h.send(FlipMsg.cases.Flip.make({}))}
+          >
+            flip
+          </button>
+        </div>
+      ),
+    });
+    runsA = 0;
+    const ui = render(() => <Flipper />);
+    await ui.settled();
+    expect(runsA).toBe(1);
+    await ui.click('[data-testid="flip"]');
+    await poll(() => ui.text().includes("on"));
+    await ui.click('[data-testid="flip"]');
+    await poll(() => ui.text().includes("off"));
+    await Bun.sleep(50);
+    expect(runsA).toBe(1);
+    expect(ui.errors).toEqual([]);
+    ui.unmount();
+  });
 });
