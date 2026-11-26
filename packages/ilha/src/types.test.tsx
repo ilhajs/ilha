@@ -24,6 +24,7 @@ import type {
   WatchContext,
 } from "./types.ts";
 import { unsafe } from "./unsafe.ts";
+import { h } from "./vnode.ts";
 
 const click: NonNullable<JSX.IntrinsicElements["button"]["onclick"]> = (e) => {
   void e.currentTarget.disabled;
@@ -162,6 +163,30 @@ const typecheckJsxProps = (): void => {
   void badDivDisabled;
   void badPForm;
   void count;
+};
+
+const typecheckH = (): void => {
+  const button = h("button", { onclick: click, type: "button" }, "go");
+  const labelled = h(
+    "div",
+    { "aria-label": "close", "data-testid": "close-button" },
+    "x"
+  );
+  const widget = h("my-widget", { anything: "goes" }, "slot");
+  const item = h(KeyedItem, { id: "a" });
+  // @ts-expect-error unknown tags are compile errors, exactly as in JSX.
+  const bogus = h("bogus", null, "x");
+  // @ts-expect-error misspelt attributes are compile errors, exactly as in JSX.
+  const misspelt = h("div", { clas: "card" }, "x");
+  // @ts-expect-error wrongly typed handlers are compile errors, exactly as in JSX.
+  const badHandler = h("button", { onclick: "alert(1)" }, "x");
+  void button;
+  void labelled;
+  void widget;
+  void item;
+  void bogus;
+  void misspelt;
+  void badHandler;
 };
 
 const ctxFn: WatchCallback<number> = (value, ctx) => {
@@ -333,6 +358,7 @@ const typecheckDebug = (): void => {
 describe("jsx types", () => {
   it("keeps type anchors importable", () => {
     expect(isFunction(typecheckJsxProps)).toBe(true);
+    expect(isFunction(typecheckH)).toBe(true);
     expect(isFunction(typecheckWatch)).toBe(true);
     expect(isFunction(typecheckUntrack)).toBe(true);
     expect(isFunction(typecheckUnsafe)).toBe(true);

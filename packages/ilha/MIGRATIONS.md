@@ -217,3 +217,22 @@ After:
 const save = atom(Atom.fn((draft: Draft) => saveDraft(draft)));
 save.set(draft);
 ```
+
+## h
+
+- Status: changed
+- Import: `ilha`
+- Replacement: h() is type-checked like JSX. Intrinsic tags take exactly their JSX props; unknown tags, misspelt attributes, and wrongly typed handlers are compile errors. Custom elements (`my-widget`) still take any props.
+- Docs: https://ilha.build/guide/recipes/h
+
+Before:
+
+```ts
+h("button", { onClick: "alert(1)" }, "x");
+```
+
+After:
+
+```ts
+h("button", { type: "button", onclick: () => go() }, "x");
+```

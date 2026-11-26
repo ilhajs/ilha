@@ -75,7 +75,7 @@
     },
     "packages/ilha": {
       "name": "ilha",
-      "version": "0.16.3",
+      "version": "0.17.0",
       "devDependencies": {
         "effect": "^4.1.0",
       },
@@ -89,7 +89,7 @@
       "devDependencies": {
         "@types/bun": "^1.4.4",
         "effect": "^4.1.4",
-        "ilha": "^0.16.3",
+        "ilha": "^0.17.0",
       },
       "peerDependencies": {
         "effect": "^4.1.4",
@@ -98,14 +98,14 @@
     },
     "packages/void": {
       "name": "@ilha/void",
-      "version": "0.1.7",
+      "version": "0.1.8",
       "devDependencies": {
-        "ilha": "^0.16.3",
+        "ilha": "^0.17.0",
         "vite": "^8.3.5",
         "void": "^1.3.0",
       },
       "peerDependencies": {
-        "ilha": ">=0.16.3",
+        "ilha": ">=0.17.0",
         "vite": "^8.0.0",
         "void": "^1.1.12",
       },
@@ -2379,7 +2379,13 @@
 
     "@esbuild-kit/esm-loader/get-tsconfig": ["get-tsconfig@4.14.3", "", { "dependencies": { "resolve-pkg-maps": "^1.0.0" } }, "sha512-++QEw4DIY7WGoukz+/+A/8dGYPT9l9yIadnmSgZ8Rjr3YVSVDipQSO9CdnJo9ePqFqUUqh+wk9uIaoiAwsiPkA=="],
 
+    "@ilha/astro/ilha": ["ilha@0.16.3", "", { "peerDependencies": { "effect": "^4.1.0" } }, "sha512-xQcY+Jcbgoi1xeF96ocluYFcWefXOHcL8x92Me2e6J0iqu61DakB+WReoa1Qq4j4cdSDXOiKnItX1dZon9mW+g=="],
+
     "@ilha/devtools/@ilha/model": ["@ilha/model@0.1.1", "", { "peerDependencies": { "effect": "^4.1.0", "ilha": ">=0.16.3" } }, "sha512-NrRfRXujZBAzxhtzjY9V8DxFllkkR5n6GFeeOeAX5s8K10rvxgS/NErTddoroxa4ALG+Gs7AYYogpaz3SfQH4g=="],
+
+    "@ilha/devtools/ilha": ["ilha@0.16.3", "", { "peerDependencies": { "effect": "^4.1.0" } }, "sha512-xQcY+Jcbgoi1xeF96ocluYFcWefXOHcL8x92Me2e6J0iqu61DakB+WReoa1Qq4j4cdSDXOiKnItX1dZon9mW+g=="],
+
+    "@ilha/template-void/ilha": ["ilha@0.16.3", "", { "peerDependencies": { "effect": "^4.1.0" } }, "sha512-xQcY+Jcbgoi1xeF96ocluYFcWefXOHcL8x92Me2e6J0iqu61DakB+WReoa1Qq4j4cdSDXOiKnItX1dZon9mW+g=="],
 
     "@img/sharp-wasm32/@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 

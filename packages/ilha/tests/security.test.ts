@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { atom, h, mount, renderToString } from "../src/index.ts";
+import type { VNode } from "../src/index.ts";
 
 // SAFETY: builds a javascript: URL for sanitizer coverage without a literal.
 const jsAlertHref = ["java", "script:", "alert(1)"].join("");
@@ -12,7 +13,7 @@ const jsStyleUrl = [
   "alert(1))",
 ].join("");
 
-const paint = (view: ReturnType<typeof h>): HTMLElement => {
+const paint = (view: VNode): HTMLElement => {
   const el = document.createElement("div");
   mount(el, function* appGen() {
     yield view;
@@ -91,12 +92,14 @@ test("filters string style values through the allowlist", () => {
 });
 
 test("drops mixed-case onClick string handlers", () => {
+  // @ts-expect-error onClick is not a known button prop; the runtime must drop it anyway.
   const el = paint(h("button", { onClick: "alert(1)" }, "x"));
   expect(el.querySelector("button")?.getAttribute("onClick")).toBeNull();
   expect(el.querySelector("button")?.getAttribute("onclick")).toBeNull();
 });
 
 test("drops invalid camelCase on-prefixed props", () => {
+  // @ts-expect-error onGo/onOK are not known div props; the runtime must drop them anyway.
   const el = paint(h("div", { onGo: "x", onOK: "y" }, "z"));
   const div = el.querySelector("div");
   if (!div) {
@@ -107,6 +110,7 @@ test("drops invalid camelCase on-prefixed props", () => {
 });
 
 test("keeps non-event once attribute", () => {
+  // @ts-expect-error once is not a known div prop; the runtime still paints unknown attributes.
   const el = paint(h("div", { once: "yes" }, "x"));
   expect(el.querySelector("div")?.getAttribute("once")).toBe("yes");
 });
