@@ -74,7 +74,7 @@ export const Counter = defineComponent({
   layer: Layer.empty, // optional
 });
 
-// parent view:  <Counter key="likes" props={{ label: "Likes" }} onEmit={h.send((e) => PageMsg.cases.Reached.make(e))} />
+// parent view:  <Counter key="likes" props={{ label: "Likes" }} onEmit={h.send((e) => PageMsg.cases.Reached.make({ count: e.count }))} />
 // root:         mount(host, () => <Counter props={{ label: "Likes" }} />)  — no root helper
 ```
 
@@ -83,7 +83,7 @@ Notes:
 - `$` in `init`/`update` has `props`, `set(model)`, `evolve(patch)` (each field a value or `(prev) => next`), `run(...issued)`, `emit(event)`; `update`'s `$` also has `model`. Handlers return a bare `Model` or a `Step`.
 - `h` in `view` is Ilha's `h` plus `props`, `send(message | (arg) => message | undefined)`, and reactive `isRunning(command)`.
 - `Command.make(name, body)` issues concurrently; `{ mode: "switch" }` interrupts the instance's running issue of the same command. Nothing runs during SSR; init commands run on the client after mount/hydration.
-- `Subscription.make(name, stream)` or `make(name, deps, (deps) => stream)`; deps compared with `Equal.equals`, restarted on change, stopped when removed.
+- `Subscription.make(name, stream)` or `make(name, (model, props) => deps, (deps) => stream)`; deps compared with `Equal.equals`, restarted on change, stopped when removed.
 - `layer` is built once per component per mounted root; instances of that component share its services.
 - Throws in `init`/`view` go through Ilha's normal error path (`ErrorBoundary` / mount `onError`); `update` throws and Command/Subscription defects are logged and the instance keeps its last model.
 
@@ -108,8 +108,7 @@ expect(story.model).toEqual({ count: 0 });
 | `update(model, message)` switch | `update` record, one handler per tag: `ClickedAdd: ($, { amount }) => ...` |
 | `{ model, cmd }` returns | `$` steps: `$.set(...)`, `$.evolve(...)`, `$.run(...)`, `$.emit(...)`; or return a bare model |
 | `keyed(key, cmd)` | `Command.make(name, { mode: "switch" }, body)` (`"concurrent"` is the default) |
-| `subscription({ deps, stream })` | `Subscription.make(name, deps, (deps) => stream)` |
+| `subscription({ deps, stream })` | `Subscription.make(name, (model, props) => deps, (deps) => stream)` |
 | `runCommands` / `simulate` in `@ilha/model/test` | `Story.make(Component, props?)` with `send` / `resolve` |
 | `foldChild` / `combine` submodels | child components with `props` + `onEmit` |
-| `Component.root`, typed `View<R>` | gone: mount a closure, `mount(host, () => <Counter props={...} />)` |
-| Query, Validation, MessageLog, `./devtools`, shares/reads, slots, keepAlive, lazy, Feature, provide, clientOnly, headless parts, Mount/Dom*/Keyboard/DomFiles/DomImages, TaggedEnum, standalone `evolve`, Scene/Play/TestHost/locators/ssr harness | gone |
+| `mount(host, app.component)` | `mount(host, () => <Counter props={...} />)` |
