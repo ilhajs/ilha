@@ -50,13 +50,17 @@ const composeTree = ({
   if (!page) {
     return null;
   }
+
   let view: View = h(page, { ...props, key: pageKey });
+
   for (let index = layouts.length - 1; index >= 0; index -= 1) {
     const layout = layouts[index];
+
     if (layout) {
       view = h(layout, null, view);
     }
   }
+
   return h(VoidContext.Provider, { value: state }, view);
 };
 
@@ -77,6 +81,7 @@ export const createPageRoot =
     const version = atom(0);
     connect?.(() => version.update((current) => current + 1));
     version();
+
     return composeTree(read());
   };
 
@@ -97,16 +102,21 @@ export const loadPageComponents = async ({
 }> => {
   const load = async (id: string): Promise<PageComponent> => {
     const importer = components[id];
+
     if (!importer) {
       throw new Error(`@ilha/void: no component registered for "${id}".`);
     }
+
     const mod = await importer();
+
     return mod.default;
   };
+
   const [page, ...layouts] = await Promise.all([
     load(componentId),
     ...(layoutTree[componentId] ?? []).map(load),
   ]);
+
   // SAFETY: Promise.all resolved at least the page entry.
   return { layouts, page: page as PageComponent };
 };

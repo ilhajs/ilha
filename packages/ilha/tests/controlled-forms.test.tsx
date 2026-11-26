@@ -6,6 +6,7 @@ import type { JSX } from "../src/jsx-types.ts";
 
 const ResetApp = () => {
   const text = atom("hello");
+
   return (
     <div>
       <input id="controlled" value={text()} />
@@ -23,9 +24,11 @@ test("controlled input resets to the rendered value", async () => {
   await Bun.sleep(10);
 
   const input = el.querySelector("#controlled");
+
   if (!(input instanceof HTMLInputElement)) {
     throw new TypeError("input missing");
   }
+
   expect(input.value).toBe("hello");
   // User edit lands in the live property only.
   input.value = "user edit";
@@ -39,6 +42,7 @@ test("controlled input resets to the rendered value", async () => {
 
 const ShiftApp = () => {
   const show = atom(false);
+
   return (
     <div>
       {show() ? <p id="extra">extra</p> : null}
@@ -61,9 +65,11 @@ test("conditional above an input does not shift the morph", async () => {
   await Bun.sleep(10);
 
   const input = el.querySelector("#below");
+
   if (!(input instanceof HTMLInputElement)) {
     throw new TypeError("input missing");
   }
+
   input.value = "typed";
   el.querySelector<HTMLButtonElement>("#toggle")?.click();
   await Bun.sleep(10);
@@ -84,6 +90,7 @@ test("conditional above an input does not shift the morph", async () => {
 
 const HydResetApp = () => {
   const text = atom("hello");
+
   return (
     <div>
       <input id="hyd-controlled" value={text()} />
@@ -105,9 +112,11 @@ test("controlled reset works after hydration", async () => {
   await Bun.sleep(10);
 
   const input = el.querySelector("#hyd-controlled");
+
   if (!(input instanceof HTMLInputElement)) {
     throw new TypeError("input missing");
   }
+
   input.value = "user edit";
   el.querySelector<HTMLButtonElement>("#hyd-reset")?.click();
   await Bun.sleep(10);
@@ -120,33 +129,41 @@ test("controlled reset works after hydration", async () => {
 const mountApp = async (App: () => JSX.Element, html?: string) => {
   const el = document.createElement("div");
   document.body.append(el);
+
   if (html !== undefined) {
     el.innerHTML = html;
   }
+
   const unmount = mount(el, App, { hydrate: html !== undefined });
   await Bun.sleep(10);
+
   const click = async (id: string) => {
     el.querySelector<HTMLButtonElement>(`#${id}`)?.click();
     await Bun.sleep(10);
   };
+
   const done = () => {
     unmount();
     el.remove();
   };
+
   return { click, done, el };
 };
 
 const field = <T extends Element>(root: Element, selector: string): T => {
   const node = root.querySelector(selector);
+
   if (!node) {
     throw new Error(`${selector} missing`);
   }
+
   // SAFETY: each test passes the selector of the element type it expects.
   return node as T;
 };
 
 const OptionSelectedApp = () => {
   const tick = atom(0);
+
   return (
     <div data-tick={tick()}>
       <select id="single">
@@ -182,9 +199,11 @@ test("controlled option selected={false} undoes a user pick", async () => {
   const multi = field<HTMLSelectElement>(el, "#multi");
   single.value = "b";
   const second = multi.options.item(1);
+
   if (!second) {
     throw new Error("option missing");
   }
+
   second.selected = true;
   await click("tick");
 
@@ -196,6 +215,7 @@ test("controlled option selected={false} undoes a user pick", async () => {
 const SelectValueApp = () => {
   const choice = atom("b");
   const tick = atom(0);
+
   return (
     <div data-tick={tick()}>
       <select id="controlled" value={choice()}>
@@ -248,6 +268,7 @@ test("select value={…} renders the matching option selected", async () => {
 const TextareaApp = () => {
   const text = atom("hello");
   const tick = atom(0);
+
   return (
     <div data-tick={tick()}>
       <textarea id="controlled" value={text()} />
@@ -300,6 +321,7 @@ test("textarea value={…} renders as text and hydrates", async () => {
 const UndefinedCheckedApp = () => {
   const tick = atom(0);
   const checked: boolean | undefined = undefined;
+
   return (
     <div data-tick={tick()}>
       <input id="box" type="checkbox" checked={checked} />

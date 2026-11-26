@@ -20,7 +20,9 @@ const fixtureDir = path.join(
   import.meta.dir,
   "../test-fixtures/ssr-single-ilha"
 );
+
 const fixtureModulesDir = path.join(fixtureDir, "node_modules");
+
 /** ilha entries that must never be split across copies in a server graph. */
 const SINGLETON_ENTRIES = {
   "@ilha/void": true,
@@ -37,11 +39,13 @@ const SINGLETON_ENTRIES = {
  */
 const stagePackageCopy = (name: string, sourceDir: string): void => {
   const dist = path.join(sourceDir, "dist");
+
   if (!existsSync(dist)) {
     throw new Error(
       `ssr-single-ilha fixture needs a build first: missing ${dist} (run \`bun run build\` from the repo root)`
     );
   }
+
   const target = path.join(fixtureModulesDir, name);
   mkdirSync(path.dirname(target), { recursive: true });
   rmSync(target, { force: true, recursive: true });
@@ -69,6 +73,7 @@ interface FixtureModule {
 /** The optimizer reports a mid-flight round as a reload, like a browser. */
 const outdatedNeedsReload = (error: unknown): error is Error =>
   error instanceof Error && error.message.includes("pre-bundle");
+
 /**
  * The happy-dom preload blankets the globals with browser ones; its
  * `setTimeout` has no `unref`, which Vite's optimizer calls. Unregistering
@@ -77,6 +82,7 @@ const outdatedNeedsReload = (error: unknown): error is Error =>
  */
 const withoutHappyDom = async <T>(run: () => Promise<T>): Promise<T> => {
   await GlobalRegistrator.unregister();
+
   try {
     return await run();
   } finally {
@@ -91,14 +97,17 @@ describe("dev SSR keeps a single ilha copy", () => {
       const voidDir = path.join(import.meta.dir, "..");
       stagePackageCopy("ilha", ilhaDir);
       stagePackageCopy("@ilha/void", voidDir);
+
       const voidPackageJson = createRequire(import.meta.url).resolve(
         "void/package.json"
       );
+
       stagePackageLink("void", import.meta.url);
       stagePackageLink("@void/edge", voidPackageJson);
       stagePackageLink("effect", path.join(ilhaDir, "package.json"));
 
       let server: ViteDevServer | undefined;
+
       try {
         server = await createServer({
           environments: {
@@ -128,21 +137,25 @@ describe("dev SSR keeps a single ilha copy", () => {
           load: () => Promise<T>
         ): Promise<T> => {
           let last: unknown;
+
           for (let attempt = 0; attempt <= 20; attempt += 1) {
             try {
               // oxlint-disable-next-line no-await-in-loop -- attempts run sequentially; each depends on the last outcome.
               return await load();
             } catch (error) {
               last = error;
+
               if (!outdatedNeedsReload(error)) {
                 throw error;
               }
+
               // Real waits: the dev server and esbuild optimizer run on the
               // live event loop; fake timers would freeze the work polled here.
               // oxlint-disable-next-line no-await-in-loop -- backoff between sequential attempts.
               await Bun.sleep(500);
             }
           }
+
           throw last;
         };
 
@@ -150,26 +163,34 @@ describe("dev SSR keeps a single ilha copy", () => {
         const settleWorkerOptimizer = async (): Promise<void> => {
           let stable = 0;
           let previous = "";
+
           for (let attempt = 0; attempt < 120; attempt += 1) {
             const metadata = worker.depsOptimizer?.metadata;
+
             const current =
               metadata === undefined
                 ? "none"
                 : `${metadata.hash}:${Object.keys(metadata.optimized).length}`;
+
             stable = current === previous ? stable + 1 : 0;
             previous = current;
+
             if (stable >= 4) {
               return;
             }
+
             // oxlint-disable-next-line no-await-in-loop -- polls a live condition until stable.
             await Bun.sleep(250);
           }
+
           throw new Error("worker optimizer never settled");
         };
+
         const optimizedSingletons = (): string[] =>
           Object.keys(worker.depsOptimizer?.metadata?.optimized ?? {}).filter(
             (id) => Object.hasOwn(SINGLETON_ENTRIES, id)
           );
+
         // Prime the renderer chain first, as void's routes load before page
         // components. Without the plugin fix this round prebundles
         // `@ilha/void/server` with its own inlined ilha copy.
@@ -181,12 +202,14 @@ describe("dev SSR keeps a single ilha copy", () => {
         const entry = (await withReloadRetry(() =>
           runner.import("/entry-server.ts")
         )) as FixtureModule;
+
         const assertRenders = async (): Promise<void> => {
           const html = await withReloadRetry(() => entry.renderFixture());
           expect(html).toContain("Fixture");
           expect(html).toContain('class="home"');
           expect(html).toContain(">3<");
         };
+
         await assertRenders();
         expect(optimizedSingletons()).toEqual([]);
         await assertRenders();

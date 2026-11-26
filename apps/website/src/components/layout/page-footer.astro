@@ -14,12 +14,15 @@ const norm = (id: string) =>
   String(id)
     .replace(/^filesystem:/u, "")
     .replace(/\.(?<ext>mdx|md)$/u, "");
+
 const routeById = new Map(data.routes.map((r) => [norm(r.id), r.path]));
 
 const collection = await getCollection("docs");
+
 const posts = collection.filter(
   (entry) => entry.data.type === "blog" && !entry.data.draft,
 );
+
 const post = posts.find((entry) => routeById.get(norm(entry.id)) === route);
 
 interface Author {
@@ -30,12 +33,14 @@ interface Author {
 }
 
 type AuthorScalar = string | number | boolean | null | undefined;
+
 interface AuthorFields {
   readonly name?: AuthorScalar;
   readonly url?: AuthorScalar;
   readonly x?: AuthorScalar;
   readonly github?: AuthorScalar;
 }
+
 type RawAuthor = string | AuthorFields;
 
 const isStringValue = (value: AuthorScalar | RawAuthor): value is string =>
@@ -45,6 +50,7 @@ const optionalString = (value: AuthorScalar): string | undefined => {
   if (isStringValue(value)) {
     return value;
   }
+
   return undefined;
 };
 
@@ -52,6 +58,7 @@ const parseAuthor = (rawAuthor: RawAuthor): Author => {
   if (isStringValue(rawAuthor)) {
     return { name: rawAuthor };
   }
+
   return {
     github: optionalString(rawAuthor.github),
     name: String(rawAuthor.name ?? ""),
@@ -62,23 +69,28 @@ const parseAuthor = (rawAuthor: RawAuthor): Author => {
 
 const raw = post?.data?.authors ?? null;
 let authorList: RawAuthor[] = [];
+
 if (raw !== null) {
   // SAFETY: blog frontmatter authors are strings or author field objects
   authorList = Array.isArray(raw)
     ? (raw as RawAuthor[])
     : [raw as RawAuthor];
 }
+
 const authors: Author[] = authorList.map(parseAuthor);
 
 const iconClass =
   "inline-flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
 let dateStr = "";
+
 if (post?.data?.date) {
   const dateValue = post.data.date;
+
   // SAFETY: Blume blog frontmatter dates are ISO strings when not already Date
   const date =
     dateValue instanceof Date ? dateValue : new Date(dateValue as string);
+
   dateStr = new Intl.DateTimeFormat("en", { dateStyle: "long" }).format(date);
 }
 ---

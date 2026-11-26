@@ -19,6 +19,7 @@ const SITE = "https://ilha.build";
 
 const EXPORT_BLOCK =
   /export\s+(?<typeKeyword>type\s+)?\{(?<names>[^}]*)\}\s+from\s+"(?<from>[^"]+)";/gu;
+
 const LEADING_TYPE = /^type\s+/u;
 const COMMENT_STAR = /^\s*\* ?/u;
 const WHITESPACE = /\s+/gu;
@@ -150,10 +151,13 @@ const read = (file: string): string =>
 
 const parseExports = (source: string): ExportEntry[] => {
   const entries: ExportEntry[] = [];
+
   for (const match of source.matchAll(EXPORT_BLOCK)) {
     const { typeKeyword, names = "", from = "" } = match.groups ?? {};
+
     for (const raw of names.split(",")) {
       const name = raw.trim().replace(LEADING_TYPE, "");
+
       if (name) {
         entries.push({
           from,
@@ -163,6 +167,7 @@ const parseExports = (source: string): ExportEntry[] => {
       }
     }
   }
+
   return entries;
 };
 
@@ -172,28 +177,35 @@ const cleanDoc = (body: string): string => {
     .map((line) => line.replace(COMMENT_STAR, ""))
     .join("\n")
     .trim();
+
   const [paragraph = ""] = text.split(JSDOC_BREAK);
   const flat = paragraph.replaceAll(WHITESPACE, " ").trim();
+
   return SENTENCE_END.exec(flat)?.groups?.sentence ?? flat;
 };
 
 const jsdocFor = (name: string, from: string): string | undefined => {
   const source = read(path.join("src", from));
+
   const pattern = new RegExp(
     `/\\*\\*(?<body>(?:(?!\\*/)[\\s\\S])*?)\\*/\\s*export\\s+(?:const|interface|type|function)\\s+${name}\\b`,
     "u"
   );
+
   const body = pattern.exec(source)?.groups?.body;
+
   return body === undefined ? undefined : cleanDoc(body);
 };
 
 const describe = ({ name, from }: ExportEntry): string => {
   const summary = jsdocFor(name, from) ?? SUMMARY_BY_NAME.get(name);
+
   if (summary === undefined) {
     throw new Error(
       `agent-docs: export "${name}" (${from}) has no JSDoc and no entry in SUMMARIES.`
     );
   }
+
   return summary;
 };
 
@@ -204,6 +216,7 @@ const pkg: { version: string } = JSON.parse(read("package.json"));
 const entries = parseExports(read("src/index.ts"));
 const values = entries.filter((e) => !e.isType).toSorted(byName);
 const types = entries.filter((e) => e.isType).toSorted(byName);
+
 // Contract exports that live outside the `export ... from` blocks.
 for (const extra of ["IlhaError"]) {
   if (!values.some((e) => e.name === extra)) {
@@ -216,6 +229,7 @@ const apiLines = values.map((e) => `- \`${e.name}\` — ${describe(e)}`);
 const typeLine = types.map((e) => `\`${e.name}\``).join(", ");
 const canonicalRows = CANONICAL.map(([task, api]) => `| ${task} | ${api} |`);
 const subpathLines = SUBPATHS.map((s) => `- \`${s.name}\` — ${s.summary}`);
+
 const errorRows = ERROR_CODES.map(
   ([code, text]) => `| [${code}](${SITE}/errors/${code}) | ${text} |`
 );
@@ -370,9 +384,11 @@ const formatMarkdown = async (
   content: string
 ): Promise<string> => {
   const { code, errors } = await format(file, content, formatConfig);
+
   if (errors.length > 0) {
     throw new Error(`agent-docs: oxfmt failed on ${file}.`);
   }
+
   return code;
 };
 
@@ -384,20 +400,25 @@ const targets: readonly (readonly [string, string])[] = [
 
 const check = process.argv.includes("--check");
 let stale = false;
+
 for (const [file, content] of targets) {
   const target = path.join(ROOT, file);
+
   if (check) {
     let current = "";
+
     try {
       current = readFileSync(target, "utf-8");
     } catch {
       current = "";
     }
+
     stale ||= current !== content;
   } else {
     writeFileSync(target, content);
   }
 }
+
 if (stale) {
   throw new Error(
     "agent-docs: a generated file is stale. Run `bun run build`."

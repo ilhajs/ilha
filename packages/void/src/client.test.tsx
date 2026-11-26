@@ -21,6 +21,7 @@ let visitsSeed = 3;
 
 const Layout = ({ children }: { children?: View }): View => {
   const clicks = atom(0);
+
   return (
     <div class="layout">
       <button class="layout-clicks" onclick={() => clicks.update((n) => n + 1)}>
@@ -37,6 +38,7 @@ const Layout = ({ children }: { children?: View }): View => {
 const UserPage = ({ name }: { name: string }): View => {
   const { id } = useParams<{ id: string }>();
   const visits = atom(visitsSeed);
+
   return (
     <p class="user">
       <span class="who">{`${name} #${id}`}</span>
@@ -47,6 +49,7 @@ const UserPage = ({ name }: { name: string }): View => {
 
 const FormPage = (): View => {
   const form = useForm("/form", { text: "" });
+
   return (
     <Form class="todo" form={form}>
       <input
@@ -62,6 +65,7 @@ const FormPage = (): View => {
 
 const Counter = ({ start }: { start: number }): View => {
   const count = atom(start);
+
   return (
     <button type="button" onclick={() => count.update((n) => n + 1)}>
       {count}
@@ -79,9 +83,11 @@ const layoutTree = { form: ["layout:root"], "users/[id]": ["layout:root"] };
 
 const matchRoute = (url: string): string | null => {
   const { pathname } = new URL(url, "http://x");
+
   if (pathname === "/form") {
     return "form";
   }
+
   return pathname.startsWith("/users/") ? "users/[id]" : null;
 };
 
@@ -126,12 +132,15 @@ const pageEndpoint = (
   // Void sends JSON bodies as strings; multipart bodies don't occur here.
   const body = String(init?.body ?? "") || undefined;
   requests.push({ body, method, url: url.pathname });
+
   if (url.pathname === "/form") {
     const submitted: { text?: string } = body ? JSON.parse(body) : {};
+
     return Promise.resolve(
       respond(formPage(submitted.text ? null : { text: "Required" }))
     );
   }
+
   return Promise.resolve(
     respond(userPage(url.pathname.split("/").at(-1) ?? ""))
   );
@@ -149,6 +158,7 @@ describe("startPages", () => {
       userPage("7"),
       noAssets
     );
+
     setLocation("http://localhost:3000/users/7");
     document.body.replaceChildren(
       ...[...parseDocument(html).body.childNodes].map((node) =>
@@ -228,11 +238,13 @@ describe("startPages", () => {
         })(),
       }),
     });
+
     try {
       await router?.visit("/users/10", { viewTransition: true });
     } finally {
       Reflect.deleteProperty(document, "startViewTransition");
     }
+
     expect(seen).toEqual(["User 10 #10"]);
   });
 
@@ -250,9 +262,11 @@ describe("startPages", () => {
 
   it("marks a successful submit and clears errors", async () => {
     const input = document.querySelector<HTMLInputElement>("form.todo input");
+
     if (!input) {
       throw new Error("form input missing");
     }
+
     input.value = "milk";
     input.dispatchEvent(new Event("input", { bubbles: true }));
     await settle();
@@ -268,6 +282,7 @@ describe("startPages", () => {
 describe("mountIsland", () => {
   it("hydrates an island from its marker and snapshot", async () => {
     const Island = createIsland(Counter, { hydrate: "load", id: "counter" });
+
     const html = await createPageRenderer({
       components: { page: pageModule(() => <Island start={4} />) },
       layoutTree: {},
@@ -282,11 +297,14 @@ describe("mountIsland", () => {
       },
       noAssets
     );
+
     const marker =
       parseDocument(html).querySelector<HTMLElement>("[data-island]");
+
     if (!marker) {
       throw new Error("island marker missing");
     }
+
     const host = document.importNode(marker, true);
     document.body.replaceChildren(host);
 

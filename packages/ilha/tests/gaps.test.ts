@@ -78,6 +78,7 @@ test("keyed atom list reuses and drops", async () => {
       h("li", { key: "a" }, "a"),
       h("li", { key: "b" }, "b"),
     ]);
+
     yield h("ul", null, items);
     yield Effect.sleep(15);
     items.set([h("li", { key: "b" }, "b"), h("li", { key: "c" }, "c")]);
@@ -98,6 +99,7 @@ test("keyed function children reuse holes", async () => {
       h(Item, { key: "a", label: "a" }),
       h(Item, { key: "b", label: "b" }),
     ]);
+
     yield h("ul", null, items);
     yield Effect.sleep(15);
     items.set([
@@ -121,6 +123,7 @@ test("Atom.fn waiting keeps previous view", async () => {
   mount(el, () => {
     const save = atom(Atom.fn(() => Effect.sleep(20).pipe(Effect.as("done"))));
     box.set = (n) => save.set(n);
+
     return h("p", null, save);
   });
   await Bun.sleep(5);
@@ -146,6 +149,7 @@ test("selected={atom} on option", async () => {
   const el = document.createElement("div");
   mount(el, () => {
     const on = atom(true);
+
     return h("select", null, h("option", { selected: on }, "x"));
   });
   await Bun.sleep(10);
@@ -169,6 +173,7 @@ test("hydrate empty host full mounts", async () => {
 
 const HydrateApp = () => {
   const n = atom(0);
+
   return h("p", null, n);
 };
 
@@ -186,6 +191,7 @@ test("hydrate from state template", async () => {
 
 const NestedHydrateApp = () => {
   const n = atom(0);
+
   return h("p", null, n);
 };
 
@@ -208,10 +214,12 @@ test("markers off snapshot uses escaped template state", async () => {
   const html = await renderToString(
     () => {
       const n = atom(2);
+
       return h("p", null, n);
     },
     { markers: false }
   );
+
   expect(html.startsWith('<template data-ilha-state="')).toBe(true);
   expect(html).toContain("&quot;v&quot;:[2]");
   expect(html).not.toContain("<!--ilha-state:");

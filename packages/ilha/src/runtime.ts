@@ -78,14 +78,17 @@ export const getActiveFiber = (): FiberLocal | undefined =>
 // without it may bind to the wrong island when another mount is on the stack.
 export const getFiber = (): FiberLocal => {
   const f = getActiveFiber();
+
   if (!f) {
     throw ilhaError("ILHA001");
   }
+
   return f;
 };
 
 export const withFiber = <A>(fiber: FiberLocal, fn: () => A): A => {
   stack.push(fiber);
+
   try {
     return fn();
   } finally {
@@ -97,15 +100,19 @@ export const withFiber = <A>(fiber: FiberLocal, fn: () => A): A => {
 export const clearFiberView = (fiber: FiberLocal): void => {
   fiber.renderSub?.();
   fiber.renderSub = undefined;
+
   for (const slot of fiber.watchSlots ?? []) {
     slot?.dispose();
   }
+
   for (const release of fiber.primitiveHolds ?? []) {
     release();
   }
+
   for (const h of fiber.holes) {
     h.dispose();
   }
+
   fiber.watchSlots = [];
   fiber.watchI = 0;
   fiber.primitives = undefined;
@@ -119,6 +126,7 @@ export const closeFiber = (fiber: FiberLocal): void => {
   if (fiber.closed) {
     return;
   }
+
   fiber.closed = true;
   fiber.trackRestore?.();
   fiber.handleError = undefined;
@@ -135,6 +143,7 @@ export const makeRuntime = (opts?: {
   const scope = Scope.makeUnsafe();
   let pending = 0;
   let onIdle: (() => void) | undefined;
+
   const runtime: IlhaRuntime = {
     begin: () => {
       pending += 1;
@@ -146,6 +155,7 @@ export const makeRuntime = (opts?: {
     },
     end: () => {
       pending -= 1;
+
       if (pending === 0) {
         onIdle?.();
       }
@@ -169,6 +179,7 @@ export const makeRuntime = (opts?: {
     scope,
     setIdle: (onReady) => {
       onIdle = onReady;
+
       if (pending === 0) {
         onReady();
       }
@@ -176,6 +187,7 @@ export const makeRuntime = (opts?: {
     ssr: opts?.ssr === true,
     ssrValues: [],
   };
+
   return runtime;
 };
 
@@ -184,9 +196,11 @@ const reportFiberError = (fiber: FiberLocal, error: Error): boolean => {
   for (let f: FiberLocal | undefined = fiber; f; f = f.parent) {
     if (f.handleError) {
       f.handleError(error);
+
       return true;
     }
   }
+
   return false;
 };
 
@@ -204,9 +218,11 @@ export const makeFiber = (
     closed: false,
     fail: (e) => {
       const error = toError(e);
+
       if (reportFiberError(fiber, error)) {
         return;
       }
+
       runtime.onError?.(error);
       console.error(error);
       fiber.paint(errorView(error));
@@ -227,9 +243,11 @@ export const makeFiber = (
       if (fiber.closed) {
         return noop;
       }
+
       if (onOk) {
         runtime.begin();
       }
+
       const child = runtime.fork(
         Effect.forkIn(
           effect.pipe(
@@ -238,9 +256,11 @@ export const makeFiber = (
                 if (onOk) {
                   runtime.end();
                 }
+
                 if (fiber.closed) {
                   return;
                 }
+
                 if (Exit.isSuccess(exit)) {
                   if (onOk) {
                     withFiber(fiber, () => onOk(exit.value));
@@ -256,10 +276,12 @@ export const makeFiber = (
           { startImmediately: true }
         )
       );
+
       return () => child.interruptUnsafe();
     },
     runtime,
     scope: Scope.forkUnsafe(runtime.scope),
   };
+
   return fiber;
 };

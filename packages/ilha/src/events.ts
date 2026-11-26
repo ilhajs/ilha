@@ -25,20 +25,25 @@ export const eventTypeFromProp = (key: string): string | undefined =>
 /** One native listener per type; it reads the latest handler at dispatch. */
 const listen = (el: IlhaNode, type: string): void => {
   el.__ilhaEvents ??= new Set();
+
   if (el.__ilhaEvents.has(type)) {
     return;
   }
+
   el.__ilhaEvents.add(type);
   el.addEventListener(type, (ev) => {
     const fiber = el.__ilhaFiber;
     const fn = el.__ilhaHandlers?.get(type);
+
     if (!fiber || fiber.closed || !isFunction(fn)) {
       return;
     }
+
     // SAFETY: isFunction narrowed the prop to a callable event handler; a
     // handler may return an effect needing at most the AtomRegistry.
     const handler = fn as (event: Event) => HandlerResult;
     const out = handler(ev);
+
     if (Effect.isEffect(out)) {
       fiber.run(out);
     }
@@ -52,6 +57,7 @@ const install = (
 ): void => {
   el.__ilhaHandlers = handlers;
   el.__ilhaFiber = fiber;
+
   for (const type of handlers?.keys() ?? []) {
     listen(el, type);
   }
@@ -63,12 +69,15 @@ export const bindEvents = (
   fiber: FiberLocal
 ): void => {
   const handlers = new Map<string, PropValue>();
+
   for (const [key, value] of Object.entries(props)) {
     const type = eventTypeFromProp(key);
+
     if (type && !handlers.has(type)) {
       handlers.set(type, value);
     }
   }
+
   install(el, handlers, fiber);
 };
 

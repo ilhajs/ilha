@@ -13,6 +13,7 @@ import { pageModule, parseDocument, setLocation, settle } from "./test-helpers";
 
 const CounterPage = ({ name }: { name: string }): View => {
   const count = atom(0);
+
   return (
     <div class="counter">
       <span class="name">{name}</span>
@@ -27,6 +28,7 @@ const components = { "users/[id]": pageModule(CounterPage) };
 
 const matchRoute = (url: string): string | null => {
   const { pathname } = new URL(url, "http://x");
+
   return pathname.startsWith("/users/") ? "users/[id]" : null;
 };
 
@@ -46,6 +48,7 @@ const respond = (page: PageObject): Response =>
 const pageEndpoint = (input: RequestInfo | URL): Promise<Response> => {
   const url = new URL(String(input), window.location.origin);
   const id = url.pathname.split("/").at(-1) ?? "";
+
   return Promise.resolve(respond(userPage(id, url.search)));
 };
 
@@ -61,6 +64,7 @@ describe("startPages preserveState", () => {
       userPage("7", ""),
       { body: "", css: "", preloads: "" }
     );
+
     setLocation("http://localhost:3000/users/7");
     document.body.replaceChildren(
       ...[...parseDocument(html).body.childNodes].map((node) =>

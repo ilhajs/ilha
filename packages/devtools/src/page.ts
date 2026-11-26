@@ -45,6 +45,7 @@ export interface IlhaDevtoolsHandle {
 
 const HIGHLIGHT_ATTR = "data-ilha-devtools-highlight";
 const HIGHLIGHT_MS = 5000;
+
 const HIGHLIGHT_STYLE = [
   "position:fixed",
   "pointer-events:none",
@@ -67,10 +68,13 @@ const boxOf = (el: Element): Box | undefined => {
     getComputedStyle(el).display === "contents"
       ? [...el.children].map((child) => child.getBoundingClientRect())
       : [el.getBoundingClientRect()];
+
   const sized = rects.filter((r) => r.width > 0 || r.height > 0);
+
   if (sized.length === 0) {
     return undefined;
   }
+
   return {
     bottom: Math.max(...sized.map((r) => r.bottom)),
     left: Math.min(...sized.map((r) => r.left)),
@@ -82,24 +86,30 @@ const boxOf = (el: Element): Box | undefined => {
 const createHighlighter = () => {
   let overlay: HTMLElement | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   const clear = (): void => {
     clearTimeout(timer);
     overlay?.remove();
     overlay = undefined;
   };
+
   const show = (el: Element): boolean => {
     clear();
     const box = boxOf(el);
+
     if (!box) {
       return false;
     }
+
     overlay = document.createElement("div");
     overlay.setAttribute(HIGHLIGHT_ATTR, "");
     overlay.style.cssText = `${HIGHLIGHT_STYLE};left:${box.left}px;top:${box.top}px;width:${box.right - box.left}px;height:${box.bottom - box.top}px`;
     document.body.append(overlay);
     timer = setTimeout(clear, HIGHLIGHT_MS);
+
     return true;
   };
+
   return { clear, show };
 };
 
@@ -149,9 +159,12 @@ export const installIlhaDevtools = (
   const highlight = (id: string | null): boolean => {
     if (id === null) {
       highlighter.clear();
+
       return true;
     }
+
     const el = element(id);
+
     return el === undefined ? false : highlighter.show(el);
   };
 
@@ -169,20 +182,25 @@ export const installIlhaDevtools = (
           : "The message log is still loading; call modelLog again in a moment.",
       };
     }
+
     const atoms = atomsOf(id);
+
     if (atoms === undefined) {
       return {
         ok: false,
         reason: `No live component has id "${id}". Call inspect() again.`,
       };
     }
+
     const entries = log.read(atoms);
+
     if (entries === undefined) {
       return {
         ok: false,
         reason: `Component "${id}" has no recorded messages. It is not a model island, or nothing dispatched yet.`,
       };
     }
+
     return { entries, ok: true };
   };
 
@@ -246,31 +264,40 @@ export const installIlhaDevtools = (
   });
   void (async () => {
     const loaded = await loadModelBridge();
+
     if (!active) {
       return;
     }
+
     if (loaded === undefined) {
       bridgeMissing = true;
+
       return;
     }
+
     recording = true;
     detachRecorder = loaded.attachModelRecorder(log.record);
   })();
 
   const mirror = async (): Promise<void> => {
     let last = JSON.stringify(inspect());
+
     const state = await channel.sharedState.get("tree", {
       initialValue: { json: last },
     });
+
     let queued = false;
+
     const stop = onChange(() => {
       if (queued) {
         return;
       }
+
       queued = true;
       queueMicrotask(() => {
         queued = false;
         const next = JSON.stringify(inspect());
+
         if (active && next !== last) {
           last = next;
           state.mutate((draft) => {
@@ -279,12 +306,14 @@ export const installIlhaDevtools = (
         }
       });
     });
+
     if (active) {
       disposers.push(stop);
     } else {
       stop();
     }
   };
+
   void mirror();
 
   if (options.webmcp !== false) {
@@ -297,10 +326,13 @@ export const installIlhaDevtools = (
     channel,
     dispose: () => {
       active = false;
+
       for (const dispose of disposers.splice(0)) {
         dispose();
       }
+
       channel.close();
+
       if (current === handle) {
         current = undefined;
       }
@@ -310,6 +342,8 @@ export const installIlhaDevtools = (
         ? window.open(url, "ilha-devtools", "popup,width=420,height=640")
         : null,
   };
+
   current = handle;
+
   return handle;
 };

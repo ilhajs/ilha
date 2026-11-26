@@ -13,20 +13,25 @@ type TestGen = () =>
 const run = (gen: TestGen) => {
   const frames: View[] = [];
   const runtime = makeRuntime();
+
   const fiber = makeFiber(runtime, document.createElement("div"), (_f, v) => {
     frames.push(v);
   });
+
   // SAFETY: TestGen is a GeneratorFn subset used by interpret.
   interpret(gen as GeneratorFn, fiber);
+
   return { fiber, frames, runtime };
 };
 
 test("yield Effect binds", async () => {
   let got: View | undefined;
+
   const { frames } = run(function* appGen() {
     got = yield Effect.succeed(1);
     yield String(got);
   });
+
   await Promise.resolve();
   expect(got).toBe(1);
   expect(frames).toEqual(["1"]);
@@ -37,6 +42,7 @@ test("yield a then yield b records frames", () => {
     yield "a";
     yield "b";
   });
+
   expect(frames).toEqual(["a", "b"]);
 });
 
@@ -46,6 +52,7 @@ test("sleep between frames", async () => {
     yield Effect.sleep(10);
     yield "b";
   });
+
   expect(frames).toEqual(["a"]);
   await Bun.sleep(20);
   expect(frames).toEqual(["a", "b"]);
@@ -58,6 +65,7 @@ test("interrupt during sleep skips b", async () => {
     yield Effect.sleep(50);
     yield "b";
   });
+
   fiber.closed = true;
   runtime.close();
   await Bun.sleep(80);

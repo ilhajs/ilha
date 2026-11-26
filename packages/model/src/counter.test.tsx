@@ -14,6 +14,7 @@ const Msg = Schema.TaggedUnion({
   CompletedReset: {},
   SetName: { name: Schema.String },
 });
+
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 type Msg = typeof Msg.Type;
 
@@ -53,6 +54,7 @@ const Counter = defineComponent({
         oninput={h.send((event: Event) => {
           // SAFETY: this input handler runs only on the <input> element.
           const { value } = event.target as HTMLInputElement;
+
           return value === ""
             ? undefined
             : Msg.cases.SetName.make({ name: value });
@@ -73,10 +75,13 @@ const poll = async (
   if (done()) {
     return;
   }
+
   if (Date.now() > deadline) {
     expect(done()).toBe(true);
+
     return;
   }
+
   await Bun.sleep(5);
   await poll(done, deadline);
 };
@@ -130,6 +135,7 @@ describe("counter", () => {
 
   it("routes view throws to onError", async () => {
     const errors: Error[] = [];
+
     const Broken = defineComponent({
       message: Msg,
       model: Schema.Struct({ count: Schema.Number }),
@@ -146,9 +152,11 @@ describe("counter", () => {
         throw new Error("view blew up");
       },
     });
+
     const ui = render(() => <Broken />, {
       onError: (error) => errors.push(error),
     });
+
     await ui.settled();
     expect(errors.length).toBe(1);
     expect(errors[0]?.message).toContain("view blew up");
@@ -157,6 +165,7 @@ describe("counter", () => {
 
   it("routes init throws to onError", async () => {
     const errors: Error[] = [];
+
     const BrokenInit = defineComponent({
       message: Msg,
       model: Schema.Struct({ count: Schema.Number }),
@@ -173,9 +182,11 @@ describe("counter", () => {
       },
       view: (_h, model) => <p>{model.count}</p>,
     });
+
     const ui = render(() => <BrokenInit />, {
       onError: (error) => errors.push(error),
     });
+
     await ui.settled();
     expect(errors.length).toBe(1);
     expect(errors[0]?.message).toContain("init blew up");

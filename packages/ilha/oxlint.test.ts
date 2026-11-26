@@ -24,6 +24,7 @@ const lint = async (source: string, { fix = false } = {}) => {
     config,
     JSON.stringify({ jsPlugins: [plugin], rules: RULES })
   );
+
   const proc = Bun.spawnSync(
     [
       "bunx",
@@ -41,14 +42,17 @@ const lint = async (source: string, { fix = false } = {}) => {
       stdout: "pipe",
     }
   );
+
   const out = proc.stdout.toString() || proc.stderr.toString();
   let messages: { ruleId?: string; message?: string }[] = [];
+
   try {
     const parsed = JSON.parse(out);
     messages = Array.isArray(parsed) ? parsed : (parsed.diagnostics ?? parsed);
   } catch {
     messages = [{ message: out }];
   }
+
   return { fixed: fix ? await Bun.file(file).text() : "", messages, raw: out };
 };
 
@@ -58,6 +62,7 @@ test("flags atom() at module top level", async () => {
     const count = atom(0);
     export default () => <p>{count}</p>;
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("no-primitive-outside-component");
 });
@@ -70,6 +75,7 @@ test("flags conditional primitives", async () => {
       return <p>hi</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("no-conditional-primitive");
 });
@@ -84,6 +90,7 @@ test("flags when() outside a generator", async () => {
       });
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("no-instruction-outside-generator");
 });
@@ -99,6 +106,7 @@ test("flags when() called without yield* inside a generator", async () => {
       yield <p>done</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("no-instruction-outside-generator");
 });
@@ -113,6 +121,7 @@ test("accepts yield* when() in a generator", async () => {
       });
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).not.toContain("no-instruction-outside-generator");
 });
@@ -121,6 +130,7 @@ test("flags camelCase event props", async () => {
   const { messages, raw } = await lint(`
     export default () => <button onClick={() => {}}>Go</button>;
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("prefer-lowercase-events");
 });
@@ -129,6 +139,7 @@ test("accepts lowercase event props", async () => {
   const { messages, raw } = await lint(`
     export default () => <button onclick={() => {}}>Go</button>;
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).not.toContain("prefer-lowercase-events");
 });
@@ -142,6 +153,7 @@ test("flags storing a function value in atom()", async () => {
       return <p>{cb()()}</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("function-in-atom");
 });
@@ -156,6 +168,7 @@ test("accepts Atom.transform for derived values", async () => {
       return <p>{total}</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).not.toContain("function-in-atom");
 });
@@ -170,6 +183,7 @@ test("accepts Atom.map for derived values", async () => {
       return <span>{pending}</span>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).not.toContain("function-in-atom");
 });
@@ -183,6 +197,7 @@ test("flags atom(() => ...) derived initializer", async () => {
       return <p>{total}</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("function-in-atom");
 });
@@ -196,6 +211,7 @@ test("ignores shadowed non-function bindings passed to atom()", async () => {
       return <p>{atom(save)}</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).not.toContain("function-in-atom");
 });
@@ -207,6 +223,7 @@ test("flags a primitive inside a nested callback", async () => {
       return <ul>{rows.map((row) => { const n = atom(row); return <li>{n}</li>; })}</ul>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("no-conditional-primitive");
   expect(blob).toContain("nested callback");
@@ -223,6 +240,7 @@ test("flags atom.lazy and watch.once in a loop", async () => {
       return <p>hi</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("atom.lazy() inside a condition");
   expect(blob).toContain("watch.once() inside a condition");
@@ -237,6 +255,7 @@ test("flags context() inside a condition", async () => {
       return <p>{theme}</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("no-conditional-primitive");
 });
@@ -251,6 +270,7 @@ test("flags a primitive after await", async () => {
       return <p>{first}{second}</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("after an await");
   expect(JSON.stringify(messages).match(/after an await/gu)?.length).toBe(1);
@@ -268,6 +288,7 @@ test("accepts primitives before await and in generator callbacks", async () => {
       await Promise.resolve();
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).not.toContain("no-conditional-primitive");
 });
@@ -283,6 +304,7 @@ test("flags and fixes React-style props on intrinsic elements", async () => {
   `,
     { fix: true }
   );
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).not.toContain("className");
   expect(fixed).toContain('class="x"');
@@ -295,6 +317,7 @@ test("reports React-style props with a fix hint", async () => {
   const { messages, raw } = await lint(`
     export default () => <div className="x" />;
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("no-react-props");
   expect(blob).toContain('Fix: use \\"class\\"');
@@ -305,6 +328,7 @@ test("accepts React-style props on component elements", async () => {
     import { Card } from "./card";
     export default () => <Card className="x" onClick={() => {}} />;
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).not.toContain("no-react-props");
   expect(blob).not.toContain("prefer-lowercase-events");
@@ -317,6 +341,7 @@ test("flags components returned from map() without a key", async () => {
       <ul>{items.map((item) => <Row item={item} />)}</ul>
     );
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("require-key-in-map");
 });
@@ -328,6 +353,7 @@ test("flags components returned from a map() block body without a key", async ()
       <ul>{items.map((item) => { return <Row item={item} />; })}</ul>
     );
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("require-key-in-map");
 });
@@ -342,6 +368,7 @@ test("accepts keyed components and intrinsic elements in map()", async () => {
       </ul>
     );
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).not.toContain("require-key-in-map");
 });
@@ -353,6 +380,7 @@ test("flags an inline function passed to atom() with a lazy hint", async () => {
       return <p>{atom(() => 1)}</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).toContain("function-in-atom");
   expect(blob).toContain("atom.lazy");
@@ -366,6 +394,7 @@ test("accepts atom.lazy(() => ...)", async () => {
       return <p>{n}</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).not.toContain("function-in-atom");
   expect(blob).not.toContain("no-conditional-primitive");
@@ -380,6 +409,7 @@ test("accepts a primitive in the always-evaluated side of ?? and ||", async () =
       return <p>{theme}</p>;
     }
   `);
+
   const blob = JSON.stringify(messages) + raw;
   expect(blob).not.toContain("no-conditional-primitive");
 });

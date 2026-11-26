@@ -51,8 +51,10 @@ test("an ErrorBoundary keeps a nested failure away from mount onError", async ()
   const logged = spyOn(console, "error").mockImplementation(() => {});
   const seen: Error[] = [];
   const caught: Error[] = [];
+
   const Guarded = () =>
     h(ErrorBoundary, { onError: (e: Error) => caught.push(e) }, Boom);
+
   const el = document.createElement("div");
   document.body.append(el);
   mount(el, Guarded, { onError: (e) => seen.push(e) });

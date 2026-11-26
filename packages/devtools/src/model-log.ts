@@ -48,10 +48,13 @@ const isDiffable = <T>(value: T): value is T & object => {
   if (!isObject(value)) {
     return false;
   }
+
   if (Array.isArray(value)) {
     return true;
   }
+
   const proto: unknown = Object.getPrototypeOf(value);
+
   return proto === null || proto === Object.prototype;
 };
 
@@ -75,9 +78,11 @@ const diffModel = <M>(before: M, after: M): ModelLogDiff => {
       before: safeSummarize(before),
     };
   }
+
   const prev = new Map<string, unknown>(Object.entries(before));
   const next = new Map<string, unknown>(Object.entries(after));
   const changed: Record<string, ModelLogFieldChange> = {};
+
   for (const field of new Set([...prev.keys(), ...next.keys()])) {
     if (
       !UNSAFE_KEY.test(field) &&
@@ -89,6 +94,7 @@ const diffModel = <M>(before: M, after: M): ModelLogDiff => {
       };
     }
   }
+
   return { _tag: "fields", changed };
 };
 
@@ -98,24 +104,29 @@ const diffModel = <M>(before: M, after: M): ModelLogDiff => {
  */
 export const createModelLog = (): ModelLog => {
   const buffers = new WeakMap<object, ModelLogEntry[]>();
+
   return {
     read: (atoms) => {
       const found = atoms.find((atom) => buffers.has(atom));
       const entries = found === undefined ? undefined : buffers.get(found);
+
       return entries === undefined ? undefined : [...entries];
     },
     record: ({ after, before, commands, instance, message }) => {
       let entries = buffers.get(instance);
+
       if (entries === undefined) {
         entries = [];
         buffers.set(instance, entries);
       }
+
       entries.push({
         at: Date.now(),
         commands,
         diff: diffModel(before, after),
         message: safeSummarize(message),
       });
+
       if (entries.length > MODEL_LOG_CAP) {
         entries.splice(0, entries.length - MODEL_LOG_CAP);
       }

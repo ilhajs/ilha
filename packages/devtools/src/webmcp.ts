@@ -78,6 +78,7 @@ const resolveModelContext = (): ModelContextLike | undefined => {
     "document" in globalThis ? (document as ModelContextHost) : {},
     "navigator" in globalThis ? (navigator as ModelContextHost) : {},
   ];
+
   return hosts.map((host) => host.modelContext).find(isModelContext);
 };
 
@@ -166,15 +167,20 @@ const buildTools = ({
 /** Register the tools; returns a dispose that removes them. */
 export const registerWebMcpTools = (tools: PageTools): (() => void) => {
   const context = resolveModelContext();
+
   if (!context) {
     return noop;
   }
+
   const controller = new AbortController();
+
   const registrations = buildTools(tools).map((tool) =>
     context.registerTool(tool, { signal: controller.signal })
   );
+
   return () => {
     controller.abort();
+
     for (const registration of registrations) {
       registration?.unregister?.();
     }

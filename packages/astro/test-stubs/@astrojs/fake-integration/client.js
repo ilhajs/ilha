@@ -3,5 +3,7 @@
 const hydrate = () => {
   /* empty */
 };
+
 export { hydrate };
+
 export default hydrate;

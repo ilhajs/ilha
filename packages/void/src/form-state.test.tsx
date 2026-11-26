@@ -7,6 +7,7 @@ import { VoidActionError } from "void/pages-client";
 import { formState } from "./form-state";
 import type { FormState } from "./form-state";
 import type { FieldErrors, FormValues } from "./types";
+
 /** Build form state in component scope and hand the test its handle. */
 const captureState = <T extends FormValues>(
   defaults: T,
@@ -14,13 +15,17 @@ const captureState = <T extends FormValues>(
 ) => {
   const host = document.createElement("div");
   let captured: FormState<T> | undefined;
+
   const dispose = mount(host, () => {
     captured = formState(defaults, globalErrors);
+
     return null;
   });
+
   if (!captured) {
     throw new Error("form-state probe did not render");
   }
+
   return { dispose, state: captured };
 };
 
@@ -130,6 +135,7 @@ describe("formState", () => {
       other: "global",
       text: "global",
     }));
+
     expect(state.fields.errors).toEqual({ other: "global", text: "global" });
     state.setErrors({ text: "local" });
     expect(state.fields.errors).toEqual({ text: "local" });

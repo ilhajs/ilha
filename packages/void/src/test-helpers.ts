@@ -20,6 +20,7 @@ export const setLocation = (url: string): void => {
   if (!("happyDOM" in window)) {
     throw new Error("setLocation needs the happy-dom test preload.");
   }
+
   // SAFETY: the happy-dom preload installs `window.happyDOM`.
   (window as typeof window & HappyDomWindow).happyDOM.setURL(url);
 };

@@ -20,10 +20,13 @@ const depthOf = (value: SnapshotValue | undefined): number => {
   if (!Array.isArray(value) && !isObject(value)) {
     return 0;
   }
+
   let max = 0;
+
   for (const child of Object.values(value)) {
     max = Math.max(max, depthOf(child));
   }
+
   return max + 1;
 };
 
@@ -35,7 +38,9 @@ export const decodeSnapshot = (raw: string): SnapshotValue[] | undefined => {
   if (raw.length > MAX_SNAPSHOT_CHARS) {
     return undefined;
   }
+
   let parsed: SnapshotValue | undefined;
+
   try {
     // The reviver drops prototype-polluting keys at every level.
     parsed = JSON.parse(raw, (k: string, v: SnapshotValue) =>
@@ -44,9 +49,12 @@ export const decodeSnapshot = (raw: string): SnapshotValue[] | undefined => {
   } catch {
     return undefined;
   }
+
   if (!isObject(parsed) || depthOf(parsed) > MAX_SNAPSHOT_DEPTH) {
     return undefined;
   }
+
   const values = "v" in parsed ? parsed.v : undefined;
+
   return Array.isArray(values) ? values : undefined;
 };

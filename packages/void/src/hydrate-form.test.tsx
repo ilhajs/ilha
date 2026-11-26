@@ -13,6 +13,7 @@ import { useForm } from "./use-form";
 
 const Todos = ({ todos }: { todos: string[] }): View => {
   const form = useForm("/", { text: "" });
+
   return (
     <section>
       <ul>
@@ -35,6 +36,7 @@ const Todos = ({ todos }: { todos: string[] }): View => {
 };
 
 const components = { index: pageModule(Todos) };
+
 const page = (todos: string[]): PageObject => ({
   component: "index",
   errors: null,
@@ -50,9 +52,11 @@ let todos: string[] = ["a"];
 /** Submit the page's form and assert the router, not the browser, handled it. */
 const submitAndCheck = async (): Promise<void> => {
   const form = document.querySelector("form");
+
   if (!form) {
     throw new Error("form missing");
   }
+
   const event = new Event("submit", { bubbles: true, cancelable: true });
   form.dispatchEvent(event);
   await settle();
@@ -64,6 +68,7 @@ it("form submit stays prevented after hydration and router rerenders", async () 
     page(todos),
     { body: "", css: "", preloads: "" }
   );
+
   setLocation("http://localhost:3000/");
   document.body.replaceChildren(
     ...[...parseDocument(html).body.childNodes].map((node) =>
@@ -75,6 +80,7 @@ it("form submit stays prevented after hydration and router rerenders", async () 
     if ((init?.method ?? "GET") === "POST") {
       todos = [...todos, "b"];
     }
+
     return Promise.resolve(
       Response.json(page(todos), { headers: { "X-VoidPages": "true" } })
     );

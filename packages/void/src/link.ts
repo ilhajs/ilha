@@ -8,6 +8,7 @@ import { VoidContext } from "./context";
 import type { FormValues } from "./types";
 
 export type PrefetchStrategy = "hover" | "click" | "mount" | "visible";
+
 export type LinkMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 type Handler<E extends Event> = (event: E) => void;
@@ -58,9 +59,11 @@ const strategiesOf = ({
   if (prefetch === undefined || prefetch === false || reloadDocument) {
     return [];
   }
+
   if (prefetch === true) {
     return ["hover"];
   }
+
   return isStrategyList(prefetch) ? prefetch : [prefetch];
 };
 
@@ -98,6 +101,7 @@ export const shouldInterceptClick = (
   ) {
     return false;
   }
+
   return true;
 };
 
@@ -105,6 +109,7 @@ const unlessPrevented =
   <E extends Event>(handler: Handler<E> | undefined, then: () => void) =>
   (event: E): void => {
     handler?.(event);
+
     if (!event.defaultPrevented) {
       then();
     }
@@ -137,20 +142,25 @@ export const Link = (props: LinkProps): View => {
     viewTransition,
     ...attributes
   } = props;
+
   const router = context(VoidContext)()?.router ?? null;
   // SAFETY: method is a LinkMethod in either case; uppercasing normalizes it.
   const verb = method.toUpperCase() as LinkMethod;
   const isGet = verb === "GET";
   const strategies = strategiesOf(props);
+
   if (strategies.length > 0 && !isGet) {
     throw new Error(
       'Link: prefetch only supports GET links. Remove `prefetch` or use method="GET".'
     );
   }
+
   if (reloadDocument && !isGet) {
     throw new Error("Link: reloadDocument only supports GET links.");
   }
+
   const target = isGet ? mergeDataIntoHref(href, data) : href;
+
   const timers = atom.lazy((): LinkTimers => ({}), {
     snapshot: false,
   });
@@ -168,6 +178,7 @@ export const Link = (props: LinkProps): View => {
     if (globalThis.window !== undefined && strategies.includes("mount")) {
       runPrefetch();
     }
+
     return () => {
       clearTimeout(timers().hover);
       timers().observer?.disconnect();
@@ -176,6 +187,7 @@ export const Link = (props: LinkProps): View => {
 
   const handleClick = (event: MouseEvent): void => {
     onclick?.(event);
+
     // Rechecked only to narrow `router` for TS; the gate already rejects null.
     if (
       !router ||
@@ -183,6 +195,7 @@ export const Link = (props: LinkProps): View => {
     ) {
       return;
     }
+
     event.preventDefault();
     let cancelled = false;
     onNavigate?.({
@@ -190,9 +203,11 @@ export const Link = (props: LinkProps): View => {
         cancelled = true;
       },
     });
+
     if (cancelled) {
       return;
     }
+
     router.visit(target, {
       data: isGet ? undefined : data,
       method: verb,
@@ -205,6 +220,7 @@ export const Link = (props: LinkProps): View => {
 
   const hover = strategies.includes("hover");
   const click = strategies.includes("click");
+
   const handlers = {
     onclick: handleClick,
     onfocus: hover ? unlessPrevented(onfocus, runPrefetch) : onfocus,
@@ -236,15 +252,18 @@ export const Link = (props: LinkProps): View => {
     ? (el: Element | null) => {
         timers().observer?.disconnect();
         timers().observer = undefined;
+
         if (!el) {
           return;
         }
+
         const observer = new IntersectionObserver((entries) => {
           if (entries.some((entry) => entry.isIntersecting)) {
             observer.disconnect();
             runPrefetch();
           }
         });
+
         observer.observe(el);
         timers().observer = observer;
       }
@@ -253,6 +272,7 @@ export const Link = (props: LinkProps): View => {
   if (isGet) {
     return h("a", { ...attributes, href: target, ref, ...handlers }, children);
   }
+
   // The button keeps every extra attribute, including user `on*` handlers:
   // at runtime ilha passes the DOM event through, so anchor-typed handlers
   // work unchanged. The cast only bridges the anchor/button
@@ -265,5 +285,6 @@ export const Link = (props: LinkProps): View => {
     type: "button",
     ...handlers,
   } as unknown as JSX.IntrinsicElements["button"];
+
   return h("button", buttonProps, children);
 };

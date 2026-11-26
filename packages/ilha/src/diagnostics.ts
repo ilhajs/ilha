@@ -68,9 +68,11 @@ const warned = new Set<string>();
 /** Warn once per `code` + `detail` through `console.warn`. */
 export const ilhaWarn = (code: IlhaCode, detail?: string): void => {
   const id = `${code}:${detail ?? ""}`;
+
   if (warned.has(id)) {
     return;
   }
+
   warned.add(id);
   console.warn(ilhaError(code, detail).message);
 };

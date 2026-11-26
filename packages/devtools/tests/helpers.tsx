@@ -10,6 +10,7 @@ import type { IlhaDevtoolsProtocol } from "../src/protocol.ts";
 
 export const Badge = () => {
   const n = atom(5);
+
   return (
     <button type="button" onclick={() => n.update((x: number) => x + 1)}>
       {n}
@@ -20,6 +21,7 @@ export const Badge = () => {
 export const Counter = () => {
   const count = atom(1);
   const label = atom("hello");
+
   return (
     <div>
       <p>
@@ -86,6 +88,7 @@ export const mountHost = async (component: Component = Counter) => {
   document.body.append(host);
   const unmount = mount(host, component);
   await settle();
+
   return { host, unmount };
 };
 
@@ -94,11 +97,13 @@ export const connectPair = () => {
   const handle = installIlhaDevtools({ webmcp: false, window: false });
   const { port1, port2 } = new MessageChannel();
   handle.channel.addPanelPort(port1);
+
   const panel = connectPanelChannel<IlhaDevtoolsProtocol>({
     functions: {},
     name: ILHA_DEVTOOLS_CHANNEL,
     transport: port2,
     window: false,
   });
+
   return { handle, panel };
 };

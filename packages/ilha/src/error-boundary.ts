@@ -19,13 +19,16 @@ export interface ErrorBoundaryProps {
 /** Catch subtree failures and paint a fallback. Supports reset(). */
 export const ErrorBoundary = (props: ErrorBoundaryProps): View => {
   const fiber = getFiber();
+
   // SAFETY: propsBox holds the JSX props bag painted for this boundary.
   const current = () =>
     (fiber.propsBox?.current ?? props) as ErrorBoundaryProps;
+
   fiber.handleError = (error) => {
     if (fiber.closed) {
       return;
     }
+
     clearFiberView(fiber);
     const { onError, fallback } = current();
     onError?.(error);
@@ -43,5 +46,6 @@ export const ErrorBoundary = (props: ErrorBoundaryProps): View => {
         : errorView(error)
     );
   };
+
   return props.children;
 };

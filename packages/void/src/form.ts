@@ -41,6 +41,7 @@ export const Form = ({
   );
   const message = formErrorMessage(form);
   const retry = formRetryMessage(error);
+
   return h(
     "form",
     {
@@ -52,6 +53,7 @@ export const Form = ({
         // scheduled for the error on mount, so without this a form
         // rate-limited after mount stays blocked past its retry window.
         now.set(Date.now());
+
         if (!formSubmissionBlocked(form, now())) {
           await form[method]();
         }

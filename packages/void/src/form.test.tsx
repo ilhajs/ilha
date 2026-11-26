@@ -28,6 +28,7 @@ const fakeModel = (options: {
   pending?: boolean;
 }): FakeModel => {
   let calls = 0;
+
   // SAFETY: `Form` reads `error`/`errors`/`pending` and calls one method.
   const form = {
     delete: () => Promise.resolve(),
@@ -37,10 +38,12 @@ const fakeModel = (options: {
     pending: options.pending ?? false,
     post: () => {
       calls += 1;
+
       return Promise.resolve();
     },
     put: () => Promise.resolve(),
   } as FormModel;
+
   return { calls: () => calls, form };
 };
 
@@ -53,9 +56,11 @@ const fakeError = (message: string, retryAt?: string): VoidActionError =>
 
 const submit = async (host: HTMLElement): Promise<void> => {
   const form = host.querySelector("form");
+
   if (!form) {
     throw new Error("form element missing");
   }
+
   form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   await settle();
 };
@@ -64,6 +69,7 @@ const mountFormView = async (view: Component): Promise<HTMLElement> => {
   const host = document.createElement("div");
   mount(host, view);
   await settle();
+
   return host;
 };
 
@@ -89,9 +95,11 @@ describe("Form", () => {
 
   it("prefers a custom renderError over the message", async () => {
     const { form } = fakeModel({ error: fakeError("Slow") });
+
     const host = await mountFormView(() => (
       <Form form={form} renderError={(error) => `Custom: ${error.message}`} />
     ));
+
     expect(host.querySelector("[data-void-form-error]")?.textContent).toContain(
       "Custom: Slow"
     );
@@ -124,6 +132,7 @@ describe("Form", () => {
     router.visit = (url) => {
       const target = String(url);
       visits.push(target);
+
       if (first) {
         first = false;
         throw new VoidActionError({
@@ -139,13 +148,18 @@ describe("Form", () => {
           url: target,
         });
       }
+
       return Promise.resolve({});
     };
+
     let captured: PageForm<{ text: string }> | undefined;
+
     const Probe = (): View => {
       captured = useForm("/form", { text: "" });
+
       return <Form class="todo" form={captured} />;
     };
+
     const host = document.createElement("div");
     mount(host, () => (
       <VoidContext.Provider
@@ -161,9 +175,11 @@ describe("Form", () => {
       </VoidContext.Provider>
     ));
     await settle();
+
     if (!captured) {
       throw new Error("form probe did not render");
     }
+
     await submit(host);
     expect(captured.error?.status).toBe(429);
     expect(host.querySelector("[data-void-form-error]")?.textContent).toContain(

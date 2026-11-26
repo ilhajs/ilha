@@ -12,5 +12,6 @@ export const provideQueryCell = (): void => {
 /** A query read subscribes to the layout-provided cell. */
 export const queryCellVersion = (): number => {
   cell?.();
+
   return 0;
 };

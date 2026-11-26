@@ -2,7 +2,9 @@ import type { ComponentFn, Fragment, JsxComponent, PropBag } from "./types.ts";
 import { createVNode as createElement } from "./vnode.ts";
 
 export type { View } from "./types.ts";
+
 export type { JSX } from "./jsx-types.ts";
+
 export { Fragment, h } from "./vnode.ts";
 
 export const jsx = (
@@ -11,5 +13,6 @@ export const jsx = (
   key?: string | number
 ): ReturnType<typeof createElement> =>
   createElement(type, key === undefined ? props : { ...props, key });
+
 export const jsxs = jsx;
 export const jsxDEV = jsx;

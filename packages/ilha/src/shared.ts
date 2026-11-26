@@ -48,13 +48,17 @@ export const unwrap = <T>(value: T, keep?: View): View | typeof KEEP => {
     // SAFETY: non-AsyncResult paint inputs are View (vnode/text/component/stream).
     return value as View;
   }
+
   if (AsyncResult.isWaiting(value) && keep !== undefined) {
     return KEEP;
   }
+
   if (AsyncResult.isFailure(value)) {
     return String(AsyncResult.error(value) ?? "error");
   }
+
   const v = AsyncResult.value(value);
+
   // SAFETY: AsyncResult Some payload is the view materialize already accepted.
   return v._tag === "Some" ? (v.value as View) : "";
 };

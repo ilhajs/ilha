@@ -7,6 +7,7 @@ import type { AtomHandle } from "../src/index.ts";
 const SlowInner = async () => {
   const n = atom(99);
   await Bun.sleep(5);
+
   return <em>{n()}</em>;
 };
 
@@ -16,6 +17,7 @@ const Outer = async () => {
   // No `await Promise.resolve()` first: the nested root runs inside this
   // component's own render.
   const html = await renderToString(SlowInner);
+
   return (
     <section>
       <i>{a()}</i>
@@ -32,9 +34,11 @@ const parse = (html: string) => {
   );
   document.body.append(wrapper);
   const host = wrapper.querySelector("[data-ilha]");
+
   if (!host) {
     throw new Error("host missing");
   }
+
   return { host, wrapper };
 };
 
@@ -56,9 +60,11 @@ test("outer state hydrates aligned after a nested render", async () => {
   expect(hydrate).not.toBeNull();
   // The outermost wrapper is the last `data-ilha` ancestor of the section.
   const outer = host.closest("[data-ilha]");
+
   if (!outer) {
     throw new Error("outer missing");
   }
+
   mount(outer, Outer, { hydrate: true });
   await Bun.sleep(30);
   expect(outer.querySelectorAll(":scope > section > i").length).toBe(2);
@@ -75,6 +81,7 @@ const Starter = () => {
   outerCount = count;
   // A nested root that settles later than this render.
   void renderToString(SlowInner);
+
   return <p>{count()}</p>;
 };
 

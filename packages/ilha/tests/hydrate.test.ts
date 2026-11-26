@@ -4,6 +4,7 @@ import { atom, mount, renderToString } from "../src/index.ts";
 
 const Counter = () => {
   const n = atom(0);
+
   return {
     $$ilha: 1 as const,
     children: ["Count: ", n],
@@ -23,9 +24,11 @@ test("hydrate reuses host markup and binds clicks", async () => {
   // SAFETY: hydrate host is either the island root or the wrapper we created.
   const host = (found ?? el) as Element;
   const btn = host.querySelector("button");
+
   if (!btn) {
     throw new Error("button missing");
   }
+
   mount(host, Counter, { hydrate: true });
   await Bun.sleep(15);
   expect(host.querySelector("button")).toBe(btn);

@@ -15,6 +15,7 @@ const Tasks = () => {
     { done: false, id: 2, label: "Write unit tests" },
     { done: false, id: 3, label: "Update README" },
   ]);
+
   const pending = atom(
     mapAtom(tasks.atom, (list) => list.filter((task) => !task.done).length)
   );
@@ -22,14 +23,18 @@ const Tasks = () => {
   const addItem = (event: SubmitEvent) => {
     event.preventDefault();
     const form = event.currentTarget;
+
     // SAFETY: onsubmit is bound to the form element painted below.
     if (!(form instanceof HTMLFormElement)) {
       return;
     }
+
     const label = String(new FormData(form).get("text") ?? "").trim();
+
     if (!label) {
       return;
     }
+
     const id = nextId;
     nextId += 1;
     tasks.update((current) => [...current, { done: false, id, label }]);
@@ -50,10 +55,12 @@ const Tasks = () => {
                 checked={task.done}
                 onchange={(event: Event) => {
                   const target = event.currentTarget;
+
                   // SAFETY: onchange is bound to the checkbox input.
                   if (!(target instanceof HTMLInputElement)) {
                     return;
                   }
+
                   const done = target.checked;
                   tasks.update((current) =>
                     current.map((item) =>
@@ -96,31 +103,39 @@ test("tasks preview: toggle, delete, and add", async () => {
   expect(el.querySelectorAll("li").length).toBe(3);
 
   const firstCheckbox = el.querySelector("input[type=checkbox]");
+
   if (!(firstCheckbox instanceof HTMLInputElement)) {
     throw new TypeError("checkbox missing");
   }
+
   firstCheckbox.checked = false;
   firstCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
   await Bun.sleep(10);
   expect(el.querySelector("[data-pending]")?.textContent).toBe("3");
 
   const deleteBtn = el.querySelector("[data-delete='3']");
+
   if (!(deleteBtn instanceof HTMLButtonElement)) {
     throw new TypeError("delete button missing");
   }
+
   deleteBtn.click();
   await Bun.sleep(10);
   expect(el.querySelectorAll("li").length).toBe(2);
 
   const input = el.querySelector("input[name=text]");
+
   if (!(input instanceof HTMLInputElement)) {
     throw new TypeError("text input missing");
   }
+
   input.value = "New task";
   const form = el.querySelector("form");
+
   if (!form) {
     throw new Error("form missing");
   }
+
   form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   await Bun.sleep(10);
   expect(el.querySelectorAll("li").length).toBe(3);

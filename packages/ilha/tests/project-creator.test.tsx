@@ -8,10 +8,12 @@ const ProjectCreatorLike = () => {
   const name = atom("");
   const template = atom<"vite-spa" | "void">("vite-spa");
   const useBun = atom(false);
+
   const createCommand = atom(
     Atom.transform(template.atom, (get, templateAtom) => {
       const packageManager = get(useBun.atom) ? "bunx" : "npx";
       const projectName = get(name.atom) ? ` ${get(name.atom)}` : "";
+
       return `${packageManager} giget@latest gh:ilhajs/ilha/templates/${get(templateAtom)}${projectName}`;
     })
   );
@@ -61,9 +63,11 @@ const clickLabel = async (
   expectText: string
 ) => {
   const label = el.querySelector(selector);
+
   if (!(label instanceof HTMLElement)) {
     throw new TypeError(`${selector} missing`);
   }
+
   label.click();
   await Bun.sleep(5);
   const cmd = el.querySelector("[data-cmd]")?.textContent ?? "";
@@ -77,6 +81,7 @@ const toggleRound = async (
   if (remaining <= 0) {
     return;
   }
+
   await clickLabel(el, "[data-void-label]", "void");
   await clickLabel(el, "[data-vite-label]", "vite-spa");
   await toggleRound(el, remaining - 1);
@@ -95,17 +100,21 @@ test("derived command survives repeated template toggles", async () => {
   await toggleRound(el, 5);
 
   const bunBtn = el.querySelector("[data-bun]");
+
   if (!(bunBtn instanceof HTMLButtonElement)) {
     throw new TypeError("[data-bun] missing");
   }
+
   bunBtn.click();
   await Bun.sleep(5);
   expect(cmd()).toMatch(/^bunx /u);
 
   const nameInput = el.querySelector("[data-name]");
+
   if (!(nameInput instanceof HTMLInputElement)) {
     throw new TypeError("[data-name] missing");
   }
+
   nameInput.value = "my-app";
   nameInput.dispatchEvent(new Event("input", { bubbles: true }));
   await Bun.sleep(5);

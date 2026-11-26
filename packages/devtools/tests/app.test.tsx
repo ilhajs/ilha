@@ -22,6 +22,7 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) {
     cleanup();
   }
+
   document.body.innerHTML = "";
 });
 
@@ -30,11 +31,13 @@ const openPanel = async (component: Component = Counter) => {
   const handle = installIlhaDevtools({ webmcp: false, window: false });
   const panelHost = document.createElement("div");
   document.body.append(panelHost);
+
   const unmountPanel = mount(
     panelHost,
     createApp(() => {
       const { port1, port2 } = new MessageChannel();
       handle.channel.addPanelPort(port1);
+
       return connectPanelChannel<IlhaDevtoolsProtocol>({
         functions: {},
         name: ILHA_DEVTOOLS_CHANNEL,
@@ -43,8 +46,10 @@ const openPanel = async (component: Component = Counter) => {
       });
     })
   );
+
   cleanups.push(unmountPanel, handle.dispose, mounted.unmount);
   await settle(50);
+
   return { ...mounted, panelHost };
 };
 
@@ -73,9 +78,11 @@ describe("panel", () => {
     rowFor(panelHost, "Counter")?.click();
     await settle();
     const [, input] = panelHost.querySelectorAll("input");
+
     if (!input) {
       throw new Error("atom input missing");
     }
+
     input.value = '"edited"';
     input.dispatchEvent(new Event("change", { bubbles: true }));
     await settle(50);
@@ -88,9 +95,11 @@ describe("panel", () => {
     rowFor(panelHost, "Counter")?.click();
     await settle();
     const input = panelHost.querySelector("input");
+
     if (!input) {
       throw new Error("atom input missing");
     }
+
     input.value = "{nope";
     input.dispatchEvent(new Event("change", { bubbles: true }));
     await settle();
@@ -103,18 +112,23 @@ describe("panel", () => {
     const { panelHost, host } = await openPanel(modelApp);
     rowFor(panelHost, "ModelCounter")?.click();
     await settle();
+
     // The page script attaches asynchronously; retry clicks until one lands.
     const waitForLog = async (deadline = Date.now() + 2000): Promise<void> => {
       if (panelHost.textContent?.includes("Increment")) {
         return;
       }
+
       if (Date.now() > deadline) {
         throw new Error("panel never showed the message log");
       }
+
       host.querySelector("button")?.click();
       await settle(50);
+
       return waitForLog(deadline);
     };
+
     await waitForLog();
     expect(panelHost.textContent).toContain("messages");
     expect(panelHost.textContent).toContain("count");
@@ -123,6 +137,7 @@ describe("panel", () => {
   it("says when no page script answers", async () => {
     const panelHost = document.createElement("div");
     document.body.append(panelHost);
+
     const unmount = mount(
       panelHost,
       createApp(() =>
@@ -134,6 +149,7 @@ describe("panel", () => {
         })
       )
     );
+
     cleanups.push(unmount);
     await settle(3100);
     expect(panelHost.textContent).toContain("No page found");

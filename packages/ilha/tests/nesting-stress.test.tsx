@@ -11,20 +11,25 @@ import type { PropBag, PropValue } from "../src/types.ts";
 const LEVELS = 10;
 
 type DeepProps = PropBag & { readonly depth: number };
+
 interface Task {
   id: number;
   label: string;
   readonly [key: string]: PropValue | undefined;
 }
+
 type RowProps = PropBag & { readonly task: Task };
+
 type LevelProps = PropBag & { readonly depth: number };
 
 const Deep = (props: DeepProps) => {
   const { depth } = props;
   const local = atom(depth);
+
   if (depth >= LEVELS) {
     return <span data-depth={depth}>leaf:{local}</span>;
   }
+
   return (
     <div data-depth={depth}>
       <Deep depth={depth + 1} />
@@ -37,9 +42,11 @@ test("ten levels of nested components mount and rerender", async () => {
   document.body.append(el);
   const unmount = mount(el, () => <Deep depth={1} />);
   await Bun.sleep(5);
+
   for (let depth = 1; depth <= LEVELS; depth += 1) {
     expect(el.querySelector(`[data-depth="${depth}"]`)).not.toBeNull();
   }
+
   expect(el.textContent).toContain("leaf:10");
   unmount();
   el.remove();
@@ -47,6 +54,7 @@ test("ten levels of nested components mount and rerender", async () => {
 
 const Row = (props: RowProps) => {
   const { task } = props;
+
   return <li data-id={task.id}>{task.label}</li>;
 };
 
@@ -58,12 +66,14 @@ test("fifty keyed rows survive add, remove, and reorder", async () => {
     const initial = atom<Task[]>(
       Array.from({ length: 50 }, () => {
         next += 1;
+
         return {
           id: next,
           label: `task-${next}`,
         };
       })
     );
+
     tasks ??= initial;
     yield Stream.map(Atom.toStream(initial.atom), (list: Task[]) => (
       <ul>
@@ -84,11 +94,13 @@ test("fifty keyed rows survive add, remove, and reorder", async () => {
   if (!tasks) {
     throw new Error("tasks missing");
   }
+
   // Remove 10 from the front, add 10 at the back.
   tasks.update((list) => [
     ...list.slice(10),
     ...Array.from({ length: 10 }, () => {
       next += 1;
+
       return {
         id: next,
         label: `task-${next}`,
@@ -101,9 +113,11 @@ test("fifty keyed rows survive add, remove, and reorder", async () => {
   expect(el.querySelector('li[data-id="1"]')).toBeNull();
   expect(el.querySelector(`li[data-id="${next}"]`)).not.toBeNull();
   const [first] = lis;
+
   if (!first) {
     throw new Error("first li missing");
   }
+
   expect(first.dataset.id).toBe("11");
 
   unmount();
@@ -115,15 +129,19 @@ test("Atom.transform tracks through nested components", async () => {
 
   const Level = (props: LevelProps) => {
     const { depth } = props;
+
     if (!deep) {
       throw new Error("deep root missing");
     }
+
     const derived = atom(
       Atom.transform(deep.atom, (get, source) => get(source) + depth)
     );
+
     if (depth === LEVELS) {
       return <span data-out={depth}>{derived}</span>;
     }
+
     return (
       <div>
         <Level depth={depth + 1} />
@@ -134,6 +152,7 @@ test("Atom.transform tracks through nested components", async () => {
   const App = () => {
     const root = atom(0);
     deep ??= root;
+
     return <Level depth={1} />;
   };
 
@@ -142,13 +161,17 @@ test("Atom.transform tracks through nested components", async () => {
   const unmount = mount(el, App);
   await Bun.sleep(5);
   const out = el.querySelector(`[data-out="${LEVELS}"]`);
+
   if (!out) {
     throw new Error("out missing");
   }
+
   expect(out.textContent).toBe(`${LEVELS}`);
+
   if (!deep) {
     throw new Error("deep missing");
   }
+
   deep.set(100);
   await Bun.sleep(5);
   expect(out.textContent).toBe(`${LEVELS + 100}`);

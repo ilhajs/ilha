@@ -9,6 +9,7 @@ const App = () => {
   const save = atom(
     Atom.fn((n: number) => Effect.sleep(20).pipe(Effect.as(n)))
   );
+
   return {
     $$ilha: 1 as const,
     children: [save],
@@ -30,9 +31,11 @@ test("Atom.fn pending then success", async () => {
   const unmount = mount(el, App);
   await Bun.sleep(10);
   const btn = el.querySelector("#save");
+
   if (!(btn instanceof HTMLButtonElement)) {
     throw new TypeError("#save missing");
   }
+
   btn.click();
   await Bun.sleep(50);
   expect(el.textContent).toBeDefined();

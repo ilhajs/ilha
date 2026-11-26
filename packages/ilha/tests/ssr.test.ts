@@ -9,6 +9,7 @@ test("renderToString works without document", async () => {
   // SAFETY: test temporarily deletes document; globalThis is the runtime host.
   const g = globalThis as { document?: Document };
   delete g.document;
+
   try {
     const html = await renderToString(() => h("p", null, "edge"));
     expect(html).toContain(">edge<");
@@ -19,6 +20,7 @@ test("renderToString works without document", async () => {
 
 test("watch callbacks see ssr: true on the server and false on mount, with a DOM global either way", async () => {
   const seen: string[] = [];
+
   const Probe = () => {
     const n = atom(0);
     watch.once(({ ssr }) => {
@@ -27,8 +29,10 @@ test("watch callbacks see ssr: true on the server and false on mount, with a DOM
     watch(n, (_value, { ssr }) => {
       seen.push(`watch:${ssr}`);
     });
+
     return h("p", null, n);
   };
+
   await renderToString(Probe);
   expect(seen).toEqual(["once:true", "watch:true"]);
   seen.length = 0;
@@ -40,6 +44,7 @@ test("watch callbacks see ssr: true on the server and false on mount, with a DOM
 
 const CounterApp = () => {
   const count = atom(0);
+
   return h(
     "button",
     { onclick: () => count.update((n: number) => n + 1) },
@@ -58,6 +63,7 @@ test("renderToString paints text without handlers", async () => {
 
 const SnapshotApp = () => {
   const n = atom(1);
+
   return h("p", null, n);
 };
 
@@ -66,6 +72,7 @@ test("renderToString can disable markers and snapshot", async () => {
     markers: false,
     snapshot: false,
   });
+
   expect(html).not.toContain("<div data-ilha");
   expect(html).not.toContain("ilha-state");
   expect(html).toContain("1");
@@ -90,11 +97,13 @@ const TimeoutApp = function* TimeoutApp() {
 
 test("renderToString timeout serializes early", async () => {
   const t0 = Date.now();
+
   const html = await renderToString(TimeoutApp, {
     markers: false,
     snapshot: false,
     timeout: 20,
   });
+
   expect(Date.now() - t0).toBeLessThan(200);
   expect(html).not.toContain("late");
 });

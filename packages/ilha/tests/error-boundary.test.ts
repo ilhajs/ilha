@@ -26,13 +26,17 @@ const BoomAsync = async () => {
 test("ErrorBoundary paints fallback and reset remounts", async () => {
   let attempts = 0;
   let onErrorCount = 0;
+
   const Sometimes = () => {
     attempts += 1;
+
     if (attempts === 1) {
       throw new Error("boom");
     }
+
     return "ok";
   };
+
   const App = () =>
     vnode("div", {}, [
       vnode(
@@ -52,6 +56,7 @@ test("ErrorBoundary paints fallback and reset remounts", async () => {
         [vnode(Sometimes)]
       ),
     ]);
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);

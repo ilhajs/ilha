@@ -10,6 +10,7 @@ let clicks = 0;
 
 const FormBox = ({ children }: { children?: View }) => {
   const busy = atom(false);
+
   return (
     <form
       class="box"
@@ -30,6 +31,7 @@ const FormBox = ({ children }: { children?: View }) => {
 const Page = () => {
   const n = atom(0);
   tick = n;
+
   return (
     <main>
       <p>{n()}</p>
@@ -43,6 +45,7 @@ const Page = () => {
 const submit = (form: Element): boolean => {
   const event = new Event("submit", { bubbles: true, cancelable: true });
   form.dispatchEvent(event);
+
   return event.defaultPrevented;
 };
 
@@ -54,20 +57,26 @@ test("handlers inside a nested component survive hydration and rerenders", async
   );
   document.body.append(wrapper);
   const host = wrapper.querySelector("[data-ilha]");
+
   if (!host) {
     throw new Error("host missing");
   }
+
   submits = 0;
   clicks = 0;
   mount(host, Page, { hydrate: true });
   await Bun.sleep(15);
+
   const form = (): Element => {
     const found = host.querySelector("form.box");
+
     if (!found) {
       throw new Error("form missing");
     }
+
     return found;
   };
+
   expect(submit(form())).toBe(true);
   expect(submits).toBe(1);
 

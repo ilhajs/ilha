@@ -61,6 +61,7 @@ const renderDocument = ({
   const pageHead = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
   const bodyAttrs = pageObj.head ? renderBodyAttrs(pageObj.head) : "";
+
   return `<!doctype html>
 <html${htmlAttrs}>
 <head>${pageHead}${head}</head>
@@ -86,11 +87,13 @@ const renderTree = async ({
   router,
 }: RenderTreeOptions): Promise<string> => {
   const { errors, pageId, params, props, shared } = routeData(pageObj);
+
   const { layouts, page } = await loadPageComponents({
     componentId: pageId,
     components,
     layoutTree,
   });
+
   const tree: PageTree = {
     layouts,
     page,
@@ -104,6 +107,7 @@ const renderTree = async ({
       shared,
     }),
   };
+
   return await renderToString(createPageRoot({ read: () => tree }), {
     markers: hydratable,
     snapshot: hydratable,
@@ -120,6 +124,7 @@ export const createPageRenderer =
       pageObj,
       router: createSsrRouter(pageObj.url || "/", pageObj.params ?? {}),
     });
+
     return renderDocument({
       app: `<script id="__VOID_PAGE_DATA__" type="application/json">${serializePageData(pageObj)}</script>
   <div id="app">${html}</div>`,
@@ -139,10 +144,13 @@ export const createIslandPageRenderer =
       pageObj,
       router: null,
     });
+
     const needsJS = options.pagesNeedingClientJS.has(pageObj.component);
+
     const mdScript = options.markdownScriptIds.has(pageObj.component)
       ? ` data-md-script="${escapeAttr(pageObj.component)}"`
       : "";
+
     return renderDocument({
       app: `<div id="app"${mdScript}>${html}</div>`,
       body: needsJS ? assetTags.body : "",
@@ -175,6 +183,7 @@ export const createIsland =
     // SAFETY: island components are ilha components taking JSON props.
     const render = Component as (props: JsonRecord) => View;
     const html = await renderToString(() => render(props));
+
     return h(
       "div",
       {

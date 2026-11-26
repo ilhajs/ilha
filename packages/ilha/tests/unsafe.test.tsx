@@ -5,6 +5,7 @@ import { atom, mount, renderToString, unsafe } from "../src/index.ts";
 
 const RAW = `<strong class="hi">Hi</strong>`;
 const SVG = `<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>`;
+
 // SAFETY: builds unsanitized markup for bypass coverage without literals.
 const jsSrc = ["java", "script:", "alert(1)"].join("");
 const NASTY = `<img src="${jsSrc}" onerror="alert(2)" style="color:expression(alert(3))">`;
@@ -45,11 +46,14 @@ test("mount paints unsafe() SVG with its namespace", async () => {
 
 test("unsafe() output updates when its atom changes", async () => {
   let setHtml!: (next: string) => void;
+
   const App = () => {
     const html = atom(RAW);
     setHtml = (next: string) => html.set(next);
+
     return <div>{unsafe(html())}</div>;
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
@@ -86,9 +90,11 @@ test("mount keeps unsafe() table content inside its parent", async () => {
   // dropped here and only its text survives; real browsers keep the row.
   const el = document.createElement("div");
   document.body.append(el);
+
   const unmount = mount(el, () => (
     <table>{unsafe("<tr><td>cell</td></tr>")}</table>
   ));
+
   await Bun.sleep(5);
   expect(el.querySelector("table")?.textContent).toContain("cell");
   unmount();
@@ -99,6 +105,7 @@ test("SSR keeps unsafe() table fragments verbatim", async () => {
   const html = await renderToString(() => (
     <table>{unsafe("<tr><td>cell</td></tr>")}</table>
   ));
+
   expect(html).toContain("<tr><td>cell</td></tr>");
 });
 

@@ -14,6 +14,7 @@ type AnyFn = (...args: never[]) => void;
 
 const isFunction = <T>(value: T): value is Extract<T, AnyFn> => {
   const tag = objectTag(value);
+
   return (
     tag === "[object Function]" ||
     tag === "[object AsyncFunction]" ||
@@ -25,11 +26,13 @@ const getComponentFilter = async (): Promise<(id: string) => boolean> => {
   componentFilter ??= (async () => {
     try {
       const { default: filter } = await import("virtual:@ilha/astro/options");
+
       return filter;
     } catch {
       return () => true;
     }
   })();
+
   return await componentFilter;
 };
 
@@ -77,6 +80,7 @@ const resolveAstroRenderable = async (
       out += chunk;
     },
   });
+
   return out;
 };
 
@@ -86,9 +90,11 @@ const resolvePropValue = async (
   if (isAstroRenderable(value)) {
     return await resolveAstroRenderable(value);
   }
+
   if (Array.isArray(value)) {
     return Promise.all(value.map(resolvePropValue));
   }
+
   return value;
 };
 
@@ -99,15 +105,19 @@ const mergeProps = async (
   const entries = Object.entries(props).filter(
     (entry): entry is [string, AstroPropValue] => entry[1] !== undefined
   );
+
   const resolvedValues = await Promise.all(
     entries.map(([, value]) => resolvePropValue(value))
   );
+
   const resolved: MergedProps = Object.fromEntries(
     entries.map(([key], index) => [key, resolvedValues[index]])
   );
+
   for (const [name, value] of Object.entries(slots)) {
     resolved[name === "default" ? "children" : name] = value;
   }
+
   return resolved;
 };
 
@@ -123,6 +133,7 @@ const check = async (
   ) {
     return false;
   }
+
   return isFunction(Component);
 };
 
@@ -137,11 +148,13 @@ const renderToStaticMarkup = async (
       `[@ilha/astro] Unable to render "${metadata?.displayName ?? "component"}" — expected a function.`
     );
   }
+
   const merged = await mergeProps(props, slots);
   // SAFETY: isFunction gated Component to a callable; ilha components are
   // functions of props producing a view.
   const render = Component as IslandComponent;
   const html = await renderToString(() => render(merged));
+
   return { html };
 };
 

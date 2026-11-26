@@ -13,6 +13,7 @@ const Msg = Schema.TaggedUnion({
 });
 
 let booted = false;
+
 const BootCmd = Command.make("BootCmd", () =>
   Effect.sleep("100 millis").pipe(
     Effect.tap(
@@ -23,6 +24,7 @@ const BootCmd = Command.make("BootCmd", () =>
     Effect.as(Msg.cases.Booted.make({}))
   )
 );
+
 const App = defineComponent({
   message: Msg,
   model: Schema.Struct({ count: Schema.Number }),
@@ -49,10 +51,13 @@ const poll = async (
   if (done()) {
     return;
   }
+
   if (Date.now() > deadline) {
     expect(done()).toBe(true);
+
     return;
   }
+
   await Bun.sleep(5);
   await poll(done, deadline);
 };
@@ -71,10 +76,12 @@ describe("ssr", () => {
     const html = await renderToString(() => <App props={{ start: 41 }} />);
     const host = document.createElement("div");
     host.innerHTML = html;
+
     const ui = render(() => <App props={{ start: 41 }} />, {
       container: host,
       hydrate: true,
     });
+
     await ui.settled();
     expect(ui.query("output")?.textContent).toBe("41");
     await poll(() => ui.query("output")?.textContent === "42");

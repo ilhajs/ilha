@@ -5,6 +5,7 @@ import { atom, mount, renderToString } from "../src/index.ts";
 
 const StateChild = () => {
   const n = atom(0);
+
   return (
     <button id="child-btn" onclick={() => n.update((x: number) => x + 1)}>
       child:{n}
@@ -14,6 +15,7 @@ const StateChild = () => {
 
 const StateParent = () => {
   const tick = atom(0);
+
   return (
     <div>
       <button id="parent-btn" onclick={() => tick.update((x: number) => x + 1)}>
@@ -31,17 +33,21 @@ test("unkeyed child keeps state when the parent rerenders", async () => {
   await Bun.sleep(10);
 
   const childBefore = el.querySelector("#child-btn");
+
   if (!(childBefore instanceof HTMLButtonElement)) {
     throw new TypeError("child missing");
   }
+
   childBefore.click();
   await Bun.sleep(10);
   expect(el.textContent).toContain("child:1");
 
   const parentBtn = el.querySelector("#parent-btn");
+
   if (!(parentBtn instanceof HTMLButtonElement)) {
     throw new TypeError("parent button missing");
   }
+
   parentBtn.click();
   await Bun.sleep(10);
 
@@ -55,6 +61,7 @@ test("unkeyed child keeps state when the parent rerenders", async () => {
 
 const PropsChild = ({ label }: { label?: unknown }) => {
   const n = atom(0);
+
   return (
     <button id="props-child" onclick={() => n.update((x: number) => x + 1)}>
       {String(label ?? "")}:{n}
@@ -64,6 +71,7 @@ const PropsChild = ({ label }: { label?: unknown }) => {
 
 const PropsParent = () => {
   const label = atom("a");
+
   return (
     <div>
       <button id="label-btn" onclick={() => label.set("b")}>
@@ -96,11 +104,13 @@ test("unkeyed child receives new props without remounting", async () => {
 
 const HydChild = () => {
   const n = atom(0);
+
   return <span id="hyd-child">child:{n}</span>;
 };
 
 const HydParent = () => {
   const tick = atom(0);
+
   return (
     <div>
       <button id="hyd-btn" onclick={() => tick.update((x: number) => x + 1)}>
@@ -122,9 +132,11 @@ test("unkeyed child survives hydration and later rerenders", async () => {
   await Bun.sleep(10);
 
   const childBefore = el.querySelector("#hyd-child");
+
   if (!childBefore) {
     throw new Error("hydrated child missing");
   }
+
   el.querySelector<HTMLButtonElement>("#hyd-btn")?.click();
   await Bun.sleep(10);
 

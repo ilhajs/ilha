@@ -38,6 +38,7 @@ export const attachModelRecorder = (recorder: ModelRecorder): (() => void) => {
   // two detaches.
   const entry = { recorder };
   recorders.add(entry);
+
   return () => {
     recorders.delete(entry);
   };

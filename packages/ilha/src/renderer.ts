@@ -21,9 +21,13 @@ export type {
   Painter,
   PaintOps,
 } from "./paint-core.ts";
+
 export { bindEvents } from "./events.ts";
+
 export { getFiber } from "./runtime.ts";
+
 export type { FiberLocal } from "./runtime.ts";
+
 export type {
   Component,
   IlhaRuntime,
@@ -69,6 +73,7 @@ export const createRenderer = <Node, El extends PaintEl<Node> & Node>(
   ops: PaintOps<Node, El>
 ): HostRenderer<Node> => {
   const painter = createPainter(ops);
+
   return {
     mount: (root, fn, { onError, onRuntime } = {}) => {
       const { close, ready, runtime } = startRoot({
@@ -78,6 +83,7 @@ export const createRenderer = <Node, El extends PaintEl<Node> & Node>(
         paint: painter.paint,
         root,
       });
+
       return {
         ready,
         runtime,

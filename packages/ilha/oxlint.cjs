@@ -1,22 +1,29 @@
 const DOCS = "https://ilha.build/guide/recipes/oxlint";
 const PRIMITIVES = new Set(["atom", "watch", "when", "context"]);
+
 const MEMBER_PRIMITIVES = new Map([
   ["atom", new Set(["lazy"])],
   ["watch", new Set(["once"])],
 ]);
+
 const INSTRUCTIONS = new Set(["when"]);
+
 const CALLBACK_PARENTS = new Set([
   "CallExpression",
   "NewExpression",
   "JSXExpressionContainer",
   "Property",
 ]);
+
 const REACT_EVENT_ALIASES = new Map([["onDoubleClick", "ondblclick"]]);
+
 const REACT_PROPS = new Map([
   ["className", "class"],
   ["htmlFor", "for"],
 ]);
+
 const see = (rule) => `See ${DOCS}#${rule}`;
+
 const CONDITIONAL = new Set([
   "IfStatement",
   "ForStatement",
@@ -28,6 +35,7 @@ const CONDITIONAL = new Set([
   "ConditionalExpression",
   "LogicalExpression",
 ]);
+
 const FN_TYPES = new Set([
   "FunctionDeclaration",
   "FunctionExpression",
@@ -35,8 +43,10 @@ const FN_TYPES = new Set([
 ]);
 
 const objectTag = (value) => Object.prototype.toString.call(value);
+
 const isFunction = (value) => {
   const tag = objectTag(value);
+
   return (
     tag === "[object Function]" ||
     tag === "[object AsyncFunction]" ||
@@ -50,10 +60,12 @@ const takeImport = (b, node) => {
   if (node.source.value !== "ilha") {
     return;
   }
+
   for (const s of node.specifiers) {
     if (s.type !== "ImportSpecifier") {
       continue;
     }
+
     if (PRIMITIVES.has(s.imported.name)) {
       b.prim.set(s.local.name, s.imported.name);
     }
@@ -64,10 +76,13 @@ const primitiveName = (node, b) => {
   if (node.type !== "CallExpression") {
     return null;
   }
+
   const { callee } = node;
+
   if (callee.type === "Identifier") {
     return b.prim.get(callee.name) ?? null;
   }
+
   if (
     callee.type === "MemberExpression" &&
     !callee.computed &&
@@ -75,18 +90,22 @@ const primitiveName = (node, b) => {
     callee.property.type === "Identifier"
   ) {
     const base = b.prim.get(callee.object.name);
+
     if (base && MEMBER_PRIMITIVES.get(base)?.has(callee.property.name)) {
       return `${base}.${callee.property.name}`;
     }
   }
+
   return null;
 };
 
 const ancestorsOf = (context, node) => {
   const sc = context.sourceCode;
+
   if (sc && isFunction(sc.getAncestors)) {
     return sc.getAncestors(node);
   }
+
   return [];
 };
 
@@ -94,22 +113,26 @@ const blockBody = (node) => {
   if (node.type === "BlockStatement") {
     return node.body;
   }
+
   if (
     node.type === "FunctionDeclaration" ||
     node.type === "FunctionExpression" ||
     node.type === "ArrowFunctionExpression"
   ) {
     const { body } = node;
+
     if (body?.type === "BlockStatement") {
       return body.body;
     }
   }
+
   return null;
 };
 
 const bindingInitType = (name, ancestors) => {
   for (let i = ancestors.length - 1; i >= 0; i -= 1) {
     const a = ancestors[i];
+
     if (
       a.type === "VariableDeclarator" &&
       a.id?.type === "Identifier" &&
@@ -117,15 +140,19 @@ const bindingInitType = (name, ancestors) => {
     ) {
       return a.init?.type ?? "none";
     }
+
     if (a.type === "FunctionDeclaration" && a.id?.name === name) {
       return "FunctionDeclaration";
     }
+
     const stmts = blockBody(a);
+
     if (stmts) {
       for (const stmt of stmts) {
         if (stmt.type !== "VariableDeclaration") {
           continue;
         }
+
         for (const decl of stmt.declarations) {
           if (decl.id?.type === "Identifier" && decl.id.name === name) {
             return decl.init?.type ?? "none";
@@ -134,17 +161,21 @@ const bindingInitType = (name, ancestors) => {
       }
     }
   }
+
   return null;
 };
 
 const isFunctionBinding = (name, ancestors, moduleFns) => {
   const local = bindingInitType(name, ancestors);
+
   if (local === "FunctionDeclaration") {
     return true;
   }
+
   if (local !== null) {
     return FN_TYPES.has(local);
   }
+
   return moduleFns.has(name);
 };
 
@@ -159,19 +190,24 @@ const isGuardedBy = (ancestor, child) => {
     case "ConditionalExpression": {
       return child !== ancestor.test;
     }
+
     case "LogicalExpression": {
       return child === ancestor.right;
     }
+
     case "SwitchStatement": {
       return child !== ancestor.discriminant;
     }
+
     case "ForStatement": {
       return child !== ancestor.init;
     }
+
     case "ForInStatement":
     case "ForOfStatement": {
       return child !== ancestor.right;
     }
+
     default: {
       return true;
     }
@@ -181,12 +217,15 @@ const isGuardedBy = (ancestor, child) => {
 const isNestedCallback = (ancestors, index) => {
   const fn = ancestors[index];
   const parent = ancestors[index - 1];
+
   if (!parent || fn.generator === true || !CALLBACK_PARENTS.has(parent.type)) {
     return false;
   }
+
   if (parent.type === "CallExpression" && parent.callee === fn) {
     return false;
   }
+
   return ancestors.slice(0, index).some((a) => FN_TYPES.has(a.type));
 };
 
@@ -194,41 +233,54 @@ const noConditionalPrimitive = {
   create(context) {
     const b = bindings();
     const fnStack = [];
+
     const enterFn = (node) => {
       fnStack.push({ awaited: false, node });
     };
+
     const exitFn = () => {
       fnStack.pop();
     };
+
     const markAwait = () => {
       const top = fnStack.at(-1);
+
       if (top) {
         top.awaited = true;
       }
     };
+
     return {
       ArrowFunctionExpression: enterFn,
       "ArrowFunctionExpression:exit": exitFn,
       AwaitExpression: markAwait,
       CallExpression(node) {
         const name = primitiveName(node, b);
+
         if (!name) {
           return;
         }
+
         const ancestors = ancestorsOf(context, node);
+
         for (let i = ancestors.length - 1; i >= 0; i -= 1) {
           const a = ancestors[i];
+
           if (FN_TYPES.has(a.type)) {
             if (isNestedCallback(ancestors, i)) {
               context.report({ data: { name }, messageId: "nested", node });
             } else if (a.async && fnStack.at(-1)?.awaited) {
               context.report({ data: { name }, messageId: "afterAwait", node });
             }
+
             return;
           }
+
           const child = ancestors[i + 1] ?? node;
+
           if (CONDITIONAL.has(a.type) && isGuardedBy(a, child)) {
             context.report({ data: { name }, messageId: "conditional", node });
+
             return;
           }
         }
@@ -266,13 +318,17 @@ const noConditionalPrimitive = {
 const noPrimitiveOutsideComponent = {
   create(context) {
     const b = bindings();
+
     return {
       CallExpression(node) {
         const name = primitiveName(node, b);
+
         if (!name) {
           return;
         }
+
         const ancestors = ancestorsOf(context, node);
+
         if (enclosingFunctions(ancestors).length === 0) {
           context.report({ data: { name }, messageId: "outside", node });
         }
@@ -299,31 +355,41 @@ const noPrimitiveOutsideComponent = {
 const noInstructionOutsideGenerator = {
   create(context) {
     const b = bindings();
+
     return {
       CallExpression(node) {
         const name = primitiveName(node, b);
+
         if (!name || !INSTRUCTIONS.has(name)) {
           return;
         }
+
         // yield* wraps the CallExpression in a YieldExpression.
         const parent = ancestorsOf(context, node).at(-1);
+
         if (parent?.type === "YieldExpression") {
           return;
         }
+
         const ancestors = ancestorsOf(context, node);
         const fns = enclosingFunctions(ancestors);
         const gen = fns.findLast((f) => f.generator === true);
+
         if (!gen) {
           context.report({ data: { name }, messageId: "notGenerator", node });
+
           return;
         }
+
         // Inside a generator body but not under a yield — the nearest function
         // between the call and the generator must not be a plain callback that
         // escapes the frame. If the call sits directly in the generator, require yield*.
         const genIdx = ancestors.indexOf(gen);
+
         const between = ancestors
           .slice(genIdx + 1)
           .filter((a) => FN_TYPES.has(a.type));
+
         if (between.length === 0) {
           context.report({ data: { name }, messageId: "notYielded", node });
         }
@@ -362,6 +428,7 @@ const preferLowercaseEvents = {
         if (!isIntrinsicElement(opening)) {
           return;
         }
+
         for (const attr of opening.attributes) {
           if (
             attr.type !== "JSXAttribute" ||
@@ -370,6 +437,7 @@ const preferLowercaseEvents = {
           ) {
             continue;
           }
+
           const { name } = attr.name;
           const suggested = reactEventName(name);
           context.report({
@@ -403,6 +471,7 @@ const noReactProps = {
         if (!isIntrinsicElement(opening)) {
           return;
         }
+
         for (const attr of opening.attributes) {
           if (
             attr.type !== "JSXAttribute" ||
@@ -410,13 +479,17 @@ const noReactProps = {
           ) {
             continue;
           }
+
           const { name } = attr.name;
+
           const suggested = isReactEventName(name)
             ? reactEventName(name)
             : REACT_PROPS.get(name);
+
           if (!suggested) {
             continue;
           }
+
           context.report({
             data: { name, suggested },
             fix: (fixer) => fixer.replaceText(attr.name, suggested),
@@ -444,12 +517,15 @@ const noReactProps = {
 
 const jsxName = (opening) => {
   const { name } = opening;
+
   if (name.type === "JSXIdentifier") {
     return name.name;
   }
+
   if (name.type === "JSXMemberExpression") {
     return "member";
   }
+
   return null;
 };
 
@@ -457,7 +533,9 @@ const isComponentElement = (node) => {
   if (node?.type !== "JSXElement") {
     return false;
   }
+
   const name = jsxName(node.openingElement);
+
   return name !== null && !/^[a-z]/u.test(name);
 };
 
@@ -472,9 +550,11 @@ const hasKey = (node) =>
 
 const returnedElements = (fn) => {
   const { body } = fn;
+
   if (body.type !== "BlockStatement") {
     return [body];
   }
+
   return body.body
     .filter((stmt) => stmt.type === "ReturnStatement")
     .map((stmt) => stmt.argument);
@@ -485,6 +565,7 @@ const requireKeyInMap = {
     return {
       CallExpression(node) {
         const { callee } = node;
+
         if (
           callee.type !== "MemberExpression" ||
           callee.computed ||
@@ -493,7 +574,9 @@ const requireKeyInMap = {
         ) {
           return;
         }
+
         const [cb] = node.arguments;
+
         if (
           !cb ||
           (cb.type !== "ArrowFunctionExpression" &&
@@ -501,6 +584,7 @@ const requireKeyInMap = {
         ) {
           return;
         }
+
         for (const el of returnedElements(cb)) {
           if (isComponentElement(el) && !hasKey(el)) {
             context.report({
@@ -530,16 +614,21 @@ const functionInAtom = {
   create(context) {
     const b = bindings();
     const fns = new Set();
+
     return {
       CallExpression(node) {
         const [arg] = node.arguments;
+
         if (!arg || primitiveName(node, b) !== "atom") {
           return;
         }
+
         if (FN_TYPES.has(arg.type)) {
           context.report({ messageId: "derived", node: arg });
+
           return;
         }
+
         if (
           arg.type === "Identifier" &&
           isFunctionBinding(arg.name, ancestorsOf(context, arg), fns)
@@ -561,6 +650,7 @@ const functionInAtom = {
       },
       VariableDeclarator(node) {
         const { init } = node;
+
         if (node.id.type === "Identifier" && init && FN_TYPES.has(init.type)) {
           fns.add(node.id.name);
         }

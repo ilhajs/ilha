@@ -26,9 +26,11 @@ test("Deferred gate: parent receives value", async () => {
   const unmount = mount(el, App);
   await Bun.sleep(20);
   const go = el.querySelector("#go");
+
   if (!go) {
     throw new Error("#go missing");
   }
+
   go.dispatchEvent(new Event("click", { bubbles: true }));
   await Bun.sleep(25);
   expect(el.textContent).toContain("Hello, Ada");

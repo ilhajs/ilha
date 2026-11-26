@@ -5,6 +5,7 @@ import { atom, mount, untrack } from "../src/index.ts";
 test("untrack: body does not subscribe to peeked atoms", async () => {
   let renders = 0;
   let setB: ((n: number) => void) | undefined;
+
   const App = () => {
     const a = atom(0);
     const b = atom(10);
@@ -12,6 +13,7 @@ test("untrack: body does not subscribe to peeked atoms", async () => {
     renders += 1;
     const peeked = untrack(() => b());
     const aNow = a();
+
     return {
       $$ilha: 1 as const,
       children: [
@@ -47,6 +49,7 @@ test("untrack: body does not subscribe to peeked atoms", async () => {
       type: "div",
     };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);

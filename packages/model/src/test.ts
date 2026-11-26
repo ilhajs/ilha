@@ -61,41 +61,51 @@ export const Story = {
     const decoded = Schema.decodeSync(definition.props)(args[0] ?? {});
     let pending: { readonly name: string; readonly args: unknown }[] = [];
     const emitted: unknown[] = [];
+
     const commitInit = (): Model => {
       const out: unknown = impl.init(
         initDollar<Model, Msg, Props, Events>(decoded),
         decoded
       );
+
       const step = isStepValue(out) ? out : createStep(out);
       pending = step.commands.map(({ args: commandArgs, name }) => ({
         args: commandArgs,
         name,
       }));
+
       for (const event of step.events) {
         emitted.push(event);
       }
+
       // SAFETY: the step carries this component's own model type through.
       return step.model as Model;
     };
+
     let model: Model = commitInit();
 
     const send = (message: Msg): void => {
       const { _tag: tag } = message;
       const handler = impl.update[tag];
+
       if (handler === undefined) {
         throw new Error(`${definition.name}: no update for "${tag}"`);
       }
+
       const out: unknown = handler(
         updateDollar<Model, Msg, Props, Events>(model, decoded),
         message
       );
+
       const step = isStepValue(out) ? out : createStep(out);
       const { model: next } = step;
       // SAFETY: the step carries this component's own model type through.
       model = next as Model;
+
       for (const { args: commandArgs, name } of step.commands) {
         pending.push({ args: commandArgs, name });
       }
+
       for (const event of step.events) {
         emitted.push(event);
       }
@@ -114,9 +124,11 @@ export const Story = {
       },
       resolve(command: { readonly name: string }, message?: Msg): void {
         const at = pending.findIndex((issue) => issue.name === command.name);
+
         if (at !== -1) {
           pending.splice(at, 1);
         }
+
         if (message !== undefined) {
           send(message);
         }

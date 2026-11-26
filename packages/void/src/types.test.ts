@@ -60,9 +60,11 @@ const typecheckComponents = (): View => {
     href: "/about",
     prefetch: ["hover", "visible"],
   };
+
   // @ts-expect-error -- prefetch strategies are a fixed set.
   const bad: LinkProps = { href: "/", prefetch: "always" };
   void bad;
+
   return h(
     "div",
     null,

@@ -75,11 +75,13 @@ export const formState = <T extends FormValues>(
     },
     get errors() {
       const local = errors();
+
       return Object.keys(local).length > 0 ? local : globalErrors();
     },
     get hasChanges() {
       const current = data();
       const base = baseline();
+
       return Object.keys(base).some(
         (key) => !isEqualFormValue(current[key], base[key])
       );
@@ -92,15 +94,20 @@ export const formState = <T extends FormValues>(
     },
     reset: (...names) => {
       const base = baseline();
+
       if (names.length === 0) {
         data.set({ ...base });
+
         return;
       }
+
       data.update((current) => {
         const next = { ...current };
+
         for (const name of names) {
           next[name] = base[name];
         }
+
         return next;
       });
     },

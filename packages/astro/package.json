@@ -54,7 +54,7 @@
     "test:integration": "bun test src/integration.test.ts"
   },
   "devDependencies": {
-    "astro": "^7.4.4",
+    "astro": "^7.4.13",
     "ilha": "0.17.0"
   },
   "peerDependencies": {

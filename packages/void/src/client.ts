@@ -48,6 +48,7 @@ const sameParams = (
   b: Readonly<Record<string, string>>
 ): boolean => {
   const keys = Object.keys(a);
+
   return (
     keys.length === Object.keys(b).length &&
     keys.every((key) => a[key] === b[key])
@@ -91,6 +92,7 @@ export const startPages = async ({
 }: StartPagesOptions): Promise<VoidRouter> => {
   let rerender = noop;
   const paintWaiters: (() => void)[] = [];
+
   /** Rerender the page and resolve once the DOM reflects the new route. */
   const repaint = async (): Promise<void> => {
     const { promise, resolve } = Promise.withResolvers<null>();
@@ -102,9 +104,11 @@ export const startPages = async ({
     rerender();
     await promise;
   };
+
   let url = currentUrl();
   let navigation: NavigationState = idleNavigationState();
   let navigations = 0;
+
   let route: RouteState = {
     errors: {},
     layouts: [],
@@ -115,8 +119,10 @@ export const startPages = async ({
     props: {},
     shared: {},
   };
+
   const update = (next: Partial<RouteState>): Promise<void> => {
     route = { ...route, ...next };
+
     return repaint();
   };
 
@@ -133,14 +139,17 @@ export const startPages = async ({
       // Resolves after paint, so a view transition captures the new page.
       applyUpdate(pageData, component, layouts, { preserveState }) {
         const data = routeData(pageData);
+
         const keep =
           preserveState &&
           route.pageId === data.pageId &&
           route.page === component &&
           sameParams(route.params, data.params);
+
         if (!keep) {
           navigations += 1;
         }
+
         return update({
           ...data,
           // SAFETY: the engine resolves layouts from the generated manifest.
@@ -180,6 +189,7 @@ export const startPages = async ({
     () => url,
     () => route.params
   );
+
   setActionRouter(facade);
 
   const initial = routeData(initialPageData);
@@ -207,9 +217,11 @@ export const startPages = async ({
   });
 
   const app = document.querySelector<HTMLElement>("#app");
+
   if (!app) {
     throw new Error("@ilha/void: missing #app element for page hydration.");
   }
+
   const hydrate = app.dataset.voidSsr !== "false";
   const host = (hydrate && app.querySelector(":scope > [data-ilha]")) || app;
   mount(
@@ -232,5 +244,6 @@ export const startPages = async ({
   app.dataset.hydrated = "true";
   start();
   commitInitialRender();
+
   return facade;
 };

@@ -8,6 +8,7 @@ import { atom, h, mount } from "../src/index.ts";
 // inputs, reloads iframes, closes modal dialogs, and re-runs custom element
 // lifecycles.
 const detachedProbes: Element[] = [];
+
 customElements.define(
   "reuse-probe",
   class extends HTMLElement {
@@ -25,6 +26,7 @@ afterEach(() => {
 const host = (): HTMLDivElement => {
   const el = document.createElement("div");
   document.body.append(el);
+
   return el;
 };
 
@@ -37,18 +39,23 @@ const Probe = ({ id }: { id: string }) => (
 
 const focusInput = (el: Element, id: string): HTMLInputElement => {
   const input = el.querySelector<HTMLInputElement>(`#in-${id}`);
+
   if (!input) {
     throw new Error(`input ${id} missing`);
   }
+
   input.focus();
+
   return input;
 };
 
 test("unkeyed child stays attached when its parent rerenders", async () => {
   let bump: (() => void) | undefined;
+
   const Parent = () => {
     const tick = atom(0);
     bump = () => tick.update((n) => n + 1);
+
     return (
       <div>
         <span>{tick()}</span>
@@ -58,6 +65,7 @@ test("unkeyed child stays attached when its parent rerenders", async () => {
       </div>
     );
   };
+
   const el = host();
   mount(el, Parent);
   await Bun.sleep(10);
@@ -72,9 +80,11 @@ test("unkeyed child stays attached when its parent rerenders", async () => {
 
 test("keyed children in an element stay attached on insert and remove", async () => {
   let setItems: ((ids: string[]) => void) | undefined;
+
   const App = () => {
     const items = atom(["a", "b", "c"]);
     setItems = (ids) => items.set(ids);
+
     return (
       <ul>
         {items().map((id) => (
@@ -83,6 +93,7 @@ test("keyed children in an element stay attached on insert and remove", async ()
       </ul>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -102,11 +113,14 @@ test("keyed children in an element stay attached on insert and remove", async ()
 
 test("keyed list returned from a component stays attached", async () => {
   let setItems: ((ids: string[]) => void) | undefined;
+
   const List = () => {
     const items = atom(["a", "b"]);
     setItems = (ids) => items.set(ids);
+
     return items().map((id) => <Probe key={id} id={id} />);
   };
+
   const el = host();
   mount(el, () => (
     <main>
@@ -128,11 +142,14 @@ test("keyed list returned from a component stays attached", async () => {
 
 test("reordering a keyed list keeps focus and caret", async () => {
   let setItems: ((ids: string[]) => void) | undefined;
+
   const List = () => {
     const items = atom(["a", "b", "c"]);
     setItems = (ids) => items.set(ids);
+
     return items().map((id) => <Probe key={id} id={id} />);
   };
+
   const el = host();
   mount(el, () => (
     <main>
@@ -155,9 +172,11 @@ test("reordering a keyed list keeps focus and caret", async () => {
 
 test("keyed plain elements stay attached when the head is removed", async () => {
   let setItems: ((ids: string[]) => void) | undefined;
+
   const App = () => {
     const items = atom(["a", "b", "c"]);
     setItems = (ids) => items.set(ids);
+
     return (
       <ul>
         {items().map((id) => (
@@ -169,6 +188,7 @@ test("keyed plain elements stay attached when the head is removed", async () => 
       </ul>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -182,10 +202,12 @@ test("keyed plain elements stay attached when the head is removed", async () => 
 
 test("atom hole host stays attached when its parent rerenders", async () => {
   let bump: (() => void) | undefined;
+
   const App = () => {
     const tick = atom(0);
     const body = atom(<Probe id="atom" />);
     bump = () => tick.update((n) => n + 1);
+
     return (
       <div>
         <span>{tick()}</span>
@@ -193,6 +215,7 @@ test("atom hole host stays attached when its parent rerenders", async () => {
       </div>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -207,9 +230,11 @@ test("atom hole host stays attached when its parent rerenders", async () => {
 
 test("keyed element list returned from a component keeps live rows", async () => {
   let setItems: ((ids: string[]) => void) | undefined;
+
   const List = () => {
     const items = atom(["a", "b"]);
     setItems = (ids) => items.set(ids);
+
     return items().map((id) => (
       <li key={id}>
         {h("reuse-probe", null)}
@@ -217,6 +242,7 @@ test("keyed element list returned from a component keeps live rows", async () =>
       </li>
     ));
   };
+
   const el = host();
   mount(el, () => (
     <ul>

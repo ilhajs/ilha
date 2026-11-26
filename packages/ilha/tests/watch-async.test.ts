@@ -5,18 +5,22 @@ import { atom, mount, watch } from "../src/index.ts";
 const shell = (): HTMLElement => {
   const el = document.createElement("div");
   document.body.append(el);
+
   return el;
 };
 
 test("watch.once runs async cleanup on unmount", async () => {
   const order: string[] = [];
   const gate = Promise.withResolvers<() => void>();
+
   const App = (): undefined => {
     watch.once(() => {
       order.push("setup");
+
       return gate.promise;
     });
   };
+
   const el = shell();
   const unmount = mount(el, App);
   await Bun.sleep(5);
@@ -33,10 +37,13 @@ test("watch.once runs async cleanup on unmount", async () => {
 test("watch.once cleanup runs when unmount wins the race", async () => {
   const order: string[] = [];
   const gate = Promise.withResolvers<() => void>();
+
   const App = () => {
     watch.once(() => gate.promise);
+
     return { $$ilha: 1 as const, children: ["x"], props: {}, type: "p" };
   };
+
   const el = shell();
   const unmount = mount(el, App);
   await Bun.sleep(5);
@@ -51,14 +58,17 @@ test("watch.once cleanup runs when unmount wins the race", async () => {
 
 test("watch.once signal aborts on unmount", async () => {
   let aborted = false;
+
   const App = () => {
     watch.once(({ signal }) => {
       signal.addEventListener("abort", () => {
         aborted = true;
       });
     });
+
     return { $$ilha: 1 as const, children: ["x"], props: {}, type: "p" };
   };
+
   const el = shell();
   const unmount = mount(el, App);
   await Bun.sleep(5);
@@ -72,6 +82,7 @@ test("watch(source) aborts stale runs and cleans up", async () => {
   const aborted: string[] = [];
   const cleaned: string[] = [];
   let current: ((v: string) => void) | undefined;
+
   const App = () => {
     const name = atom("a");
     watch(name, (v, { signal }) => {
@@ -79,13 +90,16 @@ test("watch(source) aborts stale runs and cleans up", async () => {
       signal.addEventListener("abort", () => {
         aborted.push(seen);
       });
+
       return () => {
         cleaned.push(seen);
       };
     });
     current = (v: string): void => name.set(v);
+
     return { $$ilha: 1 as const, children: ["x"], props: {}, type: "p" };
   };
+
   const el = shell();
   const unmount = mount(el, App);
   await Bun.sleep(5);
@@ -101,6 +115,7 @@ test("watch(source) aborts stale runs and cleans up", async () => {
 
 test("watch(source) onCleanup runs on unmount", async () => {
   const cleaned: string[] = [];
+
   const App = () => {
     const flag = atom(0);
     watch(flag, (_v, { onCleanup }) => {
@@ -108,8 +123,10 @@ test("watch(source) onCleanup runs on unmount", async () => {
         cleaned.push("extra");
       });
     });
+
     return { $$ilha: 1 as const, children: ["x"], props: {}, type: "p" };
   };
+
   const el = shell();
   const unmount = mount(el, App);
   await Bun.sleep(5);
@@ -122,6 +139,7 @@ test("onCleanup from a stale run executes immediately", async () => {
   const order: string[] = [];
   const gate = Promise.withResolvers<null>();
   let bump: (() => void) | undefined;
+
   const App = () => {
     const src = atom(0);
     bump = () => src.set(1);
@@ -131,8 +149,10 @@ test("onCleanup from a stale run executes immediately", async () => {
         onCleanup(() => order.push("stale"));
       }
     });
+
     return null;
   };
+
   const el = shell();
   const unmount = mount(el, App);
   bump?.();

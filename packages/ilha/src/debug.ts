@@ -61,11 +61,13 @@ const nameOfFunction = <T>(value: T): string => {
   if (!isFunction(value)) {
     return "";
   }
+
   return Object.getOwnPropertyDescriptor(value, "name")?.value ?? "";
 };
 
 const constructorName = <T extends object>(value: T): string => {
   const proto = Object.getPrototypeOf(value);
+
   return proto === null
     ? "Object"
     : nameOfFunction(
@@ -75,6 +77,7 @@ const constructorName = <T extends object>(value: T): string => {
 
 const isPlainObject = <T extends object>(value: T): boolean => {
   const proto = Object.getPrototypeOf(value);
+
   return proto === null || proto === Object.prototype;
 };
 
@@ -98,12 +101,16 @@ const summarizeAsync = <A, E>(
 ): InspectValue => {
   if (AsyncResult.isFailure(value)) {
     const failure = AsyncResult.error(value);
+
     return `<AsyncResult failure: ${failure._tag === "Some" ? String(failure.value) : "defect"}>`;
   }
+
   const payload = AsyncResult.value(value);
+
   if (payload._tag === "Some") {
     return walk.summarize(payload.value, depth, seen);
   }
+
   return AsyncResult.isWaiting(value)
     ? "<AsyncResult waiting>"
     : "<AsyncResult initial>";
@@ -117,6 +124,7 @@ const summarizeOption = <A>(
   if (depth >= MAX_DEPTH) {
     return "<Option>";
   }
+
   return Option.isSome(value)
     ? { _tag: "Some", value: walk.summarize(value.value, depth + 1, seen) }
     : { _tag: "None" };
@@ -130,12 +138,15 @@ const summarizeList = <T>(
   if (depth >= MAX_DEPTH) {
     return `<Array(${items.length})>`;
   }
+
   const out: InspectValue[] = items
     .slice(0, MAX_ITEMS)
     .map((item) => walk.summarize(item, depth + 1, seen));
+
   if (items.length > MAX_ITEMS) {
     out.push(`<${items.length - MAX_ITEMS} more>`);
   }
+
   return out;
 };
 
@@ -147,16 +158,21 @@ const summarizeRecord = <T extends object>(
   if (depth >= MAX_DEPTH) {
     return "<Object>";
   }
+
   const out: Record<string, InspectValue> = {};
+
   const entries = Object.entries(value).filter(
     ([key]) => !UNSAFE_KEY.test(key)
   );
+
   for (const [key, item] of entries.slice(0, MAX_ITEMS)) {
     out[key] = walk.summarize(item, depth + 1, seen);
   }
+
   if (entries.length > MAX_ITEMS) {
     out["…"] = `<${entries.length - MAX_ITEMS} more>`;
   }
+
   return out;
 };
 
@@ -165,27 +181,35 @@ const summarizeLeaf = <T>(value: T): InspectValue => {
   if (value === null) {
     return null;
   }
+
   if (value === undefined) {
     return "<undefined>";
   }
+
   if (isString(value)) {
     return value.length > MAX_STRING ? `${value.slice(0, MAX_STRING)}…` : value;
   }
+
   if (isNumber(value)) {
     return Number.isFinite(value) ? value : String(value);
   }
+
   if (isBoolean(value)) {
     return value;
   }
+
   if (isBigInt(value)) {
     return `<bigint ${value}>`;
   }
+
   if (isSymbol(value)) {
     return `<symbol ${value.description ?? ""}>`.replace(" >", ">");
   }
+
   if (isFunction(value)) {
     return `<function ${nameOfFunction(value) || "anonymous"}>`;
   }
+
   return `<${String(value)}>`;
 };
 
@@ -196,23 +220,29 @@ const summarizeOpaque = <T extends object>(
   if (Atom.isAtom(value)) {
     return "<Atom>";
   }
+
   if (Effect.isEffect(value)) {
     return "<Effect>";
   }
+
   if (Stream.isStream(value)) {
     return "<Stream>";
   }
+
   if (value instanceof Date) {
     return Number.isNaN(value.getTime())
       ? "<Invalid Date>"
       : value.toISOString();
   }
+
   if (value instanceof Map || value instanceof Set) {
     return `<${constructorName(value)}(${value.size})>`;
   }
+
   if (value instanceof Error) {
     return `<${constructorName(value)}: ${value.message}>`;
   }
+
   return undefined;
 };
 
@@ -224,21 +254,28 @@ const summarizeContainer = <T extends object>(
   if (AsyncResult.isAsyncResult(value)) {
     return summarizeAsync(value, depth, seen);
   }
+
   const opaque = summarizeOpaque(value);
+
   if (opaque !== undefined) {
     return opaque;
   }
+
   if (seen.has(value)) {
     return "<circular>";
   }
+
   seen.add(value);
+
   try {
     if (Option.isOption(value)) {
       return summarizeOption(value, depth, seen);
     }
+
     if (Array.isArray(value)) {
       return summarizeList(value, depth, seen);
     }
+
     return isPlainObject(value)
       ? summarizeRecord(value, depth, seen)
       : `<${constructorName(value)}>`;
@@ -269,24 +306,31 @@ let lastId = 0;
 
 const idOf = (fiber: FiberLocal): string => {
   let id = ids.get(fiber);
+
   if (id === undefined) {
     lastId += 1;
     id = `i${lastId}`;
     ids.set(fiber, id);
   }
+
   return id;
 };
 
 const describeHost = (el: Element): string => {
   const tag = el.tagName.toLowerCase();
+
   if (el.id) {
     return `${tag}#${el.id}`;
   }
+
   const slot = el.getAttribute(SLOT_ATTR);
+
   if (slot !== null) {
     return `${tag}[${SLOT_ATTR}="${slot}"]`;
   }
+
   const [first] = el.classList;
+
   return first ? `${tag}.${first}` : tag;
 };
 
@@ -301,9 +345,11 @@ const readAtom = (
 ): InspectValue => {
   const node = fiber.registry.getNodes().get(atom);
   const state = node?.currentState();
+
   if (!node || state === "uninitialized" || state === "removed") {
     return "<unread>";
   }
+
   return summarize(node.value(), 0, new WeakSet());
 };
 
@@ -313,6 +359,7 @@ const componentChildren = (fiber: FiberLocal): FiberLocal[] =>
     if (!hole || hole.closed) {
       return [];
     }
+
     return hole.componentType === undefined ? componentChildren(hole) : [hole];
   });
 
@@ -326,6 +373,7 @@ const toNode = (fiber: FiberLocal): IlhaInspectNode => {
     component: componentName(fiber),
     id: idOf(fiber),
   };
+
   return isDomElement(fiber.root)
     ? { ...node, host: describeHost(fiber.root) }
     : node;
@@ -345,20 +393,26 @@ const findFiber = (id: string): FiberLocal | undefined => {
     if (ids.get(fiber) === id) {
       return fiber;
     }
+
     for (const child of componentChildren(fiber)) {
       const hit = visit(child);
+
       if (hit) {
         return hit;
       }
     }
+
     return undefined;
   };
+
   for (const root of liveRoots) {
     const hit = visit(root);
+
     if (hit) {
       return hit;
     }
   }
+
   return undefined;
 };
 
@@ -370,16 +424,18 @@ export const inspect = (host?: Element): IlhaInspectNode[] => {
   const found = [...liveRoots].flatMap((root) =>
     host === undefined ? [root] : fibersAt(root, host)
   );
+
   return found.map(toNode);
 };
 
 /** Host elements of the live DOM roots. SSR and custom-renderer roots have none. */
 export const roots = (): Element[] =>
-  [...liveRoots].map((fiber) => fiber.root).filter(isDomElement);
+  [...liveRoots].flatMap(({ root }) => (isDomElement(root) ? [root] : []));
 
 /** The element an inspected component paints into, to highlight or measure. */
 export const element = (id: string): Element | undefined => {
   const root = findFiber(id)?.root;
+
   return isDomElement(root) ? root : undefined;
 };
 
@@ -394,9 +450,11 @@ export const atomsOf = (
   id: string
 ): readonly Atom.Atom<unknown>[] | undefined => {
   const fiber = findFiber(id);
+
   if (fiber === undefined) {
     return undefined;
   }
+
   return [...(fiber.primitives ?? [])];
 };
 
@@ -410,26 +468,32 @@ export const setAtom = <T extends SnapshotValue>(
   value: T
 ): SetAtomResult => {
   const fiber = findFiber(id);
+
   if (!fiber) {
     return {
       ok: false,
       reason: `No live component has id "${id}". Call inspect() again.`,
     };
   }
+
   const atom = fiber.primitives?.[index];
+
   if (!atom) {
     return {
       ok: false,
       reason: `Component "${id}" has no atom at index ${index}.`,
     };
   }
+
   if (!Atom.isWritable(atom)) {
     return {
       ok: false,
       reason: `Atom ${index} of "${id}" is derived and read-only.`,
     };
   }
+
   fiber.registry.set(atom, value);
+
   return { ok: true };
 };
 
@@ -446,7 +510,9 @@ export const onChange = (listener: () => void): (() => void) => {
       console.error(error);
     }
   };
+
   rootListeners.add(guarded);
+
   return () => {
     rootListeners.delete(guarded);
   };

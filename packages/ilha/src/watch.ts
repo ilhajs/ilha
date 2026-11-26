@@ -65,22 +65,26 @@ interface Runner {
 const makeRunner = (ssr: boolean): Runner => {
   let ctrl: AbortController | undefined;
   const cancel = (): void => ctrl?.abort();
+
   return {
     cancel,
     run: (fn) => {
       cancel();
       ctrl = new AbortController();
       const { signal } = ctrl;
+
       const onCleanup = (c: WatchOnceCleanup | undefined): void => {
         if (!isFunction(c)) {
           return;
         }
+
         if (signal.aborted) {
           c();
         } else {
           signal.addEventListener("abort", () => c(), { once: true });
         }
       };
+
       const settle = async (
         pending: Promise<WatchOnceCleanup | undefined>
       ): Promise<void> => {
@@ -90,7 +94,9 @@ const makeRunner = (ssr: boolean): Runner => {
           console.error(error);
         }
       };
+
       const out = fn({ onCleanup, signal, ssr });
+
       if (out instanceof Promise) {
         void settle(out);
       } else {
@@ -114,12 +120,14 @@ const useWatchSlot = (
   fiber.watchI = i + 1;
   fiber.watchSlots ??= [];
   const existing = fiber.watchSlots[i];
+
   if (existing && existing.key === key) {
     existing.ref.fn = ref.fn;
   } else {
     existing?.dispose();
     fiber.watchSlots[i] = { dispose: open(fiber), key, ref };
   }
+
   return instr(Effect.void);
 };
 
@@ -141,9 +149,11 @@ export const watch: WatchFn = Object.assign(
     // A rerender updates `ref.fn` on the stored ref this subscription reads.
     const ref = { fn };
     const key = isFunction(source) ? source.atom : source;
+
     return useWatchSlot(key, ref, (fiber) => {
       const runner = makeRunner(fiber.runtime.ssr);
       const emit = (value: A): void => runner.run((ctx) => ref.fn(value, ctx));
+
       const stop = Stream.isStream(source)
         ? fiber.run(
             // SAFETY: fiber.run provides AtomRegistry; watched streams need nothing else.
@@ -156,6 +166,7 @@ export const watch: WatchFn = Object.assign(
             emit,
             { immediate: true }
           );
+
       return () => {
         runner.cancel();
         stop();
@@ -167,6 +178,7 @@ export const watch: WatchFn = Object.assign(
       useWatchSlot(ONCE, {}, (fiber) => {
         const runner = makeRunner(fiber.runtime.ssr);
         runner.run(fn);
+
         return runner.cancel;
       }),
   }

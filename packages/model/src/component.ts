@@ -62,6 +62,7 @@ type SendMapper<Msg> = (arg?: never) => Msg | undefined;
 const isSendMapper = <Msg>(
   value: Msg | SendMapper<Msg>
 ): value is SendMapper<Msg> => typeof value === "function";
+
 interface CallOptions<Props, Events> {
   readonly props: Props;
   readonly onEmit?: ((event: Events) => void) | undefined;
@@ -158,12 +159,11 @@ type ImplNeeds<I> = I extends {
   readonly update: infer U;
   readonly init: infer F;
 }
-  ?
-      | UpdateServices<U>
-      | InitServices<F>
-      | (I extends { readonly subscriptions: infer S }
-          ? SubServices<Exclude<S, undefined>>
-          : never)
+  ? | UpdateServices<U>
+    | InitServices<F>
+    | (I extends { readonly subscriptions: infer S }
+        ? SubServices<Exclude<S, undefined>>
+        : never)
   : never;
 
 /**
@@ -253,12 +253,15 @@ export const defineComponent = <
   const withProps = options as {
     readonly props?: Schema.ConstraintDecoder<Props> | undefined;
   };
+
   // SAFETY: without a props schema, Props is `{}`; the empty struct
   // decodes it.
   const emptyProps = Schema.Struct({}) as unknown;
+
   // SAFETY: withProps carries a Props decoder, or emptyProps stands in.
   const propsSchema =
     withProps.props ?? (emptyProps as Schema.ConstraintDecoder<Props>);
+
   const definition: Definition<Props, Model, Msg, Events> = {
     events: options.events ?? Schema.Never,
     message: options.message,
@@ -275,11 +278,13 @@ export const defineComponent = <
       I & { readonly layer?: L | undefined }
   ): ModelComponent<Props, Events, Model, Msg> => {
     type E = Layer.Error<L>;
+
     const modelSchema = definition.model;
     // SAFETY: an absent layer means `L` is `Layer<never, never>` and
     // `Layer.empty` provides exactly that; a present layer already fits
     // after CheckServices validated its coverage (mirrors main).
     const provided: Layer.Any = impl.layer ?? Layer.empty;
+
     const runtime = Atom.runtime<Layer.Success<L>, E>(
       // SAFETY: `provided` is the layer above, typed for the runtime (mirrors main).
       provided as Layer.Layer<Layer.Success<L>, E>
@@ -299,7 +304,9 @@ export const defineComponent = <
         }),
         { snapshot: false }
       );
+
       const known = untrack(() => propsState());
+
       // The spread above is always a fresh object; skip decoding when the
       // parent passed an equal props bag.
       if (known.onEmit !== onEmit || !Equal.equals(known.raw, rawProps)) {
@@ -315,6 +322,7 @@ export const defineComponent = <
           const { props } = untrack(() => propsState());
           const dollar = initDollar<Model, Msg, Props, Events>(props);
           const out = impl.init(dollar, props);
+
           // SAFETY: a non-step return is the bare model; the init type guarantees it.
           return isStepValue(out)
             ? out
@@ -349,6 +357,7 @@ export const defineComponent = <
         () => {
           const live = untrack(() => state());
           const { props: liveProps } = untrack(() => propsState());
+
           return {
             model: live,
             props: liveProps,
@@ -365,6 +374,7 @@ export const defineComponent = <
         string,
         { readonly deps: unknown; readonly fiber: Fiber.Fiber<void, never> }
       >();
+
       const manageEntries = (
         latest: {
           readonly model: Model;
@@ -380,16 +390,20 @@ export const defineComponent = <
       > =>
         Effect.gen(function* manage() {
           const seen = new Set<string>();
+
           for (const entry of latest.subs) {
             seen.add(entry.name);
             const deps = entry.depsOf(latest.model, latest.props);
             const current = activeSubs.get(entry.name);
+
             if (current !== undefined && Equal.equals(current.deps, deps)) {
               continue;
             }
+
             if (current !== undefined) {
               yield* Fiber.interrupt(current.fiber);
             }
+
             const fiber = yield* Effect.forkScoped(
               Stream.runForEach(
                 Stream.suspend(() => entry.run(deps)).pipe(
@@ -398,8 +412,10 @@ export const defineComponent = <
                 (message) => Queue.offer(outbox, message)
               )
             );
+
             activeSubs.set(entry.name, { deps, fiber });
           }
+
           for (const [name, current] of activeSubs) {
             if (!seen.has(name)) {
               yield* Fiber.interrupt(current.fiber);
@@ -426,6 +442,7 @@ export const defineComponent = <
         // command's generation now, so an older issue resolving later finds
         // a stale generation and its message is dropped.
         let guarded = deliver;
+
         if (issued.mode === "switch") {
           const { generations } = untrack(() => cells());
           const generation = (generations.get(issued.name) ?? 0) + 1;
@@ -438,6 +455,7 @@ export const defineComponent = <
             }
           };
         }
+
         // SAFETY: CheckServices proved every command's requirements are in
         // the layer; the runner provides them plus the AtomRegistry.
         const run = Effect.catchCause(
@@ -448,6 +466,7 @@ export const defineComponent = <
           ),
           reportCause
         ) as Effect.Effect<void, never, Layer.Success<L> | AtomRegistry>;
+
         return { mode: issued.mode, name: issued.name, run };
       };
 
@@ -455,8 +474,10 @@ export const defineComponent = <
         if (!isAlive()) {
           return;
         }
+
         const { props: liveProps } = untrack(() => propsState());
         const before = untrack(() => state());
+
         // SAFETY: `update` is an exhaustive per-tag record; a missing tag is
         // a type error at `make`, so the string lookup always finds a handler.
         const handlers: Record<
@@ -466,17 +487,22 @@ export const defineComponent = <
             message: never
           ) => Model | Step<Model, Msg, unknown, Events>
         > = impl.update;
+
         const handler = handlers[message._tag];
+
         if (handler === undefined) {
           throw new Error(
             `${definition.name}: no update for "${message._tag}"`
           );
         }
+
         const dollar = updateDollar<Model, Msg, Props, Events>(
           before,
           liveProps
         );
+
         let out: Model | Step<Model, Msg, unknown, Events>;
+
         try {
           // SAFETY: the tag-selected handler receives exactly its variant message.
           out = handler(dollar as never, message as never);
@@ -484,21 +510,28 @@ export const defineComponent = <
           // An update throw is a defect like a command failure: log it and
           // keep the last model, so the instance stays interactive.
           Effect.runSync(Effect.logError(Cause.pretty(Cause.die(error))));
+
           return;
         }
+
         // SAFETY: a non-step return is the bare model; the handler type guarantees it.
         const step = isStepValue(out)
           ? out
           : createStep<Model, Msg, never, Events>(out as Model);
+
         state.set(step.model);
         let started = 0;
+
         if (step.commands.length > 0) {
           const { queue } = untrack(() => cells());
+
           for (const issued of step.commands) {
             Queue.offerUnsafe(queue, toJob(issued, dispatch));
           }
+
           started = step.commands.length;
         }
+
         // One size check when no recorder is attached: no record, nothing
         // allocated, the message and both models untouched. (mirrors main)
         if (isRecording()) {
@@ -510,8 +543,10 @@ export const defineComponent = <
             message,
           });
         }
+
         if (step.events.length > 0) {
           const emit = untrack(() => propsState()).onEmit;
+
           if (emit !== undefined) {
             for (const event of step.events) {
               emit(event);
@@ -542,22 +577,27 @@ export const defineComponent = <
           ? Effect.gen(function* runSwitch() {
               const { switches } = untrack(() => cells());
               const previous = switches.get(job.name);
+
               if (previous !== undefined) {
                 yield* Fiber.interrupt(previous);
               }
+
               bump(job.name, 1);
               const cell: SwitchCell = {};
+
               const fiber = yield* Effect.forkScoped(
                 Effect.ensuring(
                   job.run,
                   Effect.sync(() => {
                     bump(job.name, -1);
+
                     if (switches.get(job.name) === cell.current) {
                       switches.delete(job.name);
                     }
                   })
                 )
               );
+
               cell.current = fiber;
               switches.set(job.name, fiber);
             })
@@ -615,6 +655,7 @@ export const defineComponent = <
           )
         )
       );
+
       // The drain loops forever, so it only settles on a layer failure or
       // a defect.
       const runnerFailure = atom(
@@ -638,24 +679,30 @@ export const defineComponent = <
       });
       watch.once(({ ssr }) => {
         const helpers = untrack(() => cells());
+
         // `watch.once` also runs during server rendering; commands,
         // subscriptions, and the layer are client work.
         if (!ssr && !helpers.started) {
           helpers.started = true;
           const begun = untrack(() => initResult());
+
           for (const issued of begun.commands) {
             Queue.offerUnsafe(helpers.queue, toJob(issued, dispatch));
           }
+
           if (begun.events.length > 0) {
             const emit = untrack(() => propsState()).onEmit;
+
             if (emit !== undefined) {
               for (const event of begun.events) {
                 emit(event);
               }
             }
           }
+
           runner.set(helpers.queue);
         }
+
         return () => {
           helpers.alive = false;
         };
@@ -669,14 +716,17 @@ export const defineComponent = <
       const { props } = untrack(() => propsState());
       const subs = impl.subscriptions?.(model, props) ?? [];
       const seen = new Set<string>();
+
       for (const sub of subs) {
         if (seen.has(sub.name)) {
           throw new Error(
             `${definition.name}: duplicate subscription "${sub.name}"`
           );
         }
+
         seen.add(sub.name);
       }
+
       combo.set({ model, props, subs });
 
       // SAFETY: the implementation covers both `send` overloads; the cast restores them for views.
@@ -684,11 +734,13 @@ export const defineComponent = <
         if (isSendMapper(input)) {
           return (arg?: never): void => {
             const resolved = input(arg);
+
             if (resolved !== undefined) {
               dispatch(resolved);
             }
           };
         }
+
         return (): void => {
           dispatch(input);
         };
@@ -704,12 +756,15 @@ export const defineComponent = <
       // overloads for views.
       const callH = ((node: never, attrs: never, ...rest: View[]): View =>
         h(node, attrs, ...rest)) as typeof h;
+
       const viewH = Object.assign(callH, { isRunning, props, send });
+
       return impl.view(viewH, model);
     };
 
     const component = render;
     Object.defineProperty(component, "name", { value: definition.name });
+
     return Object.assign(component, { definition, impl });
   };
 

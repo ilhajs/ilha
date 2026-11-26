@@ -16,6 +16,7 @@ export const runSetup = (fiber: FiberLocal, fn: Component): void => {
     if (fiber.closed) {
       return;
     }
+
     fiber.renderGen = (fiber.renderGen ?? 0) + 1;
     fiber.runtime.begin();
     beginPrimitiveFrame(fiber);
@@ -28,13 +29,17 @@ export const runSetup = (fiber: FiberLocal, fn: Component): void => {
           fiber.renderSub = undefined;
           // SAFETY: generators expose next/throw; interpret drives them.
           const gen = value as Generator<Yielded, View | undefined, View>;
+
           if (isFunction(gen?.next) && isFunction(gen?.throw)) {
             interpret(() => gen, fiber);
+
             return;
           }
+
           if (!fiber.runtime.ssr) {
             fiber.renderSub = subscribeRenderDeps(fiber, deps, render);
           }
+
           if (value !== undefined && !fiber.closed) {
             withFiber(fiber, () => fiber.paint(value));
           }
@@ -50,6 +55,7 @@ export const runSetup = (fiber: FiberLocal, fn: Component): void => {
       }
     );
   };
+
   try {
     render();
   } catch (error) {
@@ -104,6 +110,7 @@ export const startRoot = ({
     onError,
     ssr,
   });
+
   onRuntime?.(runtime);
   const { promise: ready, resolve } = Promise.withResolvers<null>();
   const settle = () => resolve(null);
@@ -119,10 +126,12 @@ export const startRoot = ({
   });
   runSetup(fiber, fn);
   runtime.end();
+
   return {
     close: () => {
       closeFiber(fiber);
       runtime.close();
+
       if (liveRoots.delete(fiber)) {
         notifyRoots();
       }

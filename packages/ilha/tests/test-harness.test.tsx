@@ -8,6 +8,7 @@ import { render, renderHtml } from "../src/test.ts";
 
 const Counter = () => {
   const count = atom(0);
+
   return (
     <button type="button" onclick={() => count.update((n: number) => n + 1)}>
       {count}
@@ -18,6 +19,7 @@ const Counter = () => {
 const Field = () => {
   const name = atom("");
   const checked = atom(false);
+
   return (
     <form
       onsubmit={(event: Event) => {
@@ -55,6 +57,7 @@ const Delayed = function* Delayed() {
 
 const AsyncGreeting = async () => {
   await Promise.resolve();
+
   return <p>hello</p>;
 };
 
@@ -150,11 +153,13 @@ test("ssr: true with hydrate: false leaves static server HTML", async () => {
 test("a missing selector throws with the current HTML", async () => {
   const ui = render(Counter);
   let message = "";
+
   try {
     await ui.click("#nope");
   } catch (error) {
     message = error instanceof Error ? error.message : "";
   }
+
   expect(message).toContain('no element matches "#nope"');
   expect(message).toContain("<button");
   ui.unmount();

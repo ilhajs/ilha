@@ -26,6 +26,7 @@ const mountIsland =
     _metadata: Record<string, string>
   ) => {
     const merged = { ...props };
+
     for (const [name, value] of Object.entries(slotted ?? {})) {
       merged[name === "default" ? "children" : name] = value;
     }
@@ -33,9 +34,11 @@ const mountIsland =
     const nested = element.querySelector<HTMLElement>("[data-ilha]");
     const hydrate = !!nested;
     const host = nested ?? element;
+
     const unmount = mount(host, () => Component(merged), {
       hydrate,
     });
+
     element.addEventListener("astro:unmount", () => unmount(), { once: true });
   };
 

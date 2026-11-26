@@ -11,30 +11,40 @@ import type { GeneratorFn, View, Yielded } from "./types.ts";
 /** Drive a generator component: paint yielded views, run yielded effects. */
 export const interpret = (gen: GeneratorFn, fiber: FiberLocal): void => {
   const iter = gen();
+
   const resume = <S>(send?: S, thrown?: Error): void => {
     if (fiber.closed) {
       return;
     }
+
     withFiber(fiber, () => {
       if (fiber.inFlight) {
         throw ilhaError("ILHA004");
       }
+
       let step: IteratorResult<Yielded, View | undefined>;
+
       try {
         // SAFETY: the generator resumes with the yielded effect's success value.
         step = thrown ? iter.throw(thrown) : iter.next(send as View);
       } catch (error) {
         fiber.fail(error);
+
         return;
       }
+
       const { value } = step;
+
       if (step.done) {
         if (value !== undefined) {
           fiber.paint(value);
         }
+
         return;
       }
+
       const effect = isInstruction(value) ? value.effect : value;
+
       if (Effect.isEffect(effect)) {
         fiber.inFlight = true;
         fiber.run(
@@ -49,12 +59,15 @@ export const interpret = (gen: GeneratorFn, fiber: FiberLocal): void => {
             resume(undefined, toError(e));
           }
         );
+
         return;
       }
+
       // SAFETY: a non-effect step value is the view to paint.
       fiber.paint(value as View);
       resume();
     });
   };
+
   resume();
 };

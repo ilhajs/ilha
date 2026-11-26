@@ -19,15 +19,20 @@ test("atom handle from another island throws when a different island is active",
   const A = () => {
     const n = atom(0);
     foreign = n;
+
     return { $$ilha: 1 as const, children: [n], props: {}, type: "span" };
   };
+
   const B = () => {
     atom(1);
+
     if (!foreign) {
       throw new Error("foreign missing");
     }
+
     const mine = foreign;
     expect(() => mine()).toThrow(/\[ILHA003\]/u);
+
     return { $$ilha: 1 as const, children: ["b"], props: {}, type: "span" };
   };
 
@@ -73,9 +78,11 @@ test("atom hole updates text without second root yield", async () => {
 
 const MapApp = function* MapApp() {
   const items = atom([{ done: true }, { done: false }]);
+
   const pending = atom(
     mapAtom(items.atom, (list) => list.filter((item) => !item.done).length)
   );
+
   yield {
     $$ilha: 1 as const,
     children: ["Pending: ", pending],
@@ -103,6 +110,7 @@ test("Atom.map tracks source atoms", async () => {
 const SyncMapApp = () => {
   const items = atom(["a"]);
   const n = atom(mapAtom(items.atom, (list) => list.length));
+
   return {
     $$ilha: 1 as const,
     children: ["n=", n],
@@ -136,6 +144,7 @@ const Badge = (props: PropBag) => ({
 const ChildMapApp = () => {
   const items = atom(["a"]);
   const n = atom(mapAtom(items.atom, (list) => list.length));
+
   return {
     $$ilha: 1 as const,
     children: [
@@ -187,9 +196,11 @@ test("value={atom} tracks the atom", async () => {
   mount(el, ValueApp);
   await Bun.sleep(5);
   const input = el.querySelector("input");
+
   if (!(input instanceof HTMLInputElement)) {
     throw new TypeError("input missing");
   }
+
   expect(input.value).toBe("x");
   input.value = "yz";
   input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -200,6 +211,7 @@ test("value={atom} tracks the atom", async () => {
 
 const ReadApp = () => {
   const items = atom(["a", "b", "c"]);
+
   return {
     $$ilha: 1 as const,
     children: [
@@ -240,6 +252,7 @@ test("atom reads during sync setup rerun the component", async () => {
 const SlotApp = () => {
   const list = atom([1, 2]);
   const total = atom(0);
+
   return {
     $$ilha: 1 as const,
     children: [
@@ -293,6 +306,7 @@ const AsyncMapApp = async () => {
   const items = atom(["a", "b", "c"]);
   const count = atom(mapAtom(items.atom, (list) => String(list.length)));
   await Bun.sleep(5);
+
   return {
     $$ilha: 1 as const,
     children: [count],
@@ -318,11 +332,14 @@ test("async setup updates jsx atom children after await", async () => {
 
 test("atom.lazy runs initializer once", async () => {
   let runs = 0;
+
   const App = () => {
     const n = atom.lazy(() => {
       runs += 1;
+
       return runs;
     });
+
     return {
       $$ilha: 1 as const,
       children: [String(n())],
@@ -332,6 +349,7 @@ test("atom.lazy runs initializer once", async () => {
       type: "button",
     };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
@@ -355,6 +373,7 @@ test("overlapping async setups track reads after await per fiber", async () => {
   const A = async () => {
     const n = atom(0);
     await gateA.promise;
+
     return {
       $$ilha: 1 as const,
       children: [n],
@@ -362,9 +381,11 @@ test("overlapping async setups track reads after await per fiber", async () => {
       type: "button",
     };
   };
+
   const B = async () => {
     const n = atom(0);
     await gateB.promise;
+
     return {
       $$ilha: 1 as const,
       children: [n],
@@ -397,6 +418,7 @@ test("overlapping async setups track reads after await per fiber", async () => {
 
 const SyncC = () => {
   const count = atom(0);
+
   return {
     $$ilha: 1 as const,
     children: [String(count())],
@@ -420,6 +442,7 @@ test("sync reads while async setups are suspended do not leak trackGet", async (
   const A = async () => {
     const n = atom(0);
     await gateA.promise;
+
     return {
       $$ilha: 1 as const,
       children: [n],
@@ -427,9 +450,11 @@ test("sync reads while async setups are suspended do not leak trackGet", async (
       type: "p",
     };
   };
+
   const B = async () => {
     const n = atom(0);
     await gateB.promise;
+
     return {
       $$ilha: 1 as const,
       children: [n],
@@ -444,9 +469,11 @@ test("sync reads while async setups are suspended do not leak trackGet", async (
   await Bun.sleep(5);
 
   const cBtn = cEl.querySelector("#c");
+
   if (!(cBtn instanceof HTMLButtonElement)) {
     throw new TypeError("#c missing");
   }
+
   cBtn.click();
   await Bun.sleep(10);
   expect(cEl.textContent).toBe("1");
@@ -472,14 +499,17 @@ test("sync reads while async setups are suspended do not leak trackGet", async (
 test("atom structural equals skips notify on equal JSON", async () => {
   const seen: string[] = [];
   let set!: (v: { a: number }) => void;
+
   const App = () => {
     const o = atom({ a: 1 }, { equals: "structural" });
     set = (v) => o.set(v);
     watch(o, (v) => {
       seen.push(JSON.stringify(v));
     });
+
     return { $$ilha: 1 as const, children: ["x"], props: {}, type: "p" };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   mount(el, App);
@@ -497,16 +527,20 @@ test("atom structural equals skips notify on equal JSON", async () => {
 test("atom function equals skips notify", async () => {
   const seen: number[] = [];
   let set!: (v: string) => void;
+
   const App = () => {
     const s = atom("Hello", {
       equals: (a, b) => a.toLowerCase() === b.toLowerCase(),
     });
+
     set = (v) => s.set(v);
     watch(s, (v) => {
       seen.push(v.length);
     });
+
     return { $$ilha: 1 as const, children: ["x"], props: {}, type: "p" };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   mount(el, App);
@@ -524,14 +558,17 @@ test("atom function equals skips notify", async () => {
 test("atom without equals notifies on equal-shaped objects", async () => {
   const seen: string[] = [];
   let set!: (v: { a: number }) => void;
+
   const App = () => {
     const o = atom({ a: 1 });
     set = (v) => o.set(v);
     watch(o, (v) => {
       seen.push(JSON.stringify(v));
     });
+
     return { $$ilha: 1 as const, children: ["x"], props: {}, type: "p" };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   mount(el, App);
@@ -547,6 +584,7 @@ const Tally = () => {
   // Written in the handler and never read in the view.
   const seq = atom(0);
   const lazySeq = atom.lazy(() => 10);
+
   return h(
     "button",
     {

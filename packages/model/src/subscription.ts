@@ -40,8 +40,10 @@ export const make: MakeSubscription = (
   if (third === undefined) {
     // SAFETY: one argument after the name means the constant-stream shape.
     const stream = second as Stream.Stream<never, never, never>;
+
     return { depsOf: (): void => undefined, name, run: () => stream };
   }
+
   // SAFETY: two arguments after the name mean (depsOf, run); both are
   // `any`-erased, and the overloads carry the precise types.
   return { depsOf: second, name, run: third };

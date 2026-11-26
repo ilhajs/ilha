@@ -22,6 +22,7 @@ interface PendingProbe {
 
 const realFetch = globalThis.fetch;
 const calls: FetchCall[] = [];
+
 let behavior: (url: string) => Promise<Response> = () =>
   Promise.resolve(Response.json({}));
 
@@ -29,15 +30,20 @@ let behavior: (url: string) => Promise<Response> = () =>
 const mountIslandForm = async (defaults?: { text: string }) => {
   const host = document.createElement("div");
   let captured: IslandForm<{ text: string }> | undefined;
+
   const dispose = mount(host, () => {
     captured = useIslandForm(defaults ?? { text: "" });
+
     return null;
   });
+
   // The probe paints a tick after mount; wait for the capture.
   await settle();
+
   if (!captured) {
     throw new Error("useIslandForm probe did not render");
   }
+
   return { dispose, form: captured };
 };
 
@@ -57,6 +63,7 @@ const stubFetch = (): void => {
       method: init?.method ?? "GET",
       url: String(input),
     });
+
     return behavior(String(input));
   }) as typeof fetch;
 };
@@ -65,6 +72,7 @@ const redirectTo = (url: string): Response => {
   const response = Response.json({});
   Object.defineProperty(response, "redirected", { value: true });
   Object.defineProperty(response, "url", { value: url });
+
   return response;
 };
 
@@ -173,14 +181,17 @@ describe("useIslandForm", () => {
       );
     const { form } = await mountIslandForm();
     let thrown: unknown;
+
     try {
       await form.post("/todos");
     } catch (error) {
       thrown = error;
     }
+
     if (!(thrown instanceof VoidActionError)) {
       throw new TypeError("expected a VoidActionError");
     }
+
     expect(thrown.body).toBe("boom");
     expect(form.error).toBeNull();
     expect(form.pending).toBe(false);
@@ -191,14 +202,17 @@ describe("useIslandForm", () => {
     behavior = () => Promise.resolve(new Response(null, { status: 500 }));
     const { form } = await mountIslandForm();
     let thrown: unknown;
+
     try {
       await form.post("/todos");
     } catch (error) {
       thrown = error;
     }
+
     if (!(thrown instanceof VoidActionError)) {
       throw new TypeError("expected a VoidActionError");
     }
+
     expect(thrown.body).toBeNull();
   });
 
@@ -213,14 +227,17 @@ describe("useIslandForm", () => {
       );
     const { form } = await mountIslandForm();
     let thrown: unknown;
+
     try {
       await form.post("/todos");
     } catch (error) {
       thrown = error;
     }
+
     if (!(thrown instanceof VoidActionError)) {
       throw new TypeError("expected a VoidActionError");
     }
+
     expect(thrown.body).toBeNull();
   });
 
@@ -230,11 +247,13 @@ describe("useIslandForm", () => {
     behavior = () => Promise.reject(expected);
     const { form } = await mountIslandForm();
     let thrown: unknown;
+
     try {
       await form.post("/todos");
     } catch (error) {
       thrown = error;
     }
+
     expect(thrown).toBe(expected);
     expect(form.pending).toBe(false);
   });
@@ -263,8 +282,10 @@ describe("useIslandForm", () => {
       if (box.form) {
         seen.push(box.form.pending);
       }
+
       return Promise.resolve(Response.json({}));
     };
+
     const { form } = await mountIslandForm({ text: "" });
     box.form = form;
     await form.post("/todos");
