@@ -3,6 +3,7 @@ import * as Equal from "effect/Equal";
 import * as Option from "effect/Option";
 import type * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
+import * as Registry from "effect/reactivity/AtomRegistry";
 import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -90,7 +91,7 @@ export const untrack = <A>(fn: () => A): A => {
   }
 };
 
-const readTracked = <A>(atom: Atom.Atom<A>, registry: AtomRegistry): A => {
+const readTrackedWith = <A>(atom: Atom.Atom<A>, registry: AtomRegistry): A => {
   if (!tracking) {
     return registry.get(atom);
   }
@@ -104,6 +105,29 @@ const readTracked = <A>(atom: Atom.Atom<A>, registry: AtomRegistry): A => {
     ? frames.findLast((f) => f.fiber === active)
     : frames.at(-1);
   return frame ? frame.get(atom) : registry.get(atom);
+};
+
+/** Reads outside a render go through a shared fallback registry. */
+let fallbackRegistry: AtomRegistry | undefined;
+
+/**
+ * Read an atom through the current rendering fiber without taking an
+ * order-based primitive slot. The read subscribes the rendering fiber, so a
+ * later write rerenders it; module-scope atoms stay alive with
+ * `Atom.keepAlive`. Outside a render it just reads via the given registry,
+ * or a shared fallback registry when none is given.
+ */
+export const readTracked = <A>(
+  atom: Atom.Atom<A>,
+  registry?: AtomRegistry | undefined
+): A => {
+  const active = getActiveFiber();
+  const resolved = registry ?? active?.registry;
+  if (resolved === undefined) {
+    fallbackRegistry ??= Registry.make();
+    return fallbackRegistry.get(atom);
+  }
+  return readTrackedWith(atom, resolved);
 };
 
 /** Reset per-render slot cursors; warn when the primitive count drifts. */
@@ -227,7 +251,7 @@ export const wrapHandle = <A, W = A>(
   return Object.assign(
     () => {
       guard();
-      return readTracked(atom, registry);
+      return readTrackedWith(atom, registry);
     },
     {
       $$atom: 1 as const,

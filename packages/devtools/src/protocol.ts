@@ -3,7 +3,9 @@
  * the types both sides import. Nothing here runs.
  */
 import type { InPageChannelProtocol } from "devframe/in-page-channel";
-import type { IlhaInspectNode, InspectValue, SetAtomResult } from "ilha/debug";
+import type { IlhaInspectNode, SetAtomResult } from "ilha/debug";
+
+import type { WireEntry } from "./wire";
 
 export type { IlhaInspectNode, SetAtomResult } from "ilha/debug";
 
@@ -35,43 +37,52 @@ export interface IlhaTreeState {
 export const parseTree = ({ json }: IlhaTreeState): IlhaInspectNode[] =>
   JSON.parse(json);
 
-/** One changed top-level model field, summarized before and after. */
-export interface ModelLogFieldChange {
-  readonly before: InspectValue;
-  readonly after: InspectValue;
+/** One session the page's message-log pipeline holds, without payloads. */
+export interface ModelSessionSummary {
+  /** The session id: one mounted root. */
+  readonly session: string;
+  /** The `app` the session's `SessionStarted` reported, if any. */
+  readonly app: string | undefined;
+  /** How many entries the page keeps for the session. */
+  readonly entries: number;
+  /** The first and last kept `seq`, absent when the session is empty. */
+  readonly first: number | undefined;
+  readonly last: number | undefined;
+  /** Whether the page has a live runtime bridge for this session. */
+  readonly controllable: boolean;
+  /** The shown `seq` while the session is paused for time travel. */
+  readonly paused?: number | undefined;
 }
 
-/**
- * How one message changed the model: changed top-level fields for record
- * models, summarized before/after snapshots for anything else.
- */
-export type ModelLogDiff =
-  | {
-      readonly _tag: "fields";
-      readonly changed: Readonly<Record<string, ModelLogFieldChange>>;
-    }
-  | {
-      readonly _tag: "snapshot";
-      readonly before: InspectValue;
-      readonly after: InspectValue;
-    };
-
-/** One recorded dispatch of a `@ilha/model` island. */
-export interface ModelLogEntry {
-  /** `Date.now()` when the message dispatched. */
-  readonly at: number;
-  /** How many commands the message started. */
-  readonly commands: number;
-  /** What the message changed in the model. */
-  readonly diff: ModelLogDiff;
-  /** The message, safely summarized. */
-  readonly message: InspectValue;
-}
-
-/** Result of `modelLog`: the island's entries, or why it has none. */
-export type ModelLogResult =
-  | { readonly entries: readonly ModelLogEntry[]; readonly ok: true }
+/** Wire frames of one session with `seq` above `since`, oldest first, or why they are missing. */
+export type ModelFramesResult =
+  | { readonly ok: true; readonly frames: readonly WireEntry[] }
   | { readonly ok: false; readonly reason: string };
+
+/** The JSON Schema of the messages a component accepts, or why it is missing. */
+export type ModelSchemaResult =
+  | { readonly ok: true; readonly schema: unknown }
+  | { readonly ok: false; readonly reason: string };
+
+/** A model control call that succeeded. */
+export interface ModelControlSuccess {
+  readonly ok: true;
+  readonly session: string;
+  /** The paused `seq` for `show_entry`; absent otherwise. */
+  readonly seq?: number | undefined;
+  /** The dispatched instance and path for `dispatch`; absent otherwise. */
+  readonly instance?: number | undefined;
+  readonly path?: string | undefined;
+}
+
+/** A model control call the page refused, with the reason. */
+export interface ModelControlFailure {
+  readonly ok: false;
+  readonly reason: string;
+}
+
+/** The result of a `show_entry`, `resume` or `dispatch` page call. */
+export type ModelControlResult = ModelControlSuccess | ModelControlFailure;
 
 export interface IlhaDevtoolsProtocol extends InPageChannelProtocol {
   functions: {
@@ -82,8 +93,34 @@ export interface IlhaDevtoolsProtocol extends InPageChannelProtocol {
       highlight: (id: string | null) => boolean;
       /** Replace atom `index` of component `id` with a JSON value. */
       setAtom: (id: string, index: number, value: AtomJson) => SetAtomResult;
-      /** Recorded messages of one model island, or why it has none. */
-      modelLog: (id: string) => ModelLogResult;
+      /** Sessions the page's `@ilha/model` pipeline holds. */
+      modelSessions: () => ModelSessionSummary[];
+      /** Wire frames of one session with `seq` above `since`, oldest first. */
+      modelFrames: (session: string, since: number) => ModelFramesResult;
+      /** JSON Schema of the messages a component accepts, narrowed by `tag`. */
+      modelMessageSchema: (
+        component: string,
+        tag?: string | undefined
+      ) => ModelSchemaResult;
+      /**
+       * Pause a session at an entry: hide the live island (it keeps
+       * running) and mount an inert server-rendered copy of each
+       * instance's state at that entry. Resume restores live.
+       */
+      modelShowEntry: (session: string, seq: number) => ModelControlResult;
+      /** Remove a pause's historical copy and restore the live island. */
+      modelResume: (session: string) => ModelControlResult;
+      /**
+       * Deliver a message to a live instance through the normal runtime
+       * update and logging, decoded against the instance's message
+       * schema. Refused unless the page installed with `dispatch: true`.
+       */
+      modelDispatch: (
+        session: string,
+        instance: number,
+        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- protocol boundary: the payload is validated against the instance message schema in webmcp before dispatch.
+        message: unknown
+      ) => ModelControlResult;
     };
   };
   sharedStates: {

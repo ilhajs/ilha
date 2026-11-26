@@ -1,10 +1,17 @@
+import type { Client } from "./client.ts";
 import { paint } from "./paint.ts";
 import { decodeSnapshot, encodeSnapshot } from "./snapshot.ts";
 import type { SnapshotValue } from "./snapshot.ts";
 import { escapeAttr, serializeNode, SsrEl } from "./ssr-dom.ts";
 import { paint as ssrPaint } from "./ssr-paint.ts";
 import { startRoot } from "./start.ts";
-import type { Component, IlhaRuntime, MountOptions } from "./types.ts";
+import type {
+  Component,
+  ComponentRequires,
+  IlhaRuntime,
+  MissingRequirement,
+  MountOptions,
+} from "./types.ts";
 
 export type { MountOptions } from "./types.ts";
 
@@ -62,14 +69,20 @@ export const mountWithRuntime = (
   };
 };
 
-export const mount = (
+export const mount = <C extends Component>(
   el: Element,
-  fn: Component,
+  fn: C &
+    (ComponentRequires<C> extends never | Client
+      ? unknown
+      : MissingRequirement<Exclude<ComponentRequires<C>, Client>>),
   opts?: MountOptions
 ): (() => void) => mountWithRuntime(el, fn, opts);
 
-export const renderToString = async (
-  fn: Component,
+export const renderToString = async <C extends Component>(
+  fn: C &
+    (ComponentRequires<C> extends never
+      ? unknown
+      : MissingRequirement<ComponentRequires<C>>),
   opts?: RenderToStringOptions
 ): Promise<string> => {
   const root = new SsrEl("");

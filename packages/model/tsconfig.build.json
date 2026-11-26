@@ -4,11 +4,15 @@
     "noEmit": false,
     "declaration": true,
     "emitDeclarationOnly": true,
-    "outDir": "dist",
     "rootDir": "src",
     "types": ["@types/bun"],
     "strictNullChecks": true,
     "paths": {}
   },
-  "include": ["src/index.ts", "src/test.ts"]
+  "include": [
+    "src/index.ts",
+    "src/devtools.ts",
+    "src/validation/index.ts",
+    "src/test/index.ts"
+  ]
 }

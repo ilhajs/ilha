@@ -1,5 +1,6 @@
 import "./jsx-types.ts";
 
+export { Client } from "./client.ts";
 export { createContext, context } from "./context.ts";
 export type { ContextProviderProps, IlhaContext } from "./context.ts";
 export { IlhaError } from "./diagnostics.ts";
@@ -23,8 +24,13 @@ export type {
   AtomLazyOptions,
   AtomOptions,
   Component,
+  ComponentRequires,
+  MissingRequirement,
+  PropBag,
+  Requires,
   UnsafeHtml,
   View,
+  VNode,
   WatchCallback,
   WatchContext,
   WatchOnceCleanup,

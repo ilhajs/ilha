@@ -37,6 +37,8 @@ interface ExportEntry {
  * its author to document it.
  */
 const SUMMARIES = {
+  Client:
+    "Browser-only services (`window`, `document`), provided by `mount` to the effects run in fibers. The server never provides it.",
   ErrorBoundary:
     "Catch subtree failures and paint a `fallback`; `reset()` retries. Props: `fallback`, `onError`.",
   Fragment: "Group children without a wrapper element (`<>...</>`).",

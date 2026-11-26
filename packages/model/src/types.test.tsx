@@ -1,383 +1,220 @@
-// @jsxImportSource ilha
+/**
+ * Compile-time anchors for the spec's type rules. The `it` blocks assert
+ * nothing at runtime; every `@ts-expect-error` is enforced by `tsc`.
+ */
+
 import { describe, expect, it } from "bun:test";
 
-import type { Option } from "effect";
-import { Context, Data, Effect, Layer } from "effect";
-import * as Stream from "effect/Stream";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import { Client, h, renderToString } from "ilha";
+import type { ComponentRequires, Requires } from "ilha";
 
-import type { AppOptions, Dispatch, DispatchRecord } from "./index";
-import {
-  attachModelRecorder,
-  combine,
-  defineApp,
-  foldChild,
-  subscription,
-} from "./index";
-import type { SimulateResult } from "./test";
-import { runCommands, simulate } from "./test";
+import * as Command from "./command.ts";
+import { Component, defineComponent, evolve, TaggedEnum } from "./index.ts";
+import type { Helper, Lazy, ModelComponent } from "./index.ts";
 
-// oxlint-disable-next-line typescript/no-empty-object-type, typescript/ban-types, typescript/consistent-type-definitions -- Data.taggedEnum spells payload-free variants as `{}`.
-type NoArgs = {};
-
-// oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
-type Message = Data.TaggedEnum<{ Ping: NoArgs; Pong: NoArgs }>;
-// oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
-const Message = Data.taggedEnum<Message>();
-
-interface Model {
-  readonly count: number;
+interface Fire {
+  readonly _tag: "Fire";
 }
+// oxlint-disable-next-line typescript/no-explicit-any -- message-less components use `any`: `never` poisons the constraint, per the feature/provide erasers
+type ErasedT<M, R> = ModelComponent<any, M, R, any>;
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- erase takes any made component; runtime values pass through untouched
+const erase = <M, R>(component: unknown): ErasedT<M, R> =>
+  // SAFETY: erasure keeps the runtime value; the caller reattaches the contract per component
+  component as ErasedT<M, R>;
+type Equals<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false;
 
-const typecheckApp = (): void => {
-  const app = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    update: (model: Model, message: Message) =>
-      message._tag === "Ping"
-        ? { model: { count: model.count + 1 } }
-        : { model },
-    view: (model: Model, dispatch: Dispatch<Message>) => {
-      dispatch(Message.Ping());
-      return <p>{model.count}</p>;
-    },
-  });
-  const count: number = app.options.init().model.count;
-  void count;
+const Msg = TaggedEnum({ Go: { id: Schema.String }, Stop: {} });
+const ChildEvents = TaggedEnum({ Went: { id: Schema.String } });
 
-  const badModel: AppOptions<{ count: number }, Message> = {
-    init: () => ({ model: { count: 0 } }),
-    // @ts-expect-error -- update must return the declared model shape.
-    update: () => ({ model: { missing: true } }),
-    view: () => <p>no</p>,
-  };
-  void badModel;
+// oxlint-disable-next-line typescript/no-explicit-any -- factory Self is test-only tag identity; any keeps Layer plumbing permissive
+const Svc = Command.Service<any>()("types/Svc", {
+  args: Schema.Struct({}),
+  success: Schema.Struct({ v: Schema.String }),
+});
 
-  // Message comes from `update` alone: a command resolving to one variant
-  // keeps the full union.
-  const narrowCmd = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    update: (model: Model, _message: Message) => ({
-      cmd: Effect.succeed(Message.Pong()),
-      model,
-    }),
-    view: (model: Model) => <p>{model.count}</p>,
-  });
-  const ping: Parameters<typeof narrowCmd.options.update>[1] = Message.Ping();
-  void ping;
-
-  const unannotatedView = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    update: (model: Model, _message: Message) => ({ model }),
-    view: (model, dispatch) => (
-      // @ts-expect-error -- an unannotated view's dispatch takes the app's messages only.
-      <button type="button" onclick={() => dispatch({ _tag: "Nope" })}>
-        {model.count}
-      </button>
-    ),
-  });
-  void unannotatedView;
-};
-
-const typecheckMessages = (): void => {
-  interface Payload {
-    readonly x: number;
-  }
-  // oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
-  type Rich = Data.TaggedEnum<{
-    Got: { readonly payload: Payload };
-    Maybe: { readonly value: Option.Option<number> };
-  }>;
-  // oxlint-disable-next-line eslint/no-redeclare -- intentional Data union + constructor pair
-  const Rich = Data.taggedEnum<Rich>();
-  const richApp = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    update: (model: Model, message: Rich) =>
-      Rich.$match(message, {
-        Got: ({ payload }) => ({ model: { count: model.count + payload.x } }),
-        Maybe: ({ value }) => ({
-          model: {
-            count: value._tag === "Some" ? value.value : model.count,
-          },
-        }),
-      }),
-    view: (model: Model) => <p>{model.count}</p>,
-  });
-  void richApp;
-};
-
-const typecheckCommands = (): void => {
-  const single = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    update: (model: { count: number }) => ({
-      cmd: Effect.succeed(Message.Pong()),
-      model,
-    }),
-    view: () => <p>ok</p>,
-  });
-  void single;
-
-  const many = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    update: (model: { count: number }) => ({
-      cmd: [Effect.succeed(Message.Pong()), Effect.void],
-      model,
-    }),
-    view: () => <p>ok</p>,
-  });
-  void many;
-
-  const badCmd: AppOptions<{ count: number }, Message> = {
-    init: () => ({ model: { count: 0 } }),
-    // @ts-expect-error -- commands resolve to messages, not models.
-    update: (model) => ({ cmd: Effect.succeed({ count: 1 }), model }),
-    view: () => <p>no</p>,
-  };
-  void badCmd;
-
-  // The same checks through `defineApp`, where `Message` is inferred.
-  const badUpdateCmd = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    // @ts-expect-error -- an update command must resolve to the app's messages.
-    update: (model: Model, _message: Message) => ({
-      cmd: Effect.succeed({ count: 1 }),
-      model,
-    }),
-    view: (model: Model) => <p>{model.count}</p>,
-  });
-  void badUpdateCmd;
-  const badInitCmd = defineApp({
-    // @ts-expect-error -- an init command must resolve to the app's messages.
-    init: () => ({ cmd: Effect.succeed(42), model: { count: 0 } }),
-    update: (model: Model, _message: Message) => ({ model }),
-    view: (model: Model) => <p>{model.count}</p>,
-  });
-  void badInitCmd;
-
-  const failCmd: AppOptions<{ count: number }, Message> = {
-    init: () => ({ model: { count: 0 } }),
-    // @ts-expect-error -- commands cannot fail; map failures into messages.
-    update: (model) => ({ cmd: Effect.fail(new Error("nope")), model }),
-    view: () => <p>no</p>,
-  };
-  void failCmd;
-};
-
-const typecheckSubscriptions = (): void => {
-  interface SearchModel {
-    readonly term: string;
-  }
-  const sub = subscription({
-    deps: (model: SearchModel) => model.term,
-    stream: (term) => {
-      const checked: string = term;
-      void checked;
-      return Stream.make(Message.Ping());
-    },
-  });
-  void sub;
-
-  const badDeps = subscription({
-    // @ts-expect-error -- the stream receives the deps type, not another one.
-    deps: (model: SearchModel) => model.term,
-    stream: (_term: number) => Stream.make(Message.Ping()),
-  });
-  void badDeps;
-};
-
-const Greeter = Context.Service<{ readonly greet: (name: string) => string }>(
-  "TypeGreeter"
+const InnerDef = defineComponent({
+  message: TaggedEnum({ Fire: {} }),
+  model: Schema.Struct({ v: Schema.String }),
+  name: "TypesInner",
+  props: Schema.Struct({}),
+});
+const Inner = InnerDef.make({
+  init: () => ({ v: "" }),
+  update: { Fire: ($) => $.set({ v: "fired" }) },
+  view: (hh) => hh("div", null, "inner"),
+});
+// The layer still needs Client, so providing it puts Client in R.
+const SvcLive = Layer.effect(
+  Svc,
+  // oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.map is a data-first dual, not Array#map; the second arg is the mapper
+  Effect.map(Client, () => () => Effect.succeed({ v: "live" }))
 );
-const Other = Context.Service<{ readonly other: number }>("TypeOther");
+const NeedsClient = Component.provide(erase<Fire, never>(Inner), SvcLive);
+// Lazy components keep the core requirements phantom, so h() sees it.
+// (Built as a cast: Component.lazy itself needs a render fiber.)
+// SAFETY: LazyNeeds is only a type-level carrier for h()/JSX requirement threading; it is never rendered
+// oxlint-disable-next-line anti-slop/no-chained-type-assertions, typescript/ban-types, typescript/no-empty-object-type -- the anchor needs the empty-props shape crossed from null
+const LazyNeeds = null as unknown as Lazy<{}, typeof ChildEvents, Client>;
+const ChildDef = defineComponent({
+  events: ChildEvents,
+  message: TaggedEnum({ Go: {} }),
+  model: Schema.Struct({}),
+  name: "TypesChild",
+  props: Schema.Struct({}),
+});
+const Child = ChildDef.make({
+  init: () => ({}),
+  update: { Go: ($) => $.emit(ChildEvents.Went({ id: "x" })) },
+  view: (hh) => hh("div", null, "child"),
+});
 
-const typecheckServices = (): void => {
-  const svcApp = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    layer: Layer.succeed(Greeter, { greet: (name) => `hi ${name}` }),
-    update: (model: { count: number }, message: Message) =>
-      message._tag === "Ping"
-        ? {
-            cmd: Effect.map(Effect.service(Greeter), (service) =>
-              service.greet("x") === "hi x" ? Message.Pong() : Message.Ping()
-            ),
-            model: { count: model.count + 1 },
-          }
-        : { model },
-    view: () => <p>ok</p>,
-  });
-  void svcApp;
+const ParentMsg = TaggedEnum({ Bumped: { id: Schema.String } });
 
-  const missing: AppOptions<Model, Message> = {
-    init: () => ({ model: { count: 0 } }),
-    update: (model) => ({
-      // @ts-expect-error -- the service is not in the layer.
-      cmd: Effect.map(Effect.service(Greeter), () => Message.Pong()),
-      model,
-    }),
-    view: () => <p>no</p>,
-  };
-  void missing;
+// oxlint-disable-next-line typescript/no-explicit-any -- factory Self is test-only tag identity; any keeps Layer plumbing permissive
+const Fallible = Command.Service<any>()("types/Fallible", {
+  args: Schema.Struct({ username: Schema.String }),
+  error: Schema.String,
+  success: ParentMsg,
+});
 
-  const wrongLayer: AppOptions<Model, Message, { readonly other: number }> = {
-    init: () => ({ model: { count: 0 } }),
-    layer: Layer.succeed(Other, { other: 1 }),
-    update: (model) => ({
-      // @ts-expect-error -- Greeter is not the provided service.
-      cmd: Effect.as(Effect.service(Greeter), Message.Pong()),
-      model,
-    }),
-    view: () => <p>no</p>,
-  };
-  void wrongLayer;
+const UnDef = defineComponent({
+  message: Msg,
+  model: Schema.Struct({ n: Schema.Number }),
+  name: "TypesUn",
+});
+const Un = Fallible.make({ username: "ada" });
 
-  // @ts-expect-error -- the layer does not provide Greeter.
-  const shortLayer = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    layer: Layer.succeed(Other, { other: 1 }),
-    update: (model: Model, message: Message) =>
-      message._tag === "Ping"
-        ? {
-            cmd: Effect.as(Effect.service(Greeter), Message.Pong()),
-            model: { count: model.count + 1 },
-          }
-        : { model },
-    view: () => <p>no</p>,
-  });
-  void shortLayer;
-
-  // @ts-expect-error -- no layer provides Greeter.
-  const noLayer = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    update: (model: Model, message: Message) =>
-      message._tag === "Ping"
-        ? {
-            cmd: Effect.as(Effect.service(Greeter), Message.Pong()),
-            model: { count: model.count + 1 },
-          }
-        : { model },
-    view: () => <p>no</p>,
-  });
-  void noLayer;
-
-  const bothApp = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    layer: Layer.merge(
-      Layer.succeed(Greeter, { greet: (name) => `hi ${name}` }),
-      Layer.succeed(Other, { other: 1 })
-    ),
-    update: (model: { count: number }, message: Message) =>
-      message._tag === "Ping"
-        ? {
-            cmd: [
-              Effect.as(Effect.service(Greeter), Message.Pong()),
-              Effect.as(Effect.service(Other), Message.Pong()),
-            ],
-            model: { count: model.count + 1 },
-          }
-        : { model },
-    view: () => <p>ok</p>,
-  });
-  void bothApp;
-};
-
-const typecheckComposition = (): void => {
-  const fold = foldChild<Model, Message, Model, Message>({
-    read: (model) => model,
-    toParentMessage: (message) => message,
-    update: (model) => ({ model }),
-    write: (_model, child) => child,
-  });
-  const child: Message = Message.Ping();
-  const result = fold({ count: 1 }, child);
-  const count: number = result.model.count;
-  void count;
-
-  const stepped = combine({ count: 0 }, [
-    (model) => ({ model: { count: model.count + 1 } }),
-    (model) => ({ model }),
-  ]);
-  const total: number = stepped.model.count;
-  void total;
-};
-
-const typecheckTestHelpers = (): void => {
-  const app = defineApp({
-    init: () => ({ model: { count: 0 } }),
-    update: (model: Model, message: Message) =>
-      message._tag === "Ping"
-        ? { cmd: Effect.succeed(Message.Pong()), model }
-        : { model },
-    view: (model: Model) => <p>{model.count}</p>,
-  });
-
-  const run = runCommands(Effect.succeed(Message.Ping()));
-  const collected: Effect.Effect<readonly Message[], never, never> = run;
-  void collected;
-  // @ts-expect-error -- collected messages are Message, not Model.
-  const wrongMessages: Effect.Effect<readonly Model[], never, never> = run;
-  void wrongMessages;
-
-  const sim = simulate(app, [Message.Ping()]);
-  const outcome: Effect.Effect<SimulateResult<Model, Message>, never> = sim;
-  void outcome;
-  // @ts-expect-error -- simulate takes the app's messages.
-  const badInput = simulate(app, [{ count: 1 }]);
-  void badInput;
-
-  const unprovided = runCommands(
-    Effect.as(Effect.service(Greeter), Message.Pong())
-  );
-  // @ts-expect-error -- Greeter is not provided.
-  const missing: Effect.Effect<readonly Message[], never, never> = unprovided;
-  void missing;
-
-  const unprovidedMany = runCommands([
-    Effect.as(Effect.service(Greeter), Message.Pong()),
-  ]);
-  // @ts-expect-error -- Greeter is not provided.
-  const missingMany: Effect.Effect<readonly Message[], never, never> =
-    unprovidedMany;
-  void missingMany;
-};
-
-const typecheckLog = (): void => {
-  const detach: () => void = attachModelRecorder((record: DispatchRecord) => {
-    const commands: number = record.commands;
-    const instance: object = record.instance;
-    void commands;
-    void instance;
-  });
-  detach();
-  // @ts-expect-error -- a recorder is required.
-  attachModelRecorder();
-  // @ts-expect-error -- raw values stay unknown; narrow them before use.
-  attachModelRecorder((record) => record.message.toUpperCase());
-};
+const RecDef = defineComponent({
+  message: Msg,
+  model: Schema.Struct({ n: Schema.Number }),
+  name: "TypesRec",
+});
 
 describe("types", () => {
-  it("renders a typed app", async () => {
-    const { render } = await import("ilha/test");
-    const app = defineApp({
-      init: () => ({ model: { count: 0 } }),
-      update: (model: Model, message: Message) =>
-        message._tag === "Ping"
-          ? { model: { count: model.count + 1 } }
-          : { model },
-      view: (model: Model, dispatch: Dispatch<Message>) => (
-        <button type="button" onclick={() => dispatch(Message.Ping())}>
-          {model.count}
-        </button>
-      ),
+  it("anchors compile-time rules", () => {
+    // Update records need every tag.
+    const Missing = RecDef.make({
+      init: () => ({ n: 0 }),
+      // @ts-expect-error - Stop is missing from the record
+      update: {
+        Go: ($) => $.set({ n: 1 }),
+      },
+      view: (
+        // oxlint-disable-next-line typescript/ban-types, typescript/no-empty-object-type -- the anchor exercises the empty-props Helper slot
+        hh: Helper<{}, Schema.Schema.Type<typeof Msg>>,
+        _model: { readonly n: number }
+      ) => hh("div", null),
     });
-    typecheckApp();
-    typecheckMessages();
-    typecheckCommands();
-    typecheckSubscriptions();
-    typecheckServices();
-    typecheckComposition();
-    typecheckTestHelpers();
-    typecheckLog();
-    const ui = render(app.component);
-    await ui.click("button");
-    expect(ui.text()).toBe("1");
-    ui.unmount();
+    expect(Missing.definitionName).toBe("TypesRec");
+
+    // Unknown tags are rejected.
+    const BadTag = RecDef.make({
+      init: () => ({ n: 0 }),
+      update: {
+        Go: ($, { id }) => $.set({ n: id.length }),
+        // @ts-expect-error - Nope is not a tag
+        Nope: ($) => $,
+        Stop: ($) => $.set({ n: 0 }),
+      },
+      view: (hh) => hh("div", null),
+    });
+    expect(BadTag.definitionName).toBe("TypesRec");
+
+    // $.run rejects Unmatched commands; match both channels first.
+    // oxlint-disable-next-line typescript/no-explicit-any -- Un's requirement is the test-only Fallible tag; any keeps it permissive
+    const UnComp = UnDef.make<any>({
+      init: () => ({ n: 0 }),
+      update: {
+        Go: ($) =>
+          $.run(
+            // @ts-expect-error - match the typed failure before running
+            Un
+          ),
+        Stop: ($) =>
+          $.run(
+            Command.match(Un, {
+              onFailure: () => Msg.Stop(),
+              onSuccess: () => Msg.Stop(),
+            })
+          ),
+      },
+      view: (hh) => hh("div", null),
+    });
+    expect(UnComp.definitionName).toBe("TypesUn");
+
+    // evolve only takes the struct's fields, with field types.
+    expect(evolve({ v: "" }, { v: "x" })).toEqual({ v: "x" });
+    // @ts-expect-error - evolve takes only the struct's fields
+    evolve({ v: "" }, { nope: 1 });
+    // @ts-expect-error - evolve fields keep their types
+    evolve({ v: "" }, { v: 1 });
+
+    // Reserved tags are rejected.
+    const Reserved = TaggedEnum({
+      Go: {},
+      // @ts-expect-error - toString is reserved
+      toString: {},
+    });
+    expect(Reserved.Go()).toEqual({ _tag: "Go" });
+
+    // h() threads the tag's requirements into the VNode; JSX widens to unknown.
+    const viaH = h(LazyNeeds, {
+      fallback: () => h("div", null, "loading"),
+      props: {},
+    });
+    const hThreaded: Equals<Requires<typeof viaH>, Client> = true;
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- smoke assertion on the anchor's runtime value, not a domain branch
+    expect(typeof hThreaded).toBe("boolean");
+    // @ts-expect-error - h() keeps Client, not never
+    const hNotNever: Equals<Requires<typeof viaH>, never> = true;
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- smoke assertion on the anchor's runtime value, not a domain branch
+    expect(typeof hNotNever).toBe("boolean");
+
+    const viaJsx = <LazyNeeds props={{}} fallback={() => "loading"} />;
+    const jsxErased: Equals<Requires<typeof viaJsx>, unknown> = true;
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- smoke assertion on the anchor's runtime value, not a domain branch
+    expect(typeof jsxErased).toBe("boolean");
+    // @ts-expect-error - JSX does not preserve Client
+    const jsxNotClient: Equals<Requires<typeof viaJsx>, Client> = true;
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- smoke assertion on the anchor's runtime value, not a domain branch
+    expect(typeof jsxNotClient).toBe("boolean");
+
+    // Component.root keeps Client in R.
+    // oxlint-disable-next-line typescript/no-explicit-any -- erased page keeps the untyped message; the root supplies the contract
+    const rooted = Component.root(erase<any, Client>(NeedsClient), {});
+    const rootKeeps: Equals<ComponentRequires<typeof rooted>, Client> = true;
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- smoke assertion on the anchor's runtime value, not a domain branch
+    expect(typeof rootKeeps).toBe("boolean");
+    // @ts-expect-error - the root keeps Client
+    const rootDrops: Equals<ComponentRequires<typeof rooted>, never> = true;
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- smoke assertion on the anchor's runtime value, not a domain branch
+    expect(typeof rootDrops).toBe("boolean");
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- smoke assertion on the anchor's runtime value, not a domain branch
+    expect(typeof rooted).toBe("function");
+
+    // Typed child onEmit: the event has no count.
+    const badEmit = (
+      <Child
+        props={{}}
+        // @ts-expect-error - Went carries no count
+        onEmit={(event) => ParentMsg.Bumped({ id: event.count })}
+      />
+    );
+    expect(badEmit === null || badEmit === undefined).toBe(false);
+
+    expect(true).toBe(true);
+  });
+
+  it.skip("rejects Client roots on the server", () => {
+    // @ts-expect-error - Client roots can't server-render
+    // oxlint-disable-next-line typescript/no-explicit-any -- erased page keeps the untyped message; the root supplies the contract
+    renderToString(Component.root(erase<any, Client>(NeedsClient), {}));
+    renderToString(Component.root(erase<Fire, never>(Inner), {}));
   });
 });

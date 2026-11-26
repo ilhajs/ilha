@@ -1,11 +1,11 @@
 ---
-title: Elm architecture
-description: Elm-style Model, update, commands, and subscriptions for one island.
+title: Elm components
+description: "Effect UI-style components inside Ilha islands: defineComponent, Commands, Subscriptions, Queries, services, and tests."
 ---
 
-`@ilha/model` holds one island's state in a single model. You describe transitions in `update`, side effects as return values, and rendering in `view`.
+`@ilha/model` is Effect UI's component runtime inside Ilha islands. Each component owns a Model, a message loop, and a pure view. Side effects run as Commands, ongoing work as Subscriptions, remote data as Queries.
 
-It is a separate package from `ilha`. Add it when one island owns enough messages to deserve a single loop. Plain `atom()` keeps working for everything else.
+It is a separate package from `ilha`. Add it when one island owns enough messages to deserve a single loop per component. Plain `atom()` keeps working for everything else.
 
 ## Install
 
@@ -15,537 +15,193 @@ It is a separate package from `ilha`. Add it when one island owns enough message
 
 `ilha` and `effect` are peer dependencies.
 
-## Define the loop
+## Define a component
 
-You define the initial model, one pure `update`, and a pure `view`. Event handlers report facts with `dispatch`, and `update` decides what each fact means.
+`defineComponent` takes Schemas for `props`, `model`, `message`, and optional `events`, plus `queries`, `slots`, `reads`, and `shares`. `make` takes pure `init` / `update` / `view` and keyed `subscriptions`.
 
 ```tsx twoslash
-import { Data } from "effect";
-import { defineApp } from "@ilha/model";
-import type { Dispatch } from "@ilha/model";
+import { Effect, Schema } from "effect";
+import { Command, defineComponent, TaggedEnum } from "@ilha/model";
 
-type Message = Data.TaggedEnum<{
-  Decrement: {};
-  Increment: {};
-}>;
-const Message = Data.taggedEnum<Message>();
+const CounterMessage = TaggedEnum({
+  ClickedAdd: { amount: Schema.Number },
+  ClickedReset: {},
+  CompletedReset: {},
+});
 
-interface Model {
-  readonly count: number;
-}
-
-const update = (model: Model, message: Message) =>
-  Message.$match(message, {
-    Decrement: () => ({ model: { count: model.count - 1 } }),
-    Increment: () => ({ model: { count: model.count + 1 } }),
-  });
-
-const view = (model: Model, dispatch: Dispatch<Message>) => (
-  <div>
-    <p>{model.count}</p>
-    <button type="button" onclick={() => dispatch(Message.Decrement())}>
-      -
-    </button>
-    <button type="button" onclick={() => dispatch(Message.Increment())}>
-      +
-    </button>
-  </div>
+const DelayReset = Command.make("delay-reset", { args: {} }, () =>
+  Effect.succeed(CounterMessage.CompletedReset())
 );
 
-const app = defineApp({ init: () => ({ model: { count: 0 } }), update, view });
-
-export const Counter = app.component;
-```
-
-Mount `Counter` like any component: `mount(host, Counter)` or `await renderToString(Counter)`. The model atom snapshots like any other atom, so SSR and hydration work unchanged.
-
-Name messages for their cause (`ClickedSave`, `GotUser`), and keep `update` pure so every transition stays testable. Messages are plain data describing what happened, never callbacks or class instances.
-
-## Send one-shot work
-
-`update` returns the next model plus optional commands. A command is an `Effect` that resolves to a follow-up message or nothing. The runtime runs commands concurrently with each other.
-
-```tsx twoslash
-import { Data, Effect } from "effect";
-import { defineApp } from "@ilha/model";
-
-type Message = Data.TaggedEnum<{
-  AddBonus: { readonly amount: number };
-  FetchBonus: {};
-}>;
-const Message = Data.taggedEnum<Message>();
-
-interface Model {
-  readonly count: number;
-}
-
-const update = (model: Model, message: Message) =>
-  Message.$match(message, {
-    FetchBonus: () => ({
-      cmd: Effect.succeed(Message.AddBonus({ amount: 10 })),
-      model,
-    }),
-    AddBonus: ({ amount }) => ({
-      model: { count: model.count + amount },
-    }),
-  });
-
-const view = (model: Model) => <p>{model.count}</p>;
-
-export const app = defineApp({
-  init: () => ({ model: { count: 0 } }),
-  update,
-  view,
-});
-```
-
-A command's error channel is `never`: the compiler rejects `Effect.fail`, so you map every expected failure into a message. A defect — a throw, a `die`, a missing service — is logged through the Effect logger and the island keeps running.
-
-## Reach services through a layer
-
-Commands and subscriptions read services from one app-level layer. Name the layer in `defineApp`; commands use its services with no extra wiring.
-
-```tsx twoslash
-import { Context, Data, Effect, Layer } from "effect";
-import { defineApp } from "@ilha/model";
-
-type Message = Data.TaggedEnum<{
-  Greet: {};
-  Greeted: { readonly text: string };
-}>;
-const Message = Data.taggedEnum<Message>();
-
-const Greeter = Context.Service<{ readonly greet: (name: string) => string }>(
-  "Greeter"
-);
-
-export const app = defineApp({
-  init: () => ({ model: { greeting: "" } }),
-  layer: Layer.succeed(Greeter, { greet: (name) => `Hello, ${name}!` }),
-  update: (model: { greeting: string }, message: Message) =>
-    Message.$match(message, {
-      Greet: () => ({
-        cmd: Effect.map(Effect.service(Greeter), (greeter) =>
-          Message.Greeted({ text: greeter.greet("you") })
-        ),
-        model,
-      }),
-      Greeted: ({ text }) => ({ model: { greeting: text } }),
-    }),
-  view: (model: { greeting: string }) => <p>{model.greeting}</p>,
-});
-```
-
-A command that needs a service outside the layer does not compile. The same services are available inside subscription streams.
-
-## Keep only the latest of a kind
-
-Wrap a command in `keyed` when a new request makes the old one obsolete: every start interrupts the running command with the same key, so only the latest result dispatches. Different keys run independently, and keys are per app instance.
-
-```tsx twoslash
-import { Data, Effect } from "effect";
-import { defineApp, keyed } from "@ilha/model";
-import type { Dispatch } from "@ilha/model";
-
-type Message = Data.TaggedEnum<{
-  GotResults: { readonly results: string };
-  Typed: { readonly query: string };
-}>;
-const Message = Data.taggedEnum<Message>();
-
-interface Model {
-  readonly query: string;
-  readonly results: string;
-}
-
-const search = (query: string) =>
-  Effect.succeed(Message.GotResults({ results: `hits for ${query}` }));
-
-const update = (model: Model, message: Message) =>
-  Message.$match(message, {
-    GotResults: ({ results }) => ({ model: { ...model, results } }),
-    Typed: ({ query }) => ({
-      cmd: keyed("search", search(query)),
-      model: { ...model, query },
-    }),
-  });
-
-const view = (model: Model, dispatch: Dispatch<Message>) => (
-  <div>
-    <p>{model.results}</p>
-    <button
-      type="button"
-      onclick={() => dispatch(Message.Typed({ query: "a" }))}
-    >
-      a
-    </button>
-    <button
-      type="button"
-      onclick={() => dispatch(Message.Typed({ query: "ab" }))}
-    >
-      ab
-    </button>
-  </div>
-);
-
-export const app = defineApp({
-  init: () => ({ model: { query: "", results: "" } }),
-  update,
-  view,
-});
-```
-
-Typing `ab` after `a` interrupts the first search; only the second result lands.
-
-## Listen to ongoing work
-
-A subscription is a stream whose lifetime follows a slice of the model. When the dependencies change, the old stream stops and a new one starts; the other subscriptions keep running. When the island unmounts, every stream stops.
-
-Name each entry with `subscription()` so its stream receives the exact type its `deps` returns:
-
-```tsx twoslash
-import { Data, Stream } from "effect";
-import { defineApp, subscription } from "@ilha/model";
-
-type Message = Data.TaggedEnum<{ Tick: {} }>;
-const Message = Data.taggedEnum<Message>();
-
-interface Model {
-  readonly count: number;
-  readonly on: boolean;
-}
-
-const view = (model: Model) => <p>{model.count}</p>;
-
-export const app = defineApp({
-  init: () => ({ model: { count: 0, on: true } }),
-  subscriptions: [
-    subscription({
-      deps: (model: Model) => model.on,
-      stream: (on) =>
-        on
-          ? Stream.tick("1 second").pipe(Stream.map(() => Message.Tick()))
-          : Stream.empty,
-    }),
-  ],
-  update: (model: Model, message: Message) =>
-    message._tag === "Tick"
-      ? { model: { ...model, count: model.count + 1 } }
-      : { model },
-  view,
-});
-```
-
-Dependencies can be any value; equal deps keep the stream alive, compared structurally. A subscription never runs on the server; server output reflects the `init` model only. A stream's error channel is `never`, so convert errors into messages inside the stream; a defect is logged and that subscription goes quiet until its deps change again.
-
-## Run start-up work from init
-
-`init` returns the first model plus an optional command. The command runs once per client mount — including after hydration — and never during server rendering.
-
-```tsx twoslash
-import { Data, Effect } from "effect";
-import { defineApp } from "@ilha/model";
-
-type Message = Data.TaggedEnum<{ Loaded: { readonly items: number } }>;
-const Message = Data.taggedEnum<Message>();
-
-interface Model {
-  readonly items: number;
-}
-
-export const app = defineApp({
-  init: () => ({
-    cmd: Effect.succeed(Message.Loaded({ items: 3 })),
-    model: { items: 0 },
-  }),
-  update: (model: Model, message: Message) =>
-    message._tag === "Loaded" ? { model: { items: message.items } } : { model },
-  view: (model: Model) => <p>{model.items}</p>,
-});
-```
-
-Fetch the first page, read stored settings, open a socket: if it happens once at start-up, it belongs here rather than in a subscription.
-
-## Hydrate with a schema
-
-The model snapshots to JSON for hydration. Keep it JSON-safe, or pass a `Schema` codec so richer values round-trip:
-
-```tsx twoslash
-import { Schema } from "effect";
-import { defineApp } from "@ilha/model";
-
-export const app = defineApp({
-  init: () => ({ model: { at: new Date("2024-05-06T00:00:00.000Z") } }),
-  schema: Schema.Struct({ at: Schema.Date }),
-  update: (model: { at: Date }) => ({ model }),
-  view: (model: { at: Date }) => <p>{model.at.getUTCFullYear()}</p>,
-});
-```
-
-Without `schema` the model must be JSON-safe: no `Date`, `Map`, class instances, or functions. Messages carry no such constraint; they are never snapshotted.
-
-## Load data
-
-Hold each remote value in an [`AsyncResult`](https://www.effect.website/docs/v4/api/effect/reactivity/AsyncResult) field: `Initial` before the first load, `Success` with the value, `Failure` with the cause. Start the field at `initial()`, load it from an init command, and match on it in the view. `Effect.exit` captures the loader's typed failures as `Failure` data, which is what keeps the command's error channel at `never`; interruption still propagates, so a `keyed` refetch supersedes silently.
-
-```tsx twoslash
-import { Data, Effect, Option, Schema } from "effect";
-import * as AsyncResult from "effect/reactivity/AsyncResult";
-import { defineApp, keyed } from "@ilha/model";
-import type { Dispatch } from "@ilha/model";
-
-const User = Schema.Struct({ id: Schema.String, name: Schema.String });
-type User = typeof User.Type;
-
-const LoadError = Schema.Struct({
-  _tag: Schema.Literal("LoadError"),
-  reason: Schema.String,
-});
-type LoadError = typeof LoadError.Type;
-
-type Message = Data.TaggedEnum<{
-  GotUser: { readonly result: AsyncResult.AsyncResult<User, LoadError> };
-  Refresh: {};
-}>;
-const Message = Data.taggedEnum<Message>();
-
-interface Model {
-  readonly user: AsyncResult.AsyncResult<User, LoadError>;
-}
-
-// Replace with your fetch: any `Effect<User, LoadError>` works here.
-const loadUser = (id: string): Effect.Effect<User, LoadError> =>
-  Effect.succeed({ id, name: "Ada" });
-
-// Keyed, so a refetch supersedes the initial load as well as older refetches.
-const load = (id: string) =>
-  keyed(
-    "user",
-    Effect.map(Effect.exit(loadUser(id)), (exit) =>
-      Message.GotUser({ result: AsyncResult.fromExit(exit) })
-    )
-  );
-
-const update = (model: Model, message: Message) =>
-  Message.$match(message, {
-    GotUser: ({ result }) => ({
-      model: {
-        user: AsyncResult.replacePrevious(result, Option.some(model.user)),
-      },
-    }),
-    Refresh: () => ({
-      cmd: load("1"),
-      model: { user: AsyncResult.waiting(model.user) },
-    }),
-  });
-
-const view = (model: Model, dispatch: Dispatch<Message>) =>
-  AsyncResult.match(model.user, {
-    onFailure: (failure) => {
-      const error = Option.getOrUndefined(AsyncResult.error(failure));
-      return (
-        <div>
-          <p>{error === undefined ? "Could not load." : error.reason}</p>
-          <button type="button" onclick={() => dispatch(Message.Refresh())}>
-            Try again
-          </button>
-        </div>
-      );
-    },
-    onInitial: () => <p>Loading…</p>,
-    onSuccess: ({ value, waiting }) => (
-      <div>
-        <p>{waiting ? `${value.name} (refreshing…)` : value.name}</p>
-        <button type="button" onclick={() => dispatch(Message.Refresh())}>
-          Refresh
-        </button>
-      </div>
-    ),
-  });
-
-export const app = defineApp({
-  init: () => ({
-    cmd: load("1"),
-    model: { user: AsyncResult.initial() },
-  }),
-  schema: Schema.Struct({
-    user: AsyncResult.Schema({ error: LoadError, success: User }),
-  }),
-  update,
-  view,
-});
-```
-
-On `Refresh`, `update` marks the current result waiting and starts the `keyed` load again, so the view keeps the last value with a refreshing note until the new one lands. Because the init load uses the same key, no older load, initial or refetch, overwrites a newer one. `replacePrevious` carries the last success into a `Failure`, so a failed refetch keeps its previous value.
-
-The `schema` entry round-trips `Initial`, `Success`, and `Failure` across SSR into hydration. Typed `Fail` errors arrive intact when their schema is JSON-safe; `Die` defects arrive as descriptions only — functions become `null` and class instances lose their prototype — so model typed errors as data and read them with `AsyncResult.error`.
-
-## Split a child out
-
-A child owns its model and messages; the parent stores the child model, wraps child messages, and delegates with `foldChild`. The parent never edits the child slice directly.
-
-```tsx twoslash
-import { Data } from "effect";
-import { defineApp, foldChild } from "@ilha/model";
-import type { Dispatch } from "@ilha/model";
-
-type ChildMessage = Data.TaggedEnum<{ Bump: {} }>;
-const ChildMessage = Data.taggedEnum<ChildMessage>();
-
-interface Child {
-  readonly n: number;
-}
-
-const childUpdate = (model: Child, message: ChildMessage) =>
-  ChildMessage.$match(message, {
-    Bump: () => ({ model: { n: model.n + 1 } }),
-  });
-
-type ParentMessage = Data.TaggedEnum<{
-  Child: { readonly message: ChildMessage };
-}>;
-const ParentMessage = Data.taggedEnum<ParentMessage>();
-
-interface Parent {
-  readonly child: Child;
-}
-
-const foldChildState = foldChild<Parent, ParentMessage, Child, ChildMessage>({
-  read: (model) => model.child,
-  toParentMessage: (message) => ParentMessage.Child({ message }),
-  update: childUpdate,
-  write: (model, child) => ({ ...model, child }),
+const CounterDef = defineComponent({
+  name: "Counter",
+  props: Schema.Struct({ label: Schema.String }),
+  model: Schema.Struct({ count: Schema.Number }),
+  message: CounterMessage,
+  events: TaggedEnum({ Reached: { count: Schema.Number } }),
 });
 
-export const app = defineApp({
-  init: () => ({ model: { child: { n: 0 } } }),
-  update: (model: Parent, message: ParentMessage) =>
-    message._tag === "Child"
-      ? foldChildState(model, message.message)
-      : { model },
-  view: (model: Parent, dispatch: Dispatch<ParentMessage>) => (
-    <button
-      type="button"
-      onclick={() =>
-        dispatch(ParentMessage.Child({ message: ChildMessage.Bump() }))
-      }
-    >
-      {model.child.n}
-    </button>
+export const Counter = CounterDef.make({
+  init: () => ({ count: 0 }),
+  update: {
+    ClickedAdd: ($, { amount }) => $.evolve({ count: (c) => c + amount }),
+    ClickedReset: ($) => $.run(DelayReset()),
+    CompletedReset: ($) =>
+      $.evolve({ count: 0 }).emit({ _tag: "Reached", count: 0 }),
+  },
+  view: (h, model) => (
+    <div>
+      <span>{h.props.label}</span>
+      <output>{model.count}</output>
+      <button onclick={h.send(CounterMessage.ClickedAdd({ amount: 1 }))}>
+        +1
+      </button>
+      <button
+        disabled={h.isRunning(DelayReset)}
+        onclick={h.send(CounterMessage.ClickedReset())}
+      >
+        Reset
+      </button>
+    </div>
   ),
 });
 ```
 
-Name each wrapper `Got*`, such as `GotSettingsMessage`. Combine sequential steps on one model with `combine`: the steps run in order, and their commands run concurrently like any command list.
+`update` is a whole-message function, a record with one handler per tag, or `Def.update` slices. A handler may return a bare Model. `$` offers `set`, `evolve`, `run`, `emit`, `send(owner)` / `send("self")`, `combine`, `loadMore`, `reset`, and `viewTransition`. `init` returns the first Model plus optional start-up Commands; its Commands run once per client mount (never during server rendering) and its emits are dropped on hydration. `view`, `init`, `update`, `subscriptions`, `shares.value`, and query `args` must be pure: never call an Ilha primitive (`atom`, `watch`, `when`) inside them.
 
-## Test the loop
+`h` in `view` is Ilha's `HFn` plus model extras: `props`, `children`, `reads`, `queries`, `previous`, `patched`, `slots`, `keepAlive`, `isRunning(cmd, ...group)`, `id(name, key?)`, `send`, `mount`, and `ref`. `h.send(msg | (event) => msg | undefined, { preventDefault })` returns an Ilha event handler; `preventDefault: true` prevents only when a message was produced, `"always"` prevents regardless. `h.id` derives an id from the instance path, so server and client agree.
 
-`update` is a plain function, so test transitions without rendering:
+Mount through a root: `mount(host, Component.root(Counter, { label: "Likes" }))` or `await renderToString(Component.root(Counter, { label: "Likes" }))`. A root's failure goes to the island's `onError`.
 
-```tsx twoslash
-import { expect, test } from "bun:test";
-import type { UpdateResult } from "@ilha/model";
-import { Data } from "effect";
+### Prefer typed `h()` when requirements matter
 
-type Message = Data.TaggedEnum<{ Increment: {} }>;
-const Message = Data.taggedEnum<Message>();
+`h()` calls return `VNode<ComponentRequires<type> | Requires<children…>>`, so a component that needs a service is checked where it runs: `mount` accepts `never | Client`, `renderToString` accepts only `never`. A JSX expression is `View<unknown>`, so it contributes no static requirements and its services are checked at run time instead: a missing required owner or service fails the instance with a message naming the service and the path (a missing `Client` during server rendering also says to wrap it in `Component.clientOnly`). When compile-time requirement checks matter, write views with typed `h()`.
 
-interface Model {
-  readonly count: number;
-}
+## Call children
 
-const update = (model: Model, message: Message): UpdateResult<Model, Message> =>
-  Message.$match(message, {
-    Increment: () => ({ model: { count: model.count + 1 } }),
-  });
+Children are components with `key`, nested `props`, `onEmit`, `onFailure`, `fallback`, `slots`, and `view` for headless children. Paths are `Name[key]` segments; a second unkeyed child of the same component or two children at one path fails the author, while branch swaps at one path keep the instance.
 
-test("increment adds one", () => {
-  const next = update({ count: 0 }, Message.Increment());
-  expect(next.model).toEqual({ count: 1 });
-  expect(next.cmd).toBeUndefined();
-});
+```tsx
+<Counter
+  key="likes"
+  props={{ label: "Likes" }}
+  onEmit={{ Reached: ({ count }) => PageMessage.ReachedCounter({ count }) }}
+  onFailure={() => PageMessage.FailedCounter()}
+  fallback={(result) => <p>Counter unavailable</p>}
+/>
+// or h(Counter, { props: { label: "Likes" }, onEmit: … }); keys only work through JSX
 ```
 
-Test commands without rendering with `runCommands` from `@ilha/model/test`. Pass it an update result or a command; it runs commands with the runtime's semantics — concurrently, `keyed` latest-wins, defects logged — and collects the messages they resolve to:
+`onEmit`, `onFailure`, and `fallback` resolve against the author: the instance whose `view` (or `view` closure) wrote the child vnode, wherever it ends up. A throw in `init`, `update`, `view`, `parts`, `shares`, `subscriptions`, or query `args` — or a Command, Subscription, or Mount defect, an unhandled Layer failure, or a missing owner or service — fails the instance: it logs `Failed`, closes the scope, renders the author's `fallback`, and schedules `onFailure`. The failure stays until the key changes; the rest of the island keeps running.
 
-```tsx twoslash
-import { expect, test } from "bun:test";
-import type { UpdateResult } from "@ilha/model";
-import { runCommands } from "@ilha/model/test";
-import { Data, Effect } from "effect";
+`Component.lazy(name, load)` splits a child into its own module. Declare it once at module scope and share it across islands: `preload()` starts the load without rendering, the first rendered child starts it, `fallback` gets `Initial` while loading and `Failure` if the load fails, and a failed load retries on the next mount. On the server the render awaits the load; on the client the fallback draws until the module arrives.
 
-type Message = Data.TaggedEnum<{
-  AddBonus: { readonly amount: number };
-  FetchBonus: {};
-}>;
-const Message = Data.taggedEnum<Message>();
+`h.keepAlive((s) => …)` and `h.keepAlive(alive, (s) => …)` keep children alive across renders with literal keys. A kept child keeps its Model, query results, running Commands, Subscriptions, and Layer — but its DOM is removed and rebuilt from the kept Model when it is drawn again. Uncontrolled DOM state, scroll, and focus are not preserved.
 
-interface Model {
-  readonly count: number;
-}
+Slots place author content: declare `slots: [...]`, render `h.slots.name`, and pass `slots={{ name: content }}` at the call site. Slot content belongs to the author, a slot is placed at most once per render, and the slot's path segment is `[name]`.
 
-const update = (model: Model, message: Message): UpdateResult<Model, Message> =>
-  Message.$match(message, {
-    AddBonus: ({ amount }) => ({ model: { count: model.count + amount } }),
-    FetchBonus: () => ({
-      cmd: Effect.succeed(Message.AddBonus({ amount: 10 })),
-      model,
-    }),
-  });
+## Share state between components
 
-test("fetch resolves a bonus message", async () => {
-  const next = update({ count: 0 }, Message.FetchBonus());
-  const messages = await Effect.runPromise(runCommands(next));
-  expect(messages).toEqual([Message.AddBonus({ amount: 10 })]);
-});
-```
+Owners share state down the tree: `shares` with `value(model, props, reads)`, `schema`, `receives`, and `collects`; `reads` entries with `owner`, `optional`, `report`, and `onChange`; `$.send` to message the nearest live owner above (or `send("self")` for the nearest instance of the sender's own kind). Owners resolve through a hidden context per owner definition, so a missing required owner is a run-time failure of the reader, not a type error. `Component.Shared.Of<typeof X>` exists as a type for documentation and tests.
 
-Test a whole flow with `simulate`: pass the app itself so its layer travels along, plus the input messages. It runs init and its command first, then each message through `update`, feeding command results back until quiet, and returns the final model with the full message trace. Override the layer with test doubles through `{ layer }`:
+Headless components split logic from markup: `parts(p, model)` with `p.props`, `p.reads`, `p.queries`, `p.isRunning`, `p.id`, `p.part`, and `p.child`, plus a consumer `view` closure owned by the consumer. Decorate an Ilha VNode — `listbox.trigger(<button>Open</button>)` — and merges follow the part algebra: part attributes win, token-list attributes (`class`, `rel`, `aria-*` id lists) are added and deduplicated, `attr: undefined` removes an attribute, and a part can't set `key` or apply another part. Handlers become layers, deepest owner first and the consumer last; applying a part outside its owner's view or setting a conflicting event option fails in dev mode.
 
-```tsx twoslash
-import { expect, test } from "bun:test";
-import { defineApp } from "@ilha/model";
-import { simulate } from "@ilha/model/test";
-import { Context, Data, Effect, Layer } from "effect";
+## Provide services
 
-type Message = Data.TaggedEnum<{
-  Greet: {};
-  Greeted: { readonly text: string };
-}>;
-const Message = Data.taggedEnum<Message>();
+`Component.provide` scopes an Env down a hidden context: curried, array, props-function, and keyed forms, plus `local` and a required `onFailure` when the Layer can fail. Layers build once per Env × Layer, reference-counted and shared through `Layer.CurrentMemoMap`; the inner provide wins. Rendering never waits for the build, but Commands and Subscriptions do. Layers never build on the server, since Commands and Subscriptions never run there. A service still missing at run time fails the instance and names the service and the path.
 
-const Greeter = Context.Service<{ readonly greet: (name: string) => string }>(
-  "Greeter"
+`Feature.Service` checks the contract with `toLayer` and renders with `render(h, { key, props, onEmit, fallback })`, where `fallback` is required.
+
+## Run Commands
+
+`Command.make(name, { args, mode, group, stream }, body)` defines an Effect (or, with `stream: true`, a Stream) whose body can't fail: expected failures become messages, a defect or unmatched typed failure fails the instance. `Command.Service` builds query-aware Commands with `toLayer`. Combinators: `map`, `as`, `asNoop`, `match`, `afterRefetch`, `interrupt`. Modes are `concurrent`, `switch` (a new issue cuts an awaiting run), and `queue` (issues run in order); `group` scopes the mode, and `h.isRunning(Cmd, ...group)` reports queued, running, awaiting, or stopping runs until the fiber exits.
+
+No Command runs on the server. `init` Commands run on the client after hydration or adoption; `update` Commands issued during the server render log `CommandDropped`.
+
+## Subscribe to streams
+
+```ts
+import { Subscription } from "@ilha/model";
+
+const Ticks = Subscription.make("ticks", model.on, (on) =>
+  on ? TicksStream : Stream.empty
 );
-
-const app = defineApp({
-  init: () => ({ model: { greeting: "" } }),
-  layer: Layer.succeed(Greeter, { greet: (name) => `Hello, ${name}!` }),
-  update: (model: { greeting: string }, message: Message) =>
-    Message.$match(message, {
-      Greet: () => ({
-        cmd: Effect.map(Effect.service(Greeter), (greeter) =>
-          Message.Greeted({ text: greeter.greet("you") })
-        ),
-        model,
-      }),
-      Greeted: ({ text }) => ({ model: { greeting: text } }),
-    }),
-  view: (model: { greeting: string }) => <p>{model.greeting}</p>,
-});
-
-test("greeting lands in the model", async () => {
-  const testLayer = Layer.succeed(Greeter, { greet: () => "hi" });
-  const { model, messages } = await Effect.runPromise(
-    simulate(app, [Message.Greet()], { layer: testLayer })
-  );
-  expect(model).toEqual({ greeting: "hi" });
-  expect(messages).toEqual([Message.Greet(), Message.Greeted({ text: "hi" })]);
-});
 ```
 
-Subscriptions never run in `simulate`; feed `update` the messages their streams would emit instead. Commands that sleep run on the ambient clock, so provide `TestClock.layer()` from `effect/testing` and advance it with `TestClock.adjust` to test them without waiting. Drive the view with [`ilha/test`](/guide/recipes/testing) when people must reach the behavior through clicks.
+`Subscription.make(name, stream)` runs a fixed stream; `make(name, deps, build)` rebuilds only when the deps change. Keys compare on every pass: removed keys stop before new keys start, an existing key never restarts, an ended Stream stays stopped until its key leaves and returns, and duplicate keys fail the instance. `Subscription.direct` attaches synchronously to a host event source instead of running a Stream.
 
-## Know the limits
+`DomSubscription.onDocument`, `onWindow`, `onCustomEvent`, `onAnimationFrame`, and `shortcuts` cover document, window, custom, and animation-frame events plus `Keyboard.shortcuts` with the full matching rules, over the `GlobalEvents` and `AnimationFrames` services (whose defaults never fire; the island mount provides the browser versions). One listener runs per target, event, and phase. Nothing listens on the server.
 
-`@ilha/model` covers the core loop: model, messages, commands, subscriptions, and submodels. It deliberately leaves out a DevTools overlay — follow the message flow in the [message log](/guide/devtools#read-the-message-log) instead — route biparsers (routes stay in your router; the route is just a model field), and field, machine, and query values. Those arrive as later value helpers; nothing here needs to change to adopt them. For async data, hold an `AsyncResult` in the model ([Load data](#load-data)); there is no separate async-data type.
+## Attach mounts and refs
+
+`Mount.make` / `makeStream` attach work to an element: `h.mount(issued)` returns an Ilha `ref` prop, the body starts after commit, same-name new args publish to `changes`, a different name restarts the mount, a render without the mount stops it, and an element takes one mount. A defect fails the instance. Mounts never run on the server. `Dom.ref(name, tag)` plus `h.ref(ref)` names an element for `DomCommand` (`focus`, `blur`, `scrollIntoView`, `measure`, `select`, `requestSubmit`, `showPicker`); `DomFiles` (readers, `pick`) and `DomImages` (`load`) cover files and images.
+
+## Load remote data with Query
+
+Define a query, provide its fetcher, and declare per-component `queries`:
+
+```ts
+import { Query } from "@ilha/model";
+
+class GetUser extends Query.Service<GetUser>()("users/get", {
+  args: { id: Schema.String },
+  success: User,
+  error: LoadError,
+  staleTime: "30 seconds",
+  tags: [Query.Tag("users")],
+}) {}
+
+// in defineComponent: queries: { user: { query: GetUser, args: ({ model }) => ({ id: model.id }) } }
+// in view: h.queries.user — an AsyncResult; h.previous / h.patched beside it
+// in update: $.queries, $.loadMore("feed"), $.reset("feed")
+```
+
+Queries carry `staleTime`, `idleTimeToLive`, `refetchInterval`, and `tags`, with `get`, `prefetch`, `invalidate`, `changes`, `peek`, and `entry` plus infinite queries (`InfiniteService`, `loadMore`, `reset`). `invalidates` runs on every exit of a started run; `optimistic` patches and `writes` apply around it, with `afterRefetch` mapping the result. Component entries support `query` / `queryMany`, `debounce`, and `onChange`. The cache lives once per island registry; server rendering uses a per-request cache, ships settled entries in the island snapshot, and gives the client a fetch-free window until adoption completes. `Redacted` entries are never shipped.
+
+A Model or query Schema holding `Schema.Redacted` anywhere is never snapshotted: its instance renders on the server from `init` and rebuilds on the client, with a one-time warning per component.
+
+## Compose apps from components
+
+`Component.root(App, props)` turns a model component into a plain Ilha component for `mount`, `renderToString`, and island adapters, keeping any `Client` requirement in the root. `Component.clientOnly(C, { fallback })` renders `fallback` on the server and `C` on the client (after hydration), removing `Client` from the requirements.
+
+Client-only apps skip the server entirely:
+
+```ts
+import { mount } from "ilha";
+import { Component } from "@ilha/model";
+
+mount(host, Component.root(App, props));
+```
+
+## Test with Story, Scene, or Play
+
+Pick one kind per test:
+
+| Kind | Runs | Use it to |
+| --- | --- | --- |
+| `Story` | Pure `update`, no runtime, Layers, host, or view | Prove message logic: `send` messages, resolve pending Commands as data, assert Model, emits, sends, interrupts |
+| `Scene` | Pure rendered view, children as leaves | Prove rendering and interaction: `click`, `fire`, `type`, `keydown`, `childEmit`, `childFailure`, `givenChild`, `expect*`; no Model is shown |
+| `Play` | Real renderer in happy-dom under `TestHost.layer` | Prove integration: real Layers, children, Commands, clock, host signals, and DOM locators (roles, names, labels) |
+
+Story and Scene follow the acknowledgement rule (pending Commands, events, and sends must be settled or kept). `Story.fromLog` replays a devtools export (`Replay` / `Divergence`). `Ssr.ssr(component, props)` runs `renderToString`, mounts with hydration in a fresh document, and fails with `SsrError` for an unadopted or drifted Model, a rebuilt node, a query that doesn't round-trip, a fetch inside the fetch-free window, a waiting Layer, or any reported problem. Fakes: `TestQuery`, `TestFiles`, `TestImages`, `TestHost`.
+
+```ts
+import { Effect } from "effect";
+import { Story } from "@ilha/model/test";
+
+const count = await Effect.runPromise(
+  Effect.scoped(
+    Effect.map(Story.make(Counter, { label: "Likes" }), (s) => {
+      s.send(CounterMessage.ClickedAdd({ amount: 1 }));
+      return s.model.count;
+    })
+  )
+);
+expect(count).toBe(1);
+```
+
+`@ilha/model/validation` adds field rules, derived field state, and submit gating for forms.
+
+## Follow the MessageLog in devtools
+
+`MessageLog` records every entry with causality, instance numbering, and `boundary`, off by default and costing nothing when off. Sinks: `memory`, `fanout`, `fanoutAll`, `makeEncoded`, `socket`; Wire v1 encoding with placeholders, `maxEntryBytes`, and `Redacted` redaction. Open the timeline, instance tree, per-entry tabs (Model diff, Message, Props, Commands, Events, Lifecycle, Raw), and causal chain in the [devtools guide](/guide/devtools).
