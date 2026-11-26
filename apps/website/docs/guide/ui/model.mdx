@@ -1,11 +1,11 @@
 ---
-title: Elm components
-description: "Effect UI-style components inside Ilha islands: defineComponent, Commands, Subscriptions, Queries, services, and tests."
+title: Elm architecture
+description: Elm-style Model, update, commands, and subscriptions for one island.
 ---
 
-`@ilha/model` is Effect UI's component runtime inside Ilha islands. Each component owns a Model, a message loop, and a pure view. Side effects run as Commands, ongoing work as Subscriptions, remote data as Queries.
+`@ilha/model` holds one island's state in a single model. You describe transitions in `update`, side effects as return values, and rendering in `view`.
 
-It is a separate package from `ilha`. Add it when one island owns enough messages to deserve a single loop per component. Plain `atom()` keeps working for everything else.
+It is a separate package from `ilha`. Add it when one island owns enough messages to deserve a single loop. Plain `atom()` keeps working for everything else.
 
 ## Install
 
@@ -17,48 +17,44 @@ It is a separate package from `ilha`. Add it when one island owns enough message
 
 ## Define a component
 
-`defineComponent` takes Schemas for `props`, `model`, `message`, and optional `events`, plus `queries`, `slots`, `reads`, and `shares`. `make` takes pure `init` / `update` / `view` and keyed `subscriptions`.
+Name the component and give it a model Schema, a message union, and optional props and events Schemas. `make` takes the implementation and returns an ordinary Ilha component: each instance owns its own model atom, and a child rerenders without rerunning its parent.
 
 ```tsx twoslash
 import { Effect, Schema } from "effect";
-import { Command, defineComponent, TaggedEnum } from "@ilha/model";
+import { Command, defineComponent } from "@ilha/model";
 
-const CounterMessage = TaggedEnum({
+const Msg = Schema.TaggedUnion({
   ClickedAdd: { amount: Schema.Number },
   ClickedReset: {},
   CompletedReset: {},
 });
-
-const DelayReset = Command.make("delay-reset", { args: {} }, () =>
-  Effect.succeed(CounterMessage.CompletedReset())
+const DelayReset = Command.make("DelayReset", { mode: "switch" }, () =>
+  Effect.sleep("1 second").pipe(Effect.as(Msg.cases.CompletedReset.make({})))
 );
-
-const CounterDef = defineComponent({
+export const Counter = defineComponent({
   name: "Counter",
   props: Schema.Struct({ label: Schema.String }),
   model: Schema.Struct({ count: Schema.Number }),
-  message: CounterMessage,
-  events: TaggedEnum({ Reached: { count: Schema.Number } }),
-});
-
-export const Counter = CounterDef.make({
+  message: Msg,
+  events: Schema.TaggedUnion({ Reached: { count: Schema.Number } }),
+}).make({
   init: () => ({ count: 0 }),
   update: {
     ClickedAdd: ($, { amount }) => $.evolve({ count: (c) => c + amount }),
     ClickedReset: ($) => $.run(DelayReset()),
     CompletedReset: ($) =>
-      $.evolve({ count: 0 }).emit({ _tag: "Reached", count: 0 }),
+      $.set({ count: 0 }).emit({ _tag: "Reached", count: 0 }),
   },
   view: (h, model) => (
     <div>
       <span>{h.props.label}</span>
       <output>{model.count}</output>
-      <button onclick={h.send(CounterMessage.ClickedAdd({ amount: 1 }))}>
+      <button onclick={h.send(Msg.cases.ClickedAdd.make({ amount: 1 }))}>
         +1
       </button>
       <button
         disabled={h.isRunning(DelayReset)}
-        onclick={h.send(CounterMessage.ClickedReset())}
+        onclick={h.send(Msg.cases.ClickedReset.make({}))}
       >
         Reset
       </button>
@@ -67,141 +63,251 @@ export const Counter = CounterDef.make({
 });
 ```
 
-`update` is a whole-message function, a record with one handler per tag, or `Def.update` slices. A handler may return a bare Model. `$` offers `set`, `evolve`, `run`, `emit`, `send(owner)` / `send("self")`, `combine`, `loadMore`, `reset`, and `viewTransition`. `init` returns the first Model plus optional start-up Commands; its Commands run once per client mount (never during server rendering) and its emits are dropped on hydration. `view`, `init`, `update`, `subscriptions`, `shares.value`, and query `args` must be pure: never call an Ilha primitive (`atom`, `watch`, `when`) inside them.
+Mount it like any component: `mount(host, () => <Counter props={{ label: "Likes" }} />)`. There is no root helper. `props` is required exactly when the component declares a `props` Schema; `key` is Ilha's own.
 
-`h` in `view` is Ilha's `HFn` plus model extras: `props`, `children`, `reads`, `queries`, `previous`, `patched`, `slots`, `keepAlive`, `isRunning(cmd, ...group)`, `id(name, key?)`, `send`, `mount`, and `ref`. `h.send(msg | (event) => msg | undefined, { preventDefault })` returns an Ilha event handler; `preventDefault: true` prevents only when a message was produced, `"always"` prevents regardless. `h.id` derives an id from the instance path, so server and client agree.
+Name messages for their cause (`ClickedSave`, `GotUser`). Build them with `Msg.cases.X.make(...)`: messages are plain Schema data, never callbacks or class instances.
 
-Mount through a root: `mount(host, Component.root(Counter, { label: "Likes" }))` or `await renderToString(Component.root(Counter, { label: "Likes" }))`. A root's failure goes to the island's `onError`.
+## Update with `$`
 
-### Prefer typed `h()` when requirements matter
+`init` takes `$` and the props and returns the first model, or a step when start-up work or an opening event is needed. `update` is an exhaustive record with one handler per message tag. Each handler takes `$` and the message payload, and returns a bare model or a step:
 
-`h()` calls return `VNode<ComponentRequires<type> | Requires<children…>>`, so a component that needs a service is checked where it runs: `mount` accepts `never | Client`, `renderToString` accepts only `never`. A JSX expression is `View<unknown>`, so it contributes no static requirements and its services are checked at run time instead: a missing required owner or service fails the instance with a message naming the service and the path (a missing `Client` during server rendering also says to wrap it in `Component.clientOnly`). When compile-time requirement checks matter, write views with typed `h()`.
+- `$.model` is the current model (update only); `$.props` is the current props.
+- `$.set(model)` replaces the model; `$.evolve({ count: (c) => c + 1 })` patches fields, each a value or an updater.
+- `$.run(...)` issues commands; `$.emit(event)` reports to `onEmit` after the model commits.
+- Steps chain: `$.set(...).run(...).emit(...)`.
 
-## Call children
+## View with `h`
 
-Children are components with `key`, nested `props`, `onEmit`, `onFailure`, `fallback`, `slots`, and `view` for headless children. Paths are `Name[key]` segments; a second unkeyed child of the same component or two children at one path fails the author, while branch swaps at one path keep the instance.
+`view` takes Ilha's `h` plus three helpers, and the current model. `h.props` reads the props; `h.send(...)` returns an event handler — pass a message, or a mapper from the handler argument to a message, where returning `undefined` sends nothing; `h.isRunning(command)` is reactive and flips the view while that command runs.
 
-```tsx
-<Counter
-  key="likes"
-  props={{ label: "Likes" }}
-  onEmit={{ Reached: ({ count }) => PageMessage.ReachedCounter({ count }) }}
-  onFailure={() => PageMessage.FailedCounter()}
-  fallback={(result) => <p>Counter unavailable</p>}
-/>
-// or h(Counter, { props: { label: "Likes" }, onEmit: … }); keys only work through JSX
+## Children
+
+A child is an ordinary component use: pass `props`, and map its events to a parent message through `onEmit`. The parent never touches the child model; each instance keeps its own atom.
+
+```tsx twoslash
+import { Schema } from "effect";
+import { defineComponent } from "@ilha/model";
+
+const ChildMsg = Schema.TaggedUnion({ Clicked: {} });
+const Child = defineComponent({
+  name: "Child",
+  model: Schema.Struct({ n: Schema.Number }),
+  message: ChildMsg,
+  events: Schema.TaggedUnion({ Reached: { n: Schema.Number } }),
+}).make({
+  init: () => ({ n: 0 }),
+  update: {
+    Clicked: ($) =>
+      $.set({ n: $.model.n + 1 }).emit({ _tag: "Reached", n: $.model.n + 1 }),
+  },
+  view: (h, model) => (
+    <button onclick={h.send(ChildMsg.cases.Clicked.make({}))}>{model.n}</button>
+  ),
+});
+const PageMsg = Schema.TaggedUnion({ ChildReached: { n: Schema.Number } });
+export const Page = defineComponent({
+  name: "Page",
+  model: Schema.Struct({ total: Schema.Number }),
+  message: PageMsg,
+}).make({
+  init: () => ({ total: 0 }),
+  update: {
+    ChildReached: ($, { n }) => $.evolve({ total: (t) => t + n }),
+  },
+  view: (h, model) => (
+    <div>
+      <p>{model.total}</p>
+      <Child
+        key="likes"
+        onEmit={h.send((e) => PageMsg.cases.ChildReached.make(e))}
+      />
+    </div>
+  ),
+});
 ```
 
-`onEmit`, `onFailure`, and `fallback` resolve against the author: the instance whose `view` (or `view` closure) wrote the child vnode, wherever it ends up. A throw in `init`, `update`, `view`, `parts`, `shares`, `subscriptions`, or query `args` — or a Command, Subscription, or Mount defect, an unhandled Layer failure, or a missing owner or service — fails the instance: it logs `Failed`, closes the scope, renders the author's `fallback`, and schedules `onFailure`. The failure stays until the key changes; the rest of the island keeps running.
+Give each child a `key` so its state stays with it across parent rerenders.
 
-`Component.lazy(name, load)` splits a child into its own module. Declare it once at module scope and share it across islands: `preload()` starts the load without rendering, the first rendered child starts it, `fallback` gets `Initial` while loading and `Failure` if the load fails, and a failed load retries on the next mount. On the server the render awaits the load; on the client the fallback draws until the module arrives.
+## Commands
 
-`h.keepAlive((s) => …)` and `h.keepAlive(alive, (s) => …)` keep children alive across renders with literal keys. A kept child keeps its Model, query results, running Commands, Subscriptions, and Layer — but its DOM is removed and rebuilt from the kept Model when it is drawn again. Uncontrolled DOM state, scroll, and focus are not preserved.
+A command is an `Effect` that resolves to a follow-up message or nothing. Declare it with `Command.make`, call it to issue, and hand the issue to `$.run`. The body takes `(args)` — the call takes the same args, and a zero-arg body makes a zero-arg call — and resolves to `Message | void` with a `never` error channel: map every expected failure into a message. `{ mode: "switch" }` cuts the instance's running issue when a new one starts; the default `concurrent` lets every issue land.
 
-Slots place author content: declare `slots: [...]`, render `h.slots.name`, and pass `slots={{ name: content }}` at the call site. Slot content belongs to the author, a slot is placed at most once per render, and the slot's path segment is `[name]`.
+```tsx twoslash
+import { Effect, Schema } from "effect";
+import { Command, defineComponent } from "@ilha/model";
 
-## Share state between components
-
-Owners share state down the tree: `shares` with `value(model, props, reads)`, `schema`, `receives`, and `collects`; `reads` entries with `owner`, `optional`, `report`, and `onChange`; `$.send` to message the nearest live owner above (or `send("self")` for the nearest instance of the sender's own kind). Owners resolve through a hidden context per owner definition, so a missing required owner is a run-time failure of the reader, not a type error. `Component.Shared.Of<typeof X>` exists as a type for documentation and tests.
-
-Headless components split logic from markup: `parts(p, model)` with `p.props`, `p.reads`, `p.queries`, `p.isRunning`, `p.id`, `p.part`, and `p.child`, plus a consumer `view` closure owned by the consumer. Decorate an Ilha VNode — `listbox.trigger(<button>Open</button>)` — and merges follow the part algebra: part attributes win, token-list attributes (`class`, `rel`, `aria-*` id lists) are added and deduplicated, `attr: undefined` removes an attribute, and a part can't set `key` or apply another part. Handlers become layers, deepest owner first and the consumer last; applying a part outside its owner's view or setting a conflicting event option fails in dev mode.
-
-## Provide services
-
-`Component.provide` scopes an Env down a hidden context: curried, array, props-function, and keyed forms, plus `local` and a required `onFailure` when the Layer can fail. Layers build once per Env × Layer, reference-counted and shared through `Layer.CurrentMemoMap`; the inner provide wins. Rendering never waits for the build, but Commands and Subscriptions do. Layers never build on the server, since Commands and Subscriptions never run there. A service still missing at run time fails the instance and names the service and the path.
-
-`Feature.Service` checks the contract with `toLayer` and renders with `render(h, { key, props, onEmit, fallback })`, where `fallback` is required.
-
-## Run Commands
-
-`Command.make(name, { args, mode, group, stream }, body)` defines an Effect (or, with `stream: true`, a Stream) whose body can't fail: expected failures become messages, a defect or unmatched typed failure fails the instance. `Command.Service` builds query-aware Commands with `toLayer`. Combinators: `map`, `as`, `asNoop`, `match`, `afterRefetch`, `interrupt`. Modes are `concurrent`, `switch` (a new issue cuts an awaiting run), and `queue` (issues run in order); `group` scopes the mode, and `h.isRunning(Cmd, ...group)` reports queued, running, awaiting, or stopping runs until the fiber exits.
-
-No Command runs on the server. `init` Commands run on the client after hydration or adoption; `update` Commands issued during the server render log `CommandDropped`.
-
-## Subscribe to streams
-
-```ts
-import { Subscription } from "@ilha/model";
-
-const Ticks = Subscription.make("ticks", model.on, (on) =>
-  on ? TicksStream : Stream.empty
+const Msg = Schema.TaggedUnion({
+  GotUser: { name: Schema.String },
+  Search: { query: Schema.String },
+});
+const FetchUser = Command.make(
+  "FetchUser",
+  { mode: "switch" },
+  ({ query }: { query: string }) =>
+    Effect.succeed(Msg.cases.GotUser.make({ name: `hit for ${query}` }))
 );
+export const Search = defineComponent({
+  name: "Search",
+  model: Schema.Struct({ name: Schema.String, query: Schema.String }),
+  message: Msg,
+}).make({
+  init: () => ({ name: "", query: "" }),
+  update: {
+    Search: ($, { query }) => $.evolve({ query }).run(FetchUser({ query })),
+    GotUser: ($, { name }) => $.evolve({ name }),
+  },
+  view: (h, model) => (
+    <div>
+      <p>{h.isRunning(FetchUser) ? "Searching…" : model.name}</p>
+      <button onclick={h.send(Msg.cases.Search.make({ query: "ab" }))}>
+        Search
+      </button>
+    </div>
+  ),
+});
 ```
 
-`Subscription.make(name, stream)` runs a fixed stream; `make(name, deps, build)` rebuilds only when the deps change. Keys compare on every pass: removed keys stop before new keys start, an existing key never restarts, an ended Stream stays stopped until its key leaves and returns, and duplicate keys fail the instance. `Subscription.direct` attaches synchronously to a host event source instead of running a Stream.
+`h.isRunning` takes the command definition and rerenders when its issues start and end. A defect — a throw, a `die`, a missing service — is logged through the Effect logger and the instance keeps running.
 
-`DomSubscription.onDocument`, `onWindow`, `onCustomEvent`, `onAnimationFrame`, and `shortcuts` cover document, window, custom, and animation-frame events plus `Keyboard.shortcuts` with the full matching rules, over the `GlobalEvents` and `AnimationFrames` services (whose defaults never fire; the island mount provides the browser versions). One listener runs per target, event, and phase. Nothing listens on the server.
+Nothing runs during server rendering. Commands from `init` run on the client after mount and after hydration, and every running issue is interrupted on unmount.
 
-## Attach mounts and refs
+## Subscriptions
 
-`Mount.make` / `makeStream` attach work to an element: `h.mount(issued)` returns an Ilha `ref` prop, the body starts after commit, same-name new args publish to `changes`, a different name restarts the mount, a render without the mount stops it, and an element takes one mount. A defect fails the instance. Mounts never run on the server. `Dom.ref(name, tag)` plus `h.ref(ref)` names an element for `DomCommand` (`focus`, `blur`, `scrollIntoView`, `measure`, `select`, `requestSubmit`, `showPicker`); `DomFiles` (readers, `pick`) and `DomImages` (`load`) cover files and images.
+A subscription is a stream the instance runs while it asks for it. Declare it with `Subscription.make`, either from a stream or from deps plus a builder; deps compare with `Equal.equals`, so a change restarts the stream, and removing the entry stops it. Duplicate names throw.
 
-## Load remote data with Query
+```tsx twoslash
+import { Schema, Stream } from "effect";
+import { Subscription, defineComponent } from "@ilha/model";
 
-Define a query, provide its fetcher, and declare per-component `queries`:
-
-```ts
-import { Query } from "@ilha/model";
-
-class GetUser extends Query.Service<GetUser>()("users/get", {
-  args: { id: Schema.String },
-  success: User,
-  error: LoadError,
-  staleTime: "30 seconds",
-  tags: [Query.Tag("users")],
-}) {}
-
-// in defineComponent: queries: { user: { query: GetUser, args: ({ model }) => ({ id: model.id }) } }
-// in view: h.queries.user — an AsyncResult; h.previous / h.patched beside it
-// in update: $.queries, $.loadMore("feed"), $.reset("feed")
+const Msg = Schema.TaggedUnion({ Tick: {} });
+export const Clock = defineComponent({
+  name: "Clock",
+  props: Schema.Struct({ on: Schema.Boolean }),
+  model: Schema.Struct({ count: Schema.Number }),
+  message: Msg,
+}).make({
+  init: () => ({ count: 0 }),
+  update: {
+    Tick: ($) => $.evolve({ count: (c) => c + 1 }),
+  },
+  view: (h, model) => <p>{model.count}</p>,
+  subscriptions: (_model, props) => [
+    Subscription.make("ticks", props.on, (on) =>
+      on
+        ? Stream.tick("1 second").pipe(
+            Stream.map(() => Msg.cases.Tick.make({}))
+          )
+        : Stream.empty
+    ),
+  ],
+});
 ```
 
-Queries carry `staleTime`, `idleTimeToLive`, `refetchInterval`, and `tags`, with `get`, `prefetch`, `invalidate`, `changes`, `peek`, and `entry` plus infinite queries (`InfiniteService`, `loadMore`, `reset`). `invalidates` runs on every exit of a started run; `optimistic` patches and `writes` apply around it, with `afterRefetch` mapping the result. Component entries support `query` / `queryMany`, `debounce`, and `onChange`. The cache lives once per island registry; server rendering uses a per-request cache, ships settled entries in the island snapshot, and gives the client a fetch-free window until adoption completes. `Redacted` entries are never shipped.
+Like commands, subscriptions never run on the server; a stream's error channel is `never`, so convert failures into messages inside the stream.
 
-A Model or query Schema holding `Schema.Redacted` anywhere is never snapshotted: its instance renders on the server from `init` and rebuilds on the client, with a one-time warning per component.
+## Services
 
-## Compose apps from components
+Commands and subscriptions read services from one layer per instance, built once on the client. Name it in `make`; command bodies use its services with no extra wiring. A command that needs a service outside the layer does not compile.
 
-`Component.root(App, props)` turns a model component into a plain Ilha component for `mount`, `renderToString`, and island adapters, keeping any `Client` requirement in the root. `Component.clientOnly(C, { fallback })` renders `fallback` on the server and `C` on the client (after hydration), removing `Client` from the requirements.
+```tsx twoslash
+import { Context, Effect, Layer, Schema } from "effect";
+import { Command, defineComponent } from "@ilha/model";
 
-Client-only apps skip the server entirely:
-
-```ts
-import { mount } from "ilha";
-import { Component } from "@ilha/model";
-
-mount(host, Component.root(App, props));
-```
-
-## Test with Story, Scene, or Play
-
-Pick one kind per test:
-
-| Kind | Runs | Use it to |
-| --- | --- | --- |
-| `Story` | Pure `update`, no runtime, Layers, host, or view | Prove message logic: `send` messages, resolve pending Commands as data, assert Model, emits, sends, interrupts |
-| `Scene` | Pure rendered view, children as leaves | Prove rendering and interaction: `click`, `fire`, `type`, `keydown`, `childEmit`, `childFailure`, `givenChild`, `expect*`; no Model is shown |
-| `Play` | Real renderer in happy-dom under `TestHost.layer` | Prove integration: real Layers, children, Commands, clock, host signals, and DOM locators (roles, names, labels) |
-
-Story and Scene follow the acknowledgement rule (pending Commands, events, and sends must be settled or kept). `Story.fromLog` replays a devtools export (`Replay` / `Divergence`). `Ssr.ssr(component, props)` runs `renderToString`, mounts with hydration in a fresh document, and fails with `SsrError` for an unadopted or drifted Model, a rebuilt node, a query that doesn't round-trip, a fetch inside the fetch-free window, a waiting Layer, or any reported problem. Fakes: `TestQuery`, `TestFiles`, `TestImages`, `TestHost`.
-
-```ts
-import { Effect } from "effect";
-import { Story } from "@ilha/model/test";
-
-const count = await Effect.runPromise(
-  Effect.scoped(
-    Effect.map(Story.make(Counter, { label: "Likes" }), (s) => {
-      s.send(CounterMessage.ClickedAdd({ amount: 1 }));
-      return s.model.count;
-    })
+const Msg = Schema.TaggedUnion({
+  Greet: {},
+  Greeted: { text: Schema.String },
+});
+const Greeter = Context.Service<{ greet: (name: string) => string }>("Greeter");
+const SayHi = Command.make("SayHi", () =>
+  Effect.map(Effect.service(Greeter), (greeter) =>
+    Msg.cases.Greeted.make({ text: greeter.greet("you") })
   )
 );
-expect(count).toBe(1);
+export const Hello = defineComponent({
+  name: "Hello",
+  model: Schema.Struct({ greeting: Schema.String }),
+  message: Msg,
+}).make({
+  init: () => ({ greeting: "" }),
+  update: {
+    Greet: ($) => $.run(SayHi()),
+    Greeted: ($, { text }) => $.set({ greeting: text }),
+  },
+  view: (h, model) => (
+    <p>
+      {model.greeting}
+      <button onclick={h.send(Msg.cases.Greet.make({}))}>Greet</button>
+    </p>
+  ),
+  layer: Layer.succeed(Greeter, { greet: (name) => `Hello, ${name}!` }),
+});
 ```
 
-`@ilha/model/validation` adds field rules, derived field state, and submit gating for forms.
+## Snapshot and hydrate
 
-## Follow the MessageLog in devtools
+The `model` Schema is also the snapshot codec: the model encodes into the island snapshot on the server and decodes on hydration. Keep the model Schema-shaped — richer values round-trip exactly when the Schema describes them.
 
-`MessageLog` records every entry with causality, instance numbering, and `boundary`, off by default and costing nothing when off. Sinks: `memory`, `fanout`, `fanoutAll`, `makeEncoded`, `socket`; Wire v1 encoding with placeholders, `maxEntryBytes`, and `Redacted` redaction. Open the timeline, instance tree, per-entry tabs (Model diff, Message, Props, Commands, Events, Lifecycle, Raw), and causal chain in the [devtools guide](/guide/devtools).
+## Errors
+
+Throws in `init`, `update`, and `view` travel Ilha's normal error path: the nearest [`<ErrorBoundary>`](/guide/ui/context-and-errors#error-boundaries) renders its fallback, or `mount`'s `onError` sees them. There is no failure API on top.
+
+## Test with Story
+
+`Story` from `@ilha/model/test` drives a component synchronously: no Effect, no DOM. It runs `init` — recording its commands without executing them — and exposes the model, `send`, emitted events in order, and pending command issues as `{ name, args }[]`. `resolve` drops the oldest pending issue of a command, then sends a message when given one.
+
+```tsx twoslash
+import { expect, test } from "bun:test";
+import { Effect, Schema } from "effect";
+import { Command, defineComponent } from "@ilha/model";
+import { Story } from "@ilha/model/test";
+
+const Msg = Schema.TaggedUnion({
+  ClickedReset: {},
+  CompletedReset: {},
+});
+const DelayReset = Command.make("DelayReset", () =>
+  Effect.succeed(Msg.cases.CompletedReset.make({}))
+);
+const Counter = defineComponent({
+  name: "Counter",
+  model: Schema.Struct({ count: Schema.Number }),
+  message: Msg,
+  events: Schema.TaggedUnion({ Reached: { count: Schema.Number } }),
+}).make({
+  init: () => ({ count: 0 }),
+  update: {
+    ClickedReset: ($) => $.set({ count: 7 }).run(DelayReset()),
+    CompletedReset: ($) =>
+      $.set({ count: 0 }).emit({ _tag: "Reached", count: 0 }),
+  },
+  view: (h, model) => (
+    <button onclick={h.send(Msg.cases.ClickedReset.make({}))}>
+      {model.count}
+    </button>
+  ),
+});
+test("reset completes through the story", () => {
+  const story = Story.make(Counter);
+  story.send(Msg.cases.ClickedReset.make({}));
+  expect(story.model).toEqual({ count: 7 });
+  expect(story.commands.map((c) => c.name)).toEqual(["DelayReset"]);
+  story.resolve(DelayReset, Msg.cases.CompletedReset.make({}));
+  expect(story.model).toEqual({ count: 0 });
+  expect(story.emitted).toEqual([{ _tag: "Reached", count: 0 }]);
+});
+```
+
+## Watch it run
+
+Model islands record every message once the devtools page script loads: the message, the fields it changed, and how many commands it started. Select the island in the panel, or attach your own recorder in a test:
+
+```ts
+import { attachModelRecorder } from "@ilha/model";
+
+const detach = attachModelRecorder((record) => {
+  console.log(record.message, record.before, record.after, record.commands);
+});
+detach();
+```
+
+Each record carries the raw `message`, the model `before` and `after`, the number of `commands` started, and the instance's model atom as `instance`, which you can match against `atomsOf(id)` from `ilha/debug`. See [Read the message log](/guide/devtools#read-the-message-log).

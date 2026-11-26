@@ -7,7 +7,6 @@ import * as Registry from "effect/reactivity/AtomRegistry";
 import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import * as Scope from "effect/Scope";
 
-import { Client } from "./client.ts";
 import { ilhaError } from "./diagnostics.ts";
 import { errorView, noop, toError } from "./shared.ts";
 import type { SnapshotValue } from "./snapshot.ts";
@@ -94,49 +93,6 @@ export const withFiber = <A>(fiber: FiberLocal, fn: () => A): A => {
   }
 };
 
-/** Teardown callbacks for fibers and runtimes, run once when each closes. */
-const fiberClosers = new WeakMap<FiberLocal, Set<() => void>>();
-const runtimeClosers = new WeakMap<object, Set<() => void>>();
-
-/**
- * Run `fn` when `fiber` closes. Returns a release that unregisters it.
- * `@ilha/model` closes its instance record here, skipping parked keep-alive
- * records whose fiber outlives them.
- */
-export const onFiberClose = (
-  fiber: FiberLocal,
-  fn: () => void
-): (() => void) => {
-  let closers = fiberClosers.get(fiber);
-  if (closers === undefined) {
-    closers = new Set();
-    fiberClosers.set(fiber, closers);
-  }
-  closers.add(fn);
-  return () => {
-    closers?.delete(fn);
-  };
-};
-
-/**
- * Run `fn` when `runtime` closes (island unmount, server render end).
- * Returns a release that unregisters it.
- */
-export const onRuntimeClose = (
-  runtime: { readonly registry: unknown },
-  fn: () => void
-): (() => void) => {
-  let closers = runtimeClosers.get(runtime);
-  if (closers === undefined) {
-    closers = new Set();
-    runtimeClosers.set(runtime, closers);
-  }
-  closers.add(fn);
-  return () => {
-    closers?.delete(fn);
-  };
-};
-
 /** Clear render subscriptions and child holes without closing the fiber scope. */
 export const clearFiberView = (fiber: FiberLocal): void => {
   fiber.renderSub?.();
@@ -166,19 +122,6 @@ export const closeFiber = (fiber: FiberLocal): void => {
   fiber.closed = true;
   fiber.trackRestore?.();
   fiber.handleError = undefined;
-  const closers = fiberClosers.get(fiber);
-  if (closers !== undefined) {
-    fiberClosers.delete(fiber);
-    // Snapshot: a close hook may release (delete) a later hook.
-    const snapshot = [...closers];
-    for (const closer of snapshot) {
-      try {
-        closer();
-      } catch {
-        // Close hooks must not break unmount.
-      }
-    }
-  }
   clearFiberView(fiber);
   Effect.runFork(Scope.close(fiber.scope, Exit.void));
 };
@@ -198,19 +141,6 @@ export const makeRuntime = (opts?: {
     },
     close: () => {
       onIdle = undefined;
-      const closers = runtimeClosers.get(runtime);
-      if (closers !== undefined) {
-        runtimeClosers.delete(runtime);
-        // Snapshot: a close hook may release (delete) a later hook.
-        const snapshot = [...closers];
-        for (const closer of snapshot) {
-          try {
-            closer();
-          } catch {
-            // Close hooks must not break unmount.
-          }
-        }
-      }
       Effect.runFork(Scope.close(scope, Exit.void));
       registry.dispose();
     },
@@ -220,20 +150,7 @@ export const makeRuntime = (opts?: {
         onIdle?.();
       }
     },
-    fork: Effect.runSyncWith(
-      // SAFETY: the server branch provides no Client on purpose. The type
-      // claims it so `fork` has one shape; the model layer rejects
-      // Client-requiring effects at compile time, and anything that slips
-      // through dies with a missing-service defect instead.
-      (opts?.ssr === true
-        ? Context.make(Registry.AtomRegistry, registry)
-        : Context.make(Registry.AtomRegistry, registry).pipe(
-            Context.add(Client, {
-              document: globalThis.document,
-              window: globalThis.window,
-            })
-          )) as Context.Context<AtomRegistry | Client>
-    ),
+    fork: Effect.runSyncWith(Context.make(Registry.AtomRegistry, registry)),
     holeSeq: 0,
     hydrateI: 0,
     hydrateValues: opts?.hydrate,

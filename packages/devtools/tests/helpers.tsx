@@ -1,13 +1,12 @@
-import * as fs from "node:fs";
-
+import { defineComponent } from "@ilha/model";
 import { connectPanelChannel } from "devframe/in-page-channel";
+import { Schema } from "effect";
 import { atom, mount } from "ilha";
 import type { Component } from "ilha";
 
 import { installIlhaDevtools } from "../src/page.ts";
 import { ILHA_DEVTOOLS_CHANNEL } from "../src/protocol.ts";
 import type { IlhaDevtoolsProtocol } from "../src/protocol.ts";
-import type { WireEntry } from "../src/wire.ts";
 
 export const Badge = () => {
   const n = atom(5);
@@ -33,6 +32,47 @@ export const Counter = () => {
 
 export const settle = (ms = 20) => Bun.sleep(ms);
 
+const ModelMsg = Schema.TaggedUnion({
+  Bang: { err: Schema.Unknown, loop: Schema.Unknown },
+  Increment: {},
+});
+
+/** Cyclic payload for the `Bang` log probe. */
+interface BangLoop {
+  self?: unknown;
+}
+
+/** A model island for log tests: `inc` counts, `bang` logs a rich message. */
+export const modelApp = defineComponent({
+  message: ModelMsg,
+  model: Schema.Struct({ count: Schema.Number }),
+  name: "ModelCounter",
+}).make({
+  init: () => ({ count: 0 }),
+  update: {
+    Bang: ($) => $.model,
+    Increment: ($) => $.evolve({ count: (n) => n + 1 }),
+  },
+  view: (h, model) => (
+    <div>
+      <p>{model.count}</p>
+      <button type="button" onclick={h.send(ModelMsg.cases.Increment.make({}))}>
+        inc
+      </button>
+      <button
+        type="button"
+        onclick={() => {
+          const loop: BangLoop = {};
+          loop.self = loop;
+          h.send(ModelMsg.cases.Bang.make({ err: new Error("boom"), loop }))();
+        }}
+      >
+        bang
+      </button>
+    </div>
+  ),
+});
+
 let hostCount = 0;
 
 /** The selector `inspect()` reports for a host from `mountHost`. */
@@ -50,14 +90,8 @@ export const mountHost = async (component: Component = Counter) => {
 };
 
 /** Install the page script and connect a panel over a MessageChannel. */
-export const connectPair = (
-  options?: Parameters<typeof installIlhaDevtools>[0]
-) => {
-  const handle = installIlhaDevtools({
-    webmcp: false,
-    window: false,
-    ...options,
-  });
+export const connectPair = () => {
+  const handle = installIlhaDevtools({ webmcp: false, window: false });
   const { port1, port2 } = new MessageChannel();
   handle.channel.addPanelPort(port1);
   const panel = connectPanelChannel<IlhaDevtoolsProtocol>({
@@ -67,40 +101,4 @@ export const connectPair = (
     window: false,
   });
   return { handle, panel };
-};
-
-export type FixtureCapture = "interrupted" | "open" | "closed" | "switched";
-
-interface FixtureFrame {
-  readonly _tag: string;
-  readonly session?: string | undefined;
-}
-
-// SAFETY: the fixture file is checked in; non-Hello frames match WireEntry by recorder construction.
-const traces: Record<string, FixtureFrame[]> = JSON.parse(
-  fs.readFileSync(
-    new URL("fixtures/two-editor-traces.wire-v1.json", import.meta.url),
-    "utf-8"
-  )
-) as Record<string, FixtureFrame[]>;
-
-/** Wire frames of one recorded capture, without the `Hello` frame. */
-export const fixtureFrames = (
-  capture: FixtureCapture
-): readonly WireEntry[] => {
-  const list = traces[capture];
-  if (list === undefined) {
-    throw new Error(`missing capture ${capture}`);
-  }
-  // SAFETY: the filter above drops Hello frames; the recorder wrote the rest as WireEntry.
-  return list.filter((frame) => frame._tag !== "Hello") as WireEntry[];
-};
-
-/** The session id of a capture's frames. */
-export const fixtureSession = (capture: FixtureCapture): string => {
-  const [first] = fixtureFrames(capture);
-  if (first === undefined || !("session" in first)) {
-    throw new Error(`capture ${capture} has no session`);
-  }
-  return first.session;
 };

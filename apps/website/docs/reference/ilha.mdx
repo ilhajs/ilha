@@ -41,15 +41,11 @@ Nested functions share the parent fiber. `mount` / `renderToString` on a functio
 | `watch(source, fn)` | Callback on atom or stream changes; receives `{ signal, onCleanup }` | [State](/guide/ui/state) |
 | `watch.once(fn)` | Run once on mount; async callbacks with signal + promised cleanup | [State](/guide/ui/state) |
 | `when(stream, body)` | Per-emission generator (interrupts stale) | [Streams](/guide/ui/streams) |
-| `h` / `Fragment` | JSX factory; typed `h()` calls return `VNode<Requires<…>>` | [Templating](/guide/ui/templating) |
-| `Client` | Client-only requirement tag; `mount` accepts it, `renderToString` rejects it | [Elm components](/guide/ui/model#prefer-typed-h-when-requirements-matter) |
-| `VNode<R>` / `Requires` / `MissingRequirement` | Phantom requirement channel on `h()` results; unmet requirements fail compile | [Elm components](/guide/ui/model#prefer-typed-h-when-requirements-matter) |
+| `h` / `Fragment` | JSX factory | [Templating](/guide/ui/templating) |
 | `unsafe(html)` | Pre-rendered HTML painted without escaping | [Templating](/guide/ui/templating#raw-html) |
 | `IlhaError` / `IlhaCode` | Stable error codes with fix hints and docs links | [Errors](/errors) |
 | `mount` | Activate a component in the DOM | [Render](/guide/ui/render) |
 | `renderToString` | Serialize a component to HTML | [Render](/guide/ui/render) |
-
-`ilha/internal` is model-runtime-only: `@ilha/model` reads the fiber and the vnode types through it. App code never imports it.
 
 ## Element props
 

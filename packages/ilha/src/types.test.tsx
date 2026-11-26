@@ -1,37 +1,29 @@
 import { describe, expect, it } from "bun:test";
 
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import type * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import * as Schema from "effect/Schema";
 
 import { atom } from "./atom.ts";
-import { Client } from "./client.ts";
 import type { InspectValue } from "./debug.ts";
 import { atomsOf, summarizeValue } from "./debug.ts";
 import type { IlhaCode } from "./diagnostics.ts";
 import { IlhaError } from "./diagnostics.ts";
 import type { JSX } from "./jsx-types.ts";
-import { mount, renderToString } from "./mount.ts";
 import { isFunction } from "./shared.ts";
 import type {
   AtomHandle,
   AtomLazyOptions,
   AtomOptions,
-  ComponentRequires,
   IlhaRuntime,
-  MissingRequirement,
   MountOptions,
-  Requires,
   UnsafeHtml,
   View,
-  VNode,
   WatchCallback,
   WatchContext,
 } from "./types.ts";
 import { unsafe } from "./unsafe.ts";
-import { h } from "./vnode.ts";
 
 const click: NonNullable<JSX.IntrinsicElements["button"]["onclick"]> = (e) => {
   void e.currentTarget.disabled;
@@ -170,121 +162,6 @@ const typecheckJsxProps = (): void => {
   void badDivDisabled;
   void badPForm;
   void count;
-};
-
-const typecheckH = (): void => {
-  const button = h("button", { onclick: click, type: "button" }, "go");
-  const labelled = h(
-    "div",
-    { "aria-label": "close", "data-testid": "close-button" },
-    "x"
-  );
-  const widget = h("my-widget", { anything: "goes" }, "slot");
-  const item = h(KeyedItem, { id: "a" });
-  // @ts-expect-error unknown tags are compile errors, exactly as in JSX.
-  const bogus = h("bogus", null, "x");
-  // @ts-expect-error misspelt attributes are compile errors, exactly as in JSX.
-  const misspelt = h("div", { clas: "card" }, "x");
-  // @ts-expect-error wrongly typed handlers are compile errors, exactly as in JSX.
-  const badHandler = h("button", { onclick: "alert(1)" }, "x");
-  void button;
-  void labelled;
-  void widget;
-  void item;
-  void bogus;
-  void misspelt;
-  void badHandler;
-};
-/** A stand-in service no host provides, for the negative mount anchor. */
-interface FakeDb {
-  readonly kind: "FakeDb";
-}
-
-// SAFETY: requirement-phantom fixtures only — never invoked at runtime.
-declare const NeedsClient: (() => View) & { readonly "~requires": Client };
-// SAFETY: requirement-phantom fixtures only — never invoked at runtime.
-declare const NeedsClientProps: ((_props: { id: string }) => View) & {
-  readonly "~requires": Client;
-};
-// SAFETY: requirement-phantom fixtures only — never invoked at runtime.
-declare const NeedsDb: (() => View) & { readonly "~requires": FakeDb };
-// SAFETY: test-host fixture only — never touched at runtime.
-declare const host: Element;
-// SAFETY: service-value fixtures only — never read at runtime.
-declare const fakeDb: FakeDb;
-// SAFETY: DOM fixtures only — never read at runtime.
-declare const fakeDocument: Document;
-// SAFETY: DOM fixtures only — never read at runtime.
-declare const fakeWindow: Window;
-
-const typecheckRequirements = (): void => {
-  // A bare vnode needs nothing; a bare View accepts everything, as today.
-  const plain: VNode = h("div", null, "x");
-  const plainNever: VNode<never> = h("div", null, "x", 1, true);
-  const permissive: View = plain;
-  // h() unions the tag's requirements with its children's.
-  const needy: VNode<Client> = h(NeedsClientProps, { id: "a" });
-  const nested: VNode<Client> = h(
-    "div",
-    null,
-    h(NeedsClientProps, { id: "a" }),
-    "x"
-  );
-  const mixed: VNode<Client | FakeDb> = h(
-    "div",
-    null,
-    h(NeedsClientProps, { id: "a" }),
-    h(NeedsDb, null)
-  );
-  // JSX erases requirements: it is View (R unknown).
-  const jsxLoose: View = <div>{needy}</div>;
-  // Requires extracts R across tuples, arrays and unions.
-  // SAFETY: type-anchor fixtures only — never read at runtime.
-  const reqClient: Requires<VNode<Client>> = undefined as never;
-  // SAFETY: type-anchor fixtures only — never read at runtime.
-  const reqMixed: Requires<[VNode<Client>, string]> = undefined as never;
-  // SAFETY: type-anchor fixtures only — never read at runtime.
-  const reqUnion: Requires<VNode<FakeDb> | number> = undefined as never;
-  // SAFETY: type-anchor fixtures only — never read at runtime.
-  const reqPlain: Requires<number> = undefined as never;
-  // SAFETY: type-anchor fixtures only — never read at runtime.
-  const compPlain: ComponentRequires<() => View> = undefined as never;
-  // SAFETY: type-anchor fixtures only — never read at runtime.
-  const compClient: ComponentRequires<typeof NeedsClient> = undefined as never;
-  // The branded error names the missing services.
-  const branded: MissingRequirement<FakeDb> = {
-    "~missing-requirement": fakeDb,
-  };
-  // mount runs never- and Client-requiring components; renderToString only never.
-  mount(host, () => "x");
-  mount(host, NeedsClient);
-  void renderToString(() => "x");
-  // @ts-expect-error renderToString rejects Client-requiring components, naming Client.
-  renderToString(NeedsClient);
-  // @ts-expect-error mount rejects services the browser can't provide, naming FakeDb.
-  mount(host, NeedsDb);
-  // Client is a Context tag: make a service set and read it back.
-  const provided = Context.make(Client, {
-    document: fakeDocument,
-    window: fakeWindow,
-  });
-  const svc: { readonly window: Window; readonly document: Document } =
-    Context.get(provided, Client);
-  void plain;
-  void plainNever;
-  void permissive;
-  void needy;
-  void nested;
-  void mixed;
-  void jsxLoose;
-  void reqClient;
-  void reqMixed;
-  void reqUnion;
-  void reqPlain;
-  void compPlain;
-  void compClient;
-  void branded;
-  void svc;
 };
 
 const ctxFn: WatchCallback<number> = (value, ctx) => {
@@ -456,8 +333,6 @@ const typecheckDebug = (): void => {
 describe("jsx types", () => {
   it("keeps type anchors importable", () => {
     expect(isFunction(typecheckJsxProps)).toBe(true);
-    expect(isFunction(typecheckH)).toBe(true);
-    expect(isFunction(typecheckRequirements)).toBe(true);
     expect(isFunction(typecheckWatch)).toBe(true);
     expect(isFunction(typecheckUntrack)).toBe(true);
     expect(isFunction(typecheckUnsafe)).toBe(true);

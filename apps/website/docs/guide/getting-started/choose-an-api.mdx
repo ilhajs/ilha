@@ -23,23 +23,13 @@ Ilha gives you exactly one way to do each task. Find your task in the table and 
 | Server render | `await renderToString(Component)` | [Render and hydrate](/guide/ui/render) |
 | Client render | `mount(host, Component)` | [Render and hydrate](/guide/ui/render) |
 | Hydrate server HTML | `mount(host, Component, { hydrate: true })` | [Render and hydrate](/guide/ui/render) |
-| Elm-style component | `defineComponent({ name, props, model, message }).make({ init, update, view })` | [Elm components](/guide/ui/model#define-a-component) |
-| Child component | `<Child key="x" props={...} onEmit={...} />` | [Elm components](/guide/ui/model#call-children) |
-| One-shot work from `update` | `const Cmd = Command.make(name, opts, body); $.run(Cmd(args))` | [Elm components](/guide/ui/model#run-commands) |
-| Ongoing work gated by the model | `subscriptions` with `Subscription.make` / `DomSubscription` | [Elm components](/guide/ui/model#subscribe-to-streams) |
-| Element-lifetime work | `h.mount(Mount.make(...))`, `Dom.ref` + `h.ref`, `DomCommand` | [Elm components](/guide/ui/model#attach-mounts-and-refs) |
-| Async data in a component | `Query.Service` + `queries`, read `h.queries` | [Elm components](/guide/ui/model#load-remote-data-with-query) |
-| Services for a subtree | `Component.provide(C, layer)` / `Feature.Service` | [Elm components](/guide/ui/model#provide-services) |
-| Shared state down the tree | `shares` / `reads` / `$.send` | [Elm components](/guide/ui/model#share-state-between-components) |
-| Keep a hidden child alive | `h.keepAlive((s) => …)` | [Elm components](/guide/ui/model#call-children) |
-| Client-only component | `Component.clientOnly(C, { fallback })` | [Elm components](/guide/ui/model#compose-apps-from-components) |
-| Client-only requirement | `Client` from `ilha`, erased by `Component.clientOnly` | [Elm components](/guide/ui/model#compose-apps-from-components) |
-| Compile-time requirements | typed `h()` calls returning `VNode<Requires<…>>` | [Elm components](/guide/ui/model#prefer-typed-h-when-requirements-matter) |
-| Pure update test | `Story` from `@ilha/model/test` | [Elm components](/guide/ui/model#test-with-story-scene-or-play) |
-| Pure view test | `Scene` from `@ilha/model/test` | [Elm components](/guide/ui/model#test-with-story-scene-or-play) |
-| Real-runtime component test | `Play` from `@ilha/model/test` | [Elm components](/guide/ui/model#test-with-story-scene-or-play) |
-| Field validation | `Validation` from `@ilha/model/validation` | [Elm components](/guide/ui/model) |
-| Debug a component's messages | MessageLog timeline in the devtools panel and `ilha_model_*` tools | [Devtools](/guide/devtools#read-the-messagelog) |
+| Elm-style app state | `defineComponent({ name, model, message }).make({ init, update, view })` | [Elm architecture](/guide/ui/model) |
+| One-shot work from `update` | `$.run(...)` with `Command.make` | [Elm architecture](/guide/ui/model#commands) |
+| Ongoing work gated by the model | `subscriptions` in `make` | [Elm architecture](/guide/ui/model#subscriptions) |
+| Child component | `props` and `onEmit` | [Elm architecture](/guide/ui/model#children) |
+| Test a component without a DOM | `Story.make(Component, props?)` | [Elm architecture](/guide/ui/model#test-with-story) |
+| Async data in a model | `AsyncResult` field loaded by a `Command` | [Elm architecture](/guide/ui/model#commands) |
+| Debug a model's messages | Message log in the devtools panel and `ilha_model_log` | [Devtools](/guide/devtools#read-the-message-log) |
 | Raw, trusted HTML | `unsafe(html)` | [Templating](/guide/ui/templating#raw-html) |
 
 ## Example
@@ -77,8 +67,7 @@ const Cart = () => {
 - Never fetch inside `watch.once()` and copy the result into an atom. Write `atom(Effect)` instead.
 - Never pass untrusted input to `unsafe()`. It skips escaping.
 - Never import removed APIs: `resource`, `invalidate`, `fromEventSource`, `ilha/define`, or `structuralEqual`. See `MIGRATIONS.md` in the `ilha` package.
-- Never import removed `@ilha/model` APIs: `defineApp`, `UpdateResult`, `Cmd`, `Dispatch`, `keyed`, `subscription`, `combine`, `foldChild`, `FoldChildOptions`, `attachModelRecorder`, `DispatchRecord`, `ModelRecorder`, the `schema` option, `runCommands`, or `simulate`. See the model README migration table.
-- Never store callbacks in an `@ilha/model` model, or class instances such as `Date` without a Schema codec. The model snapshots to JSON; keep functions in refs and effects in commands. `Schema.Redacted` fields are never snapshotted and rebuild on the client.
+- Never store callbacks in an `@ilha/model` model, or class instances such as `Date` the `model` Schema cannot round-trip. The `model` Schema is the snapshot codec; keep functions in refs and effects in commands.
 
 ## Check your work
 

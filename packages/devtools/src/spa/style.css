@@ -17,14 +17,6 @@ h1 {
   font-size: 14px;
   margin: 0;
 }
-h2 {
-  font-size: 13px;
-  margin: 8px 0 4px;
-}
-h3 {
-  font-size: 12px;
-  margin: 8px 0 4px;
-}
 ul {
   list-style: none;
   margin: 0;
@@ -41,13 +33,9 @@ button.node {
   cursor: pointer;
   font: inherit;
   padding: 2px 6px;
-  text-align: left;
 }
 button.node[aria-current="true"] {
   background: color-mix(in srgb, #3b82f6 25%, transparent);
-}
-button:disabled {
-  opacity: 0.45;
 }
 dl {
   display: grid;
@@ -61,57 +49,17 @@ input {
     monospace;
   width: 100%;
 }
-input[type="checkbox"] {
-  width: auto;
-}
-select {
-  font: inherit;
-  margin-left: 4px;
-}
 ol {
   display: grid;
   gap: 8px;
   margin: 0;
   padding-left: 20px;
 }
-ol.timeline {
-  gap: 2px;
-  max-height: 320px;
-  overflow-y: auto;
-  padding-left: 0;
-}
 code,
-li div,
-pre {
+li div {
   font:
     12px ui-monospace,
     monospace;
-}
-pre {
-  background: color-mix(in srgb, currentcolor 6%, transparent);
-  border-radius: 4px;
-  max-height: 280px;
-  overflow: auto;
-  padding: 8px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.toolbar {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 4px 0;
-}
-.toolbar label {
-  align-items: center;
-  display: flex;
-  gap: 4px;
-}
-.columns {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: 1fr 2fr;
 }
 .muted {
   opacity: 0.65;

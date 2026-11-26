@@ -1,5 +1,5 @@
 import type { ComponentFn, Fragment, JsxComponent, PropBag } from "./types.ts";
-import { createVNode as createElement } from "./vnode.ts";
+import { h as createElement } from "./vnode.ts";
 
 export type { View } from "./types.ts";
 export type { JSX } from "./jsx-types.ts";

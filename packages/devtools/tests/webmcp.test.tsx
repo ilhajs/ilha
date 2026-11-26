@@ -1,16 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import { installIlhaDevtools } from "../src/page.ts";
-import { Counter, mountHost, settle } from "./helpers.tsx";
+import { Counter, modelApp, mountHost, settle } from "./helpers.tsx";
 
 interface RegisteredTool {
   name: string;
-  execute: (
-    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- mirrors the WebMCP tool signature under test.
-    args: Record<string, unknown>
-  ) =>
-    | { content: { text: string }[] }
-    | Promise<{ content: { text: string }[] }>;
+  execute: (args: Record<string, string | number | null>) => {
+    content: { text: string }[];
+    isError?: boolean;
+  };
 }
 
 const cleanups: (() => void)[] = [];
@@ -31,13 +29,10 @@ const fakeModelContext = () => {
     value: {
       registerTool: (
         tool: RegisteredTool,
-        options?: { signal?: AbortSignal }
+        options: { signal: AbortSignal }
       ) => {
         tools.push(tool);
-        if (options?.signal) {
-          signals.push(options.signal);
-        }
-        return { unregister: () => {} };
+        signals.push(options.signal);
       },
     },
   });
@@ -52,108 +47,134 @@ const toolByName = (tools: RegisteredTool[], name: string): RegisteredTool => {
   return found;
 };
 
-const readResult = async (
-  tool: RegisteredTool,
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- mirrors the WebMCP tool signature under test.
-  args: Record<string, unknown>
-) => {
-  const executed = await tool.execute(args);
-  return JSON.parse(executed.content[0]?.text ?? "{}");
+const readResult = (tool: RegisteredTool, args: Record<string, string>) =>
+  JSON.parse(tool.execute(args).content[0]?.text ?? "{}");
+
+/**
+ * Click `inc` until the page script's async attach starts recording, then
+ * return the host's island id. Dispatches before the attach are lost, so the
+ * wait retries instead of assuming the first click landed.
+ */
+const waitForRecording = async (
+  tools: RegisteredTool[],
+  host: HTMLElement,
+  deadline = Date.now() + 2000
+): Promise<string> => {
+  const inspectTool = toolByName(tools, "ilha_inspect");
+  const logTool = toolByName(tools, "ilha_model_log");
+  host.querySelector("button")?.click();
+  await settle(10);
+  const tree = JSON.parse(inspectTool.execute({}).content[0]?.text ?? "[]");
+  const id =
+    tree.find((node: { host?: string }) => node.host === `div#${host.id}`)
+      ?.id ?? "";
+  if (readResult(logTool, { id }).ok === true) {
+    return id;
+  }
+  if (Date.now() > deadline) {
+    throw new Error("message log never started recording");
+  }
+  return waitForRecording(tools, host, deadline);
 };
 
 describe("WebMCP tools", () => {
-  it("registers island and ilha_model_* tools that drive the page", async () => {
+  it("registers ilha_* tools that drive the page", async () => {
     const { tools, signals } = fakeModelContext();
     const mounted = await mountHost(Counter);
     const handle = installIlhaDevtools({ window: false });
     cleanups.push(mounted.unmount, handle.dispose);
-    expect(tools.map((tool) => tool.name).toSorted()).toEqual([
-      "ilha_highlight",
+    expect(tools.map((tool) => tool.name)).toEqual([
       "ilha_inspect",
-      "ilha_model_count_entries",
-      "ilha_model_diff_state",
-      "ilha_model_get_chain",
-      "ilha_model_get_entry",
-      "ilha_model_get_message_schema",
-      "ilha_model_get_state",
-      "ilha_model_list_entries",
-      "ilha_model_list_instances",
-      "ilha_model_list_sessions",
-      "ilha_model_resume",
-      "ilha_model_show_entry",
-      "ilha_model_wait",
+      "ilha_highlight",
       "ilha_set_atom",
+      "ilha_model_log",
     ]);
 
-    const inspectTool = toolByName(tools, "ilha_inspect");
-    const tree = await readResult(inspectTool, {});
+    const [inspectTool, , setAtomTool] = tools;
+    const tree = JSON.parse(inspectTool?.execute({}).content[0]?.text ?? "[]");
     const root = tree.find(
       (node: { host?: string }) => node.host === `div#${mounted.host.id}`
     );
     expect(root.component).toBe("Counter");
 
-    const setAtomTool = toolByName(tools, "ilha_set_atom");
-    const ok = await readResult(setAtomTool, {
+    const ok = setAtomTool?.execute({
       id: root.id,
       index: 1,
       value: "via mcp",
     });
-    expect(ok).toEqual({ ok: true });
+    expect(JSON.parse(ok?.content[0]?.text ?? "{}")).toEqual({ ok: true });
     await settle();
     expect(mounted.host.querySelector("p")?.textContent).toContain("via mcp");
 
-    const bad = await readResult(setAtomTool, { id: root.id });
-    expect(bad.error).toContain("Pass id (string)");
+    const bad = setAtomTool?.execute({ id: root.id });
+    expect(bad?.isError).toBe(true);
 
     handle.dispose();
     expect(signals.every((signal) => signal.aborted)).toBe(true);
   });
 
-  it("answers model tools from the page backend", async () => {
+  it("returns a model island's message log", async () => {
     const { tools } = fakeModelContext();
-    const mounted = await mountHost(Counter);
+    const mounted = await mountHost(modelApp);
     const handle = installIlhaDevtools({ window: false });
     cleanups.push(mounted.unmount, handle.dispose);
-
-    const sessions = await readResult(
-      toolByName(tools, "ilha_model_list_sessions"),
-      {}
-    );
-    expect(sessions).toEqual({ result: [] });
-
-    const missing = await readResult(
-      toolByName(tools, "ilha_model_get_entry"),
-      {
-        seq: 1,
-        session: "nope",
-      }
-    );
-    expect(missing.error).toContain("No session nope");
+    const id = await waitForRecording(tools, mounted.host);
+    const logTool = toolByName(tools, "ilha_model_log");
+    const result = JSON.parse(logTool.execute({ id }).content[0]?.text ?? "{}");
+    expect(result.ok).toBe(true);
+    expect(result.entries.length).toBeGreaterThan(0);
+    for (const entry of result.entries) {
+      expect(entry.message).toEqual({ _tag: "Increment" });
+      expect(entry.commands).toBe(0);
+      expect(Number.isFinite(entry.at)).toBe(true);
+      const { after, before } = entry.diff.changed.count;
+      expect(after).toBe(before + 1);
+    }
   });
 
-  it("registers dispatch only when the page enables it", async () => {
-    const { tools: off } = fakeModelContext();
-    const mounted = await mountHost(Counter);
-    const plain = installIlhaDevtools({ window: false });
-    cleanups.push(mounted.unmount, plain.dispose);
-    expect(off.some((tool) => tool.name === "ilha_model_dispatch")).toBe(false);
-    expect(off.some((tool) => tool.name === "ilha_model_show_entry")).toBe(
-      true
+  it("summarizes errors and cycles in logged messages", async () => {
+    const { tools } = fakeModelContext();
+    const mounted = await mountHost(modelApp);
+    const handle = installIlhaDevtools({ window: false });
+    cleanups.push(mounted.unmount, handle.dispose);
+    const id = await waitForRecording(tools, mounted.host);
+    mounted.host.querySelectorAll("button")[1]?.click();
+    await settle();
+    const logTool = toolByName(tools, "ilha_model_log");
+    const result = JSON.parse(logTool.execute({ id }).content[0]?.text ?? "{}");
+    const bang = result.entries.find(
+      (entry: { message: { _tag?: string } }) => entry.message._tag === "Bang"
     );
-
-    const { tools: on } = fakeModelContext();
-    const gated = installIlhaDevtools({ dispatch: true, window: false });
-    cleanups.push(gated.dispose);
-    const dispatch = on.find((tool) => tool.name === "ilha_model_dispatch");
-    if (dispatch === undefined) {
-      throw new Error("dispatch tool missing");
-    }
-    const refused = await readResult(dispatch, {
-      instance: 1,
-      message: {},
-      session: "nope",
+    expect(bang?.message).toEqual({
+      _tag: "Bang",
+      err: "<Error: boom>",
+      loop: { self: "<circular>" },
     });
-    expect(refused.error).toContain("No session nope");
+  });
+
+  it("explains islands without a log", async () => {
+    const { tools } = fakeModelContext();
+    const model = await mountHost(modelApp);
+    const plain = await mountHost(Counter);
+    const handle = installIlhaDevtools({ window: false });
+    cleanups.push(model.unmount, plain.unmount, handle.dispose);
+    await waitForRecording(tools, model.host);
+    const inspectTool = toolByName(tools, "ilha_inspect");
+    const logTool = toolByName(tools, "ilha_model_log");
+    const tree = JSON.parse(inspectTool.execute({}).content[0]?.text ?? "[]");
+    const plainId =
+      tree.find(
+        (node: { host?: string }) => node.host === `div#${plain.host.id}`
+      )?.id ?? "";
+    expect(
+      JSON.parse(logTool.execute({ id: plainId }).content[0]?.text ?? "{}")
+        .reason
+    ).toContain("no recorded messages");
+    expect(
+      JSON.parse(logTool.execute({ id: "missing" }).content[0]?.text ?? "{}")
+        .reason
+    ).toContain("No live component");
+    expect(logTool.execute({})?.isError).toBe(true);
   });
 
   it("does nothing when the browser has no model context", () => {

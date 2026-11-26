@@ -21,36 +21,12 @@ export type {
   IlhaDevtoolsProtocol,
   IlhaInspectNode,
   IlhaTreeState,
-  ModelFramesResult,
-  ModelSchemaResult,
-  ModelSessionSummary,
+  ModelLogDiff,
+  ModelLogEntry,
+  ModelLogFieldChange,
+  ModelLogResult,
   SetAtomResult,
 } from "./protocol";
-export {
-  chainOf,
-  createModelBackend,
-  instanceOf,
-  isFailureEntry,
-  labelOf,
-  matchesFilter,
-  modelToolHandlers,
-  runStatusOf,
-  tagOfMessage,
-} from "./webmcp";
-export { ToolError } from "./webmcp";
-export type {
-  EntryFilter,
-  EntryLabel,
-  HistoryLookup,
-  ModelBackend,
-  ModelBackendOptions,
-  ModelRuntimeBridge,
-  PageTools,
-  PauseHandle,
-  PauseHost,
-  ToolArgs,
-  ToolHandlers,
-} from "./webmcp";
 
 const packageUrl = new URL("../package.json", import.meta.url);
 const { version, name } = JSON.parse(readFileSync(packageUrl, "utf-8"));
@@ -58,7 +34,7 @@ const { version, name } = JSON.parse(readFileSync(packageUrl, "utf-8"));
 export const ilhaDevtools = defineDevframe({
   basePath: ILHA_DEVTOOLS_PANEL_PATH,
   clientAssets: fileURLToPath(new URL("../dist/spa", import.meta.url)),
-  description: "Inspect live Ilha islands and their model message logs",
+  description: "Inspect live Ilha islands and edit their atoms",
   homepage: "https://ilha.build/guide/devtools",
   icon: "ph:island-duotone",
   id: "ilha-devtools",
@@ -71,7 +47,7 @@ export const ilhaDevtools = defineDevframe({
         "Locate how to inspect live Ilha islands. Call it before debugging component state: it names the page tools and the Node-free fallback.",
       handler: () => ({
         channel: ILHA_DEVTOOLS_CHANNEL,
-        hint: "Call the page tools ilha_inspect, ilha_highlight, and ilha_set_atom over WebMCP, the ilha_model_* tools for @ilha/model message logs, or ilha-devtools inspect over the in-page channel. In tests, import inspect from ilha/debug.",
+        hint: "Call the page tools ilha_inspect, ilha_highlight, ilha_set_atom, and ilha_model_log over WebMCP, or ilha-devtools inspect and modelLog over the in-page channel. In tests, import inspect from ilha/debug.",
         panel: ILHA_DEVTOOLS_PANEL_PATH,
       }),
       id: "ilha-devtools:docs",

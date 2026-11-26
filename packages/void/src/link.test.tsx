@@ -258,31 +258,6 @@ describe("Link", () => {
     expect(visits).toHaveLength(1);
   });
 
-  it("keeps user handlers on non-GET buttons", async () => {
-    let seen: Event | undefined;
-    const { host } = await mountLinks(
-      <Link
-        class="join"
-        href="/teams"
-        method="post"
-        onkeydown={(event: Event) => {
-          seen = event;
-        }}
-      >
-        join
-      </Link>,
-      null
-    );
-    const button = host.querySelector("button.join");
-    if (!(button instanceof HTMLElement)) {
-      throw new TypeError("non-GET link did not render a button");
-    }
-    button.dispatchEvent(
-      new KeyboardEvent("keydown", { bubbles: true, cancelable: true })
-    );
-    expect(seen).toBeInstanceOf(Event);
-  });
-
   it("renders non-GET links as buttons that visit with data", async () => {
     const { host, visits } = await mountLinks(
       <Link class="join" href="/teams" method="post" data={{ name: "ilha" }}>

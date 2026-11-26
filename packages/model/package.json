@@ -1,7 +1,7 @@
 {
   "name": "@ilha/model",
-  "version": "0.3.0",
-  "description": "Effect UI-style components for Ilha islands: Model, update, Commands, Subscriptions, queries, and shared state",
+  "version": "0.2.0",
+  "description": "Elm-style model components for Ilha islands: one atom per instance, commands, and subscriptions",
   "keywords": [
     "effect",
     "elm-architecture",
@@ -35,17 +35,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./validation": {
-      "types": "./dist/validation/index.d.ts",
-      "import": "./dist/validation/index.js"
-    },
     "./test": {
-      "types": "./dist/test/index.d.ts",
-      "import": "./dist/test/index.js"
-    },
-    "./devtools": {
-      "types": "./dist/devtools.d.ts",
-      "import": "./dist/devtools.js"
+      "types": "./dist/test.d.ts",
+      "import": "./dist/test.js"
     }
   },
   "publishConfig": {
@@ -60,10 +52,10 @@
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "effect": "^4.1.4",
-    "ilha": "^0.17.0"
+    "ilha": "^0.16.3"
   },
   "peerDependencies": {
     "effect": "^4.1.4",
-    "ilha": ">=0.17.0"
+    "ilha": ">=0.16.3"
   }
 }

@@ -4,8 +4,6 @@ import type { AtomRegistry } from "effect/reactivity/AtomRegistry";
 import type * as Schema from "effect/Schema";
 import type { Closeable } from "effect/Scope";
 
-import type { Client } from "./client.ts";
-
 export type JsonText = string | number | bigint | boolean | null | undefined;
 
 /** Runtime prop bag values painted onto elements / passed to components. */
@@ -29,49 +27,16 @@ export interface PropBag {
   readonly [key: string]: PropValue | undefined;
 }
 
-/** Anything a component can yield or nest. `R` bounds the requirement channel; a bare `View` is `View<unknown>` and accepts everything. */
-export type View<R = unknown> =
-  | VNode<R>
+export type View =
+  | VNode
   | UnsafeHtml
   | JsonText
   | AtomView
-  | Stream.Stream<View<R>, unknown, unknown>
+  | Stream.Stream<View, unknown, unknown>
   | GeneratorFn
   | Component
-  | readonly View<R>[]
-  | Iterable<View<R>>;
-
-/**
- * Extract the requirement channel from a view type: the `R` of a `VNode<R>`,
- * unioned across tuples, arrays and unions; `never` for text, atoms and
- * the rest. Arrays and tuples contribute one level: their element union is
- * matched against `VNode` once, so opaque `View` nesting can never recurse
- * forever. (A recursive tuple branch here trips the checker's
- * instantiation-depth limiter when `Helper`/`HFn` signatures are formed
- * under inference, so it stays flat.)
- */
-export type Requires<V> =
-  V extends VNode<infer R>
-    ? R
-    : V extends readonly (infer E)[]
-      ? E extends VNode<infer R>
-        ? R
-        : never
-      : never;
-
-/**
- * Read a component's requirement phantom (`readonly "~requires"?: R`); `never` when it has none.
- */
-export type ComponentRequires<C> = "~requires" extends keyof C
-  ? Exclude<C["~requires"], undefined>
-  : never;
-
-/**
- * Branded compile error for a component run where its requirements aren't met. It names the missing services in `R`.
- */
-export interface MissingRequirement<R> {
-  readonly "~missing-requirement": R;
-}
+  | View[]
+  | Iterable<View>;
 
 // Fragment value and type share a name (JSX Fragment + VNode.type brand).
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
@@ -98,17 +63,12 @@ export interface UnsafeHtml {
   readonly html: string;
 }
 
-export interface VNode<out R = never> {
+export interface VNode {
   readonly $$ilha: 1;
   readonly type: string | Fragment | ComponentFn | JsxComponent;
   readonly props: PropBag;
   readonly children: View[];
   readonly key?: string | number;
-  /**
-   * Phantom requirement channel. Never present at runtime; `h()` sets it in
-   * the type from the tag's and children's requirements.
-   */
-  readonly "~requires"?: R;
 }
 
 export type GeneratorFn = () => Generator<Yielded, View | undefined, View>;
@@ -131,10 +91,8 @@ export type Component =
 export interface IlhaRuntime {
   readonly registry: AtomRegistry;
   readonly scope: Closeable;
-  /** Run an effect synchronously with the mount's services provided (`AtomRegistry`, plus `Client` outside SSR). */
-  readonly fork: <A, E>(
-    effect: Effect.Effect<A, E, AtomRegistry | Client>
-  ) => A;
+  /** Run an effect synchronously with the mount's `AtomRegistry` provided. */
+  readonly fork: <A, E>(effect: Effect.Effect<A, E, AtomRegistry>) => A;
   readonly ssr: boolean;
   readonly ssrValues: unknown[];
   hydrateValues?: unknown[];

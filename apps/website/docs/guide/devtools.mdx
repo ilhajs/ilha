@@ -132,36 +132,24 @@ export default defineConfig({
 
 Call `devtools.openPanel()` from the console or a button. The panel opens at `/__ilha-devtools/` in a popup, which lets it find the page that opened it.
 
-The panel shows the component tree. Hover a component to outline it on the page, select one to see its atoms, and edit a JSON value to write it back. Model islands built with `@ilha/model` add a timeline with Messages / Commands / Everything filters, the instance tree, per-entry tabs (Model with diff, Message, Props, Commands, Events, Lifecycle, Raw), the causal chain with back/forward links, Follow latest, Back, Clear (which keeps baselines for diffs), the `exclude` option, and a failure count. Pausing on an entry hides the live container and renders an inert copy through `renderToString` with each instance's state at that entry injected by path; the live island keeps running hidden until Resume. While paused, the copy runs nothing.
+The panel shows the component tree. Hover a component to outline it on the page, select one to see its atoms, and edit a JSON value to write it back. Model islands built with `@ilha/model` also list their recorded messages below the atoms: each message, the fields it changed, and how many commands it started.
 
 `ilhaDevtools` is a plain Devframe definition, so any [Devframe adapter](https://devfra.me/adapters) can mount it.
 
-`installIlhaDevtools()` registers the island tools plus the model tools below as `ilha_model_*` on the browser's WebMCP model context when the browser provides one.
+## Let an agent drive the page
 
-### Let an agent drive the page
+`installIlhaDevtools()` registers four tools on the browser's WebMCP model context when the browser provides one.
 
 | Tool | Use it to |
 | --- | --- |
 | `ilha_inspect` | Read every live island. Call it first to learn the ids. |
 | `ilha_highlight` | Outline a component for the user. Pass `null` to clear it. |
 | `ilha_set_atom` | Write a JSON value to one atom and let the island rerender. |
-| `ilha_model_list_sessions` | List model sessions on the page. |
-| `ilha_model_list_instances` | List a session's live instances. |
-| `ilha_model_list_entries` | List entries (filter/tag/after/limit 1–500, newest first). Entries come oldest first; without `after` you get the newest `limit` rows. |
-| `ilha_model_count_entries` | Count entries matching a filter. |
-| `ilha_model_get_entry` | Read one entry. |
-| `ilha_model_get_chain` | Read an entry's causal chain. |
-| `ilha_model_get_state` | Read an instance's state from history. |
-| `ilha_model_diff_state` | Diff two states. |
-| `ilha_model_get_message_schema` | Read a component's message JSON Schema. |
-| `ilha_model_show_entry` | Paint an entry's state (pause). |
-| `ilha_model_resume` | Resume the live island. |
-| `ilha_model_wait` | Wait for entries (timeout 0–60000 ms, default 5000). |
-| `ilha_model_dispatch` | Dispatch a message into a paused or live instance. Off unless the page passes `dispatch: true`. |
+| `ilha_model_log` | Read one model island's recorded messages. Pass an id from `ilha_inspect`. |
 
-Results over 24 KB come back as an outline; pass `path` to read a subtree.
+The same four functions carry Devframe `agent` metadata on the in-page channel, so a Devframe MCP bridge can list them. Pass `{ webmcp: false }` to skip the WebMCP registration.
 
-The same functions carry Devframe `agent` metadata on the in-page channel, so a Devframe MCP bridge can list them. Pass `{ webmcp: false }` to skip the WebMCP registration.
+Without a browser agent, call the functions through a panel endpoint. The channel is `devframes:plugin:ilha-devtools`, and `@ilha/devtools/protocol` exports its types.
 
 ```ts
 import { connectPanelChannel } from "devframe/in-page-channel";
@@ -179,32 +167,32 @@ await panel.call("setAtom", islands[0].id, 0, 2);
 
 The `tree` shared state mirrors `inspect()` as islands change. Read it with `parseTree(state.value())`.
 
-## Read the MessageLog
+## Read the message log
 
-Model islands built with `@ilha/model` record through the `MessageLog` service: every entry with its fields, `causedBy` causality, instance numbering, `boundary`, and `Source` tags. Recording is off by default and costs nothing when off; attach a sink (`memory`, `fanout`, `fanoutAll`, `makeEncoded`, `socket`) and entries encode to Wire v1 frames with placeholders, `maxEntryBytes`, and `Redacted` redaction.
+Model islands built with `@ilha/model` record every message they dispatch once the page script loads: the message, the model fields it changed, and how many commands it started. Each island keeps the newest 100 entries. Recording costs nothing when the page script is absent, and dispatches before the script loads are simply not recorded.
 
-Select a model island in the panel to read its timeline below the atoms. From an agent, list sessions, then entries:
+Select a model island in the panel to read its messages below the atoms. From an agent, pass the island's id to `ilha_model_log`:
 
 ```json
 {
-  "result": {
-    "rows": [
-      {
-        "instance": 1,
-        "label": "Increment",
-        "path": "/Counter",
-        "seq": 12,
-        "tag": "Update"
-      }
-    ],
-    "total": 42
-  }
+  "ok": true,
+  "entries": [
+    {
+      "at": 1720000000000,
+      "commands": 1,
+      "diff": {
+        "_tag": "fields",
+        "changed": { "count": { "before": 0, "after": 1 } }
+      },
+      "message": { "_tag": "Increment" }
+    }
+  ]
 }
 ```
 
-A call that cannot run returns `{ "error": "..." }` with the reason, so you can correct the call.
+Islands that are not model apps, or model islands with nothing recorded, return `{ "ok": false, "reason": "..." }` so you can correct the call. The same function is available over the in-page channel as `modelLog`.
 
-Messages summarize with the same rules as atom values, so an `Error`, an `Option`, or a cycle never breaks the log. In tests without a page, drive the loop with `Story`, `Scene`, or `Play` from `@ilha/model/test` instead, and replay a devtools export with `Story.fromLog` (`Replay` / `Divergence`).
+Messages summarize with the same rules as atom values, so an `Error`, an `Option`, or a cycle never breaks the log. The summarizing, diffing, and buffering live in `@ilha/devtools`; `@ilha/model` only hands each dispatch to an attached recorder, so apps ship none of it. In tests without a page, attach your own recorder with `attachModelRecorder((record) => …)` from `@ilha/model`: each record carries the raw `message`, the model `before` and `after`, the number of `commands` started, and the island's model atom as `instance`, which you can match against `atomsOf(id)` from `ilha/debug`.
 
 ## Test with the same tree
 

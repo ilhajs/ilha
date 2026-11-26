@@ -1,6 +1,6 @@
 {
   "name": "ilha",
-  "version": "0.17.0",
+  "version": "0.16.3",
   "description": "Generator-first island UI on Effect",
   "keywords": [
     "effect",
@@ -54,10 +54,6 @@
       "types": "./dist/renderer.d.ts",
       "import": "./dist/renderer.js"
     },
-    "./internal": {
-      "types": "./dist/internal-model.d.ts",
-      "import": "./dist/internal-model.js"
-    },
     "./test": {
       "types": "./dist/test.d.ts",
       "import": "./dist/test.js"
@@ -78,9 +74,9 @@
     "typecheck": "tsc -p tsconfig.types.json --noEmit"
   },
   "devDependencies": {
-    "effect": "^4.1.4"
+    "effect": "^4.1.0"
   },
   "peerDependencies": {
-    "effect": "^4.1.4"
+    "effect": "^4.1.0"
   }
 }

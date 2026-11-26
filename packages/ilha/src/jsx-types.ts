@@ -668,7 +668,6 @@ export namespace JSX {
     g: SVGAttributes;
     defs: SVGAttributes;
     use: SVGAttributes & { href?: Attr };
-    foreignObject: SVGAttributes;
     symbol: SVGAttributes;
     text: SVGAttributes;
     tspan: SVGAttributes;

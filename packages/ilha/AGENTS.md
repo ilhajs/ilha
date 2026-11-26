@@ -1,4 +1,4 @@
-# ilha 0.17.0 — agent guide
+# ilha 0.16.3 — agent guide
 
 Generated from `src/index.ts` by `scripts/agent-docs.ts`. Do not edit by hand.
 
@@ -53,7 +53,6 @@ Full table: https://ilha.build/guide/getting-started/choose-an-api
 
 - `atom` — Declare reactive state in a component: `atom(0)`, `atom(effect | stream)` (handle holds an `AsyncResult`), `atom(Atom.map(...))` (derived), `atom.lazy(() => init)` (one-time init). Read `count()`, write `count.set(v)` / `count.update(fn)`.
 - `batch` — Group several atom writes into one rerender (re-export of Effect `Atom.batch`).
-- `Client` — Browser-only services (`window`, `document`), provided by `mount` to the effects run in fibers. The server never provides it.
 - `context` — Read a context value as an atom handle.
 - `createContext` — `createContext(default)` returns a context whose `Provider` (`<Ctx.Provider value={v}>`) shares a value down the tree; read it with `context(ctx)`.
 - `ErrorBoundary` — Catch subtree failures and paint a fallback.
@@ -67,7 +66,7 @@ Full table: https://ilha.build/guide/getting-started/choose-an-api
 - `watch` — `watch(source, ({ signal }) => ...)` reacts to an atom, Effect atom, or Stream; `watch.once(fn)` runs once on mount and may return a cleanup. Both return `Instruction<void>` — call at the top level of the component, in the same order every render.
 - `when` — Rerun `body` for every value of `stream`, replacing the previous run.
 
-Types: `AtomEquality`, `AtomHandle`, `AtomLazyOptions`, `AtomOptions`, `Component`, `ComponentRequires`, `ContextProviderProps`, `ErrorBoundaryProps`, `ErrorFallback`, `ErrorFallbackProps`, `IlhaCode`, `IlhaContext`, `MissingRequirement`, `MountOptions`, `PropBag`, `RenderToStringOptions`, `Requires`, `UnsafeHtml`, `View`, `VNode`, `WatchCallback`, `WatchContext`, `WatchOnceCleanup`.
+Types: `AtomEquality`, `AtomHandle`, `AtomLazyOptions`, `AtomOptions`, `Component`, `ContextProviderProps`, `ErrorBoundaryProps`, `ErrorFallback`, `ErrorFallbackProps`, `IlhaCode`, `IlhaContext`, `MountOptions`, `RenderToStringOptions`, `UnsafeHtml`, `View`, `WatchCallback`, `WatchContext`, `WatchOnceCleanup`.
 
 ## Subpaths
 
