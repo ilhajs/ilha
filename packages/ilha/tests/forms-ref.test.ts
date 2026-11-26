@@ -6,6 +6,7 @@ import type { PropValue } from "../src/types.ts";
 // Module-level component: exercises fresh atom state per mount.
 const CheckboxApp = () => {
   const on = atom(false);
+
   return {
     $$ilha: 1 as const,
     children: [],
@@ -34,12 +35,14 @@ test("checkbox checked={atom}", async () => {
 
 test("ref called with element and null on unmount", async () => {
   const seen: unknown[] = [];
+
   const App = () => ({
     $$ilha: 1 as const,
     children: ["hi"],
     props: { ref: (n: Element | null) => seen.push(n) },
     type: "p",
   });
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
@@ -61,13 +64,16 @@ interface CheckboxProps {
 
 const rejectingCheckbox = (initial?: boolean | undefined) => () => {
   const tick = atom(0);
+
   const inputProps: CheckboxProps = {
     onclick: () => tick.update((n: number) => n + 1),
     type: "checkbox",
   };
+
   if (initial !== undefined) {
     inputProps.checked = initial;
   }
+
   return {
     $$ilha: 1 as const,
     children: [
@@ -96,6 +102,7 @@ const clickAndRender = async (
   await Bun.sleep(10);
   const { checked } = input;
   el.remove();
+
   return checked;
 };
 

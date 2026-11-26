@@ -6,6 +6,7 @@ import type { PropBag } from "../src/types.ts";
 
 const Badge = (props: PropBag) => {
   const n = atom(0);
+
   return (
     <button id="badge" onclick={() => n.update((x: number) => x + 1)}>
       {String(props.label ?? "")}
@@ -31,9 +32,11 @@ test("async child inside generator parent", async () => {
   expect(el.textContent).toContain("parent");
   expect(el.textContent).toContain("n=0");
   const badge = el.querySelector("#badge");
+
   if (!(badge instanceof HTMLButtonElement)) {
     throw new TypeError("#badge missing");
   }
+
   badge.click();
   await Bun.sleep(10);
   expect(el.textContent).toContain("n=1");
@@ -51,6 +54,7 @@ const Ticker = function* Ticker() {
 
 const AsyncPage = () => {
   const label = atom("async parent");
+
   return (
     <div>
       <p>{label}</p>
@@ -67,9 +71,11 @@ test("generator child inside async parent", async () => {
   expect(el.textContent).toContain("async parent");
   expect(el.textContent).toContain("gen 0");
   const tick = el.querySelector("#tick");
+
   if (!(tick instanceof HTMLButtonElement)) {
     throw new TypeError("#tick missing");
   }
+
   tick.click();
   await Bun.sleep(10);
   expect(el.textContent).toContain("gen 1");

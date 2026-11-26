@@ -12,6 +12,7 @@ const Msg = Schema.TaggedUnion({
   Reset: {},
   Resetted: {},
 });
+
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 type Msg = typeof Msg.Type;
 
@@ -20,6 +21,7 @@ const Event = Schema.TaggedUnion({
   Reached: { count: Schema.Number },
   Started: {},
 });
+
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 type Event = typeof Event.Type;
 
@@ -27,6 +29,7 @@ type Event = typeof Event.Type;
 const Boot = Command.make("Boot", () =>
   Effect.succeed(Msg.cases.Resetted.make({}))
 );
+
 const DelayReset = Command.make("DelayReset", (_v: number) =>
   Effect.succeed(Msg.cases.Resetted.make({}))
 );
@@ -45,6 +48,7 @@ const Counter = defineComponent({
   update: {
     Add: ($, { amount }) => {
       const count = $.model.count + amount;
+
       return $.set({ count }).emit(Event.cases.Reached.make({ count }));
     },
     Replied: ($, { v }) => $.set({ count: v }),

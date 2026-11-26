@@ -5,21 +5,26 @@ const bindCopyCommandButtons = (root: ParentNode = document): void => {
     if (button.dataset.copyBound === "1") {
       continue;
     }
+
     button.dataset.copyBound = "1";
     button.addEventListener("click", async () => {
       const text =
         button.dataset.copyValue ??
         button.querySelector("[data-copy-label]")?.textContent ??
         "";
+
       try {
         await navigator.clipboard.writeText(text);
       } catch {
         return;
       }
+
       const label = button.querySelector<HTMLElement>("[data-copy-label]");
+
       if (!label) {
         return;
       }
+
       const original = label.textContent;
       label.textContent = "Copied!";
       setTimeout(() => {

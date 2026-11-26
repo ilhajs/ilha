@@ -19,4 +19,5 @@ if (!result.success) {
 }
 
 await cp(new URL("src/spa/index.html", root), new URL("index.html", outdir));
+
 await cp(new URL("src/spa/style.css", root), new URL("style.css", outdir));

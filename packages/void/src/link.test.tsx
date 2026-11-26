@@ -20,8 +20,10 @@ const stubRouter = (visits: RecordedVisit[]): VoidRouter => {
   const router = createSsrRouter("http://localhost:3000/users/7");
   router.visit = (url, options) => {
     visits.push({ options: options ?? {}, url: String(url) });
+
     return Promise.resolve({});
   };
+
   return router;
 };
 
@@ -47,6 +49,7 @@ const mountLinks = async (
     </VoidContext.Provider>
   ));
   await settle();
+
   return { host, visits };
 };
 
@@ -57,12 +60,15 @@ const click = (
   if (!element) {
     throw new Error("click target missing");
   }
+
   const event = new MouseEvent("click", {
     bubbles: true,
     cancelable: true,
     ...init,
   });
+
   element.dispatchEvent(event);
+
   return event;
 };
 
@@ -74,6 +80,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const event = click(host.querySelector("a.plain"));
     expect(event.defaultPrevented).toBe(true);
     expect(visits).toHaveLength(1);
@@ -88,6 +95,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const cases: MouseEventInit[] = [
       { ctrlKey: true },
       { metaKey: true },
@@ -95,10 +103,12 @@ describe("Link", () => {
       { altKey: true },
       { button: 1 },
     ];
+
     for (const init of cases) {
       const event = click(host.querySelector("a.mod"), init);
       expect(event.defaultPrevented).toBe(false);
     }
+
     expect(visits).toHaveLength(0);
     setLocation("http://localhost:3000/users/7");
   });
@@ -110,6 +120,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const event = click(host.querySelector("a.blank"));
     expect(event.defaultPrevented).toBe(false);
     expect(visits).toHaveLength(0);
@@ -123,6 +134,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const event = click(host.querySelector("a.self"));
     expect(event.defaultPrevented).toBe(true);
     expect(visits).toHaveLength(1);
@@ -135,6 +147,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const event = click(host.querySelector("a.file"));
     expect(event.defaultPrevented).toBe(false);
     expect(visits).toHaveLength(0);
@@ -148,6 +161,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const event = click(host.querySelector("a.ext"));
     expect(event.defaultPrevented).toBe(false);
     expect(visits).toHaveLength(0);
@@ -161,6 +175,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const event = click(host.querySelector("a.abs"));
     expect(event.defaultPrevented).toBe(true);
     expect(visits).toHaveLength(1);
@@ -173,6 +188,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const event = click(host.querySelector("a.doc"));
     expect(event.defaultPrevented).toBe(false);
     expect(visits).toHaveLength(0);
@@ -205,6 +221,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const cancelEvent = click(host.querySelector("a.cancel"));
     expect(cancelEvent.defaultPrevented).toBe(true);
     expect(visits).toHaveLength(0);
@@ -221,6 +238,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const stoppedEvent = click(host.querySelector("a.stopped"));
     expect(stoppedEvent.defaultPrevented).toBe(true);
     expect(visits).toHaveLength(0);
@@ -234,6 +252,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     click(host.querySelector("button.leave"));
     expect(visits).toHaveLength(1);
     expect(visits[0]?.options).toMatchObject({ method: "DELETE" });
@@ -241,6 +260,7 @@ describe("Link", () => {
 
   it("still runs onclick for intercepted clicks", async () => {
     let seen: MouseEvent | undefined;
+
     const { host, visits } = await mountLinks(
       <Link
         class="spy"
@@ -253,6 +273,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     click(host.querySelector("a.spy"));
     expect(seen).toBeInstanceOf(MouseEvent);
     expect(visits).toHaveLength(1);
@@ -260,6 +281,7 @@ describe("Link", () => {
 
   it("keeps user handlers on non-GET buttons", async () => {
     let seen: Event | undefined;
+
     const { host } = await mountLinks(
       <Link
         class="join"
@@ -273,10 +295,13 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const button = host.querySelector("button.join");
+
     if (!(button instanceof HTMLElement)) {
       throw new TypeError("non-GET link did not render a button");
     }
+
     button.dispatchEvent(
       new KeyboardEvent("keydown", { bubbles: true, cancelable: true })
     );
@@ -290,10 +315,13 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const button = host.querySelector("button.join");
+
     if (!button) {
       throw new Error("non-GET link did not render a button");
     }
+
     const event = click(button);
     expect(event.defaultPrevented).toBe(true);
     expect(visits).toHaveLength(1);
@@ -311,6 +339,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     // SAFETY: the previous test covers the button render itself.
     const button = document.createElement("button");
     void button;
@@ -324,6 +353,7 @@ describe("Link", () => {
       </Link>,
       null
     );
+
     const href = host.querySelector("a.search")?.getAttribute("href") ?? "";
     expect(href.startsWith("/search?")).toBe(true);
     expect(href).toContain("q=milk");
@@ -334,6 +364,7 @@ describe("Link", () => {
 
   it("rejects prefetch on non-GET links", async () => {
     let thrown: unknown;
+
     const Probe = (): null => {
       try {
         // SAFETY: calling the component directly runs the same prop
@@ -342,8 +373,10 @@ describe("Link", () => {
       } catch (error) {
         thrown = error;
       }
+
       return null;
     };
+
     mount(document.createElement("div"), () => <Probe />);
     await settle();
     expect(String(thrown)).toContain("prefetch");
@@ -351,6 +384,7 @@ describe("Link", () => {
 
   it("rejects reloadDocument on non-GET links", async () => {
     let thrown: unknown;
+
     const Probe = (): null => {
       try {
         // SAFETY: see the prefetch test above.
@@ -358,8 +392,10 @@ describe("Link", () => {
       } catch (error) {
         thrown = error;
       }
+
       return null;
     };
+
     mount(document.createElement("div"), () => <Probe />);
     await settle();
     expect(String(thrown)).toContain("reloadDocument");

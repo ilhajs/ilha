@@ -16,6 +16,7 @@ export {
   ILHA_DEVTOOLS_PANEL_PATH,
   parseTree,
 } from "./protocol";
+
 export type {
   AtomJson,
   IlhaDevtoolsProtocol,

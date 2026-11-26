@@ -73,6 +73,7 @@ const SearchSlot = resolveSlot(layout.Search, Search);
 
 const showNavToggle = hasDrawer && (hasSidebar || navigation.tabs.length > 0);
 const activeTab = activeTabForRoute(navigation.tabs, route);
+
 const tabsNavClass = hasSidebar
   ? "hidden gap-1 md:flex"
   : "hidden gap-1 lg:flex";

@@ -68,6 +68,7 @@ const ops: PaintOps<TestNode, TestEl> = {
       if (!key.startsWith("on") || !isFunction(value)) {
         continue;
       }
+
       // SAFETY: isFunction established the value is callable; the host keeps it
       // as an opaque event handler.
       el.handlers[key.slice(2).toLowerCase()] = value as never;
@@ -88,7 +89,9 @@ const ops: PaintOps<TestNode, TestEl> = {
     if (!isObject(value)) {
       return false;
     }
+
     el.props.set(key, value);
+
     return true;
   },
   setStyle: (el, css) => {
@@ -103,18 +106,23 @@ const findAll = (node: TestNode, tag: string): TestEl[] => {
   if (node.kind !== "element") {
     return [];
   }
+
   const found = node.tagName === tag.toUpperCase() ? [node] : [];
+
   for (const child of node.children) {
     found.push(...findAll(child, tag));
   }
+
   return found;
 };
 
 const firstChild = (root: TestRoot): TestNode => {
   const [child] = root.children;
+
   if (!child) {
     throw new Error("host root has no child");
   }
+
   return child;
 };
 
@@ -126,6 +134,7 @@ const click = async (root: TestRoot, tag: string, index = 0): Promise<void> => {
 
 const Counter = () => {
   const count = atom(0);
+
   return (
     <button class="count" onclick={() => count.update((n: number) => n + 1)}>
       count: {count}
@@ -135,6 +144,7 @@ const Counter = () => {
 
 const Child = () => {
   const n = atom(0);
+
   return (
     <button class="child" onclick={() => n.update((v: number) => v + 1)}>
       {n}
@@ -144,6 +154,7 @@ const Child = () => {
 
 const Parent = () => {
   const n = atom(0);
+
   return (
     <div>
       <button class="parent" onclick={() => n.update((v: number) => v + 1)}>
@@ -157,6 +168,7 @@ const Parent = () => {
 
 const Page = async () => {
   await Bun.sleep(20);
+
   return <p>late</p>;
 };
 
@@ -209,11 +221,13 @@ test("unmount clears the host and drops in-flight work", async () => {
 test("setProp receives the value the component wrote", async () => {
   const root: TestRoot = { children: [], kind: "root" };
   const spec = { query: "needle" };
+
   const View = () => (
     <p {...{ highlight: spec }} class="plain" style={{ color: "red" }}>
       text
     </p>
   );
+
   // SAFETY: the renderer drives the host generically; its root is this TestRoot.
   const handle = createRenderer(ops).mount(root as never, View);
   await handle.ready;
@@ -237,6 +251,7 @@ test("onError receives root and nested failures as Errors", async () => {
   const seen: Error[] = [];
   const renderer = createRenderer(ops);
   const failing: TestRoot = { children: [], kind: "root" };
+
   // SAFETY: the renderer drives the host generically; its root is this TestRoot.
   const first = renderer.mount(
     failing as never,
@@ -245,9 +260,11 @@ test("onError receives root and nested failures as Errors", async () => {
     },
     { onError: (error) => seen.push(error) }
   );
+
   await first.ready;
 
   const nested: TestRoot = { children: [], kind: "root" };
+
   // SAFETY: the renderer drives the host generically; its root is this TestRoot.
   const second = renderer.mount(
     nested as never,
@@ -258,6 +275,7 @@ test("onError receives root and nested failures as Errors", async () => {
     ),
     { onError: (error) => seen.push(error) }
   );
+
   await second.ready;
   await Bun.sleep(10);
 
@@ -274,24 +292,30 @@ test("onRuntime runs before the root component and names its fibers", async () =
   const root: TestRoot = { children: [], kind: "root" };
   let mounted: IlhaRuntime | undefined;
   const seen: boolean[] = [];
+
   const Leaf = () => {
     seen.push(getFiber().runtime === mounted);
+
     return <p>leaf</p>;
   };
+
   const View = () => {
     seen.push(getFiber().runtime === mounted);
+
     return (
       <div>
         <Leaf />
       </div>
     );
   };
+
   // SAFETY: the renderer drives the host generically; its root is this TestRoot.
   const handle = createRenderer(ops).mount(root as never, View, {
     onRuntime: (runtime) => {
       mounted = runtime;
     },
   });
+
   await handle.ready;
 
   expect(mounted).toBe(handle.runtime);
@@ -301,6 +325,7 @@ test("onRuntime runs before the root component and names its fibers", async () =
 
 const Keyed = ({ id }: { id?: unknown }) => {
   const n = atom(0);
+
   return (
     <button onclick={() => n.update((v: number) => v + 1)}>
       {String(id)}:{n}
@@ -310,6 +335,7 @@ const Keyed = ({ id }: { id?: unknown }) => {
 
 const KeyedToggle = () => {
   const show = atom(true);
+
   return (
     <div>
       <button onclick={() => show.update((v: boolean) => !v)}>toggle</button>

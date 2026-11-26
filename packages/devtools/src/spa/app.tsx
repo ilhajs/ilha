@@ -21,10 +21,12 @@ const findNode = (
 ): IlhaInspectNode | undefined => {
   for (const node of nodes) {
     const hit = node.id === id ? node : findNode(node.children, id);
+
     if (hit) {
       return hit;
     }
   }
+
   return undefined;
 };
 
@@ -45,15 +47,19 @@ export const createApp = (connect: () => PanelConnection) => {
     const refreshLog = async (id: string | null): Promise<void> => {
       if (id === null) {
         log.set([]);
+
         return;
       }
+
       let entries: readonly ModelLogEntry[] = [];
+
       try {
         const result = await channel().call("modelLog", id);
         entries = result.ok ? result.entries : [];
       } catch {
         // An older page script has no modelLog; the tree still works.
       }
+
       // A slow response for an earlier selection must not overwrite the log
       // of the island selected now.
       if (selected() === id) {
@@ -68,6 +74,7 @@ export const createApp = (connect: () => PanelConnection) => {
     watch.once(() => {
       const connection = channel();
       let open = true;
+
       const sync = async (): Promise<void> => {
         try {
           await connection.whenConnected(CONNECT_TIMEOUT_MS);
@@ -75,12 +82,16 @@ export const createApp = (connect: () => PanelConnection) => {
           if (open) {
             status.set("missing");
           }
+
           return;
         }
+
         const tree = await connection.sharedState.get("tree");
+
         if (!open) {
           return;
         }
+
         status.set("connected");
         nodes.set(parseTree(tree.value()));
         tree.on("updated", (full) => {
@@ -88,22 +99,28 @@ export const createApp = (connect: () => PanelConnection) => {
           void refreshLog(selected());
         });
       };
+
       void sync();
+
       const stop = (): void => {
         open = false;
         connection.close();
       };
+
       return stop;
     });
 
     const edit = async (id: string, index: number, raw: string) => {
       let value: AtomJson;
+
       try {
         value = JSON.parse(raw);
       } catch {
         problem.set(`"${raw}" is not valid JSON.`);
+
         return;
       }
+
       const result = await channel().call("setAtom", id, index, value);
       problem.set(result.ok ? "" : result.reason);
     };
@@ -125,6 +142,7 @@ export const createApp = (connect: () => PanelConnection) => {
     );
 
     const current = findNode(nodes(), selected());
+
     return (
       <main>
         <h1>Ilha islands</h1>
@@ -192,5 +210,6 @@ export const createApp = (connect: () => PanelConnection) => {
       </main>
     );
   };
+
   return App;
 };

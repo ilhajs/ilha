@@ -23,6 +23,7 @@ export const instr = <A, E = never>(
   effect: Effect.Effect<A, E, AtomRegistry>
 ): Instruction<A, E> => {
   const fiber = getFiber();
+
   const out = {
     $$ilhaOp: 1,
     effect,
@@ -32,6 +33,7 @@ export const instr = <A, E = never>(
       return yield out as Instruction<A, E>;
     },
   };
+
   // oxlint-disable-next-line unicorn/no-thenable -- Instruction implements PromiseLike for await
   Object.defineProperty(out, "then", {
     value: async <R1 = A, R2 = never>(
@@ -41,18 +43,22 @@ export const instr = <A, E = never>(
       const { promise, resolve, reject } = Promise.withResolvers<A>();
       fiber.run(effect, resolve, reject);
       let value: A;
+
       try {
         value = await promise;
       } catch (error) {
         if (onErr) {
           return onErr(error);
         }
+
         throw error;
       }
+
       // SAFETY: without `onOk`, R1 defaults to A and resolves to the value.
       return onOk ? onOk(value) : (value as never);
     },
   });
+
   // SAFETY: the iterator and `then` complete the Instruction surface.
   return out as Instruction<A, E>;
 };
@@ -83,6 +89,7 @@ export const resetRenderTracking = (): void => {
 export const untrack = <A>(fn: () => A): A => {
   const prev = tracking;
   tracking = false;
+
   try {
     return fn();
   } finally {
@@ -94,15 +101,18 @@ const readTracked = <A>(atom: Atom.Atom<A>, registry: AtomRegistry): A => {
   if (!tracking) {
     return registry.get(atom);
   }
+
   // Another root (a nested `renderToString`, a sibling async render) may have
   // pushed its own frame above this fiber's, so match the frame by fiber.
   // After an `await`, the fiber stack is empty: the pending frame (kept open
   // by withTrackGetRun) is then the render context, so post-await reads stay
   // reactive.
   const active = getActiveFiber();
+
   const frame = active
     ? frames.findLast((f) => f.fiber === active)
     : frames.at(-1);
+
   return frame ? frame.get(atom) : registry.get(atom);
 };
 
@@ -110,9 +120,11 @@ const readTracked = <A>(atom: Atom.Atom<A>, registry: AtomRegistry): A => {
 export const beginPrimitiveFrame = (fiber: FiberLocal): void => {
   const used = fiber.primitiveI ?? 0;
   const slots = fiber.primitives?.length ?? 0;
+
   if (used > 0 && used !== slots) {
     ilhaWarn("ILHA002", `${slots} → ${used}`);
   }
+
   fiber.primitiveI = 0;
   fiber.watchI = 0;
 };
@@ -128,40 +140,50 @@ export const withTrackGetRun = <A>(
   onErr: (failure: Error) => void
 ): void => {
   const deps = new Set<Atom.Atom<unknown>>();
+
   const frame: TrackFrame = {
     fiber,
     get: (a) => {
       deps.add(a);
+
       return fiber.registry.get(a);
     },
   };
+
   const restore = (): void => {
     if (fiber.trackRestore !== restore) {
       return;
     }
+
     frames.splice(frames.lastIndexOf(frame), 1);
     tracking = frames.length > 0;
     fiber.trackRestore = undefined;
   };
+
   frames.push(frame);
   tracking = true;
   fiber.trackRestore = restore;
+
   const done = (value: A): void => {
     restore();
     onOk({ deps, value });
   };
+
   const failed = <F>(failure: F): void => {
     restore();
     onErr(toError(failure));
   };
+
   try {
     const result = withFiber(fiber, fn);
+
     if (result instanceof Promise) {
       // Reads in post-await continuations still land in `deps`: the frame
       // stays open until the render settles.
       const settle = async (): Promise<void> => {
         try {
           const value = await result;
+
           if (!fiber.closed) {
             done(value);
           }
@@ -171,9 +193,12 @@ export const withTrackGetRun = <A>(
           }
         }
       };
+
       void settle();
+
       return;
     }
+
     done(result);
   } catch (error) {
     failed(error);
@@ -187,14 +212,17 @@ export const subscribeRenderDeps = (
   run: () => void
 ): (() => void) => {
   let scheduled = false;
+
   const schedule = (): void => {
     if (scheduled) {
       return;
     }
+
     scheduled = true;
     const seen = fiber.renderGen;
     fiber.runtime.later(() => {
       scheduled = false;
+
       // A render that started after the change already read the new value,
       // for example the parent rerunning this component with new props.
       if (fiber.renderGen === seen) {
@@ -202,9 +230,11 @@ export const subscribeRenderDeps = (
       }
     });
   };
+
   const unsubs = [...deps].map((dep) =>
     fiber.registry.subscribe(dep, schedule)
   );
+
   return () => {
     for (const unsub of unsubs) {
       unsub();
@@ -218,15 +248,19 @@ export const wrapHandle = <A, W = A>(
   fiber: FiberLocal
 ): AtomHandle<A, W> => {
   const { registry } = fiber;
+
   const guard = (): void => {
     const active = getActiveFiber();
+
     if (active && active.registry !== registry) {
       throw ilhaError("ILHA003");
     }
   };
+
   return Object.assign(
     () => {
       guard();
+
       return readTracked(atom, registry);
     },
     {
@@ -234,12 +268,14 @@ export const wrapHandle = <A, W = A>(
       atom,
       set: (next: W) => {
         guard();
+
         if (Atom.isWritable(atom)) {
           registry.set(atom, next);
         }
       },
       update: (f: (current: A) => W) => {
         guard();
+
         if (Atom.isWritable(atom)) {
           registry.update(atom, f);
         }
@@ -268,14 +304,18 @@ const useSlot = <A>(
   // SAFETY: slots are per-fiber and ordered, so the stored atom was created
   // by the same primitive call site with the same A.
   let a = fiber.primitives[i] as Atom.Atom<A> | undefined;
+
   if (!a) {
     // The JSON codec is built once per slot creation, not per render.
     const codec =
       snapshotted && schema ? Schema.toCodecJson(schema) : undefined;
+
     let hydrated: A | undefined;
+
     if (snapshotted && runtime.hydrateValues) {
       const seed = runtime.hydrateValues[runtime.hydrateI];
       runtime.hydrateI += 1;
+
       if (codec === undefined) {
         // SAFETY: snapshots are recorded in primitive declaration order by
         // SSR; without a schema the seed is the raw value SSR recorded.
@@ -286,13 +326,16 @@ const useSlot = <A>(
         );
       }
     }
+
     a = make(fiber, hydrated);
     fiber.primitives[i] = a;
+
     if (snapshotted && runtime.ssr) {
       const value = fiber.registry.get(a);
       runtime.ssrValues.push(codec ? Schema.encodeSync(codec)(value) : value);
     }
   }
+
   return wrapHandle(a, fiber);
 };
 
@@ -306,6 +349,7 @@ const holdState = <A>(fiber: FiberLocal, atom: Atom.Atom<A>): Atom.Atom<A> => {
     fiber.primitiveHolds ??= [];
     fiber.primitiveHolds.push(fiber.registry.mount(atom));
   }
+
   return atom;
 };
 
@@ -342,20 +386,24 @@ export const atom = Object.assign(
     // Only plain-value slots occupy a snapshot entry, on SSR and hydration alike.
     const plain =
       !Atom.isAtom(init) && !Effect.isEffect(init) && !Stream.isStream(init);
+
     return useSlot<A>(
       plain && options?.snapshot !== false,
       (fiber, seed) => {
         if (Atom.isAtom(init)) {
           return init;
         }
+
         if (!plain) {
           // SAFETY: an effect/stream atom holds AsyncResult<A>; AtomFn types
           // the handle accordingly, and the painter unwraps it.
           return Atom.make(init as Effect.Effect<A>) as Atom.Atom<A>;
         }
+
         // SAFETY: the remaining union member is the plain seed value A.
         const made = Atom.make(seed === undefined ? (init as A) : seed);
         const eq = options?.equals;
+
         return holdState(
           fiber,
           eq

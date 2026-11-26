@@ -13,6 +13,7 @@ const isObject = (value) =>
 
 const isFunction = (value) => {
   const tag = objectTag(value);
+
   return (
     tag === "[object Function]" ||
     tag === "[object AsyncFunction]" ||
@@ -35,31 +36,40 @@ const serialize = (node) => {
   if (node === null || node === false) {
     return "";
   }
+
   if (Array.isArray(node)) {
     return node.map(serialize).join("");
   }
+
   if (isNumber(node)) {
     return String(node);
   }
+
   if (isObject(node) && node.type) {
     const props = node.props ?? {};
     let attrs = " data-hk";
     let children;
+
     for (const [key, value] of Object.entries(props)) {
       if (key === "children") {
         children = value;
         continue;
       }
+
       if (key === "ref" || (key.startsWith("on") && key.length > 2)) {
         continue;
       }
+
       if (value === null || value === false) {
         continue;
       }
+
       attrs += value === true ? ` ${key}` : ` ${key}="${escapeHtml(value)}"`;
     }
+
     return `<${node.type}${attrs}>${serialize(children)}</${node.type}>`;
   }
+
   return escapeHtml(node === null ? "" : String(node));
 };
 
@@ -71,6 +81,7 @@ export default {
     const tree = await Component(props ?? {});
     const html = serialize(tree);
     const renderId = `stub-${Math.random().toString(36).slice(2)}`;
+
     return { attrs: { "data-solid-render-id": renderId }, html };
   },
   supportsAstroStaticPaths: () => Promise.resolve(false),

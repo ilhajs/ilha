@@ -8,6 +8,7 @@ import { atom, mount, when } from "../src/index.ts";
 
 test("when interrupt: stale body does not paint", async () => {
   const order: string[] = [];
+
   const App = function* App() {
     yield* when(Stream.fromIterable(["a", "b"]), function* body(q) {
       order.push(`start:${q}`);
@@ -16,6 +17,7 @@ test("when interrupt: stale body does not paint", async () => {
       yield `hit:${q}`;
     });
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
@@ -50,8 +52,10 @@ const DebounceApp = function* DebounceApp() {
           function* whenBody(q) {
             if (!q) {
               yield "empty";
+
               return;
             }
+
             yield Effect.sleep(20);
             yield `hit:${q}`;
           }
@@ -69,9 +73,11 @@ test("when debounce: only last query remains", async () => {
   mount(el, DebounceApp);
   await Bun.sleep(5);
   const input = el.querySelector("input");
+
   if (!input) {
     throw new Error("input missing");
   }
+
   input.value = "a";
   input.dispatchEvent(new Event("input", { bubbles: true }));
   await Bun.sleep(10);

@@ -7,10 +7,12 @@ import { atom, batch, mount } from "../src/index.ts";
 
 test("batch coalesces multiple writes", async () => {
   let renders = 0;
+
   const App = () => {
     const a = atom(0);
     const b = atom(0);
     renders += 1;
+
     return {
       $$ilha: 1 as const,
       children: [`${a()}-${b()}`],
@@ -25,6 +27,7 @@ test("batch coalesces multiple writes", async () => {
       type: "button",
     };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
@@ -40,9 +43,11 @@ test("batch coalesces multiple writes", async () => {
 
 const FnApp = () => {
   const total = atom(0);
+
   const bump = atom(
     Atom.fn(() => Effect.sync(() => total.update((n) => n + 1)))
   );
+
   return {
     $$ilha: 1 as const,
     children: [total],

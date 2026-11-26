@@ -61,6 +61,7 @@ export class SsrEl {
         if (n.kind === "text") {
           return n.text;
         }
+
         return n.kind === "raw" ? n.html : n.textContent;
       })
       .join("");
@@ -79,30 +80,41 @@ export const serializeNode = (node: SsrNode, bare = false): string => {
   if (node.kind === "text") {
     return escapeText(node.text);
   }
+
   if (node.kind === "raw") {
     return node.html;
   }
+
   const inner = node.children.map((c) => serializeNode(c, bare)).join("");
   const tag = node.localName;
+
   if (!tag || (bare && node.attrs.has(SLOT_ATTR))) {
     return inner;
   }
+
   let open = `<${tag}`;
+
   for (const [name, value] of node.attrs) {
     open += ` ${name}="${escapeAttr(value)}"`;
   }
+
   open += ">";
+
   if (VOID.test(tag)) {
     return open;
   }
+
   if (RAW_TEXT.test(tag)) {
     const raw = node.textContent;
+
     // Raw-text tags cannot escape children; a matching closer would end the
     // element early. Fail loudly instead of shipping truncated markup.
     if (new RegExp(`</${tag}\\b`, "iu").test(raw)) {
       throw ilhaError("ILHA007", `<${tag}> contains "</${tag}"`);
     }
+
     return `${open}${raw}</${tag}>`;
   }
+
   return `${open}${inner}</${tag}>`;
 };

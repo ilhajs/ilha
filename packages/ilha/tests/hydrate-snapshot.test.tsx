@@ -25,9 +25,11 @@ const serverHost = (html: string) => {
   );
   document.body.append(wrapper);
   const host = wrapper.querySelector<HTMLElement>("[data-ilha]");
+
   if (!host) {
     throw new Error("host missing");
   }
+
   return { host, wrapper };
 };
 
@@ -38,12 +40,14 @@ const hydrated = async (C: Component, html?: string) => {
   await settle();
   const warnings = warn.mock.calls.length;
   warn.mockRestore();
+
   return { host, warnings, wrapper };
 };
 
 const Mixed = () => {
   const a = atom(Atom.make("shared"));
   const b = atom(7);
+
   return (
     <p>
       {a()}:{b()}
@@ -63,6 +67,7 @@ const Derived = () => {
   const base = atom(2);
   const doubled = atom(mapAtom(base.atom, (n: number) => n * 2));
   const label = atom("x");
+
   return (
     <p>
       {base()}:{doubled()}:{label()}
@@ -88,6 +93,7 @@ const Reader = () => <b>{context(Theme)().secret}</b>;
 
 const Provided = () => {
   const n = atom(3);
+
   return (
     <section>
       <Theme.Provider value={{ secret: "from-props" }}>
@@ -102,8 +108,10 @@ test("context provider values stay out of the snapshot", async () => {
   const html = await renderToString(Provided);
   expect(html).not.toContain("from-props&quot;");
   expect(html).toContain("data-ilha-state");
+
   const state =
     /data-ilha-state="(?<state>[^"]*)"/u.exec(html)?.groups?.state ?? "";
+
   expect(state).not.toContain("from-props");
   const { host, wrapper } = await hydrated(Provided, html);
   expect(host.querySelector("b")?.textContent).toBe("from-props");
@@ -114,6 +122,7 @@ test("context provider values stay out of the snapshot", async () => {
 const Raw = () => {
   const timer = atom.lazy(() => ({ id: 42 }), { snapshot: false });
   const n = atom(5);
+
   return (
     <p>
       {timer().id}:{n()}
@@ -123,8 +132,10 @@ const Raw = () => {
 
 test("snapshot: false keeps lazy refs out of the snapshot (SSR)", async () => {
   const html = await renderToString(Raw);
+
   const state =
     /data-ilha-state="(?<state>[^"]*)"/u.exec(html)?.groups?.state ?? "";
+
   expect(state).not.toContain("42");
   expect(state).toContain("5");
 });
@@ -143,17 +154,21 @@ const ISO = "2024-01-02T03:04:05.000Z";
 const Dated = () => {
   const when = atom(new Date(ISO), { schema: Schema.Date });
   const value = when();
+
   return <p>{value instanceof Date ? value.toISOString() : "not-a-date"}</p>;
 };
 
 test("schema restores a real Date instance on hydration", async () => {
   let probe: (() => Date) | undefined;
+
   const Probed = () => {
     const when = atom(new Date(ISO), { schema: Schema.Date });
     probe = when;
     const value = when();
+
     return <p>{value instanceof Date ? value.toISOString() : "not-a-date"}</p>;
   };
+
   const { host, wrapper } = await hydrated(Probed);
   expect(host.textContent).toBe(ISO);
   expect(probe?.()).toBeInstanceOf(Date);
@@ -185,7 +200,9 @@ const LazyDated = () => {
   const state = atom.lazy(() => ({ at: new Date(ISO) }), {
     schema: Schema.Struct({ at: Schema.Date }),
   });
+
   const value = state();
+
   return (
     <p>{value.at instanceof Date ? value.at.toISOString() : "not-a-date"}</p>
   );
@@ -193,16 +210,20 @@ const LazyDated = () => {
 
 test("schema restores a lazy slot holding a Date on hydration", async () => {
   let probe: (() => Date) | undefined;
+
   const Probed = () => {
     const state = atom.lazy(() => ({ at: new Date(ISO) }), {
       schema: Schema.Struct({ at: Schema.Date }),
     });
+
     probe = () => state().at;
     const value = state();
+
     return (
       <p>{value.at instanceof Date ? value.at.toISOString() : "not-a-date"}</p>
     );
   };
+
   const { host, wrapper } = await hydrated(Probed);
   expect(host.textContent).toBe(ISO);
   expect(probe?.()).toBeInstanceOf(Date);
@@ -221,6 +242,7 @@ test("a lazy seed that fails to decode falls back to the initial value", async (
 
 const Counter = () => {
   const n = atom(1);
+
   return <button onclick={() => n.update((x: number) => x + 1)}>{n()}</button>;
 };
 
@@ -259,6 +281,7 @@ test("fragment roots hydrate and keep the server nodes", async () => {
 
 const Form = () => {
   const n = atom(0);
+
   return (
     <form>
       <input name="q" />
@@ -272,9 +295,11 @@ const Form = () => {
 test("hydration keeps what was typed before the island woke", async () => {
   const { host, wrapper } = serverHost(await renderToString(Form));
   const input = host.querySelector("input");
+
   if (!input) {
     throw new Error("input missing");
   }
+
   input.value = "typed early";
   input.focus();
   mount(host, Form, { hydrate: true });

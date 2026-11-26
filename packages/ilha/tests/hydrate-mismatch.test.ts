@@ -15,6 +15,7 @@ test("hydrate mismatch warns and full mounts", async () => {
   console.warn = (...a: unknown[]) => {
     warns.push(a[0]);
   };
+
   const el = document.createElement("div");
   const span = document.createElement("span");
   span.textContent = "old";

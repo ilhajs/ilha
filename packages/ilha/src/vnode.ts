@@ -24,6 +24,7 @@ export const createVNode = (
   const { key, children, ...own } = props ?? {};
   // SAFETY: JSX children props are View material; nested arrays flatten.
   const all: unknown[] = children === undefined ? rest : [children, ...rest];
+
   return {
     $$ilha: 1,
     // SAFETY: flat(Infinity) leaves no nested arrays, only child views.

@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { atom, h } from "ilha";
 import type { View } from "ilha";
 import type { PageObject } from "void/pages-protocol";
+import { deserializePageData } from "void/pages-server";
 
 import { useParams, useShared } from "./hooks";
 import {
@@ -30,17 +31,20 @@ const pageObject = (overrides: Partial<PageObject> = {}): PageObject => ({
 
 const Layout = ({ children }: { children?: View }): View => {
   const { appName } = useShared<{ appName: string }>();
+
   return h("div", { class: "layout" }, h("header", null, appName), children);
 };
 
 const UserPage = ({ name }: { name: string }): View => {
   const { id } = useParams<{ id: string }>();
   const visits = atom(3);
+
   return h("p", { class: "user" }, `${name} #${id} `, visits);
 };
 
 const Counter = ({ start }: { start: number }): View => {
   const count = atom(start);
+
   return h("button", { type: "button" }, count);
 };
 
@@ -66,7 +70,7 @@ describe("createPageRenderer", () => {
     const doc = parseDocument(html);
 
     const data = doc.querySelector("#__VOID_PAGE_DATA__")?.textContent ?? "";
-    expect(JSON.parse(data)).toMatchObject({
+    expect(deserializePageData<PageObject>(data)).toMatchObject({
       component: "users/[id]",
       params: { id: "7" },
     });
@@ -81,9 +85,11 @@ describe("createPageRenderer", () => {
 
   it("applies the head descriptor", async () => {
     const render = createPageRenderer({ components, layoutTree });
+
     const doc = parseDocument(
       await render(pageObject({ head: { title: "Ada · Users" } }), assets)
     );
+
     expect(doc.title).toBe("Ada · Users");
   });
 
@@ -101,6 +107,7 @@ describe("createIslandPageRenderer", () => {
       markdownScriptIds: new Set(),
       pagesNeedingClientJS: new Set(),
     });
+
     const html = await render(pageObject(), assets);
     const doc = parseDocument(html);
 
@@ -119,6 +126,7 @@ describe("createIslandPageRenderer", () => {
       markdownScriptIds: new Set(["users/[id]"]),
       pagesNeedingClientJS: new Set(["users/[id]"]),
     });
+
     const html = await render(pageObject(), assets);
 
     expect(html).toContain(assets.body);
@@ -133,16 +141,20 @@ describe("createIsland", () => {
       hydrate: "visible",
       id: "pages/_Counter",
     });
+
     const Page = (): View => h("main", null, h(Island, { start: 5 }));
+
     const render = createIslandPageRenderer({
       components: { page: pageModule(Page) },
       layoutTree: {},
       markdownScriptIds: new Set(),
       pagesNeedingClientJS: new Set(["page"]),
     });
+
     const doc = parseDocument(
       await render(pageObject({ component: "page" }), assets)
     );
+
     const marker = doc.querySelector<HTMLElement>("[data-island]");
 
     expect(marker?.dataset.island).toBe("pages/_Counter");

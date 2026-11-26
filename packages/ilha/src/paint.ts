@@ -37,20 +37,26 @@ export const { paint } = createPainter<Node, Element>({
     const range = document.createRange();
     // SAFETY: fiber roots are live Elements, valid Range contexts.
     range.selectNodeContents(parent as Node);
+
     return [...range.createContextualFragment(html).childNodes];
   },
   createText: (text) => document.createTextNode(text),
   morph: (root, nodes, hydrate) => {
     // SAFETY: DOM fiber roots are Elements (mount host or hole host).
     const el = root as Element;
+
     if (!el.hasChildNodes()) {
       placeChildren(el, nodes);
+
       return;
     }
+
     const tmp = document.createElement("div");
     tmp.append(...nodes);
+
     if (hydrate) {
       const want = tmp.firstElementChild?.tagName;
+
       if (want && el.firstElementChild?.tagName !== want) {
         const found = el.firstElementChild?.tagName.toLowerCase();
         ilhaWarn(
@@ -59,6 +65,7 @@ export const { paint } = createPainter<Node, Element>({
         );
       }
     }
+
     (hydrate ? hydrateInner : morphInner)(el, tmp);
   },
   // SAFETY: DOM fiber roots are Elements.
@@ -70,15 +77,20 @@ export const { paint } = createPainter<Node, Element>({
     const node = el as FormNode;
     // `null`/`undefined` mean uncontrolled: the morph keeps user edits.
     const set = v !== null && v !== undefined;
+
     if (set) {
       markControlled(el, key);
     }
+
     if (key !== "value") {
       node[key] = Boolean(v);
       toggleAttr(el, key, Boolean(v));
+
       return;
     }
+
     const text = set ? String(v) : "";
+
     if (el.localName === "textarea") {
       // A textarea's default value is its text: SSR markup and the morph
       // compare that, not a `value` attribute.
@@ -92,6 +104,7 @@ export const { paint } = createPainter<Node, Element>({
         el.removeAttribute("value");
       }
     }
+
     // A select picks among its options; the painter applies select props
     // after its children, so they exist here.
     node.value = text;

@@ -14,30 +14,36 @@ afterEach(() => {
 const host = (): HTMLDivElement => {
   const el = document.createElement("div");
   document.body.append(el);
+
   return el;
 };
 
 const byId = <T extends Element>(root: Element, id: string): T => {
   const el = root.querySelector<T>(`#${id}`);
+
   if (!el) {
     throw new Error(`#${id} missing`);
   }
+
   return el;
 };
 
 test("event handlers see the latest render's closure", async () => {
   const seen: number[] = [];
   let bump: (() => void) | undefined;
+
   const App = () => {
     const tick = atom(0);
     bump = () => tick.update((n) => n + 1);
     const n = tick();
+
     return (
       <button id="b" type="button" onclick={() => seen.push(n)}>
         {n}
       </button>
     );
   };
+
   const el = host();
   mount(el, () => (
     <main>
@@ -54,10 +60,12 @@ test("event handlers see the latest render's closure", async () => {
 test("a handler added on a later render fires", async () => {
   const seen: string[] = [];
   let arm: (() => void) | undefined;
+
   const App = () => {
     const armed = atom(false);
     arm = () => armed.set(true);
     const handlers = armed() ? { onclick: () => seen.push("click") } : {};
+
     return (
       <div>
         <button id="b" type="button" {...handlers}>
@@ -66,6 +74,7 @@ test("a handler added on a later render fires", async () => {
       </div>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -79,10 +88,12 @@ test("a handler added on a later render fires", async () => {
 test("a handler removed on a later render stops firing", async () => {
   const seen: string[] = [];
   let disarm: (() => void) | undefined;
+
   const App = () => {
     const armed = atom(true);
     disarm = () => armed.set(false);
     const handlers = armed() ? { onclick: () => seen.push("click") } : {};
+
     return (
       <div>
         <button id="b" type="button" {...handlers}>
@@ -91,6 +102,7 @@ test("a handler removed on a later render stops firing", async () => {
       </div>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -103,9 +115,11 @@ test("a handler removed on a later render stops firing", async () => {
 test("ref receives the live element after a rerender", async () => {
   const refs: (Element | null)[] = [];
   let bump: (() => void) | undefined;
+
   const App = () => {
     const tick = atom(0);
     bump = () => tick.update((n) => n + 1);
+
     return (
       <div>
         <span>{tick()}</span>
@@ -113,6 +127,7 @@ test("ref receives the live element after a rerender", async () => {
       </div>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -126,11 +141,13 @@ test("ref receives the live element after a rerender", async () => {
 test("a value atom keeps driving the input after a rerender", async () => {
   let setText: ((next: string) => void) | undefined;
   let bump: (() => void) | undefined;
+
   const App = () => {
     const tick = atom(0);
     const text = atom("init");
     setText = (next) => text.set(next);
     bump = () => tick.update((n) => n + 1);
+
     return (
       <div>
         <span>{tick()}</span>
@@ -138,6 +155,7 @@ test("a value atom keeps driving the input after a rerender", async () => {
       </div>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -151,13 +169,16 @@ test("a value atom keeps driving the input after a rerender", async () => {
 test("a value atom on the root element survives a rerender", async () => {
   let setText: ((next: string) => void) | undefined;
   let bump: (() => void) | undefined;
+
   const App = () => {
     const tick = atom(0);
     const text = atom("init");
     setText = (next) => text.set(next);
     bump = () => tick.update((n) => n + 1);
+
     return <input id="v" value={text} data-tick={tick()} />;
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -170,9 +191,11 @@ test("a value atom on the root element survives a rerender", async () => {
 
 test("uncontrolled contenteditable keeps the user's content", async () => {
   let bump: (() => void) | undefined;
+
   const App = () => {
     const tick = atom(0);
     bump = () => tick.update((n) => n + 1);
+
     return (
       <div>
         <span>{tick()}</span>
@@ -180,6 +203,7 @@ test("uncontrolled contenteditable keeps the user's content", async () => {
       </div>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -193,9 +217,11 @@ test("uncontrolled contenteditable keeps the user's content", async () => {
 
 test("controlled contenteditable follows the render", async () => {
   let setText: ((next: string) => void) | undefined;
+
   const App = () => {
     const text = atom("a");
     setText = (next) => text.set(next);
+
     return (
       <div>
         <div id="ce" contenteditable="true">
@@ -204,6 +230,7 @@ test("controlled contenteditable follows the render", async () => {
       </div>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -215,8 +242,10 @@ test("controlled contenteditable follows the render", async () => {
 test("a ref-wrapped vanilla library lives on the node in the document", async () => {
   // The "Wrap a vanilla library" pattern from the render guide.
   const built: Element[] = [];
+
   const MapView = () => {
     let map: { destroy: () => void } | null = null;
+
     return (
       <div
         class="map"
@@ -233,10 +262,13 @@ test("a ref-wrapped vanilla library lives on the node in the document", async ()
       />
     );
   };
+
   let bump: (() => void) | undefined;
+
   const App = () => {
     const tick = atom(0);
     bump = () => tick.update((n) => n + 1);
+
     return (
       <div>
         <span>{tick()}</span>
@@ -244,6 +276,7 @@ test("a ref-wrapped vanilla library lives on the node in the document", async ()
       </div>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -256,9 +289,11 @@ test("a ref-wrapped vanilla library lives on the node in the document", async ()
 
 test("data-morph-preserve children keeps a library's DOM across rerenders", async () => {
   let bump: (() => void) | undefined;
+
   const App = () => {
     const tick = atom(0);
     bump = () => tick.update((n) => n + 1);
+
     return (
       <div>
         <div
@@ -271,6 +306,7 @@ test("data-morph-preserve children keeps a library's DOM across rerenders", asyn
       </div>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);
@@ -288,9 +324,11 @@ test("data-morph-preserve children keeps a library's DOM across rerenders", asyn
 
 test("data-morph-preserve children composes with attribute names", async () => {
   let bump: (() => void) | undefined;
+
   const App = () => {
     const tick = atom(0);
     bump = () => tick.update((n) => n + 1);
+
     return (
       <div>
         <div
@@ -302,6 +340,7 @@ test("data-morph-preserve children composes with attribute names", async () => {
       </div>
     );
   };
+
   const el = host();
   mount(el, App);
   await Bun.sleep(10);

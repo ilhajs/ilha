@@ -7,6 +7,7 @@ const Row = ({ label }: { label?: unknown }) => <li>{String(label)}</li>;
 
 const List = () => {
   const n = atom(3);
+
   return (
     <ul>
       <Row label="a" />

@@ -9,9 +9,11 @@ const norm = (id: string) =>
   String(id)
     .replace(/^filesystem:/u, "")
     .replace(/\.(?<ext>mdx|md)$/u, "");
+
 const routeById = new Map(data.routes.map((route) => [norm(route.id), route.path]));
 
 const collection = await getCollection("docs");
+
 const posts = collection
   .filter((entry) => entry.data.type === "blog" && !entry.data.draft)
   .map((entry) => ({

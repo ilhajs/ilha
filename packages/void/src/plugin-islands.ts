@@ -24,16 +24,20 @@ import {
 import type { IslandEntry, IslandSourceEdit } from "void/pages-islands-plugin";
 
 const COMPONENT_EXTENSIONS = [".tsx", ".jsx", ".ts", ".js"];
+
 /** Island wrapper modules. Plain JS: wrappers call `createIsland`, no JSX. */
 const WRAPPER_PREFIX = "/@ilha-void-island/";
 const ISLAND_PAGE_RE = /\.island\.(?:tsx|jsx)$/u;
 const PAGE_COMPONENT_RE = /\.(?:tsx|jsx)$/u;
 const EXTENSION_RE = /\.[^.]+$/u;
+
 const VIRTUAL_ID_RE =
   /^(?:virtual:void-islands-(?:renderer|client)$|\/@ilha-void-island\/)/u;
+
 const RESOLVED_ID_RE =
   // oxlint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
   /^(?:\0virtual:void-islands-(?:renderer|client)$|\/@ilha-void-island\/)/u;
+
 const USE_FORM_IMPORT_RE = /import\s+\{[^}]*\buseForm\b/u;
 
 interface WrapperMeta {
@@ -92,15 +96,18 @@ export const generateIslandClientEntry = (
   { cssImports }: IslandClientOptions
 ): string => {
   const islands = new Map<string, string>();
+
   for (const entry of manifest.values()) {
     islands.set(entry.islandId, entry.componentPath);
   }
+
   const loaders = [...islands]
     .map(
       ([id, file]) =>
         `  ${JSON.stringify(id)}: () => import(${JSON.stringify(file)}),`
     )
     .join("\n");
+
   return `import { mountIsland } from "@ilha/void/islands";
 import { initIslands } from "void/pages-client";
 ${cssImports.join("\n")}
@@ -139,18 +146,22 @@ export const islandsPlugin = (
       importerDir,
       COMPONENT_EXTENSIONS
     );
+
     if (!absPath) {
       return { absPath, islandId: specifier };
     }
+
     const islandId = normalizePath(path.relative(root, absPath)).replace(
       EXTENSION_RE,
       ""
     );
+
     islandManifest.set(islandId, {
       componentPath: absPath,
       hydrate,
       islandId,
     });
+
     return { absPath, islandId };
   };
 
@@ -166,25 +177,31 @@ export const islandsPlugin = (
         island: layout.island,
       })),
     ];
+
     for (const { file, island } of files) {
       if (!island) {
         continue;
       }
+
       const filePath = path.resolve(pagesDir, file);
       const code = readFileSync(filePath, "utf-8");
+
       for (const found of findIslandImports(code, filePath)) {
         registerIsland(found.specifier, path.dirname(filePath), found.hydrate);
       }
     }
+
     for (const page of pages.pages) {
       if (!page.island) {
         continue;
       }
+
       if (PAGE_COMPONENT_RE.test(page.componentPath)) {
         cssSourceFiles.add(
           normalizePath(path.resolve(pagesDir, page.componentPath))
         );
       }
+
       for (const layout of resolveEffectiveLayoutChain(
         page,
         pages.layouts,
@@ -203,15 +220,19 @@ export const islandsPlugin = (
     if (isDev) {
       return [];
     }
+
     const lines: string[] = [];
+
     for (const file of cssSourceFiles) {
       const code = readFileSync(file, "utf-8");
+
       for (const item of findStaticCssImports(code, file)) {
         lines.push(
           rewriteCssImportForVirtualModule(item.statement, item.specifier, file)
         );
       }
     }
+
     return lines;
   };
 
@@ -220,6 +241,7 @@ export const islandsPlugin = (
       if (!existsSync(pagesDir)) {
         return;
       }
+
       scan = await scanPages(root, { pagesDir });
       // The client build can load the islands entry before any island page
       // transforms, so register islands eagerly.
@@ -234,6 +256,7 @@ export const islandsPlugin = (
       ) {
         return;
       }
+
       return {
         build: {
           manifest: true,
@@ -264,10 +287,12 @@ export const islandsPlugin = (
           if (!scan) {
             return "export function renderIslandPage() { throw new Error('@ilha/void: no pages found.'); }";
           }
+
           // SAFETY: `void-md` exposes its client script registry on `api`.
           const markdown = resolvedConfig?.plugins.find(
             (plugin) => plugin.name === "void-md"
           ) as (Plugin & { api?: MarkdownPluginApi }) | undefined;
+
           return generateIslandRendererModule(scan, pagesDir, {
             markdownScriptIds: new Set(
               markdown?.api?.getClientScripts?.().keys()
@@ -279,6 +304,7 @@ export const islandsPlugin = (
             ),
           });
         }
+
         if (id === `\0${ISLANDS_CLIENT_ENTRY_ID}`) {
           return scan
             ? generateIslandClientEntry(islandManifest, {
@@ -286,7 +312,9 @@ export const islandsPlugin = (
               })
             : "";
         }
+
         const wrapper = wrappers.get(id);
+
         return wrapper ? generateWrapperModule(wrapper) : undefined;
       },
     },
@@ -299,6 +327,7 @@ export const islandsPlugin = (
         if (source.startsWith(WRAPPER_PREFIX)) {
           return source;
         }
+
         return `\0${source}`;
       },
     },
@@ -311,13 +340,16 @@ export const islandsPlugin = (
             `@ilha/void: useForm cannot be used in island page '${id}'. Use useIslandForm instead.`
           );
         }
+
         const edits: IslandSourceEdit[] = [];
+
         for (const found of findIslandImports(code, id)) {
           const { absPath, islandId } = registerIsland(
             found.specifier,
             path.dirname(id),
             found.hydrate
           );
+
           const wrapperId = `${WRAPPER_PREFIX}island_${String(wrapperCount)}.js`;
           wrapperCount += 1;
           wrappers.set(wrapperId, {
@@ -331,6 +363,7 @@ export const islandsPlugin = (
             text: `import ${found.importName} from ${JSON.stringify(wrapperId)}`,
           });
         }
+
         return edits.length > 0 ? editIslandSource(code, edits) : undefined;
       },
     },

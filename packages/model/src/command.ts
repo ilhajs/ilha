@@ -67,13 +67,16 @@ export const make: MakeCommand = <Msg, R, Args>(
   const options = (hasOptions ? second : {}) as CommandOptions;
   // SAFETY: the body is the last argument in both call shapes.
   const body = (hasOptions ? third : second) as CommandBody<Msg, R, Args>;
+
   const command: Command<Msg, R, Args> = (...args: readonly Args[]) => ({
     args: args[0],
     body: () => body(args[0]),
     mode: options.mode ?? "concurrent",
     name,
   });
+
   // Function `name` is readonly: assigning would throw, so define it.
   Object.defineProperty(command, "name", { value: name });
+
   return command;
 };

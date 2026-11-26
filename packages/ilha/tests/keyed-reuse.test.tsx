@@ -12,10 +12,12 @@ const Row = ({ id, label }: { id?: unknown; label?: unknown }) => {
   rowRenders.push(String(id));
   watch.once(() => {
     events.push(`mount:${String(id)}`);
+
     return () => {
       events.push(`unmount:${String(id)}`);
     };
   });
+
   return (
     <button
       class={`row-${String(id)}`}
@@ -33,9 +35,11 @@ const rowsText = (el: Element): string =>
 
 const click = async (el: Element, selector: string): Promise<void> => {
   const found = el.querySelector(selector);
+
   if (!(found instanceof HTMLButtonElement)) {
     throw new TypeError(`${selector} missing`);
   }
+
   found.click();
   await Bun.sleep(8);
 };
@@ -43,6 +47,7 @@ const click = async (el: Element, selector: string): Promise<void> => {
 /** Keyed rows inside an element of the root component. */
 const InRoot = () => {
   const tick = atom(0);
+
   return (
     <div>
       <button class="bump" onclick={() => tick.update((x: number) => x + 1)}>
@@ -57,6 +62,7 @@ const InRoot = () => {
 /** The same rows, inside an element of a nested component. */
 const Inner = () => {
   const tick = atom(0);
+
   return (
     <section>
       <button class="bump" onclick={() => tick.update((x: number) => x + 1)}>
@@ -80,6 +86,7 @@ const tickOfList = { bump: (): void => undefined };
 const BareList = () => {
   const tick = atom(0);
   tickOfList.bump = () => tick.update((x: number) => x + 1);
+
   return [
     <Row key="a" id="a" label={`a${tick()}`} />,
     <Row key="b" id="b" label="fixed" />,
@@ -90,6 +97,7 @@ const BareList = () => {
 const WrappedList = () => {
   const tick = atom(0);
   tickOfList.bump = () => tick.update((x: number) => x + 1);
+
   return (
     <span>
       <Row key="a" id="a" label={`a${tick()}`} />
@@ -114,6 +122,7 @@ const exercise = async (el: Element): Promise<string> => {
   await click(el, ".row-b");
   await click(el, ".bump");
   await click(el, ".row-b");
+
   return rowsText(el);
 };
 
@@ -179,11 +188,13 @@ const Chip = ({ value, label }: { value?: unknown; label?: unknown }) => {
   // SAFETY: the test passes the parent's atom handle as `value`.
   const current = (value as () => string)();
   renders.push(`${String(label)}/${current}`);
+
   return <p class="chip">{String(label)}</p>;
 };
 
 const Picker = () => {
   const model = atom("fast");
+
   return (
     <div>
       <button class="pick" onclick={() => model.set("deep")}>
@@ -214,6 +225,7 @@ test("a child that reads its parent's atom is not repainted with old props", asy
 /** Two components with their own state, so a leak between them shows. */
 const Apple = ({ id }: { id?: unknown }) => {
   const n = atom("apple-state");
+
   return (
     <p class="fruit">
       apple {String(id)} {n()}
@@ -223,6 +235,7 @@ const Apple = ({ id }: { id?: unknown }) => {
 
 const Pear = ({ id }: { id?: unknown }) => {
   const n = atom("pear-state");
+
   return (
     <p class="fruit">
       pear {String(id)} {n()}
@@ -235,12 +248,14 @@ const fruit = { pear: (): void => undefined };
 const BareFruit = () => {
   const pear = atom(false);
   fruit.pear = () => pear.set(true);
+
   return [pear() ? <Pear key="1" id="1" /> : <Apple key="1" id="1" />];
 };
 
 const WrappedFruit = () => {
   const pear = atom(false);
   fruit.pear = () => pear.set(true);
+
   return (
     <span>{pear() ? <Pear key="1" id="1" /> : <Apple key="1" id="1" />}</span>
   );
@@ -253,11 +268,13 @@ for (const [placement, Fruit] of [
   test(`a ${placement} key that changes component mounts the new one fresh`, async () => {
     const el = document.createElement("div");
     document.body.append(el);
+
     const unmount = mount(el, () => (
       <div>
         <Fruit />
       </div>
     ));
+
     await Bun.sleep(10);
     expect(el.querySelector(".fruit")?.textContent).toBe("apple 1 apple-state");
 
@@ -275,6 +292,7 @@ const twinTick = { bump: (): void => undefined };
 const Twins = () => {
   const tick = atom(0);
   twinTick.bump = () => tick.update((x: number) => x + 1);
+
   return [
     <Row key="twin" id="one" label={`one${tick()}`} />,
     <Row key="twin" id="two" label={`two${tick()}`} />,
@@ -285,11 +303,13 @@ test("a key used twice in a bare keyed list warns and renders both", async () =>
   const warn = spyOn(console, "warn").mockImplementation(() => {});
   const el = document.createElement("div");
   document.body.append(el);
+
   const unmount = mount(el, () => (
     <div>
       <Twins />
     </div>
   ));
+
   await Bun.sleep(10);
   expect(rowsText(el)).toBe("one0:0 two0:0");
 
@@ -313,6 +333,7 @@ const SlowRow = async ({ label }: { label?: unknown }) => {
   slow.bump = () => n.update((x: number) => x + 1);
   const count = n();
   await Bun.sleep(15);
+
   return (
     <p class="slow">
       {String(label)}:{count}
@@ -322,6 +343,7 @@ const SlowRow = async ({ label }: { label?: unknown }) => {
 
 const SlowParent = () => {
   const tick = atom(0);
+
   return (
     <div>
       <button class="bump" onclick={() => tick.update((x: number) => x + 1)}>
@@ -342,9 +364,11 @@ test("an async keyed row's self-render uses the props of the newest parent rende
   // The parent hands the row new props, and the row's own atom changes while
   // that render is still awaiting.
   const bump = el.querySelector(".bump");
+
   if (!(bump instanceof HTMLButtonElement)) {
     throw new TypeError(".bump missing");
   }
+
   bump.click();
   await Bun.sleep(3);
   slow.bump();

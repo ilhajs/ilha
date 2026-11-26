@@ -45,6 +45,7 @@ const counter = defineComponent({
 const TickMsg = Schema.TaggedUnion({ Tick: {} });
 
 const cleanups: (() => void)[] = [];
+
 afterEach(() => {
   for (const cleanup of cleanups.splice(0).toReversed()) {
     cleanup();
@@ -60,14 +61,18 @@ const mountLogged = async (component: Component) => {
     unmount();
     host.remove();
   });
+
   const click = async (index = 0): Promise<void> => {
     host.querySelectorAll("button")[index]?.click();
     await settle(5);
   };
+
   const read = () => {
     const [node] = inspect(host);
+
     return log.read(atomsOf(node?.id ?? "") ?? []);
   };
+
   return { click, host, read };
 };
 
@@ -78,10 +83,13 @@ const poll = async (
   if (done()) {
     return;
   }
+
   if (Date.now() > deadline) {
     expect(done()).toBe(true);
+
     return;
   }
+
   await Bun.sleep(5);
   await poll(done, deadline);
 };
@@ -121,6 +129,7 @@ describe("model message log", () => {
           type="button"
           onclick={() => {
             const send = h.send(TickMsg.cases.Tick.make({}));
+
             for (let i = 0; i < MODEL_LOG_CAP + 5; i += 1) {
               send();
             }
@@ -130,6 +139,7 @@ describe("model message log", () => {
         </button>
       ),
     });
+
     const { click, read } = await mountLogged(flood);
     await click();
     const entries = read();
@@ -160,6 +170,7 @@ describe("model message log", () => {
         </button>
       ),
     });
+
     const { click, read } = await mountLogged(scalar);
     await click();
     expect(read()?.[0]?.diff).toEqual({
@@ -175,17 +186,21 @@ describe("model message log", () => {
       readonly opt: Option.Option<number>;
       self?: Cyclic;
     }
+
     const cyclic: Cyclic = { err: new Error("boom"), opt: Option.some(3) };
     cyclic.self = cyclic;
+
     const poison = {
       get tag(): string {
         throw new Error("touched");
       },
     };
+
     const RichMsg = Schema.TaggedUnion({
       Poison: { value: Schema.Unknown },
       Rich: { value: Schema.Unknown },
     });
+
     const rich = defineComponent({
       message: RichMsg,
       model: Schema.Struct({ n: Schema.Number }),
@@ -214,6 +229,7 @@ describe("model message log", () => {
         </div>
       ),
     });
+
     const { click, host, read } = await mountLogged(rich);
     await click();
     await click(1);

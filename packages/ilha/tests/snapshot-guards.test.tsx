@@ -15,17 +15,21 @@ test("decodeSnapshot rejects oversized payloads", () => {
 
 test("decodeSnapshot rejects payloads deeper than 32", () => {
   let node: NestedNode = "leaf";
+
   for (let i = 0; i < 40; i += 1) {
     node = { nested: node };
   }
+
   expect(decodeSnapshot(JSON.stringify({ v: [node] }))).toBeUndefined();
 });
 
 test("decodeSnapshot accepts payloads at depth 32", () => {
   let node: NestedNode = "leaf";
+
   for (let i = 0; i < 29; i += 1) {
     node = { nested: node };
   }
+
   const decoded = decodeSnapshot(JSON.stringify({ v: [node] }));
   expect(decoded).toBeDefined();
 });
@@ -33,12 +37,15 @@ test("decodeSnapshot accepts payloads at depth 32", () => {
 test("decodeSnapshot strips prototype-polluting keys", () => {
   const raw =
     '{"v":[{"constructor":"bad","prototype":"bad","__proto__":{"x":1},"safe":1}]}';
+
   const decoded = decodeSnapshot(raw);
   expect(decoded).toBeDefined();
   const first = decoded?.[0];
+
   if (!isObject(first)) {
     throw new Error("expected object entry");
   }
+
   // SAFETY: decodeSnapshot returns a plain JSON object entry for this fixture.
   const entry = first as SnapshotObject;
   expect(entry.safe).toBe(1);
@@ -58,11 +65,13 @@ test("encode/decode round-trips atom snapshots", () => {
 
 const Inner = () => {
   const inner = atom("inner-value");
+
   return <span>{inner}</span>;
 };
 
 const NestedApp = () => {
   const outer = atom("outer-value");
+
   return (
     <div>
       {outer}
@@ -79,6 +88,7 @@ test("hydration restores nested component atoms in declaration order", async () 
   const warns: unknown[] = [];
   const prevWarn = console.warn;
   console.warn = (...args: unknown[]) => warns.push(args);
+
   try {
     const el = document.createElement("div");
     // test host only; html is renderer output, not user input.

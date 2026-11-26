@@ -37,15 +37,20 @@ const readDependencyPackageJson = (
   name: string
 ): PackageJsonFields | null => {
   let dir = root;
+
   for (;;) {
     const candidate = path.join(dir, "node_modules", name, "package.json");
+
     if (existsSync(candidate)) {
       return readJson(candidate);
     }
+
     const parent = path.dirname(dir);
+
     if (parent === dir) {
       return null;
     }
+
     dir = parent;
   }
 };
@@ -56,15 +61,20 @@ const readDependencyPackageJson = (
  */
 const detectIlhaConsumers = (root: string): string[] => {
   const app = readJson(path.join(root, "package.json"));
+
   if (!app) {
     return [];
   }
+
   const names = Object.keys({ ...app.dependencies, ...app.devDependencies });
+
   return names.filter((name) => {
     if (name === "ilha" || name === "@ilha/void") {
       return false;
     }
+
     const pkg = readDependencyPackageJson(root, name);
+
     return (
       pkg !== null &&
       ("ilha" in (pkg.peerDependencies ?? {}) ||
@@ -82,12 +92,15 @@ const withNoExternal = (
   if (existing === true) {
     return true;
   }
+
   let list: (string | RegExp)[] = [];
+
   if (Array.isArray(existing)) {
     list = existing;
   } else if (existing !== undefined) {
     list = [existing];
   }
+
   return [...new Set([...list, ...names])];
 };
 
@@ -95,6 +108,7 @@ const configPlugin = (): Plugin => {
   // Root seen by `config`; `configEnvironment` has no root, so it reuses the
   // stored one (falling back to cwd when it somehow runs first).
   let root = process.cwd();
+
   const singletonExcludes = (): string[] => [
     "ilha",
     "ilha/jsx-runtime",
@@ -102,10 +116,12 @@ const configPlugin = (): Plugin => {
     "@ilha/void",
     ...detectIlhaConsumers(root),
   ];
+
   return {
     config(userConfig) {
       root = userConfig.root ? path.resolve(userConfig.root) : process.cwd();
       const singletons = ["ilha", "@ilha/void", ...detectIlhaConsumers(root)];
+
       const jsx =
         userConfig.oxc === false || userConfig.oxc?.jsx !== undefined
           ? {}
@@ -114,6 +130,7 @@ const configPlugin = (): Plugin => {
                 jsx: { importSource: "ilha", runtime: "automatic" as const },
               },
             };
+
       return {
         ...jsx,
         optimizeDeps: {
@@ -141,6 +158,7 @@ const configPlugin = (): Plugin => {
       if (name === "client") {
         return;
       }
+
       return { optimizeDeps: { exclude: singletonExcludes() } };
     },
     name: "@ilha/void:config",
@@ -154,6 +172,7 @@ const configPlugin = (): Plugin => {
 export const voidIlha = (options: VoidIlhaOptions = {}): Plugin[] => {
   const root = process.cwd();
   const pagesDir = resolvePagesDir(root);
+
   return [
     configPlugin(),
     pagesPlugin(pagesDir, {

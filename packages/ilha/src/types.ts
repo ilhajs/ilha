@@ -41,6 +41,7 @@ export type View =
 // Fragment value and type share a name (JSX Fragment + VNode.type brand).
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 export const Fragment: unique symbol = Symbol("ilha.Fragment");
+
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 export type Fragment = typeof Fragment;
 

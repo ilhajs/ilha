@@ -15,6 +15,7 @@ const host = (): HTMLElement => {
   const el = document.createElement("div");
   el.id = "app";
   document.body.append(el);
+
   return el;
 };
 
@@ -30,11 +31,13 @@ afterEach(() => {
   for (const unmount of unmounts.splice(0)) {
     unmount();
   }
+
   document.body.innerHTML = "";
 });
 
 const Badge = (props: PropBag) => {
   const n = atom(Number(props.start ?? 0));
+
   return (
     <button type="button" onclick={() => n.update((x: number) => x + 1)}>
       {n}
@@ -48,6 +51,7 @@ const Counter = () => {
   const count = atom(1);
   const label = atom("hello");
   const double = atom(Atom.readable((get) => get(count.atom) * 2));
+
   return (
     <div>
       <p>
@@ -74,6 +78,7 @@ const Odd = () => {
   cyclic.self = cyclic;
   atom(cyclic);
   atom(Symbol("tag"));
+
   return <p>odd</p>;
 };
 
@@ -82,6 +87,7 @@ const Loader = () => {
   const failed = atom(Effect.fail("boom"));
   ok();
   failed();
+
   return <p>loader</p>;
 };
 
@@ -130,9 +136,11 @@ describe("inspect", () => {
     await start(el, Counter);
 
     const badgeHost = el.querySelector("[data-ilha-slot]");
+
     if (!badgeHost) {
       throw new Error("child host missing");
     }
+
     const [node] = inspect(badgeHost);
     expect(node?.component).toBe("Badge");
   });
@@ -238,9 +246,11 @@ describe("setAtom and element", () => {
 describe("onChange", () => {
   it("fires when a root mounts, updates, and unmounts", async () => {
     let calls = 0;
+
     const off = onChange(() => {
       calls += 1;
     });
+
     const el = host();
     const unmount = mount(el, Counter);
     await Bun.sleep(5);
@@ -266,8 +276,10 @@ describe("onChange", () => {
     const off = onChange(() => {
       throw new Error("listener failed");
     });
+
     const original = console.error;
     console.error = () => {};
+
     try {
       const el = host();
       await start(el, Counter);

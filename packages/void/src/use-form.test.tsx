@@ -44,8 +44,10 @@ const stubRouter = (
     const target = String(next);
     const request = options ?? {};
     visits.push({ options: request, url: target });
+
     return behavior(target, request);
   };
+
   return router;
 };
 
@@ -76,10 +78,13 @@ const mountForm = async (
   const router = stubRouter(visits, behavior);
   const host = document.createElement("div");
   let captured: PageForm<{ text: string }> | undefined;
+
   const Probe = (): null => {
     captured = useForm(url, defaults, formOptions);
+
     return null;
   };
+
   const dispose = mount(host, () => (
     <VoidContext.Provider
       value={createPageState({
@@ -93,11 +98,14 @@ const mountForm = async (
       <Probe />
     </VoidContext.Provider>
   ));
+
   // Child probes paint a tick after mount; wait for the capture.
   await settle();
+
   if (!captured) {
     throw new Error("useForm probe did not render");
   }
+
   return { dispose, form: captured, visits };
 };
 
@@ -122,6 +130,7 @@ describe("useForm", () => {
     const { form } = await mountForm("/form", { text: "" }, undefined, () =>
       Promise.resolve({ errors: { text: "Required" } })
     );
+
     await form.post();
     expect(form.errors).toEqual({ text: "Required" });
     expect(form.error).toBeNull();
@@ -131,9 +140,11 @@ describe("useForm", () => {
 
   it("stores call-site failures on the form instead of throwing", async () => {
     const expected = callSiteError();
+
     const { form } = await mountForm("/form", { text: "" }, undefined, () =>
       Promise.reject(expected)
     );
+
     await form.post();
     expect(form.error).toBe(expected);
     expect(form.errors).toEqual({});
@@ -143,15 +154,19 @@ describe("useForm", () => {
 
   it("rethrows boundary failures and resets pending", async () => {
     const expected = boundaryError();
+
     const { form } = await mountForm("/form", { text: "" }, undefined, () =>
       Promise.reject(expected)
     );
+
     let thrown: unknown;
+
     try {
       await form.post();
     } catch (error) {
       thrown = error;
     }
+
     expect(thrown).toBe(expected);
     expect(form.error).toBeNull();
     expect(form.pending).toBe(false);
@@ -162,6 +177,7 @@ describe("useForm", () => {
     const { form } = await mountForm("/form", { text: "" }, undefined, () =>
       Promise.reject(new DOMException("superseded", "AbortError"))
     );
+
     await form.post();
     expect(form.pending).toBe(false);
     expect(form.error).toBeNull();
@@ -184,6 +200,7 @@ describe("useForm", () => {
       { text: "" },
       { params: { id: "7" } }
     );
+
     await form.post();
     expect(visits[0]?.url).toBe("/users/7");
   });
@@ -194,12 +211,15 @@ describe("useForm", () => {
       { text: "" },
       { params: { id: ".." } }
     );
+
     let thrown: unknown;
+
     try {
       await form.post();
     } catch (error) {
       thrown = error;
     }
+
     expect(thrown).toBeInstanceOf(TypeError);
     expect(form.pending).toBe(false);
     expect(form.wasSuccessful).toBe(false);
@@ -207,11 +227,13 @@ describe("useForm", () => {
 
   it("clears stale errors on the next successful submit", async () => {
     let failNext = true;
+
     const { form } = await mountForm("/form", { text: "" }, undefined, () =>
       failNext
         ? Promise.resolve({ errors: { text: "Required" } })
         : Promise.resolve({})
     );
+
     await form.post();
     expect(form.errors).toEqual({ text: "Required" });
     failNext = false;
@@ -235,12 +257,15 @@ describe("useForm", () => {
   it("marks pending during an in-flight submit", async () => {
     const seen: boolean[] = [];
     const box: PendingProbe = {};
+
     const { form } = await mountForm("/form", { text: "" }, undefined, () => {
       if (box.form) {
         seen.push(box.form.pending);
       }
+
       return Promise.resolve({});
     });
+
     box.form = form;
     await form.post();
     expect(seen).toEqual([true]);

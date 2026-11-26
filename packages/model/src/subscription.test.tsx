@@ -14,6 +14,7 @@ const Msg = Schema.TaggedUnion({
   Ticked: { seen: Schema.Number },
   Toggle: {},
 });
+
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 type Msg = typeof Msg.Type;
 
@@ -24,11 +25,13 @@ interface Model {
 }
 
 let builds = 0;
+
 const Ticks = Subscription.make(
   "ticks",
   (model: Model) => model.n,
   (n) => {
     builds += 1;
+
     return Stream.make(Msg.cases.Ticked.make({ seen: n }));
   }
 );
@@ -72,10 +75,13 @@ const poll = async (
   if (done()) {
     return;
   }
+
   if (Date.now() > deadline) {
     expect(done()).toBe(true);
+
     return;
   }
+
   await Bun.sleep(5);
   await poll(done, deadline);
 };
@@ -99,11 +105,13 @@ describe("subscriptions", () => {
   it("stops the stream when the entry is removed", async () => {
     const SlowMsg = Schema.TaggedUnion({ Off: {}, Tock: {} });
     let runs = 0;
+
     const Slow = Subscription.make(
       "slow",
       () => 0,
       () => {
         runs += 1;
+
         return Stream.fromEffect(
           Effect.delay(
             Effect.succeed(SlowMsg.cases.Tock.make({})),
@@ -112,6 +120,7 @@ describe("subscriptions", () => {
         );
       }
     );
+
     const Stopper = defineComponent({
       message: SlowMsg,
       model: Schema.Struct({ off: Schema.Boolean, ticks: Schema.Number }),
@@ -135,6 +144,7 @@ describe("subscriptions", () => {
         </div>
       ),
     });
+
     runs = 0;
     const ui = render(() => <Stopper />);
     await ui.settled();
@@ -158,6 +168,7 @@ describe("subscriptions", () => {
       "dup",
       Stream.make(Msg.cases.Toggle.make({}))
     );
+
     const Doubled = defineComponent({
       message: Msg,
       model: Schema.Struct({
@@ -176,6 +187,7 @@ describe("subscriptions", () => {
       },
       view: (_h, model) => <p>{model.n}</p>,
     });
+
     const ui = render(() => <Doubled />);
     await ui.settled();
     expect(ui.errors.length).toBe(1);
@@ -186,6 +198,7 @@ describe("subscriptions", () => {
   it("keeps an entry running when the name set changes around it", async () => {
     const FlipMsg = Schema.TaggedUnion({ Flip: {} });
     let runsA = 0;
+
     const A = Subscription.make(
       "a",
       Stream.unwrap(
@@ -197,7 +210,9 @@ describe("subscriptions", () => {
         )
       )
     );
+
     const B = Subscription.make("b", Stream.empty);
+
     const Flipper = defineComponent({
       message: FlipMsg,
       model: Schema.Struct({ extra: Schema.Boolean }),
@@ -220,6 +235,7 @@ describe("subscriptions", () => {
         </div>
       ),
     });
+
     runsA = 0;
     const ui = render(() => <Flipper />);
     await ui.settled();

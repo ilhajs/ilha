@@ -17,6 +17,7 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) {
     cleanup();
   }
+
   Reflect.deleteProperty(navigator, "modelContext");
   document.body.innerHTML = "";
 });
@@ -36,14 +37,17 @@ const fakeModelContext = () => {
       },
     },
   });
+
   return { signals, tools };
 };
 
 const toolByName = (tools: RegisteredTool[], name: string): RegisteredTool => {
   const found = tools.find((tool) => tool.name === name);
+
   if (!found) {
     throw new Error(`tool ${name} missing`);
   }
+
   return found;
 };
 
@@ -65,15 +69,19 @@ const waitForRecording = async (
   host.querySelector("button")?.click();
   await settle(10);
   const tree = JSON.parse(inspectTool.execute({}).content[0]?.text ?? "[]");
+
   const id =
     tree.find((node: { host?: string }) => node.host === `div#${host.id}`)
       ?.id ?? "";
+
   if (readResult(logTool, { id }).ok === true) {
     return id;
   }
+
   if (Date.now() > deadline) {
     throw new Error("message log never started recording");
   }
+
   return waitForRecording(tools, host, deadline);
 };
 
@@ -92,9 +100,11 @@ describe("WebMCP tools", () => {
 
     const [inspectTool, , setAtomTool] = tools;
     const tree = JSON.parse(inspectTool?.execute({}).content[0]?.text ?? "[]");
+
     const root = tree.find(
       (node: { host?: string }) => node.host === `div#${mounted.host.id}`
     );
+
     expect(root.component).toBe("Counter");
 
     const ok = setAtomTool?.execute({
@@ -102,6 +112,7 @@ describe("WebMCP tools", () => {
       index: 1,
       value: "via mcp",
     });
+
     expect(JSON.parse(ok?.content[0]?.text ?? "{}")).toEqual({ ok: true });
     await settle();
     expect(mounted.host.querySelector("p")?.textContent).toContain("via mcp");
@@ -123,6 +134,7 @@ describe("WebMCP tools", () => {
     const result = JSON.parse(logTool.execute({ id }).content[0]?.text ?? "{}");
     expect(result.ok).toBe(true);
     expect(result.entries.length).toBeGreaterThan(0);
+
     for (const entry of result.entries) {
       expect(entry.message).toEqual({ _tag: "Increment" });
       expect(entry.commands).toBe(0);
@@ -142,9 +154,11 @@ describe("WebMCP tools", () => {
     await settle();
     const logTool = toolByName(tools, "ilha_model_log");
     const result = JSON.parse(logTool.execute({ id }).content[0]?.text ?? "{}");
+
     const bang = result.entries.find(
       (entry: { message: { _tag?: string } }) => entry.message._tag === "Bang"
     );
+
     expect(bang?.message).toEqual({
       _tag: "Bang",
       err: "<Error: boom>",
@@ -162,10 +176,12 @@ describe("WebMCP tools", () => {
     const inspectTool = toolByName(tools, "ilha_inspect");
     const logTool = toolByName(tools, "ilha_model_log");
     const tree = JSON.parse(inspectTool.execute({}).content[0]?.text ?? "[]");
+
     const plainId =
       tree.find(
         (node: { host?: string }) => node.host === `div#${plain.host.id}`
       )?.id ?? "";
+
     expect(
       JSON.parse(logTool.execute({ id: plainId }).content[0]?.text ?? "{}")
         .reason

@@ -21,8 +21,10 @@ const stubRouter = (visits: RecordedVisit[]): VoidRouter => {
   const router = createSsrRouter("http://localhost:3000/users/7");
   router.visit = (url, options) => {
     visits.push({ options: options ?? {}, url: String(url) });
+
     return Promise.resolve({});
   };
+
   return router;
 };
 
@@ -48,6 +50,7 @@ const mountMenu = async (
     </VoidContext.Provider>
   ));
   await settle();
+
   return { host, visits };
 };
 
@@ -58,12 +61,15 @@ const click = (
   if (!element) {
     throw new Error("click target missing");
   }
+
   const event = new MouseEvent("click", {
     bubbles: true,
     cancelable: true,
     ...init,
   });
+
   element.dispatchEvent(event);
+
   return event;
 };
 
@@ -77,6 +83,7 @@ interface ItemProps {
 /** A menu item whose link is a native `<a>` bound with `useLink()`. */
 const MenuItem = ({ download, href, label, options }: ItemProps): View => {
   const link = useLink();
+
   return (
     <li>
       <a class="item" download={download} {...link(href, options)}>
@@ -89,6 +96,7 @@ const MenuItem = ({ download, href, label, options }: ItemProps): View => {
 /** A native menu: the component itself calls `useLink()` for its anchors. */
 const Menu = (): View => {
   const link = useLink();
+
   return (
     <ul class="menu">
       <li>
@@ -110,6 +118,7 @@ describe("useLink", () => {
       />,
       null
     );
+
     const event = click(host.querySelector("a.item"));
     expect(event.defaultPrevented).toBe(true);
     expect(visits).toHaveLength(1);
@@ -126,6 +135,7 @@ describe("useLink", () => {
       <MenuItem href="/users/9" label="nine" />,
       null
     );
+
     const cases: MouseEventInit[] = [
       { ctrlKey: true },
       { metaKey: true },
@@ -133,10 +143,12 @@ describe("useLink", () => {
       { altKey: true },
       { button: 1 },
     ];
+
     for (const init of cases) {
       const event = click(host.querySelector("a.item"), init);
       expect(event.defaultPrevented).toBe(false);
     }
+
     expect(visits).toHaveLength(0);
     setLocation("http://localhost:3000/users/7");
   });
@@ -146,6 +158,7 @@ describe("useLink", () => {
       <MenuItem download href="/report.csv" label="csv" />,
       null
     );
+
     const event = click(host.querySelector("a.item"));
     expect(event.defaultPrevented).toBe(false);
     expect(visits).toHaveLength(0);
@@ -157,6 +170,7 @@ describe("useLink", () => {
       <MenuItem href="https://example.com/other" label="ext" />,
       null
     );
+
     const event = click(host.querySelector("a.item"));
     expect(event.defaultPrevented).toBe(false);
     expect(visits).toHaveLength(0);
@@ -172,6 +186,7 @@ describe("useLink", () => {
       />,
       null
     );
+
     const stoppedEvent = click(host.querySelector("a.item"));
     expect(stoppedEvent.defaultPrevented).toBe(true);
     expect(visits).toHaveLength(0);
@@ -187,6 +202,7 @@ describe("useLink", () => {
       />,
       null
     );
+
     const cancelEvent = click(host.querySelector("a.item"));
     expect(cancelEvent.defaultPrevented).toBe(true);
     expect(visits).toHaveLength(0);
@@ -210,9 +226,11 @@ describe("useLink", () => {
   it("renders the anchor as a direct child of its parent", async () => {
     const { host } = await mountMenu(<Menu />, null);
     const anchor = host.querySelector("li > a.item");
+
     if (!anchor) {
       throw new Error("menu anchor is not a direct child of its <li>");
     }
+
     expect(anchor.parentElement?.tagName).toBe("LI");
     expect(anchor.getAttribute("href")).toBe("/users/9");
     expect(host.querySelector("ul.menu [data-ilha-slot]")).toBeNull();

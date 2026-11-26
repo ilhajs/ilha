@@ -95,14 +95,18 @@ const elementNs = (lower: string, parent: ParentNode): string | undefined => {
   if (lower === "svg") {
     return SVG_NS;
   }
+
   if (lower === "math") {
     return MATHML_NS;
   }
+
   if (lower === "foreignobject") {
     return "http://www.w3.org/1999/xhtml";
   }
+
   // SAFETY: hosts without namespaces (SSR, custom) leave this undefined.
   const ns = (parent as Partial<Element>).namespaceURI;
+
   return ns === SVG_NS || ns === MATHML_NS ? ns : undefined;
 };
 
@@ -114,12 +118,15 @@ const sameProps = (prev: PropBag | undefined, next: PropBag): boolean => {
   if (!prev) {
     return false;
   }
+
   const keys = Object.keys(next);
+
   return (
     keys.length === Object.keys(prev).length &&
     keys.every((k) => {
       const a = prev[k];
       const b = next[k];
+
       return k === "children" && Array.isArray(a) && Array.isArray(b)
         ? a.length === b.length && a.every((x, i) => Object.is(x, b[i]))
         : Object.is(a, b);
@@ -145,6 +152,7 @@ const hostOf = <El>(fiber: FiberLocal): El => fiber.root as never;
 /** Dispose `hole` and drop it from a `filter` pass. */
 const dispose = (hole: Hole): false => {
   hole.dispose();
+
   return false;
 };
 
@@ -173,6 +181,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     reuseNode = (host: El): Node => host,
     setStyle = (el: El, css: string) => el.setAttribute("style", css),
   } = ops;
+
   // SAFETY: host elements serve as fiber roots for the holes they carry.
   const asRoot = (el: El): ParentNode => el as never;
   // Late-bound: holes paint through `self.paint`, which materializes them.
@@ -197,9 +206,12 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
   const writeAttr = (el: El, k: string, v: PropValue): void => {
     if (v === false || v === null || v === undefined) {
       el.removeAttribute(k);
+
       return;
     }
+
     const str = v === true ? "" : String(v);
+
     if (!isUrlAttributeName(k) || isSafeUrlAttrValue(el.tagName, k, str)) {
       el.setAttribute(k, str);
     }
@@ -214,6 +226,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     if (isSkippedPropKey(k) || ops.setProp?.(el, k, v) === true) {
       return;
     }
+
     if (k === "className" || k === "htmlFor") {
       el.setAttribute(k === "className" ? "class" : "for", String(v ?? ""));
     } else if (k === "style") {
@@ -222,6 +235,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         isString(v) || isObject(v)
           ? serializeStyleAttr(v as string | StyleObject)
           : "";
+
       if (css) {
         setStyle(el, css);
       }
@@ -234,6 +248,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
           (x) => setFormControl(committed(el), k, x as PropValue),
           { immediate: true }
         );
+
         fiber.holes.push({ dispose: unsub });
       } else {
         setFormControl(el, k, v);
@@ -247,17 +262,21 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     for (const [k, v] of Object.entries(props)) {
       applyProp(el, k, v, fiber);
     }
+
     ops.bindEvents?.(el, props, fiber);
     const { ref } = props;
+
     if (isFunction(ref)) {
       // SAFETY: ref callbacks accept the live host element (or null on dispose).
       const refFn = ref as (node: El | null) => void;
       const attach = () => refFn(committed(el));
+
       if (depth > 0) {
         pendingRefs.push(attach);
       } else {
         attach();
       }
+
       fiber.holes.push({ dispose: () => refFn(null) });
     }
   };
@@ -275,9 +294,11 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     const host = ops.createElement("span");
     host.setAttribute(SLOT_ATTR, String(parent.runtime.holeSeq));
     setStyle(host, "display:contents");
+
     const hole = makeFiber(parent.runtime, asRoot(host), self.paint, {
       parent,
     });
+
     hole.seen = parent.gen;
     parent.holes.push({
       ...meta,
@@ -287,12 +308,14 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       },
       fiber: hole,
     });
+
     return { hole, host };
   };
 
   /** Reuse a kept hole in this paint: mark it reached, return its host. */
   const reuse = (fiber: FiberLocal, hole: FiberLocal): Node => {
     hole.seen = fiber.gen;
+
     return reuseNode(hostOf<El>(hole));
   };
 
@@ -308,24 +331,30 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         h.fiber.seen !== fiber.gen &&
         hostOf<El>(h.fiber).isConnected !== false
     )?.fiber;
+
     if (found) {
       return [reuse(fiber, found)];
     }
+
     let unsub: (() => void) | undefined;
+
     const { hole, host } = openHole(
       fiber,
       { atom: view.atom, keep: true },
       () => unsub?.()
     );
+
     fiber.runtime.later(() => {
       if (hole.closed) {
         return;
       }
+
       let last: View | undefined;
       unsub = fiber.registry.subscribe(
         view.atom,
         (v) => {
           const next = unwrap(v, last);
+
           if (next !== KEEP && !hole.closed) {
             last = next;
             self.paint(hole, next);
@@ -334,6 +363,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         { immediate: true }
       );
     });
+
     return [host];
   };
 
@@ -354,6 +384,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       // SSR holds renderToString open until the first value lands.
       ssr ? noop : undefined
     );
+
     return [host];
   };
 
@@ -373,6 +404,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         rerunHole(hole, type, props);
       }
     });
+
     return opened;
   };
 
@@ -384,6 +416,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     const keyed = fiber.keyedHoles;
     const key = String(view.key);
     let prev = hasKey(view) ? keyed?.get(key) : undefined;
+
     if (prev && prev.seen === fiber.gen && !prev.closed) {
       // This paint already placed the hole: a second use would move its host.
       ilhaWarn("ILHA005", `key "${key}"`);
@@ -393,26 +426,34 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       if (!prev || prev.closed || prev.componentType !== run) {
         const { hole, host } = mountComponent(fiber, run, props);
         keyed?.set(key, hole);
+
         return [host];
       }
+
       // Equal props leave the row alone; it still reruns on its own atoms.
       if (!sameProps(prev.propsBox?.current, props)) {
         rerunHole(prev, run, props);
       }
+
       return [reuse(fiber, prev)];
     }
+
     // `paint` opens the frame; a direct `materialize` call opens it here.
     fiber.componentFrame ??= { i: 0, slots: [] };
     const frame = fiber.componentFrame;
     const at = frame.i;
     frame.i += 1;
     const slot = frame.slots[at];
+
     if (slot && slot.type === run && !slot.hole.closed) {
       rerunHole(slot.hole, run, props);
+
       return [reuse(fiber, slot.hole)];
     }
+
     const { hole, host } = mountComponent(fiber, run, props);
     frame.slots[at] = { hole, type: run };
+
     return [host];
   };
 
@@ -421,21 +462,28 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
     const tag = view.type as string;
     const lower = tag.toLowerCase();
     const el = ops.createElement(tag, elementNs(lower, fiber.root));
+
     if (hasKey(view)) {
       el.setAttribute(KEY_ATTR, String(view.key));
     }
+
     // A select's `value` picks among its options, so they must exist first.
     const late = lower === "select";
+
     if (!late) {
       applyProps(el, view.props, fiber);
     }
+
     const inner: FiberLocal = { ...fiber, root: asRoot(el) };
+
     for (const c of view.children) {
       el.append(...self.materialize(c, inner));
     }
+
     if (late) {
       applyProps(el, view.props, fiber);
     }
+
     return [el];
   };
 
@@ -445,15 +493,19 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       // conditional above an input does not shift the morph below it.
       return [ops.createText("")];
     }
+
     if (isUnsafeHtml(view)) {
       return ops.createRaw(view.html, fiber.root);
     }
+
     if (isAtomHandle(view)) {
       return materializeAtom(view, fiber);
     }
+
     if (Stream.isStream(view)) {
       return materializeStream(view, fiber);
     }
+
     if (isFunction(view)) {
       // Generator and async components render in their own hole.
       const { hole, host } = openHole(fiber);
@@ -463,24 +515,30 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
           runSetup(hole, view as Component);
         }
       });
+
       return [host];
     }
+
     if (isVNode(view)) {
       if (view.type === Fragment) {
         return view.children.flatMap((c) => self.materialize(c, fiber));
       }
+
       return isFunction(view.type)
         ? materializeComponent(view, fiber)
         : materializeElement(view, fiber);
     }
+
     if (isIterable(view)) {
       return [...view].flatMap((c) => self.materialize(c, fiber));
     }
+
     return [ops.createText(String(view))];
   };
 
   self.paint = (fiber, view) => {
     depth += 1;
+
     try {
       const gen = (fiber.gen ?? 0) + 1;
       fiber.gen = gen;
@@ -492,6 +550,7 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       fiber.holes = fiber.holes.filter((h) => h.keep || dispose(h));
       const hydrate = fiber.hydrate === true;
       fiber.hydrate = false;
+
       // A list of keyed components reorders the reused rows in place.
       if (
         Array.isArray(view) &&
@@ -504,17 +563,20 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
         );
       } else {
         const nodes = self.materialize(view, fiber);
+
         if (ops.morph) {
           ops.morph(fiber.root, nodes, hydrate);
         } else {
           ops.placeChildren(fiber.root, nodes);
         }
       }
+
       // Close the kept holes this paint did not reach.
       frame.slots.length = frame.i;
       fiber.holes = fiber.holes.filter(
         (h) => !h.keep || h.fiber?.seen === gen || dispose(h)
       );
+
       for (const [k, hole] of fiber.keyedHoles) {
         if (hole.closed) {
           fiber.keyedHoles.delete(k);
@@ -522,10 +584,12 @@ export const createPainter = <Node, El extends PaintEl<Node> & Node>(
       }
     } finally {
       depth -= 1;
+
       if (depth === 0) {
         for (const run of pendingRefs.splice(0)) {
           run();
         }
+
         if (rootListeners.size > 0) {
           notifyRoots();
         }

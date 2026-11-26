@@ -110,19 +110,24 @@ export const applyEvolve = <Model>(
   if (!isObject(model) || Array.isArray(model)) {
     throw new Error("@ilha/model evolve needs an object model");
   }
+
   const out: Model = { ...model };
   // SAFETY: `patch` only carries the model's own keys (EvolvePatch is a
   // mapped type over the model), so every key read here is a model key.
   const keys = Object.keys(patch) as (keyof Model)[];
+
   for (const key of keys) {
     // SAFETY: the key comes from the patch itself, so the value is one of
     // the model's field updates, not an arbitrary unknown.
     const change = patch[key] as PatchValue<Model> | undefined;
+
     if (change === undefined) {
       continue;
     }
+
     out[key] = isUpdater(change) ? change(model[key]) : change;
   }
+
   return out;
 };
 
@@ -146,6 +151,7 @@ export const createStep = <Model, Msg, R, Events>(
       ),
     set: (next) => createStep(next, commands, events),
   };
+
   return Object.assign(step, { [stepMarker]: true });
 };
 

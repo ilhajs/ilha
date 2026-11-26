@@ -49,6 +49,7 @@ test("closed fiber is not resurged after later() work lands", async () => {
 
 const slow = async (label: string) => {
   await Bun.sleep(10);
+
   return label;
 };
 
@@ -62,6 +63,7 @@ test("renderToString waits for async work nested in keyed holes", async () => {
       ))}
     </div>
   ));
+
   expect(html).toContain("done-1");
   expect(html).toContain("done-2");
 });
@@ -69,11 +71,13 @@ test("renderToString waits for async work nested in keyed holes", async () => {
 test("runtime idle fires once after all pending work", async () => {
   const html = await renderToString(async () => {
     await Bun.sleep(10);
+
     return (
       <div>
         <p>settled</p>
       </div>
     );
   });
+
   expect(html).toContain("settled");
 });

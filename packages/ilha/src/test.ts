@@ -72,6 +72,7 @@ const requireDocument = (): void => {
 
 const turn = async (left = MICROTASK_TURNS): Promise<void> => {
   await Promise.resolve();
+
   if (left > 1) {
     await turn(left - 1);
   }
@@ -86,13 +87,18 @@ const assign = (el: Element, value: string | boolean): boolean => {
     if (!("value" in el)) {
       return false;
     }
+
     el.value = value;
+
     return true;
   }
+
   if (!("checked" in el)) {
     return false;
   }
+
   el.checked = value;
+
   return true;
 };
 
@@ -126,6 +132,7 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
   const hydrate = opts.hydrate ?? ssr;
   const ownsContainer = opts.container === undefined;
   const container = opts.container ?? document.createElement("div");
+
   if (ownsContainer) {
     document.body.append(container);
   }
@@ -142,6 +149,7 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
   const wake = (): void => {
     const woken = waiters;
     waiters = [];
+
     for (const resolve of woken) {
       resolve();
     }
@@ -155,9 +163,11 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
       pending += 1;
       begin();
     };
+
     runtime.end = () => {
       pending -= 1;
       end();
+
       if (pending === 0) {
         wake();
       }
@@ -169,6 +179,7 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
       if (ssr) {
         container.innerHTML = await renderToString(fn);
       }
+
       if (hydrate || !ssr) {
         // renderToString wraps its output in a `[data-ilha]` host; hydrate that.
         host =
@@ -190,14 +201,17 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
     } catch (error) {
       failure = toError(error);
     }
+
     started = true;
   };
+
   const ready = boot();
 
   const ensureStarted = (): void => {
     if (failure) {
       throw failure;
     }
+
     if (!started) {
       throw new Error(
         "ilha/test: the server render is still running. `await ui.settled()` before reading the DOM."
@@ -208,6 +222,7 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
   const nextIdle = (): Promise<null> => {
     const { promise, resolve } = Promise.withResolvers<null>();
     waiters.push(() => resolve(null));
+
     return promise;
   };
 
@@ -215,9 +230,11 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
   // wait for the idle edge; work started by that rerender repeats the check.
   const quiesce = async (): Promise<void> => {
     await turn();
+
     if (pending === 0 || closed) {
       return;
     }
+
     await nextIdle();
     await quiesce();
   };
@@ -230,11 +247,13 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
 
   const requireElement = (selector: string): Element => {
     const el = container.querySelector(selector);
+
     if (!el) {
       throw new Error(
         `ilha/test: no element matches "${selector}". Current HTML: ${snippet(container.innerHTML)}`
       );
     }
+
     return el;
   };
 
@@ -251,17 +270,20 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
   ): Promise<void> => {
     await settled();
     const el = requireElement(selector);
+
     if (!assign(el, value)) {
       throw new Error(
         `ilha/test: "${selector}" is not a form control that takes ${isString(value) ? "a value" : "checked"}.`
       );
     }
+
     el.dispatchEvent(new Event(type, { bubbles: true }));
     await settled();
   };
 
   const inspectRoot = (): IlhaInspectNode[] => {
     ensureStarted();
+
     return inspect(host);
   };
 
@@ -279,15 +301,18 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
     },
     html: () => {
       ensureStarted();
+
       return container.innerHTML;
     },
     input: (selector, value) => setField(selector, "input", value),
     query: <E extends Element = Element>(selector: string): E | null => {
       ensureStarted();
+
       return container.querySelector<E>(selector);
     },
     queryAll: <E extends Element = Element>(selector: string): E[] => {
       ensureStarted();
+
       return [...container.querySelectorAll<E>(selector)];
     },
     settled,
@@ -298,6 +323,7 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
       ),
     text: () => {
       ensureStarted();
+
       return container.textContent ?? "";
     },
     tree: inspectRoot,
@@ -305,11 +331,14 @@ export const render = (fn: Component, opts: RenderOptions = {}): TestUi => {
       if (closed) {
         return;
       }
+
       closed = true;
       stop?.();
+
       if (ownsContainer) {
         container.remove();
       }
+
       wake();
     },
   };

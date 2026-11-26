@@ -4,6 +4,7 @@ import { atom, mount, watch } from "../src/index.ts";
 
 test("watch(atom, fn) runs without painting", async () => {
   const seen: string[] = [];
+
   const App = function* App() {
     const title = atom("a");
     yield* watch(title, (t) => {
@@ -16,6 +17,7 @@ test("watch(atom, fn) runs without painting", async () => {
       type: "button",
     };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
@@ -34,11 +36,13 @@ test("watch(atom, fn) runs without painting", async () => {
 
 test("watch in sync component", async () => {
   const seen: string[] = [];
+
   const App = () => {
     const title = atom("a");
     watch(title, (t) => {
       seen.push(String(t));
     });
+
     return {
       $$ilha: 1 as const,
       children: ["go"],
@@ -46,6 +50,7 @@ test("watch in sync component", async () => {
       type: "button",
     };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
@@ -60,20 +65,24 @@ test("watch in sync component", async () => {
 
 const Other = () => {
   atom(0);
+
   return "x";
 };
 
 test("watch.once runs once and cleans up on unmount", async () => {
   let mounts = 0;
   let cleanups = 0;
+
   const App = () => {
     const n = atom(0);
     watch.once(() => {
       mounts += 1;
+
       return () => {
         cleanups += 1;
       };
     });
+
     return {
       $$ilha: 1 as const,
       children: [String(n())],
@@ -81,6 +90,7 @@ test("watch.once runs once and cleans up on unmount", async () => {
       type: "button",
     };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
@@ -98,12 +108,14 @@ test("watch.once runs once and cleans up on unmount", async () => {
 
 test("watch.once in a generator component", async () => {
   let mounts = 0;
+
   const App = function* App() {
     yield* watch.once(() => {
       mounts += 1;
     });
     yield "ok";
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
@@ -116,11 +128,13 @@ test("watch.once in a generator component", async () => {
 
 test("watch after atom with a sibling mount", async () => {
   const seen: string[] = [];
+
   const App = () => {
     const title = atom("a");
     watch(title, (t) => {
       seen.push(String(t));
     });
+
     return {
       $$ilha: 1 as const,
       children: ["go"],
@@ -128,6 +142,7 @@ test("watch after atom with a sibling mount", async () => {
       type: "button",
     };
   };
+
   const a = document.createElement("div");
   const b = document.createElement("div");
   document.body.append(a, b);

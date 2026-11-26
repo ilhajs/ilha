@@ -21,15 +21,20 @@ const readSnapshot = (el: Element): SnapshotValue[] | undefined => {
   const host = el.matches("[data-ilha]") ? el : el.querySelector("[data-ilha]");
   // oxlint-disable-next-line unicorn/prefer-dom-node-dataset -- hosts may be non-HTML Elements
   const raw = host?.getAttribute("data-ilha-state");
+
   if (raw) {
     return decodeSnapshot(raw);
   }
+
   const first = el.firstElementChild;
+
   if (first?.matches("template[data-ilha-state]")) {
     first.remove();
+
     // oxlint-disable-next-line unicorn/prefer-dom-node-dataset -- hosts may be non-HTML Elements
     return decodeSnapshot(first.getAttribute("data-ilha-state") ?? "");
   }
+
   return undefined;
 };
 
@@ -41,9 +46,11 @@ export const mountWithRuntime = (
   onRuntime?: (runtime: IlhaRuntime) => void
 ): (() => void) => {
   const hydrate = opts?.hydrate === true;
+
   if (!hydrate) {
     el.innerHTML = "";
   }
+
   const { close } = startRoot({
     fn,
     hydrate,
@@ -54,8 +61,10 @@ export const mountWithRuntime = (
     root: el,
     snapshot: hydrate ? readSnapshot(el) : undefined,
   });
+
   return () => {
     close();
+
     if (!hydrate) {
       el.innerHTML = "";
     }
@@ -73,6 +82,7 @@ export const renderToString = async (
   opts?: RenderToStringOptions
 ): Promise<string> => {
   const root = new SsrEl("");
+
   const { close, ready, runtime } = startRoot({
     fn,
     paint: ssrPaint,
@@ -80,7 +90,9 @@ export const renderToString = async (
     root: root as never,
     ssr: true,
   });
+
   const { timeout, snapshot = true, markers = true } = opts ?? {};
+
   if (timeout === undefined) {
     await ready;
   } else {
@@ -89,15 +101,20 @@ export const renderToString = async (
     await Promise.race([ready, late.promise]);
     clearTimeout(timer);
   }
+
   // Nothing can hydrate output without markers or snapshot: drop hole hosts.
   const inner = serializeNode(root, !markers && !snapshot);
+
   // SAFETY: ssrValues are JSON-serializable snapshot seeds collected during SSR.
   const state = snapshot
     ? ` data-ilha-state="${escapeAttr(encodeSnapshot(runtime.ssrValues as SnapshotValue[]))}"`
     : "";
+
   close();
+
   if (markers) {
     return `<div data-ilha${state}>${inner}</div>`;
   }
+
   return state ? `<template${state}></template>${inner}` : inner;
 };

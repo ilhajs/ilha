@@ -9,10 +9,12 @@ const Row = ({ id }: { id?: unknown }) => {
   const n = atom(0);
   watch.once(() => {
     events.push(`mount:${String(id)}`);
+
     return () => {
       events.push(`unmount:${String(id)}`);
     };
   });
+
   return (
     <button
       class={`row-${String(id)}`}
@@ -25,14 +27,17 @@ const Row = ({ id }: { id?: unknown }) => {
 
 const button = (el: Element, selector: string): HTMLButtonElement => {
   const found = el.querySelector(selector);
+
   if (!(found instanceof HTMLButtonElement)) {
     throw new TypeError(`${selector} missing`);
   }
+
   return found;
 };
 
 const ToggleApp = () => {
   const show = atom(true);
+
   return (
     <div>
       <button class="toggle" onclick={() => show.update((v: boolean) => !v)}>
@@ -70,6 +75,7 @@ test("a keyed component the view drops is unmounted, not kept alive", async () =
 
 const TickApp = () => {
   const tick = atom(0);
+
   return (
     <div>
       <button class="bump" onclick={() => tick.update((x: number) => x + 1)}>
@@ -105,6 +111,7 @@ test("a keyed component keeps its state while the view keeps it", async () => {
 
 const DuplicateApp = () => {
   const tick = atom(0);
+
   return (
     <div>
       <button class="bump" onclick={() => tick.update((x: number) => x + 1)}>

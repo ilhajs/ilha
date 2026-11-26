@@ -50,8 +50,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.4",
-    "effect": "^4.1.4",
+    "@types/bun": "^1.4.5",
+    "effect": "^4.1.6",
     "ilha": "^0.17.0"
   },
   "peerDependencies": {

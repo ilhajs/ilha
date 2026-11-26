@@ -30,10 +30,12 @@ const click: NonNullable<JSX.IntrinsicElements["button"]["onclick"]> = (e) => {
   void e.currentTarget.disabled;
   void e.button;
 };
+
 const submit: NonNullable<JSX.IntrinsicElements["form"]["onsubmit"]> = (e) => {
   e.preventDefault();
   void e.currentTarget.action;
 };
+
 const input: NonNullable<JSX.IntrinsicElements["input"]["oninput"]> = (e) => {
   void e.currentTarget.value;
 };
@@ -42,6 +44,7 @@ const input: NonNullable<JSX.IntrinsicElements["input"]["oninput"]> = (e) => {
 const asHandle = <A,>(): AtomHandle<A> => undefined as never;
 
 type WatchOnce = (fn: () => (() => void) | undefined) => void;
+
 // SAFETY: type-anchor fixture only — never invoked at runtime.
 const asWatchOnce = (): WatchOnce => undefined as never;
 
@@ -56,6 +59,7 @@ const typecheckWatch = (): void => {
 };
 
 type Untrack = <A>(fn: () => A) => A;
+
 // SAFETY: type-anchor fixture only — never invoked at runtime.
 const asUntrack = (): Untrack => undefined as never;
 
@@ -85,25 +89,30 @@ const typecheckJsxProps = (): void => {
     },
     type: "button",
   };
+
   const formProps: JSX.IntrinsicElements["form"] = {
     children: "go",
     onsubmit: submit,
   };
+
   const inputProps: JSX.IntrinsicElements["input"] = {
     className: "input",
     oninput: input,
     type: "text",
     value: name,
   };
+
   const checkProps: JSX.IntrinsicElements["input"] = {
     checked: on,
     type: "checkbox",
   };
+
   const labelProps: JSX.IntrinsicElements["label"] = {
     children: "Email",
     for: "email",
     htmlFor: "email",
   };
+
   const styleProps: JSX.IntrinsicElements["div"] = {
     "aria-label": "x",
     class: "card",
@@ -111,11 +120,13 @@ const typecheckJsxProps = (): void => {
     "data-morph-preserve": "title",
     style: { color: "red", marginTop: 4 },
   };
+
   const detailsProps: JSX.IntrinsicElements["details"] = {
     ontoggle: (e) => {
       void e.currentTarget.open;
     },
   };
+
   const dialogProps: JSX.IntrinsicElements["dialog"] = {
     oncancel: (e) => {
       e.preventDefault();
@@ -124,6 +135,7 @@ const typecheckJsxProps = (): void => {
       void e.currentTarget.returnValue;
     },
   };
+
   const popoverProps: JSX.IntrinsicElements["div"] = {
     onbeforetoggle: (e) => {
       void e.currentTarget;
@@ -167,11 +179,13 @@ const typecheckJsxProps = (): void => {
 
 const typecheckH = (): void => {
   const button = h("button", { onclick: click, type: "button" }, "go");
+
   const labelled = h(
     "div",
     { "aria-label": "close", "data-testid": "close-button" },
     "x"
   );
+
   const widget = h("my-widget", { anything: "goes" }, "slot");
   const item = h(KeyedItem, { id: "a" });
   const bare = h("div", undefined, "x");
@@ -198,27 +212,34 @@ const ctxFn: WatchCallback<number> = (value, ctx) => {
   ctx.onCleanup(() => {});
   void value;
 };
+
 const asyncCtxFn: WatchCallback<string> = (value, ctx) => {
   void value;
   void ctx.signal;
+
   return Promise.resolve(() => {
     // Nothing to clean in the anchor.
   });
 };
+
 const legacy: WatchCallback<number> = (value) => {
   void value;
 };
+
 const useCtx = (ctx: WatchContext): void => {
   const server: boolean = ctx.ssr;
   void server;
   // @ts-expect-error -- `ssr` reports the render; callbacks cannot change it.
   ctx.ssr = true;
 };
+
 const typecheckAsyncApis = (): void => {
   const eqOpts: AtomOptions<{ a: number }> = { equals: "structural" };
+
   const fnOpts: AtomOptions<string> = {
     equals: (a, b) => a.toLowerCase() === b.toLowerCase(),
   };
+
   // @ts-expect-error equals must be "structural" or a comparator
   const badOpts: AtomOptions<number> = { equals: "fuzzy" };
 
@@ -246,6 +267,7 @@ type RuntimeOnError = NonNullable<IlhaRuntime["onError"]>;
 const onErrorAnchor: RuntimeOnError = (error) => {
   void error.message;
 };
+
 // @ts-expect-error onError receives an Error, not an arbitrary payload
 const badOnErrorAnchor: RuntimeOnError = (error: string) => {
   void error;
@@ -275,6 +297,7 @@ const typecheckSnapshotSchema = (): void => {
   const when = atom(new Date("2024-01-02T03:04:05.000Z"), {
     schema: Schema.Date,
   });
+
   const lazy = atom.lazy(() => new Date(), { schema: Schema.Date });
   const opts: AtomOptions<Date> = { schema: Schema.Date };
   const lazyOpts: AtomLazyOptions<Date> = { schema: Schema.Date };

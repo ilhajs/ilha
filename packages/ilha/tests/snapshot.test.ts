@@ -6,6 +6,7 @@ import { decodeSnapshot } from "../src/snapshot.ts";
 
 const SnapshotApp = () => {
   const n = atom(3);
+
   return { $$ilha: 1 as const, children: [n], props: {}, type: "p" };
 };
 
@@ -18,6 +19,7 @@ test("renderToString embeds data-ilha-state", async () => {
 
 const HydrateApp = () => {
   const n = atom(0);
+
   return { $$ilha: 1 as const, children: [n], props: {}, type: "p" };
 };
 
@@ -29,9 +31,11 @@ test("hydrate restores atom snapshot from host attr", async () => {
   );
   document.body.append(el);
   const host = el.querySelector<HTMLElement>("[data-ilha]");
+
   if (!host) {
     throw new Error("host missing");
   }
+
   host.dataset.ilhaState = JSON.stringify({ v: [9] });
   mount(host, HydrateApp, { hydrate: true });
   await Bun.sleep(15);

@@ -14,6 +14,7 @@ test("renderToString takes only the first stream value", async () => {
       h("li", null, `item-${n}`)
     )
   );
+
   expect(html).toContain("item-1");
   expect(html).not.toContain("item-2");
 });
@@ -26,6 +27,7 @@ test("renderToString paints stream failure as text", async () => {
 
 test("stream view repaints on each emission on the client", async () => {
   let source: AtomHandle<string> | undefined;
+
   const App = function* App() {
     const s = atom("first");
     source ??= s;
@@ -33,14 +35,17 @@ test("stream view repaints on each emission on the client", async () => {
       h("p", null, value)
     );
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
   await Bun.sleep(10);
   expect(el.textContent).toContain("first");
+
   if (!source) {
     throw new Error("source missing");
   }
+
   source.set("second");
   await Bun.sleep(10);
   expect(el.textContent).toContain("second");
@@ -51,6 +56,7 @@ test("stream view repaints on each emission on the client", async () => {
 
 test("live list via Atom.toStream repaints on update", async () => {
   let items: AtomHandle<string[]> | undefined;
+
   const App = function* App() {
     const list = atom(["a", "b"]);
     items ??= list;
@@ -62,14 +68,17 @@ test("live list via Atom.toStream repaints on update", async () => {
       </ul>
     ));
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
   await Bun.sleep(10);
   expect(el.textContent).toContain("ab");
+
   if (!items) {
     throw new Error("items missing");
   }
+
   items.update((list) => [...list, "c"]);
   await Bun.sleep(10);
   expect(el.textContent).toContain("abc");
@@ -87,13 +96,16 @@ test("keyed function children in a stream hole reuse their fiber", async () => {
   let items: AtomHandle<string[]> | undefined;
   const built: string[] = [];
   let seq = 0;
+
   const Row = (props: RowProps) => {
     const { id } = props;
     seq += 1;
     const stamp = `row-${id}-${seq}`;
     built.push(stamp);
+
     return <li data-stamp={stamp}>{id}</li>;
   };
+
   const App = function* App() {
     const list = atom(["a", "b"]);
     items ??= list;
@@ -102,14 +114,17 @@ test("keyed function children in a stream hole reuse their fiber", async () => {
       values.map((id) => <Row key={id} id={id} />)
     );
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
   await Bun.sleep(10);
   expect(built).toHaveLength(2);
+
   if (!items) {
     throw new Error("items missing");
   }
+
   items.update(() => ["b", "a", "c"]);
   await Bun.sleep(10);
   // a and b fibers are reused; only c is new

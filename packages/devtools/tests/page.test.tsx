@@ -17,6 +17,7 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) {
     cleanup();
   }
+
   document.body.innerHTML = "";
 });
 
@@ -25,6 +26,7 @@ const setup = async () => {
   const pair = connectPair();
   cleanups.push(pair.panel.close, pair.handle.dispose, mounted.unmount);
   await pair.panel.whenConnected(1000);
+
   return { ...mounted, ...pair };
 };
 
@@ -68,9 +70,11 @@ describe("page script", () => {
   it("mirrors the tree into shared state as islands change", async () => {
     const { panel, host } = await setup();
     const tree = await panel.sharedState.get("tree");
+
     const badge = () =>
       parseTree(tree.value()).find((node) => node.host === selectorOf(host))
         ?.children[0]?.atoms[0]?.value;
+
     expect(badge()).toBe(5);
     host.querySelector("button")?.click();
     await settle();
@@ -82,6 +86,7 @@ describe("page script", () => {
     const pair = connectPair();
     cleanups.push(pair.panel.close, pair.handle.dispose, mounted.unmount);
     await pair.panel.whenConnected(1000);
+
     // The page script attaches asynchronously; retry clicks until one lands.
     const readEntries = async (
       deadline = Date.now() + 2000
@@ -89,17 +94,23 @@ describe("page script", () => {
       mounted.host.querySelector("button")?.click();
       await settle(10);
       const nodes = await pair.panel.call("inspect");
+
       const id =
         nodes.find((node) => node.host === selectorOf(mounted.host))?.id ?? "";
+
       const result = await pair.panel.call("modelLog", id);
+
       if (result.ok) {
         return result.entries;
       }
+
       if (Date.now() > deadline) {
         throw new Error("message log never started recording");
       }
+
       return readEntries(deadline);
     };
+
     const entries = await readEntries();
     expect(entries.length).toBeGreaterThan(0);
     expect(entries[0]?.message).toEqual({ _tag: "Increment" });

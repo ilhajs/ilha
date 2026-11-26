@@ -15,11 +15,14 @@ const isString = <T>(value: T): value is Extract<T, string> =>
 
 const globToRegExp = (pattern: string) => {
   let source = "^";
+
   for (let i = 0; i < pattern.length; i += 1) {
     const char = pattern[i];
+
     if (char === "*") {
       if (pattern[i + 1] === "*") {
         i += 1;
+
         if (pattern[i + 1] === "/") {
           i += 1;
           source += "(?:.*/)?";
@@ -35,6 +38,7 @@ const globToRegExp = (pattern: string) => {
       source += char.replaceAll(/[\\^$.*+?()[\]{}|]/gu, "\\$&");
     }
   }
+
   return new RegExp(`${source}$`, "u");
 };
 
@@ -48,6 +52,7 @@ const optionsPlugin = (options: IlhaIntegrationOptions) => ({
     if (id !== `\0${OPTIONS_MODULE}`) {
       return;
     }
+
     return `const include=[${patternList(options.include)}],exclude=[${patternList(options.exclude)}];export default id=>(!include.length||include.some(pattern=>pattern.test(id)))&&!exclude.some(pattern=>pattern.test(id));`;
   },
   name: "@ilha/astro:options",

@@ -74,7 +74,7 @@
     "typecheck": "tsc -p tsconfig.types.json --noEmit"
   },
   "devDependencies": {
-    "effect": "^4.1.0"
+    "effect": "^4.1.6"
   },
   "peerDependencies": {
     "effect": "^4.1.0"

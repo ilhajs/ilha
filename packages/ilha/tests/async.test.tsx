@@ -7,6 +7,7 @@ import { atom, mount } from "../src/index.ts";
 
 const Counter = () => {
   const count = atom(0);
+
   return (
     <button onclick={() => count.update((n: number) => n + 1)}>
       Count: {count}
@@ -46,6 +47,7 @@ test("yield Effect.sleep then view", async () => {
 const AsyncCounter = async () => {
   const count = atom(0);
   await Promise.resolve();
+
   // SAFETY: mirrors async page components that build JSX after awaiting.
   return (
     <button onclick={() => count.update((n: number) => n + 1)}>

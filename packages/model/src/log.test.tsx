@@ -51,11 +51,14 @@ const findNode = (
     if (node.component === component) {
       return node.id;
     }
+
     const child = findNode(node.children, component);
+
     if (child !== undefined) {
       return child;
     }
   }
+
   return undefined;
 };
 
@@ -66,10 +69,13 @@ const poll = async (
   if (done()) {
     return;
   }
+
   if (Date.now() > deadline) {
     expect(done()).toBe(true);
+
     return;
   }
+
   await Bun.sleep(5);
   await poll(done, deadline);
 };
@@ -84,12 +90,14 @@ describe("recorder", () => {
     await ui.click('[data-testid="reset"]');
     await poll(() => records.length === 3);
     detach();
+
     // SAFETY: the two clicks above record exactly three dispatches in order.
     const [added, reset, resetted] = records as [
       DispatchRecord,
       DispatchRecord,
       DispatchRecord,
     ];
+
     expect(added?.message).toEqual(Msg.cases.Add.make({}));
     expect(added?.before).toEqual({ count: 0 });
     expect(added?.after).toEqual({ count: 1 });

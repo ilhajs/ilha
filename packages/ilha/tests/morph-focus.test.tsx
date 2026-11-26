@@ -6,6 +6,7 @@ import { morphInner } from "../src/morph.ts";
 
 const FocusApp = () => {
   const counter = atom(0);
+
   return (
     <div>
       <input id="morph-target" placeholder="type here" />
@@ -26,9 +27,11 @@ test("rerender preserves focus on the focused element", async () => {
   await Bun.sleep(5);
 
   const input = el.querySelector("input");
+
   if (!input) {
     throw new Error("input missing");
   }
+
   input.focus();
   input.value = "user typed";
   el.querySelector("button")?.click();
@@ -43,6 +46,7 @@ test("rerender preserves focus on the focused element", async () => {
 
 const TypedValueApp = () => {
   const flag = atom(false);
+
   return (
     <div>
       <input id="free-input" />
@@ -60,9 +64,11 @@ test("uncontrolled input keeps typed value across rerenders", async () => {
   await Bun.sleep(5);
 
   const input = el.querySelector("input");
+
   if (!input) {
     throw new Error("input missing");
   }
+
   input.value = "kept";
   el.querySelector("button")?.click();
   await Bun.sleep(5);
@@ -147,6 +153,7 @@ test("code outside the render can claim children at runtime", () => {
 
 const SiblingFocusApp = () => {
   const count = atom(0);
+
   return (
     <div>
       {count}
@@ -164,9 +171,11 @@ test("focus survives rerender that replaces siblings", async () => {
   const unmount = mount(el, SiblingFocusApp);
   await Bun.sleep(5);
   const input = el.querySelector("input");
+
   if (!input) {
     throw new Error("input missing");
   }
+
   input.focus();
   el.querySelector("button")?.click();
   await Bun.sleep(5);

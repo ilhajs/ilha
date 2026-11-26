@@ -30,6 +30,7 @@ const previewSrc = playgroundUrl(code, "preview");
 // Explicit heights only — do not mix with h-full on the outer wrapper
 // (parent often has no height, which collapses the iframe to ~150px).
 let heightClass = "h-[32rem]";
+
 if (size === "sm") {
   heightClass = "h-64";
 } else if (size === "lg") {
@@ -42,6 +43,7 @@ if (size === "sm") {
 const previewOnly = activate === "click";
 const eager = activate === "eager";
 let initialSrc: string | undefined;
+
 if (eager && !mobilePreview) {
   initialSrc = editorSrc;
 } else if (eager && mobilePreview) {
@@ -98,12 +100,14 @@ if (eager && !mobilePreview) {
     if (Object.hasOwn(root.dataset, "previewOnly")) {
       return false;
     }
+
     return !Object.hasOwn(root.dataset, "mobilePreview") || mq().matches;
   };
 
   const targetSrc = (root: HTMLElement) => {
     const preview = root.dataset.previewSrc ?? "";
     const editor = root.dataset.editorSrc ?? "";
+
     return editorMode(root) ? editor : preview;
   };
 
@@ -111,14 +115,19 @@ if (eager && !mobilePreview) {
     if (root.dataset.activated !== "1") {
       return;
     }
+
     if (!Object.hasOwn(root.dataset, "mobilePreview")) {
       return;
     }
+
     const frame = root.querySelector<HTMLIFrameElement>("[data-ilha-preview-frame]");
+
     if (!frame) {
       return;
     }
+
     const next = targetSrc(root);
+
     if (frame.getAttribute("src") !== next) {
       frame.src = next;
     }
@@ -127,13 +136,17 @@ if (eager && !mobilePreview) {
   const activate = (root: HTMLElement) => {
     if (root.dataset.activated === "1") {
       syncMode(root);
+
       return;
     }
+
     root.dataset.activated = "1";
     const frame = root.querySelector<HTMLIFrameElement>("[data-ilha-preview-frame]");
+
     if (!frame) {
       return;
     }
+
     frame.src = targetSrc(root);
     root.querySelector("[data-ilha-preview-gate]")?.remove();
   };
@@ -157,6 +170,7 @@ if (eager && !mobilePreview) {
         },
         { rootMargin: "200px 0px" },
       );
+
       io.observe(root);
     } else {
       activate(root);

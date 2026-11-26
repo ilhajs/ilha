@@ -11,6 +11,7 @@ import { makeFiber, makeRuntime } from "../src/runtime.ts";
 import type { GeneratorFn } from "../src/types.ts";
 
 beforeEach(resetIlhaWarnings);
+
 afterEach(resetIlhaWarnings);
 
 const catchError = (fn: () => void): IlhaError => {
@@ -20,8 +21,10 @@ const catchError = (fn: () => void): IlhaError => {
     if (error instanceof IlhaError) {
       return error;
     }
+
     throw error;
   }
+
   throw new Error("expected IlhaError");
 };
 
@@ -35,6 +38,7 @@ test("every code formats message, fix and docs", () => {
     "ILHA006",
     "ILHA007",
   ];
+
   for (const code of codes) {
     const err = ilhaError(code, "detail");
     expect(err).toBeInstanceOf(Error);
@@ -50,9 +54,11 @@ test("every code formats message, fix and docs", () => {
 const Drifting = () => {
   const flag = atom(true);
   const n = atom(0);
+
   if (flag()) {
     atom(1);
   }
+
   return (
     <button
       type="button"
@@ -71,6 +77,7 @@ const neverGen = function* neverGen() {
 };
 
 const Row = () => <b>row</b>;
+
 const List = () => (
   <div>
     <Row key="dup-diag" />
@@ -86,6 +93,7 @@ test("ILHA001: primitive with no active component", () => {
   const err = catchError(() => {
     void atom(0);
   });
+
   expect(err.code).toBe("ILHA001");
 });
 
@@ -112,20 +120,26 @@ test("ILHA002: slot count change warns once", async () => {
 test("ILHA003: atom handle from a different island", async () => {
   let foreign: (() => number) | undefined;
   let caught: IlhaError | undefined;
+
   const A = () => {
     const n = atom(0);
     foreign = n;
+
     return <span>{n()}</span>;
   };
+
   const B = () => {
     atom(1);
+
     if (foreign) {
       caught = catchError(() => {
         foreign?.();
       });
     }
+
     return <span>b</span>;
   };
+
   const a = document.createElement("div");
   const b = document.createElement("div");
   document.body.append(a, b);
@@ -142,10 +156,12 @@ test("ILHA004: generator resumed with an instruction in flight", () => {
   const fiber = makeFiber(runtime, document.createElement("div"), () => {});
   // SAFETY: neverGen is a GeneratorFn that yields Effect.never.
   interpret(neverGen as GeneratorFn, fiber);
+
   const err = catchError(() => {
     // SAFETY: neverGen is a GeneratorFn that yields Effect.never.
     interpret(neverGen as GeneratorFn, fiber);
   });
+
   expect(err.code).toBe("ILHA004");
   runtime.close();
 });
@@ -180,10 +196,12 @@ test("ILHA006: hydration mismatch warns and full mounts", async () => {
 
 test("ILHA007: unsafe raw text in <script>", async () => {
   let code: string | undefined;
+
   try {
     await renderToString(ScriptApp, { markers: false, snapshot: false });
   } catch (error) {
     code = error instanceof IlhaError ? error.code : undefined;
   }
+
   expect(code).toBe("ILHA007");
 });

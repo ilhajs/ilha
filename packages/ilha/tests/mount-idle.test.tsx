@@ -9,6 +9,7 @@ let handle: AtomHandle<number> | undefined;
 const Counter = () => {
   const n = atom(0);
   handle = n;
+
   return <p>{n()}</p>;
 };
 
@@ -16,6 +17,7 @@ const setCount = (next: number): void => {
   if (!handle) {
     throw new Error("component did not render");
   }
+
   handle.set(next);
 };
 
@@ -23,11 +25,13 @@ test("onIdle fires after the DOM reflects an atom update (mount)", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const seen: string[] = [];
+
   const stop = mount(host, Counter, {
     onIdle: () => {
       seen.push(host.textContent ?? "");
     },
   });
+
   await Bun.sleep(5);
   seen.length = 0;
   setCount(5);
@@ -47,9 +51,11 @@ test("onIdle fires after a hydrated update", async () => {
   );
   document.body.append(wrapper);
   const host = wrapper.querySelector("[data-ilha]");
+
   if (!host) {
     throw new Error("host missing");
   }
+
   const seen: string[] = [];
   mount(host, Counter, {
     hydrate: true,

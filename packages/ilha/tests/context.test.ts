@@ -15,6 +15,7 @@ const child = (type: ComponentFn | JsxComponent): View => ({
 
 const ThemeSpan = () => {
   const theme = context(Theme);
+
   return {
     $$ilha: 1 as const,
     children: [theme],
@@ -25,6 +26,7 @@ const ThemeSpan = () => {
 
 const ThemeToggleApp = () => {
   const mode = atom("dark");
+
   return {
     $$ilha: 1 as const,
     children: [
@@ -65,6 +67,7 @@ test("context reads provider value and updates", async () => {
 
 const DefaultTheme = () => {
   const theme = context(Theme);
+
   return theme();
 };
 

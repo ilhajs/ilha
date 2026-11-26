@@ -10,6 +10,7 @@ test("renderToString renders when() children without document", async () => {
   // SAFETY: test temporarily deletes document; globalThis is the runtime host.
   const g = globalThis as { document?: Document };
   delete g.document;
+
   try {
     const html = await renderToString(function* app() {
       yield* when(Stream.fromIterable(["q"]), function* search(q) {
@@ -18,6 +19,7 @@ test("renderToString renders when() children without document", async () => {
         yield `result for ${q}`;
       });
     });
+
     expect(html).toContain("result for q");
     expect(html).not.toContain("searching");
   } finally {

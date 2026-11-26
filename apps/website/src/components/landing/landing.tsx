@@ -14,6 +14,7 @@ export const ProjectCreatorForm = () => {
   const command = () => {
     const packageManager = useBun() ? "bunx" : "npx";
     const projectName = name() ? ` ${name()}` : "";
+
     return `${packageManager} giget@latest gh:ilhajs/ilha/templates/${template()}${projectName}`;
   };
 
@@ -27,12 +28,15 @@ export const ProjectCreatorForm = () => {
     // SAFETY: the listener is bound to a <button data-copy-command>; the
     // current target is that button, not an arbitrary node.
     const button = event.currentTarget as HTMLButtonElement;
+
     try {
       await navigator.clipboard.writeText(command());
     } catch {
       return;
     }
+
     const el = button.querySelector("span");
+
     if (el) {
       const original = el.textContent;
       el.textContent = "Copied!";

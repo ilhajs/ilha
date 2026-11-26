@@ -56,6 +56,7 @@ const createForm = (
     submitOptions: FormSubmitOptions = {}
   ): Promise<void> => {
     state.begin();
+
     try {
       // Params fill in on submit, so a param that would change the request
       // path (such as "..") fails this submit, not the page render.
@@ -64,11 +65,15 @@ const createForm = (
         interpolateRouteParams(url, options?.params),
         { data: state.read(), method, ...submitOptions }
       );
+
       if (result.ok) {
         state.succeed();
+
         return;
       }
+
       const validationErrors = getValidationErrors(result.error.body);
+
       if (validationErrors) {
         state.setErrors(validationErrors);
       } else {

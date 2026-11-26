@@ -5,6 +5,7 @@ import RootLayout from "blume/components/layout/RootLayout.astro";
 
 const route = Astro.props.page?.route ?? "";
 const isBlog = route.startsWith("/blog");
+
 const props = {
   ...Astro.props,
   contentLayout: isBlog ? "bare" : (Astro.props.contentLayout ?? "default"),

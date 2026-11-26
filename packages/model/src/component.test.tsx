@@ -11,6 +11,7 @@ const ChildMsg = Schema.TaggedUnion({
   Add: { amount: Schema.Number },
   Nudge: {},
 });
+
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 type ChildMsg = typeof ChildMsg.Type;
 
@@ -18,6 +19,7 @@ type ChildMsg = typeof ChildMsg.Type;
 const ChildEvent = Schema.TaggedUnion({
   Reached: { count: Schema.Number },
 });
+
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 type ChildEvent = typeof ChildEvent.Type;
 
@@ -32,6 +34,7 @@ const Child = defineComponent({
   update: {
     Add: ($, { amount }) => {
       const count = $.model.count + amount;
+
       return $.set({ count }).emit(ChildEvent.cases.Reached.make({ count }));
     },
     Nudge: ($) => $.evolve({ count: (c) => c + 1 }),
@@ -62,6 +65,7 @@ const PageMsg = Schema.TaggedUnion({
   ParentBump: {},
   Reached: { count: Schema.Number },
 });
+
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 type PageMsg = typeof PageMsg.Type;
 
@@ -79,6 +83,7 @@ const Page = defineComponent({
   },
   view: (h, model) => {
     parentViews += 1;
+
     return (
       <div>
         <p>
@@ -141,6 +146,7 @@ describe("parent and child", () => {
 
   it("logs an update throw and keeps the last model", async () => {
     const ThrowMsg = Schema.TaggedUnion({ Hit: {}, Safe: {} });
+
     const Thrower = defineComponent({
       message: ThrowMsg,
       model: Schema.Struct({ count: Schema.Number }),
@@ -171,6 +177,7 @@ describe("parent and child", () => {
         </div>
       ),
     });
+
     const ui = render(() => <Thrower />);
     await ui.settled();
     await ui.click('[data-testid="hit"]');

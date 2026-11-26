@@ -8,9 +8,11 @@ import type { VoidPageState } from "./context";
 
 const readPage = (hook: string): VoidPageState => {
   const page = context(VoidContext)();
+
   if (!page) {
     throw new Error(`${hook}: must be used inside a Void page.`);
   }
+
   return page;
 };
 

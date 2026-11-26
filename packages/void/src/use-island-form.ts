@@ -24,8 +24,10 @@ const readErrorBody = async (response: Response): Promise<JsonValue> => {
     if (response.headers.get("content-type")?.includes("application/json")) {
       // SAFETY: response.json() parses JSON text, so the result is JSON.
       const body = (await response.json()) as JsonValue;
+
       return body;
     }
+
     return (await response.text()) || null;
   } catch {
     return null;
@@ -43,37 +45,49 @@ export const useIslandForm = <T extends FormValues>(
 
   const submit = async (url: string, method: string): Promise<void> => {
     state.begin();
+
     try {
       const response = await fetch(url, {
         body: JSON.stringify(state.read()),
         headers: { "Content-Type": "application/json" },
         method,
       });
+
       if (response.redirected) {
         window.location.href = response.url;
+
         return;
       }
+
       if (response.ok) {
         state.succeed();
         window.location.reload();
+
         return;
       }
+
       const body = await readErrorBody(response);
+
       const validationErrors =
         response.status === UNPROCESSABLE ? getValidationErrors(body) : null;
+
       if (validationErrors) {
         state.setErrors(validationErrors);
+
         return;
       }
+
       const error = new VoidActionError({
         body,
         status: response.status,
         statusText: response.statusText,
         url,
       });
+
       if (categorizeActionError(response.status) === "boundary") {
         throw error;
       }
+
       state.fail(error);
     } finally {
       state.finish();

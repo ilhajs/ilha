@@ -34,6 +34,7 @@ interface LoadHook {
 const runTransform = (plugin: Plugin, code: string, id: string) => {
   // SAFETY: @ilha/void:islands declares object-form `transform` and `load` hooks.
   const { handler } = plugin.transform as TransformHook;
+
   return handler.call({ warn: () => {} }, code, id);
 };
 
@@ -85,6 +86,7 @@ describe("pages modules", () => {
       prefetch: { cacheFor: "1m", hoverDelay: 120 },
       viewTransitions: true,
     });
+
     expect(code).toContain("export const router = await startPages({");
     expect(code).toContain('parseCacheFor("1m")');
     expect(code).toContain("prefetchHoverDelay: 120");
@@ -100,6 +102,7 @@ describe("islands modules", () => {
       islandId: "pages/_Counter",
       src: "/app/pages/_Counter.tsx",
     });
+
     expect(code).toContain('import Component from "/app/pages/_Counter.tsx"');
     expect(code).toContain(
       'createIsland(Component, { hydrate: "media:(max-width: 600px)", id: "pages/_Counter" })'
@@ -111,6 +114,7 @@ describe("islands modules", () => {
       markdownScriptIds: new Set(["docs"]),
       pagesNeedingClientJS: new Set(["about"]),
     });
+
     expect(code).toContain(
       "export const renderIslandPage = createIslandPageRenderer"
     );
@@ -124,6 +128,7 @@ describe("islands modules", () => {
       hydrate: "load",
       islandId: "pages/_Counter",
     };
+
     const code = generateIslandClientEntry(
       new Map([
         ["a", entry],
@@ -131,6 +136,7 @@ describe("islands modules", () => {
       ]),
       { cssImports: ['import "/app/pages/app.css";'] }
     );
+
     expect(code).toContain('import { mountIsland } from "@ilha/void/islands"');
     expect(code).toContain('import "/app/pages/app.css";');
     expect(
@@ -141,12 +147,14 @@ describe("islands modules", () => {
   it("rewrites island imports in .island pages", () => {
     const plugin = islandsPlugin(pagesDir, { root });
     const file = path.join(pagesDir, "about.island.tsx");
+
     const result = runTransform(
       plugin,
       `import Counter from "./_Counter" with { island: "visible" };
 export default () => <Counter start={1} />;`,
       file
     );
+
     expect(result?.code).toMatch(
       /^import Counter from "\/@ilha-void-island\/island_\d+\.js"/u
     );
@@ -163,11 +171,13 @@ const runIslandsConfig = (
   command: "build" | "serve"
 ): Promise<UserConfig | undefined> => {
   const plugin = islandsPlugin(dir, { root: rootDir });
+
   // SAFETY: the islands plugin declares `config` as an async function hook.
   const hook = plugin.config as (
     config: UserConfig,
     env: ConfigEnv
   ) => Promise<UserConfig | undefined>;
+
   return hook(
     {},
     { command, mode: command === "build" ? "production" : "development" }
@@ -185,6 +195,7 @@ describe("islands client input", () => {
 
   it("omits the islands-client input when no island pages exist", async () => {
     const plainRoot = mkdtempSync(path.join(tmpdir(), "ilha-void-plain-"));
+
     try {
       const plainPagesDir = path.join(plainRoot, "pages");
       mkdirSync(plainPagesDir, { recursive: true });
@@ -209,11 +220,13 @@ describe("islands client input", () => {
 
 const runConfig = (userConfig: UserConfig): UserConfig => {
   const [configPlugin] = voidIlha();
+
   // SAFETY: @ilha/void:config declares `config` as a plain function hook.
   const hook = (configPlugin as Plugin).config as (
     config: UserConfig,
     env: ConfigEnv
   ) => UserConfig;
+
   return hook(userConfig, { command: "serve", mode: "development" });
 };
 

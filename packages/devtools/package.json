@@ -53,11 +53,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "devframe": "^1.2.6"
+    "devframe": "^1.4.0"
   },
   "devDependencies": {
     "@ilha/model": "^0.2.0",
-    "effect": "^4.1.0",
+    "effect": "^4.1.6",
     "ilha": "^0.17.0"
   },
   "peerDependencies": {

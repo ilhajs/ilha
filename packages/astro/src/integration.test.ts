@@ -24,8 +24,10 @@ import { fileURLToPath } from "node:url";
 
 // packages/astro/src
 const SRC_DIR = import.meta.dir;
+
 // packages/astro
 const PKG_DIR = path.join(SRC_DIR, "..");
+
 // repo root
 const ROOT = path.join(PKG_DIR, "..", "..");
 
@@ -104,9 +106,11 @@ const astroConfig = (ilhaFirst: boolean, include: boolean): string => {
     include
       ? `${mod}({ include: "**/${mod === "ilha" ? "ilha" : "solid"}/**" })`
       : `${mod}()`;
+
   const ilha = opts("ilha");
   const solid = include ? 'solidJs({ include: "**/solid/**" })' : "solidJs()";
   const install = ilhaFirst ? `${ilha}, ${solid}` : `${solid}, ${ilha}`;
+
   return `import { defineConfig } from "astro/config";
 import solidJs from "@astrojs/fake-integration";
 import ilha from "@ilha/astro";
@@ -138,6 +142,7 @@ const freshDist = (): void => {
   if (buildsDone) {
     return;
   }
+
   build("bun run --filter ilha build");
   build("bun run --filter @ilha/astro build");
   // Flag completion only after both builds succeeded so a failed first build
@@ -197,6 +202,7 @@ const runBuild = (ilhaFirst: boolean, include: boolean): string => {
     astroConfig(ilhaFirst, include)
   );
   rmSync(path.join(fixtureDir, "dist"), { force: true, recursive: true });
+
   try {
     execFileSync("node", [ASTRO_BIN, "build"], {
       cwd: fixtureDir,
@@ -207,6 +213,7 @@ const runBuild = (ilhaFirst: boolean, include: boolean): string => {
     // SAFETY: execFileSync rejects with Error + stdout/stderr when stdio is pipe.
     rethrowWithOutput(error as ExecFailure);
   }
+
   return readFileSync(path.join(fixtureDir, "dist", "index.html"), "utf-8");
 };
 
@@ -226,15 +233,21 @@ interface IslandInfo {
 const islands = (rawHtml: string): IslandInfo[] => {
   const out: IslandInfo[] = [];
   const text = unescape(rawHtml);
+
   const re =
     /<astro-island\b(?<attrs>[^>]*)>(?<content>[\s\S]*?)<\/astro-island>/gu;
+
   let m: RegExpExecArray | null;
+
   while ((m = re.exec(text))) {
     const { attrs = "", content = "" } = m.groups ?? {};
+
     const solidRenderId = /data-solid-render-id="(?<id>[^"]+)"/u.exec(attrs)
       ?.groups?.id;
+
     out.push({ content, solidRenderId });
   }
+
   return out;
 };
 
@@ -284,6 +297,7 @@ describe("@ilha/astro + fake permissive renderer real build", () => {
         expect(island.solidRenderId).toBeUndefined();
         expect(island.content).not.toContain("data-hk");
       }
+
       expect(
         ilhaIslands.some((i) => i.content.includes("Increment with Ilha-JSX"))
       ).toBe(true);

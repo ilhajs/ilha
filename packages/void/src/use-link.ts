@@ -37,6 +37,7 @@ export type UseLink = (href: string, options?: UseLinkOptions) => UseLinkProps;
  */
 export const useLink = (): UseLink => {
   const router: VoidRouter | null = context(VoidContext)()?.router ?? null;
+
   return (href: string, options: UseLinkOptions = {}): UseLinkProps => {
     const {
       onNavigate,
@@ -46,13 +47,16 @@ export const useLink = (): UseLink => {
       replace,
       viewTransition,
     } = options;
+
     return {
       href,
       onclick: (event: MouseEvent): void => {
         onclick?.(event);
+
         if (!shouldInterceptClick(event, { router, target: href })) {
           return;
         }
+
         event.preventDefault();
         let cancelled = false;
         onNavigate?.({
@@ -60,9 +64,11 @@ export const useLink = (): UseLink => {
             cancelled = true;
           },
         });
+
         if (cancelled) {
           return;
         }
+
         router?.visit(href, {
           method: "GET",
           preserveScroll,

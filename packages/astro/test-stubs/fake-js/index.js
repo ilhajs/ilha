@@ -6,6 +6,7 @@ const objectTag = (value) => Object.prototype.toString.call(value);
 
 const isFunction = (value) => {
   const tag = objectTag(value);
+
   return (
     tag === "[object Function]" ||
     tag === "[object AsyncFunction]" ||
@@ -16,11 +17,14 @@ const isFunction = (value) => {
 export const createSignal = (initialValue) => {
   let value = initialValue;
   const get = () => value;
+
   const set = (next) => {
     if (isFunction(next)) {
       return (value = next(value));
     }
+
     value = next;
   };
+
   return [get, set];
 };

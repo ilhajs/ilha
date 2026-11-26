@@ -14,6 +14,7 @@ const Msg = Schema.TaggedUnion({
   SetSoon: { v: Schema.Number },
   SetVal: { v: Schema.Number },
 });
+
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 type Msg = typeof Msg.Type;
 
@@ -24,10 +25,13 @@ const poll = async (
   if (done()) {
     return;
   }
+
   if (Date.now() > deadline) {
     expect(done()).toBe(true);
+
     return;
   }
+
   await Bun.sleep(5);
   await poll(done, deadline);
 };
@@ -37,9 +41,11 @@ const SlowAdd = Command.make("SlowAdd", (amount: number) =>
     Effect.as(Msg.cases.AddedBonus.make({ amount }))
   )
 );
+
 const SetSoon = Command.make("SetSoon", { mode: "switch" }, (v: number) =>
   Effect.sleep("150 millis").pipe(Effect.as(Msg.cases.SetVal.make({ v })))
 );
+
 const Boom = Command.make("Boom", () => Effect.die(new Error("boom")));
 
 const Counter = defineComponent({
@@ -123,11 +129,14 @@ describe("commands", () => {
     await ui.click('[data-testid="set2"]');
     await poll(() => ui.query("output")?.textContent === "2");
     detach();
+
     const sets = seen.filter((m) => {
       // SAFETY: the recorder stores decoded messages carrying a `_tag`.
       const { _tag } = m as { readonly _tag: string };
+
       return _tag === "SetVal";
     });
+
     expect(sets).toHaveLength(1);
     expect(sets[0]).toEqual(Msg.cases.SetVal.make({ v: 2 }));
     expect(ui.errors).toEqual([]);
@@ -155,9 +164,11 @@ describe("commands", () => {
 
   it("logs a defect and stays interactive", async () => {
     const logged: unknown[] = [];
+
     const testLogger = Logger.make((options) => {
       logged.push(options.message);
     });
+
     const Bomb = defineComponent({
       message: Msg,
       model: Schema.Struct({ count: Schema.Number }),
@@ -188,6 +199,7 @@ describe("commands", () => {
         </div>
       ),
     });
+
     const ui = render(() => <Bomb />);
     await ui.settled();
     await ui.click('[data-testid="boom"]');
@@ -203,10 +215,12 @@ describe("commands", () => {
     const Greeter = Context.Service<{ greet: (name: string) => string }>(
       "CmdGreeter"
     );
+
     const GreetMsg = Schema.TaggedUnion({
       Fetch: {},
       Greeted: { text: Schema.String },
     });
+
     const FetchGreet = Command.make("FetchGreet", () =>
       Greeter.pipe(
         Effect.map((greet) =>
@@ -214,6 +228,7 @@ describe("commands", () => {
         )
       )
     );
+
     const Greeted = defineComponent({
       message: GreetMsg,
       model: Schema.Struct({ count: Schema.Number }),
@@ -237,6 +252,7 @@ describe("commands", () => {
         </div>
       ),
     });
+
     const ui = render(() => <Greeted />);
     await ui.settled();
     await ui.click('[data-testid="fetch"]');
@@ -247,9 +263,11 @@ describe("commands", () => {
 
   it("paints the post-command model when an init command resolves synchronously", async () => {
     const GotMsg = Schema.TaggedUnion({ Got: { id: Schema.Number } });
+
     const Get = Command.make("Get", () =>
       Effect.succeed(GotMsg.cases.Got.make({ id: 42 }))
     );
+
     const Quick = defineComponent({
       message: GotMsg,
       model: Schema.Struct({ id: Schema.Number }),
@@ -259,6 +277,7 @@ describe("commands", () => {
       update: { Got: ($, { id }) => $.set({ id }) },
       view: (_h, model) => <output>{model.id}</output>,
     });
+
     const ui = render(() => <Quick />);
     await ui.settled();
     expect(ui.query("output")?.textContent).toBe("42");
@@ -273,11 +292,14 @@ describe("commands", () => {
       Go2: {},
       SetVal: { v: Schema.Number },
     });
+
     // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
     type RaceMsg = typeof RaceMsg.Type;
+
     const gate1 = Effect.runSync(Deferred.make<number>());
     const gate2 = Effect.runSync(Deferred.make<number>());
     const started: number[] = [];
+
     const Sw = Command.make("Sw", { mode: "switch" }, (v: number) =>
       Effect.andThen(
         Effect.sync(() => {
@@ -288,14 +310,18 @@ describe("commands", () => {
         )
       )
     );
+
     const delivered: number[] = [];
+
     const detach = attachModelRecorder((record) => {
       // SAFETY: the recorder hands over raw dispatches; the component only sends RaceMsg.
       const message = record.message as RaceMsg;
+
       if (message._tag === "SetVal") {
         delivered.push(message.v);
       }
     });
+
     const Racer = defineComponent({
       message: RaceMsg,
       model: Schema.Struct({ v: Schema.Number }),
@@ -325,17 +351,22 @@ describe("commands", () => {
         </div>
       ),
     });
+
     const ui = render(() => <Racer />);
     await ui.settled();
+
     const fire = (testid: string): void => {
       const el = ui.query(`[data-testid="${testid}"]`);
+
       if (el === null) {
         throw new Error(`missing button ${testid}`);
       }
+
       el.dispatchEvent(
         new MouseEvent("click", { bubbles: true, cancelable: true })
       );
     };
+
     fire("sw1");
     await poll(() => started.length === 1);
     // Resolve Sw(1) from a microtask: it lands after Sw(2)'s synchronous

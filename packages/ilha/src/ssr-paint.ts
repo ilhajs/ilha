@@ -14,16 +14,19 @@ const selectOption = (
   found: boolean
 ): boolean => {
   let matched = found;
+
   for (const child of parent.children) {
     if (child.kind !== "element") {
       continue;
     }
+
     if (child.localName === "optgroup") {
       matched = selectOption(child, value, matched);
     } else if (child.localName === "option") {
       const optionValue =
         child.getAttribute("value") ??
         child.textContent.trim().replaceAll(WHITESPACE_RUN, " ");
+
       if (!matched && optionValue === value) {
         child.setAttribute("selected", "");
         matched = true;
@@ -32,6 +35,7 @@ const selectOption = (
       }
     }
   }
+
   return matched;
 };
 
@@ -52,9 +56,12 @@ export const { paint } = createPainter<SsrNode, SsrEl>({
       } else {
         el.removeAttribute(key);
       }
+
       return;
     }
+
     const text = String(v ?? "");
+
     if (el.localName === "textarea") {
       // A textarea's value is its text; a `value` attribute is ignored.
       el.textContent = text;

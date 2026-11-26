@@ -12,6 +12,7 @@ const Msg = Schema.TaggedUnion({
   Add: { amount: Schema.Number },
   Reset: {},
 });
+
 // oxlint-disable-next-line eslint/no-redeclare -- intentional const+type pair
 type Msg = typeof Msg.Type;
 
@@ -66,6 +67,7 @@ const MissingTag = defineComponent({
   },
   view: (_h, model: Model) => <output>{model.count}</output>,
 });
+
 void MissingTag;
 
 const BadMessage = defineComponent({
@@ -81,6 +83,7 @@ const BadMessage = defineComponent({
   },
   view: (_h, model: Model) => <output>{model.count}</output>,
 });
+
 void BadMessage;
 
 const Greeter = Context.Service<{ greet: (name: string) => string }>(
@@ -91,6 +94,7 @@ const NeedsGreeter = Command.make("NeedsGreeter", () =>
   Greeter.pipe(
     Effect.map((greet) => {
       void greet;
+
       return Msg.cases.Reset.make({});
     })
   )
@@ -109,6 +113,7 @@ const NoLayer = defineComponent({
   },
   view: (_h, model: Model) => <output>{model.count}</output>,
 });
+
 void NoLayer;
 
 const WithLayer = defineComponent({
@@ -124,6 +129,7 @@ const WithLayer = defineComponent({
   },
   view: (_h, model: Model) => <output>{model.count}</output>,
 });
+
 void WithLayer;
 
 describe("types", () => {

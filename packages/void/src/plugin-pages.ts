@@ -12,6 +12,7 @@ import type { PageScanResult, StaticPageDataBuildOptions } from "void/pages";
 const RENDERER_ID = "virtual:void-pages-renderer";
 const CLIENT_ENTRY_ID = "virtual:void-pages-client";
 const VIRTUAL_ID_RE = /^virtual:void-pages-(?:renderer|client)$/u;
+
 // oxlint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
 const RESOLVED_ID_RE = /^\0virtual:void-pages-(?:renderer|client)$/u;
 const PAGE_COMPONENT_RE = /\.(?:tsx|jsx)$/u;
@@ -39,6 +40,7 @@ const hasRegularPages = (dir: string): boolean => {
       withFileTypes: true,
     })) {
       const { name } = entry;
+
       if (
         entry.isFile() &&
         !name.startsWith("_") &&
@@ -52,6 +54,7 @@ const hasRegularPages = (dir: string): boolean => {
   } catch {
     // An unreadable pages dir has no regular pages to build.
   }
+
   return false;
 };
 
@@ -97,6 +100,7 @@ const invalidatePageModules = (server: ViteDevServer): void => {
   for (const environment of Object.values(server.environments)) {
     for (const id of [`\0${RENDERER_ID}`, `\0${CLIENT_ENTRY_ID}`]) {
       const mod = environment.moduleGraph.getModuleById(id);
+
       if (mod) {
         environment.moduleGraph.invalidateModule(mod);
       }
@@ -124,9 +128,11 @@ export const pagesPlugin = (
       pendingScan = null;
     }
   };
+
   /** Rescan the pages dir, sharing one scan between concurrent callers. */
   const rescan = (): Promise<void> => {
     pendingScan ??= scanNow();
+
     return pendingScan;
   };
 
@@ -139,14 +145,18 @@ export const pagesPlugin = (
       if (!existsSync(pagesDir)) {
         return;
       }
+
       if (env.command === "serve") {
         isDev = true;
+
         return;
       }
+
       // An app made only of island pages ships no pages client.
       if (!hasRegularPages(pagesDir)) {
         return;
       }
+
       return {
         build: {
           manifest: true,
@@ -165,19 +175,23 @@ export const pagesPlugin = (
         event: "add" | "change" | "unlink"
       ): Promise<void> => {
         const normalized = normalizePath(file);
+
         if (
           normalized !== normalizedPagesDir &&
           !normalized.startsWith(`${normalizedPagesDir}/`)
         ) {
           return;
         }
+
         // Edits inside a component don't change the route table.
         if (event === "change" && !normalized.endsWith(".md")) {
           return;
         }
+
         await rescan();
         invalidatePageModules(server);
       };
+
       server.watcher.on("add", (file) => onChange(file, "add"));
       server.watcher.on("change", (file) => onChange(file, "change"));
       server.watcher.on("unlink", (file) => onChange(file, "unlink"));
@@ -189,17 +203,21 @@ export const pagesPlugin = (
         if (isDev && pendingScan) {
           await pendingScan;
         }
+
         if (!scan && existsSync(pagesDir)) {
           await rescan();
         }
+
         if (id === `\0${RENDERER_ID}`) {
           return scan
             ? generateRendererModule(scan, pagesDir)
             : "export function renderPage() { throw new Error('@ilha/void: no pages found.'); }";
         }
+
         if (!scan) {
           return "";
         }
+
         return generateClientEntry(scan, pagesDir, {
           prefetch: options.prefetch,
           staticPageData: resolveStaticPageDataBuildOptions(options.root, {

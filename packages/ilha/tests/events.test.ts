@@ -6,6 +6,7 @@ import { atom, mount } from "../src/index.ts";
 
 test("event Effect is interrupted on unmount", async () => {
   let ran = false;
+
   const App = function* App() {
     yield {
       $$ilha: 1 as const,
@@ -23,6 +24,7 @@ test("event Effect is interrupted on unmount", async () => {
       type: "button",
     };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   const unmount = mount(el, App);
@@ -51,9 +53,11 @@ test("click after unmount is a no-op", async () => {
   const unmount = mount(el, ClickApp);
   await Bun.sleep(5);
   const btn = el.querySelector("button");
+
   if (!btn) {
     throw new Error("button missing");
   }
+
   btn.click();
   await Bun.sleep(5);
   expect(el.textContent).toContain("Count: 1");
@@ -66,6 +70,7 @@ test("click after unmount is a no-op", async () => {
 
 test("multiple events on one element", () => {
   const seen: string[] = [];
+
   const App = function* App() {
     yield {
       $$ilha: 1 as const,
@@ -77,13 +82,16 @@ test("multiple events on one element", () => {
       type: "input",
     };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   mount(el, App);
   const input = el.querySelector("input");
+
   if (!input) {
     throw new Error("input missing");
   }
+
   input.dispatchEvent(new Event("focus"));
   input.dispatchEvent(new Event("input"));
   expect(seen).toEqual(["focus", "input"]);
@@ -92,6 +100,7 @@ test("multiple events on one element", () => {
 
 test("ontoggle binds on details", () => {
   const seen: string[] = [];
+
   const App = function* App() {
     yield {
       $$ilha: 1 as const,
@@ -102,13 +111,16 @@ test("ontoggle binds on details", () => {
       type: "details",
     };
   };
+
   const el = document.createElement("div");
   document.body.append(el);
   mount(el, App);
   const details = el.querySelector("details");
+
   if (!details) {
     throw new Error("details missing");
   }
+
   details.dispatchEvent(new Event("toggle"));
   expect(seen).toEqual(["toggle"]);
   el.remove();

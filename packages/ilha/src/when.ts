@@ -21,14 +21,17 @@ export const when = <A, E = never, R = never>(
     Effect.suspend(() => {
       const parent = getFiber();
       let child: FiberLocal | undefined;
+
       const stop = (): void => {
         if (child) {
           closeFiber(child);
         }
       };
+
       parent.holes.push({ dispose: stop });
       // SAFETY: when() runs under an island fiber whose registry satisfies AtomRegistry.
       const base = stream as Stream.Stream<A, E, AtomRegistry>;
+
       return Stream.runForEach(
         parent.runtime.ssr ? Stream.take(base, 1) : base,
         (value) =>
